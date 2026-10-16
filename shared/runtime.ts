@@ -1,6 +1,8 @@
 // Shared model-script runtime. Runs in the browser worker (live preview) and in
 // the Node worker (validation + rendering for the AI agent).
 import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
+import { FontMissingError, layoutText, type TextLayoutOptions } from './text';
+import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import type {
   Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
   PartMesh, Quality, ScriptErrorInfo, Vec2, Vec3,
@@ -456,6 +458,32 @@ function makeHelpers(rt: Runtime, quality: Quality) {
       return shape.translate([dx, dy, -b.min[2]]);
     },
 
+    /** 2D text as a CrossSection in the XY plane (size = capital-letter height in mm). */
+    text(str: string, opts: TextLayoutOptions = {}): CrossSection {
+      const contours = layoutText(String(str ?? ''), opts);
+      return contours.length ? new C(contours, 'NonZero') : C.square([0, 0]);
+    },
+
+    /** Text extruded upward from z=0 by `depth` mm. */
+    textSolid(str: string, opts: TextLayoutOptions & { depth?: number } = {}): Manifold {
+      return H.text(str, opts).extrude(opts.depth ?? 1);
+    },
+
+    /**
+     * Bend a shape modelled flat onto a vertical cylinder (axis = Z through the origin).
+     * Flat convention: x = distance along the surface (0 = front centre), z = height,
+     * -y = outward from the surface (so text standing in the XZ plane, extruded toward -y, reads from the front).
+     */
+    wrapAroundZ(shape: Manifold, radius: number): Manifold {
+      if (!(radius > 0)) throw new Error('H.wrapAroundZ: radius must be > 0');
+      return shape.refineToLength(Math.max(0.3, radius / 60)).warp((v) => {
+        const th = -Math.PI / 2 + v[0] / radius;
+        const r = radius - v[1];
+        v[0] = r * Math.cos(th);
+        v[1] = r * Math.sin(th);
+      });
+    },
+
     clamp(v: number, lo: number, hi: number): number { return Math.min(hi, Math.max(lo, v)); },
     lerp(a: number, b: number, t: number): number { return a + (b - a) * t; },
   };
@@ -535,8 +563,10 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
     let type = p.type;
     if (type === 'int') type = 'integer';
     if (type === 'bool') type = 'boolean';
-    if (!type) type = typeof value === 'boolean' ? 'boolean' : Array.isArray(p.options) ? 'select' : 'number';
+    if (type === 'string' || type === 'font') { if (type === 'font') p.font = true; type = 'text'; }
+    if (!type) type = typeof value === 'boolean' ? 'boolean' : Array.isArray(p.options) ? 'select' : typeof value === 'string' ? 'text' : 'number';
     if (type === 'boolean') out[key] = { ...common, type, value: !!value };
+    else if (type === 'text') out[key] = { ...common, type, value: String(value ?? ''), font: !!p.font };
     else if (type === 'select') {
       const options = (Array.isArray(p.options) ? p.options : []).map((o: any) =>
         typeof o === 'object' && o ? { value: String(o.value), label: String(o.label ?? o.value) } : { value: String(o), label: String(o) });
@@ -563,6 +593,7 @@ export function resolveValues(params: Record<string, ParamDef>, input: ParamValu
   for (const [k, def] of Object.entries(params)) {
     const v = input?.[k];
     if (def.type === 'boolean') out[k] = typeof v === 'boolean' ? v : def.value;
+    else if (def.type === 'text') out[k] = typeof v === 'string' ? v : def.value;
     else if (def.type === 'select') out[k] = typeof v === 'string' && def.options.some((o) => o.value === v) ? v : def.value;
     else {
       const n = typeof v === 'number' && Number.isFinite(v) ? v : def.value;
@@ -632,6 +663,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     try {
       out = (scope.build as (p: ParamValues, lib: unknown) => unknown)(Object.freeze({ ...values }), { Manifold: rt.Manifold, CrossSection: rt.CrossSection, H, quality });
     } catch (e) {
+      if (e instanceof FontMissingError) throw e;
       throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });
     }
     if (out && typeof (out as any).then === 'function') throw new ScriptError({ message: 'build() must be synchronous (no async/await)', stage: 'output' });
@@ -653,6 +685,11 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     if (!rawParts.length) throw new ScriptError({ message: 'build() must return a Manifold, an array of parts, or { parts: [...], dimensions: [...] }', stage: 'output' });
 
     const parts: PartMesh[] = [];
+    const textFeatures = parseTextFeatures(inputValues?.[TEXT_KEY]);
+    const partNames = rawParts.map((rp, i) => {
+      const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name : '';
+      return n || (rawParts.length === 1 ? meta.name || 'Model' : `Part ${i + 1}`);
+    });
     rawParts.forEach((rp, i) => {
       let shape: any, name = '', color = '';
       if (rp instanceof M) shape = rp;
@@ -664,7 +701,16 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       }
       if (!(shape instanceof M)) throw new ScriptError({ message: `Part ${i + 1} is not a Manifold (got ${shape instanceof C ? 'CrossSection' : typeof shape})`, stage: 'output' });
       if (scale !== 1) shape = shape.scale(scale);
-      name ||= rawParts.length === 1 ? meta.name || 'Model' : `Part ${i + 1}`;
+      name = partNames[i];
+      const mine = textFeatures.filter((f) => (f.part && partNames.includes(f.part) ? f.part === name : i === 0));
+      if (mine.length) {
+        try {
+          shape = applyTextFeatures(shape, mine, rt.Manifold, rt.CrossSection);
+        } catch (e) {
+          if (e instanceof FontMissingError) throw e;
+          warnings.push(`Text feature failed: ${(e as Error).message}`);
+        }
+      }
       color ||= PALETTE[i % PALETTE.length];
       const st = shape.status();
       if (st !== 'NoError') warnings.push(`Part "${name}" has status ${st}`);
@@ -705,7 +751,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     }
     return { meta, params, values, parts, dimensions, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
   } catch (e) {
-    if (e instanceof ScriptError) throw e;
+    if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });
   } finally {
     cleanup(rt);

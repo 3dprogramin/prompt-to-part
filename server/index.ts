@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { DATA_DIR, runGeneration, workspaceDir, type AgentEvent, type GenerateRequest } from './agent';
 import { geometry } from './geometry';
+import { listFonts, loadFontBuffers } from './fonts';
 import type { Design, DesignSummary } from '../shared/types';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -53,6 +54,19 @@ app.delete('/api/designs/:id', async (req, res) => {
   await rm(designFile(req.params.id), { force: true });
   await rm(workspaceDir(req.params.id), { recursive: true, force: true });
   res.json({ ok: true });
+});
+
+app.get('/api/fonts', async (_req, res) => {
+  res.json(await listFonts());
+});
+
+app.get('/api/fonts/data', async (req, res) => {
+  try {
+    const bufs = await loadFontBuffers(String(req.query.id ?? ''));
+    res.set('Cache-Control', 'max-age=86400').json({ files: bufs.map((b) => Buffer.from(b).toString('base64')) });
+  } catch (e) {
+    res.status(404).json({ error: (e as Error).message });
+  }
 });
 
 app.post('/api/generate', async (req, res) => {

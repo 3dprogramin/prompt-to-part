@@ -30,7 +30,16 @@ export interface SelectParam {
   group?: string;
   description?: string;
 }
-export type ParamDef = NumberParam | BooleanParam | SelectParam;
+export interface TextParam {
+  type: 'text';
+  label?: string;
+  value: string;
+  group?: string;
+  description?: string;
+  /** Show a font picker next to the text box (the value of this param is a font id). */
+  font?: boolean;
+}
+export type ParamDef = NumberParam | BooleanParam | SelectParam | TextParam;
 export type ParamValue = number | boolean | string;
 export type ParamValues = Record<string, ParamValue>;
 

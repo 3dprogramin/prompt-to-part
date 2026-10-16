@@ -3,6 +3,8 @@ import { parentPort } from 'node:worker_threads';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, inspectScript } from '../shared/runtime';
 import { renderSheet } from './render';
+import { withFonts } from '../shared/text';
+import { loadFontBuffers } from './fonts';
 import type { EvalResult, ParamValues, Quality } from '../shared/types';
 
 const ready = Module().then((wasm) => initRuntime(wasm));
@@ -29,9 +31,9 @@ function summarize(r: EvalResult): EvalSummary {
   };
 }
 
-function run(code: string, values: ParamValues | undefined, quality: Quality): { result?: EvalResult; out: EvalSummary | EvalFailure } {
+async function run(code: string, values: ParamValues | undefined, quality: Quality): Promise<{ result?: EvalResult; out: EvalSummary | EvalFailure }> {
   try {
-    const result = evaluateScript(code, values, quality);
+    const result = await withFonts(() => evaluateScript(code, values, quality), loadFontBuffers);
     return { result, out: summarize(result) };
   } catch (e) {
     return { out: { ok: false, error: formatScriptError(e) } };
@@ -47,14 +49,14 @@ parentPort!.on('message', async (req: Req) => {
   await ready;
   try {
     if (req.cmd === 'evaluate') {
-      parentPort!.postMessage({ id: req.id, data: run(req.code, req.values, req.quality ?? 'normal').out });
+      parentPort!.postMessage({ id: req.id, data: (await run(req.code, req.values, req.quality ?? 'normal')).out });
     } else if (req.cmd === 'render') {
-      const { result, out } = run(req.code, req.values, 'normal');
+      const { result, out } = await run(req.code, req.values, 'normal');
       let png: Buffer | undefined, gridStep: number | undefined;
       if (result && result.parts.length) ({ png, gridStep } = renderSheet(result.parts));
       parentPort!.postMessage({ id: req.id, data: { ...out, png: png?.toString('base64'), gridStep } });
     } else if (req.cmd === 'stress') {
-      parentPort!.postMessage({ id: req.id, data: stress(req.code, req.budgetMs ?? 20000) });
+      parentPort!.postMessage({ id: req.id, data: await stress(req.code, req.budgetMs ?? 20000) });
     }
   } catch (e) {
     parentPort!.postMessage({ id: req.id, error: (e as Error).message });
@@ -62,7 +64,7 @@ parentPort!.on('message', async (req: Req) => {
 });
 
 /** Evaluate the script across parameter extremes so sliders never break the model. */
-function stress(code: string, budgetMs: number) {
+async function stress(code: string, budgetMs: number) {
   const t0 = performance.now();
   let params;
   try {
@@ -90,7 +92,7 @@ function stress(code: string, budgetMs: number) {
   for (const c of cases) {
     if (performance.now() - t0 > budgetMs) break;
     tested++;
-    const { out } = run(code, c.values, 'draft');
+    const { out } = await run(code, c.values, 'draft');
     if (!out.ok) failures.push({ case: c.label, error: `${out.error.message}${out.error.line ? ` (line ${out.error.line})` : ''}` });
     else if (!out.parts.length) failures.push({ case: c.label, error: 'produced no geometry (all parts empty)' });
   }

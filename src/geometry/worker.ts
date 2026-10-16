@@ -3,6 +3,14 @@ import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import { evaluateScript, formatScriptError, initRuntime } from '../../shared/runtime';
 import { solveDimension } from '../../shared/solver';
+import { withFonts } from '../../shared/text';
+
+async function loadFont(id: string): Promise<ArrayBuffer[]> {
+  const r = await fetch(`/api/fonts/data?id=${encodeURIComponent(id)}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+  const { files } = (await r.json()) as { files: string[] };
+  return files.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
+}
 import type { DimTarget, ParamValues, Quality } from '../../shared/types';
 
 const ready = Module({ locateFile: () => wasmUrl }).then((wasm) => initRuntime(wasm));
@@ -17,10 +25,12 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
   const post = (msg: unknown, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
   try {
     if (req.kind === 'solve') {
+      // Evaluate once first so every font the model needs is loaded before solving.
+      await withFonts(() => evaluateScript(req.code, req.values, req.quality, { lite: true }), loadFont).catch(() => null);
       post({ id: req.id, solve: solveDimension(req.code, req.values, req.target, req.goal, req.quality) });
       return;
     }
-    const result = evaluateScript(req.code, req.values, req.quality);
+    const result = await withFonts(() => evaluateScript(req.code, req.values, req.quality), loadFont);
     const transfer: Transferable[] = [];
     for (const p of result.parts) transfer.push(p.positions.buffer, p.indices.buffer);
     post({ id: req.id, result }, transfer);
