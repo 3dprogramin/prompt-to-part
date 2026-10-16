@@ -7,7 +7,9 @@ export type AgentEvent =
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
   | { type: 'error'; message: string }
   | { type: 'live'; text: string }
-  | { type: 'thinking'; delta: string };
+  | { type: 'block'; op: 'start'; kind: 'thinking' | 'text' | 'tool'; name?: string; label?: string; at?: number }
+  | { type: 'block'; op: 'append'; text: string }
+  | { type: 'block'; op: 'fields'; fields: Record<string, string> };
 
 export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
 
@@ -25,7 +27,9 @@ export const api = {
     return r.ok ? r.json() : null;
   },
   async saveDesign(d: Design): Promise<void> {
-    await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+    // The live activity transcript stays in memory (it can hold every model.js Claude typed).
+    const body = JSON.stringify(d, (k, v) => (k === 'activity' ? undefined : v));
+    await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
   },
   async deleteDesign(id: string): Promise<void> {
     await fetch(`/api/designs/${id}`, { method: 'DELETE' });

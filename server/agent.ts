@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { buildSystemPrompt } from './systemPrompt';
 import type { AgentStep, ParamValues } from '../shared/types';
+import { partialFields } from './partialJson';
 
 export const DATA_DIR = path.resolve(process.env.AI_DESIGNER_DATA ?? path.join(process.cwd(), 'data'));
 
@@ -36,8 +37,10 @@ export type AgentEvent =
   | { type: 'error'; message: string }
   /** Transient one-line status (throttled), replaced by the next one. */
   | { type: 'live'; text: string }
-  /** Text of the thinking block in progress (batched); the finished block follows as a 'thinking' step. */
-  | { type: 'thinking'; delta: string };
+  /** Live transcript: a content block starts, its text grows, or a tool call's input fields are re-sent as they stream. */
+  | { type: 'block'; op: 'start'; kind: 'thinking' | 'text' | 'tool'; name?: string; label?: string; at?: number }
+  | { type: 'block'; op: 'append'; text: string }
+  | { type: 'block'; op: 'fields'; fields: Record<string, string> };
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -61,6 +64,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const t0 = Date.now();
   const emit = (e: AgentEvent) => {
     if (e.type === 'step') e.step.at = Date.now() - t0;
+    else if (e.type === 'block' && e.op === 'start') e.at = Date.now() - t0;
     rawEmit(e);
   };
   emit({ type: 'live', text: 'Starting Claude…' });
@@ -300,13 +304,18 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       if (now - liveSent >= 250) { liveSent = now; emit({ type: 'live', text: live }); return; }
       if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; liveSent = Date.now(); emit({ type: 'live', text: live }); }, 250);
     };
-    // Thinking text streams in small batches so the client can show all of it, not just the live line.
-    let thinking = '';
-    let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
-    const flushThinking = () => {
-      if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
-      if (thinking) { emit({ type: 'thinking', delta: thinking }); thinking = ''; }
+    // Live transcript for the activity panel, batched: thinking and reply text are appended as they
+    // stream; a tool call's input is re-sent as decoded fields (e.g. the model.js being written).
+    let pending = '';
+    let toolJson = '';
+    let fieldsDirty = false;
+    let blockTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushBlock = () => {
+      if (blockTimer) { clearTimeout(blockTimer); blockTimer = null; }
+      if (pending) { emit({ type: 'block', op: 'append', text: pending }); pending = ''; }
+      if (fieldsDirty) { fieldsDirty = false; emit({ type: 'block', op: 'fields', fields: partialFields(toolJson) }); }
     };
+    const flushSoon = () => { blockTimer ??= setTimeout(flushBlock, 150); };
     let block: { type: string; name?: string; chars: number; text: string } | null = null;
     const toolNames = new Map<string, string>();
 
@@ -321,6 +330,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         else if (ev.type === 'content_block_start') {
           const cb = ev.content_block as { type: string; name?: string };
           block = { type: cb.type, name: cb.name, chars: 0, text: '' };
+          flushBlock();
+          toolJson = '';
+          if (cb.type === 'thinking' || cb.type === 'text') emit({ type: 'block', op: 'start', kind: cb.type });
+          else if (cb.type === 'tool_use') emit({ type: 'block', op: 'start', kind: 'tool', name: cb.name, label: TOOL_LABELS[cb.name ?? ''] ?? cb.name });
           if (cb.type === 'thinking') pushLive('Thinking…');
           else if (cb.type === 'text') pushLive('Writing a reply…');
           else if (cb.type === 'tool_use') pushLive(`Preparing: ${TOOL_LABELS[cb.name ?? ''] ?? cb.name}…`);
@@ -329,20 +342,27 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           if (d.type === 'thinking_delta' && d.thinking) {
             block.text = (block.text + d.thinking).slice(-400);
             pushLive(`Thinking: ${lastSentence(block.text)}`);
-            thinking += d.thinking;
-            thinkingTimer ??= setTimeout(flushThinking, 200);
+            pending += d.thinking;
+            flushSoon();
           } else if (d.type === 'text_delta' && d.text) {
             block.text = (block.text + d.text).slice(-400);
             pushLive(`Writing a reply: ${lastSentence(block.text)}`);
+            pending += d.text;
+            flushSoon();
           } else if (d.type === 'input_json_delta' && d.partial_json) {
             block.chars += d.partial_json.length;
+            toolJson += d.partial_json;
+            fieldsDirty = true;
+            flushSoon();
             pushLive(`${TOOL_LABELS[block.name ?? ''] ?? block.name}… ${(block.chars / 1024).toFixed(1)} KB`);
           }
         } else if (ev.type === 'content_block_stop') {
-          if (block?.type === 'thinking') flushThinking();
+          flushBlock();
           block = null;
         }
       } else if (msg.type === 'assistant') {
+        // The finished message arrives just before content_block_stop: send the streamed tail first.
+        flushBlock();
         gotOutput = true;
         for (const b of msg.message.content) {
           if (b.type === 'text' && b.text.trim()) {
@@ -384,7 +404,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         pushLive(`${TOOL_LABELS[msg.tool_name] ?? msg.tool_name}… ${Math.round(msg.elapsed_time_seconds)} s`);
       } else if (msg.type === 'result') {
         if (liveTimer) clearTimeout(liveTimer);
-        flushThinking();
+        flushBlock();
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }

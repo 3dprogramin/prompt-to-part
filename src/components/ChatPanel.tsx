@@ -3,7 +3,8 @@ import type { AgentStep, ChatMessage, DesignVersion } from '../../shared/types';
 import { prepareImage } from '../lib/files';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
-import { ThinkingPanel } from './ThinkingPanel';
+import { ActivityPanel } from './ActivityPanel';
+import { activityOf } from '../lib/activity';
 
 interface Props {
   messages: ChatMessage[];
@@ -138,7 +139,7 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
 }) {
   const [open, setOpen] = useState(false);
   const elapsed = useElapsed(live ? m.createdAt : null);
-  // Claude's full thinking beside the chat: opens while hovering the live line, can be pinned.
+  // Everything Claude does, beside the chat: opens while hovering the live line, can be pinned.
   const [think, setThink] = useState<{ mode: 'hover' | 'pinned'; at: { left: number; top: number } } | null>(null);
   const hideTimer = useRef(0);
   const peek = (inside: boolean, el?: HTMLElement) => {
@@ -156,11 +157,12 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
     );
   }
   const assembly = (m.steps ?? []).filter((s) => s.kind === 'assembly' && s.image);
-  const thoughts = (m.steps ?? []).filter((s) => s.kind === 'thinking');
+  const activity = think ? activityOf(m) : [];
+  const hasActivity = !!m.activity?.length || !!m.steps?.length;
   const peekProps = {
     onMouseEnter: (e: React.MouseEvent<HTMLElement>) => peek(true, e.currentTarget),
     onMouseLeave: () => peek(false),
-    title: "Hover to read all of Claude's thinking",
+    title: 'Hover to watch everything Claude is doing',
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = verbose ? all : all.filter((s) => !s.verbose);
@@ -179,17 +181,17 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
           <span>{headline}{live && <span className="elapsed"> · {fmtElapsed(elapsed)}</span>}</span>
           {(!live || !verbose) && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
         </button>
-        {(live || thoughts.length > 0) && (
-          <button className="link think-link" title="Show all of Claude's thinking for this reply" onClick={(e) => setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) })}>
-            <Icon name="spark" size={12} /> thinking
+        {(live || hasActivity) && (
+          <button className="link think-link" title="Show everything Claude did for this reply: thinking, code, tool calls and results" onClick={(e) => setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) })}>
+            <Icon name="spark" size={12} /> activity
           </button>
         )}
       </div>
       {think && (
-        <ThinkingPanel
-          blocks={thoughts}
-          current={m.thinking}
+        <ActivityPanel
+          items={activity}
           live={live}
+          onImage={onImage}
           at={think.at}
           pinned={think.mode === 'pinned'}
           onPin={(pinned) => setThink((t) => t && { ...t, mode: pinned ? 'pinned' : 'hover' })}

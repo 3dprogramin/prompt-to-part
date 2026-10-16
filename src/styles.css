@@ -477,22 +477,35 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .dtab:hover .dtab-close, .dtab.on .dtab-close { opacity: 1; }
 .dtab-close:hover { background: #ffffff14; color: var(--text); }
 
-/* claude's thinking, beside the chat */
+/* activity panel: everything claude does, beside the chat */
 .msg-head { display: flex; align-items: center; gap: 10px; }
 .think-link { color: var(--text-3); font-size: 11.5px; }
 .think-link:hover { color: var(--accent-2); }
 .peek { cursor: help; }
-.thinking-panel { position: fixed; z-index: 60; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 16px 48px #000a; }
-.thinking-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); }
-.thinking-head .spinner { width: 11px; height: 11px; }
-.thinking-title { font-weight: 600; }
-.thinking-head .icon-btn.on { color: var(--accent); background: #e0a43c1a; }
-.thinking-body { overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 16px; display: flex; flex-direction: column; gap: 10px; color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
-.thinking-block + .thinking-block { border-top: 1px solid var(--line); padding-top: 10px; }
-.thinking-block p { margin: 0 0 6px; }
-.thinking-block.current { color: var(--text); }
-.thinking-time { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); margin-bottom: 2px; }
-.thinking-jump { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 99px; border: 1px solid #e0a43c66; background: #2a2418; color: var(--accent-2); font-size: 11.5px; box-shadow: 0 4px 14px #0008; }
+.activity-panel { position: fixed; z-index: 60; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 16px 48px #000a; }
+.activity-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); }
+.activity-head .spinner { width: 11px; height: 11px; }
+.activity-title { font-weight: 600; }
+.activity-head .icon-btn.on { color: var(--accent); background: #e0a43c1a; }
+.activity-body { overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; line-height: 1.55; }
+.act-head { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+.act-time { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--text-3); min-width: 30px; letter-spacing: 0; }
+.act-block.thinking { color: var(--text-2); }
+.act-block.text { color: var(--text); }
+.act-block p { margin: 0 0 6px; }
+.act-block.tool .act-head { color: var(--accent-2); }
+.act-cursor { width: 6px; height: 11px; background: var(--accent); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.act-code, .act-args { margin: 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 11.5px/1.5 var(--mono); color: var(--text-2); white-space: pre; overflow-x: auto; }
+.act-code.del { border-color: #d46a6a55; background: #d46a6a12; margin-bottom: 4px; }
+.act-code.add { border-color: #7fbf6a55; background: #7fbf6a12; }
+.act-args { white-space: pre-wrap; }
+.act-step { display: flex; gap: 7px; font-size: 12px; color: var(--text-3); }
+.act-step.good { color: #8fca7d; }
+.act-step.bad { color: #e08383; }
+.act-step-body { min-width: 0; }
+.act-step img { display: block; margin-top: 4px; max-width: 320px; width: 100%; border-radius: 6px; border: 1px solid var(--line-2); cursor: zoom-in; }
+.activity-jump { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 99px; border: 1px solid #e0a43c66; background: #2a2418; color: var(--accent-2); font-size: 11.5px; box-shadow: 0 4px 14px #0008; }
 
 /* version menu in the top bar */
 .version-btn { background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 7px; color: var(--text-3); font-size: 12px; white-space: nowrap; }

@@ -137,6 +137,13 @@ export interface AgentStep {
   verbose?: boolean;
 }
 
+/** One entry of a reply's live transcript, shown in the activity panel. */
+export type ActivityItem =
+  | { kind: 'thinking' | 'text'; text: string; at: number }
+  /** A tool call; `fields` are its (possibly still streaming) input, e.g. the model.js being written. */
+  | { kind: 'tool'; name: string; label: string; fields: Record<string, string>; at: number }
+  | { kind: 'step'; step: AgentStep };
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -149,8 +156,8 @@ export interface ChatMessage {
   durationMs?: number;
   /** Transient live status while generating (not meaningful once done) */
   live?: string;
-  /** Transient text of the thinking block in progress; finished blocks are 'thinking' steps. */
-  thinking?: string;
+  /** Live transcript of the reply (thinking, text, tool calls, results); in memory only, never saved. */
+  activity?: ActivityItem[];
 }
 
 export interface DesignVersion {
