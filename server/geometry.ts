@@ -88,6 +88,10 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
     lines.push('Dimension callouts:');
     for (const d of r.dimensions) lines.push(`  - ${d.label ?? '(unlabelled)'}: ${f(Math.hypot(d.to[0] - d.from[0], d.to[1] - d.from[1], d.to[2] - d.from[2]))} mm`);
   }
+  if (r.assembly.length) {
+    lines.push('Assembly sequence:');
+    r.assembly.forEach((st, i) => lines.push(`  ${i + 1}. ${st.label} – ${st.parts.join(', ')}${st.from ? ` from offset [${st.from.map((x) => f(x, 1)).join(', ')}]` : ' (offset from exploded layout)'}${st.rotate ? `, turning ${st.rotate.degrees}° about [${st.rotate.axis.join(', ')}]` : ''}`));
+  }
   const warn = [...r.warnings];
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) warn.push(`Model does not rest on the build plate: min Z = ${f(r.bbox.min[2])} (should be 0)`);
   for (const p of r.parts) if (p.components > 1) warn.push(`Part "${p.name}" consists of ${p.components} disconnected pieces – if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);

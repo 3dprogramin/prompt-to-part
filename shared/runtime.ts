@@ -4,7 +4,7 @@ import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { FontMissingError, layoutText, type TextLayoutOptions } from './text';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import type {
-  Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
+  AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
   PartMesh, Quality, ScriptErrorInfo, Vec2, Vec3,
 } from './types';
 
@@ -671,6 +671,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     // Normalise output
     let rawParts: unknown[] = [];
     let rawDims: unknown[] = [];
+    let rawAssembly: unknown[] = [];
     const M = rt.wasm.Manifold as any;
     const C = rt.wasm.CrossSection as any;
     if (out instanceof M) rawParts = [out];
@@ -680,6 +681,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (Array.isArray(o.parts)) rawParts = o.parts;
       else if (o.shape) rawParts = [o];
       if (Array.isArray(o.dimensions)) rawDims = o.dimensions;
+      if (Array.isArray(o.assembly)) rawAssembly = o.assembly;
     }
     if (out instanceof C) throw new ScriptError({ message: 'build() returned a 2D CrossSection – extrude or revolve it into a Manifold', stage: 'output' });
     if (!rawParts.length) throw new ScriptError({ message: 'build() must return a Manifold, an array of parts, or { parts: [...], dimensions: [...] }', stage: 'output' });
@@ -749,7 +751,25 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (!bbox) bbox = { min: [...p.bbox.min] as Vec3, max: [...p.bbox.max] as Vec3 };
       else for (let k = 0; k < 3; k++) { bbox.min[k] = Math.min(bbox.min[k], p.bbox.min[k]); bbox.max[k] = Math.max(bbox.max[k], p.bbox.max[k]); }
     }
-    return { meta, params, values, parts, dimensions, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
+    const names = new Set(parts.map((p) => p.name));
+    const assembly: AssemblyStep[] = [];
+    rawAssembly.forEach((st, i) => {
+      if (!st || typeof st !== 'object') return;
+      const o = st as Record<string, unknown>;
+      const stepParts = (Array.isArray(o.parts) ? o.parts : typeof o.part === 'string' ? [o.part] : []).filter((n): n is string => typeof n === 'string');
+      const unknown = stepParts.filter((n) => !names.has(n));
+      if (unknown.length) warnings.push(`Assembly step ${i + 1}: unknown part(s) ${unknown.map((n) => `"${n}"`).join(', ')}`);
+      const known = stepParts.filter((n) => names.has(n));
+      if (!known.length) return;
+      const step: AssemblyStep = { label: typeof o.label === 'string' ? o.label : `Step ${i + 1}`, parts: known };
+      if (isVec3(o.from)) step.from = o.from.slice(0, 3).map((x) => x * scale) as Vec3;
+      const rot = o.rotate as Record<string, unknown> | undefined;
+      if (rot && isVec3(rot.axis) && Number.isFinite(rot.degrees)) {
+        step.rotate = { axis: rot.axis.slice(0, 3) as Vec3, degrees: Number(rot.degrees), center: isVec3(rot.center) ? rot.center.slice(0, 3).map((x) => x * scale) as Vec3 : undefined };
+      }
+      assembly.push(step);
+    });
+    return { meta, params, values, parts, dimensions, assembly, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
   } catch (e) {
     if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });

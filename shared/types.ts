@@ -88,8 +88,20 @@ export interface PartMesh {
   components: number;
 }
 
+/** One step of the assembly animation. Parts move from `from` (offset relative to their assembled position) into place. */
+export interface AssemblyStep {
+  label: string;
+  parts: string[];
+  /** Start offset in mm relative to the assembled position; omitted = taken from the exploded layout. */
+  from?: Vec3;
+  /** Optional turning while moving in (e.g. screwing): rotates by `degrees` around `axis` through `center`. */
+  rotate?: { axis: Vec3; degrees: number; center?: Vec3 };
+}
+
 export interface EvalResult {
   meta: ModelMeta;
+  /** Assembly sequence returned by the script (may be empty). */
+  assembly: AssemblyStep[];
   params: Record<string, ParamDef>;
   values: ParamValues;
   parts: PartMesh[];
