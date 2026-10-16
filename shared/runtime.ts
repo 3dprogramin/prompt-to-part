@@ -1,6 +1,7 @@
 // Shared model-script runtime. Runs in the browser worker (live preview) and in
 // the Node worker (validation + rendering for the AI agent).
 import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
+import { parse } from 'acorn';
 import { FontMissingError, layoutText, type TextLayoutOptions } from './text';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { cleanProfile } from './print';
@@ -584,11 +585,79 @@ function locate(err: unknown): { line?: number; column?: number } {
 type Compiled = (...args: unknown[]) => { meta: unknown; params: unknown; build: unknown };
 const compileCache = new Map<string, Compiled>();
 
+/** What scripts get besides the compartment's globals (see the wrapper in compile()). */
+const SCRIPT_ARGS = ['Manifold', 'CrossSection', 'H', 'quality', 'console'];
+let knownGlobals: Set<string> | null = null;
+
+type Node = { type: string; [k: string]: unknown };
+const isNode = (v: unknown): v is Node => !!v && typeof v === 'object' && typeof (v as Node).type === 'string';
+
+/**
+ * Finds the first identifier the script reads without declaring it. Inside the compartment such a
+ * name silently evaluates to undefined (SES never throws a ReferenceError for it), so a typo like
+ * `chamfr` would quietly drop a feature instead of failing with a line number. Scopes are ignored:
+ * a name declared anywhere counts as declared, which can only miss a typo, never flag valid code.
+ */
+function findUndeclared(ast: Node): { name: string; line: number; column: number } | null {
+  knownGlobals ??= new Set([...Object.getOwnPropertyNames(new Compartment().globalThis), ...SCRIPT_ARGS, 'arguments']);
+  const declared = new Set<string>();
+  const refs: Node[] = [];
+  const pattern = (p: unknown): void => {
+    if (!isNode(p)) return;
+    if (p.type === 'Identifier') declared.add(p.name as string);
+    else if (p.type === 'ObjectPattern') for (const prop of p.properties as Node[]) {
+      if (prop.type === 'RestElement') pattern(prop.argument);
+      else { if (prop.computed) visit(prop.key); pattern(prop.value); }
+    }
+    else if (p.type === 'ArrayPattern') (p.elements as unknown[]).forEach(pattern);
+    else if (p.type === 'RestElement') pattern(p.argument);
+    else if (p.type === 'AssignmentPattern') { pattern(p.left); visit(p.right); }
+    else visit(p); // a member expression as a destructuring target
+  };
+  const visit = (n: unknown): void => {
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (!isNode(n)) return;
+    switch (n.type) {
+      case 'Identifier': refs.push(n); return;
+      case 'VariableDeclarator': pattern(n.id); visit(n.init); return;
+      case 'FunctionDeclaration': case 'FunctionExpression': case 'ArrowFunctionExpression':
+        if (n.id) pattern(n.id);
+        (n.params as unknown[]).forEach(pattern);
+        visit(n.body);
+        return;
+      case 'ClassDeclaration': case 'ClassExpression': if (n.id) pattern(n.id); visit(n.superClass); visit(n.body); return;
+      case 'CatchClause': pattern(n.param); visit(n.body); return;
+      case 'UnaryExpression': if (n.operator === 'typeof' && isNode(n.argument) && n.argument.type === 'Identifier') return; break;
+      case 'MemberExpression': visit(n.object); if (n.computed) visit(n.property); return;
+      case 'Property': case 'MethodDefinition': case 'PropertyDefinition': if (n.computed) visit(n.key); visit(n.value); return;
+      case 'LabeledStatement': visit(n.body); return;
+      case 'BreakStatement': case 'ContinueStatement': case 'MetaProperty': return;
+    }
+    for (const [k, v] of Object.entries(n)) if (k !== 'loc') visit(v);
+  };
+  visit(ast);
+  const bad = refs.find((r) => !declared.has(r.name as string) && !knownGlobals!.has(r.name as string));
+  if (!bad) return null;
+  const loc = bad.loc as { start: { line: number; column: number } };
+  return { name: bad.name as string, line: loc.start.line, column: loc.start.column + 1 };
+}
+
 /** Compiles a model script inside an SES Compartment (see shared/sandbox.ts); never outside one. */
 function compile(code: string): Compiled {
   const hit = compileCache.get(code);
   if (hit) return hit;
   if (typeof Compartment === 'undefined') throw new Error('Model sandbox is not active: import shared/sandbox.ts first');
+  let ast: Node;
+  try {
+    ast = parse(code, { ecmaVersion: 'latest', sourceType: 'script', locations: true }) as unknown as Node;
+  } catch (e) {
+    const loc = (e as { loc?: { line: number; column: number } }).loc;
+    throw new ScriptError({ message: `Syntax error: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, stage: 'compile', line: loc?.line, column: loc ? loc.column + 1 : undefined });
+  }
+  const undeclared = findUndeclared(ast);
+  if (undeclared) {
+    throw new ScriptError({ message: `"${undeclared.name}" is not defined – check the spelling, or declare it with const/let`, stage: 'compile', line: undeclared.line, column: undeclared.column });
+  }
   let fn: Compiled;
   try {
     const src = `(function (Manifold, CrossSection, H, quality, console) {\n"use strict";\n${code}\n;return { meta: typeof meta !== "undefined" ? meta : {}, params: typeof params !== "undefined" ? params : {}, build: typeof build === "function" ? build : undefined };\n})\n//# sourceURL=model.js\n`;
@@ -620,12 +689,14 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
     const value = p.value ?? p.default;
     const common = { label, group: typeof p.group === 'string' ? p.group : undefined, description: typeof p.description === 'string' ? p.description : undefined };
     let type = p.type;
+    // The script's own objects are read, never written: they may be frozen.
+    const font = type === 'font' || !!p.font;
     if (type === 'int') type = 'integer';
     if (type === 'bool') type = 'boolean';
-    if (type === 'string' || type === 'font') { if (type === 'font') p.font = true; type = 'text'; }
+    if (type === 'string' || type === 'font') type = 'text';
     if (!type) type = typeof value === 'boolean' ? 'boolean' : Array.isArray(p.options) ? 'select' : typeof value === 'string' ? 'text' : 'number';
     if (type === 'boolean') out[key] = { ...common, type, value: !!value };
-    else if (type === 'text') out[key] = { ...common, type, value: String(value ?? ''), font: !!p.font };
+    else if (type === 'text') out[key] = { ...common, type, value: String(value ?? ''), font };
     else if (type === 'select') {
       const options = (Array.isArray(p.options) ? p.options : []).map((o: any) =>
         typeof o === 'object' && o ? { value: String(o.value), label: String(o.label ?? o.value) } : { value: String(o), label: String(o) });
@@ -635,8 +706,11 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
     } else {
       const v = Number(value);
       const val = Number.isFinite(v) ? v : 0;
-      let min = Number.isFinite(Number(p.min)) ? Number(p.min) : Math.min(0, val);
-      let max = Number.isFinite(Number(p.max)) ? Number(p.max) : Math.max(val * 2, min + 1);
+      // Without bounds, a slider runs from 0 to twice the default; a negative default gets the
+      // same span on its own side of zero (-10 → -20…0), so the default is never at an edge.
+      const span = Math.max(Math.abs(val), 1);
+      let min = Number.isFinite(Number(p.min)) ? Number(p.min) : val >= 0 ? 0 : val - span;
+      let max = Number.isFinite(Number(p.max)) ? Number(p.max) : Math.max(val >= 0 ? val * 2 : val + span, min + 1);
       if (max < min) [min, max] = [max, min];
       const isInt = type === 'integer';
       const step = Number(p.step) > 0 ? Number(p.step) : isInt ? 1 : niceStep(max - min || 1);
@@ -670,7 +744,8 @@ export function inspectScript(code: string): { meta: ModelMeta; params: Record<s
     const r = compile(code)(rt.Manifold, rt.CrossSection, makeHelpers(rt, 'draft'), 'draft', makeConsole([]));
     return { meta: normalizeMeta(r.meta), params: normalizeParams(r.params) };
   } catch (e) {
-    if (e instanceof ScriptError) throw e;
+    noteTrap(e);
+    if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'params', ...locate(e) });
   } finally {
     cleanup(rt);
@@ -724,7 +799,8 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
     } catch (e) {
-      if (e instanceof ScriptError) throw e;
+      // A font used at the top level (outside build) is loaded and the script run again.
+      if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
       throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'params', ...locate(e) });
     }
     const meta = normalizeMeta(scope.meta);

@@ -136,7 +136,7 @@ async function stress(code: string, budgetMs: number) {
   const t0 = performance.now();
   let params;
   try {
-    params = inspectScript(code).params;
+    params = (await withFonts(() => inspectScript(code), requestFont)).params;
   } catch (e) {
     return { failures: [{ case: 'defaults', error: formatScriptError(e).message }], tested: 0, skipped: 0 };
   }
