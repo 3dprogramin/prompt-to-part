@@ -14,12 +14,13 @@ interface Props {
   onQuality: (q: Quality) => void;
   emptyState: React.ReactNode;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
+  onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void;
 }
 
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -30,6 +31,8 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
   const editRef = useRef<typeof onEditDimension>(onEditDimension);
   editRef.current = onEditDimension;
+  const pickRef = useRef(onPickSurface);
+  pickRef.current = onPickSurface;
 
   useEffect(() => {
     if (!toast) return;
@@ -55,6 +58,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     const v = new Viewer(host.current!, options);
     v.onHover = (p, snapped) => setHover(p ? { p, snapped } : null);
     v.onMeasurementsChange = setMeasures;
+    v.onPickSurface = (hit) => pickRef.current(hit);
     v.onDimEdit = (target, rect, current) => {
       const p = panel.current!.getBoundingClientRect();
       setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
@@ -172,7 +176,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
 
       <div className="statusbar">
         <span className="mono">
-          {hover ? <>X {f2(hover.p[0])} · Y {f2(hover.p[1])} · Z {f2(hover.p[2])}{hover.snapped ? ' · vertex' : ''}</> : options.measure ? 'Click two points to measure' : 'Left-drag rotate · Right-drag pan · Wheel zoom'}
+          {options.pickText ? 'Click on the model where the text should go (Esc to cancel)' : hover ? <>X {f2(hover.p[0])} · Y {f2(hover.p[1])} · Z {f2(hover.p[2])}{hover.snapped ? ' · vertex' : ''}</> : options.measure ? 'Click two points to measure' : 'Left-drag rotate · Right-drag pan · Wheel zoom'}
         </span>
         {measures.length > 0 && (
           <span className="measures">

@@ -7,7 +7,13 @@ export type AgentEvent =
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
   | { type: 'error'; message: string };
 
+export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
+
 export const api = {
+  async listFonts(): Promise<FontEntry[]> {
+    const r = await fetch('/api/fonts');
+    return r.ok ? r.json() : [];
+  },
   async listDesigns(): Promise<DesignSummary[]> {
     const r = await fetch('/api/designs');
     return r.ok ? r.json() : [];
@@ -33,6 +39,8 @@ export interface GenerateBody {
   sessionId?: string;
   model: string;
   effort: string;
+  /** Description of text the user placed with the text tool (applied after the script). */
+  textNote?: string;
 }
 
 export async function generate(body: GenerateBody, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {

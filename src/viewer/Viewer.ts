@@ -21,6 +21,8 @@ export interface ViewerOptions {
   section: { enabled: boolean; axis: 'x' | 'y' | 'z'; position: number; flip: boolean };
   hiddenParts: string[];
   measure: boolean;
+  /** Click on the model to place text. */
+  pickText?: boolean;
 }
 
 export interface Measurement { a: Vec3; b: Vec3 }
@@ -102,6 +104,7 @@ export class Viewer {
   onMeasurementsChange: (m: Measurement[]) => void = () => {};
   /** Double-click on an editable dimension label. */
   onDimEdit: (target: DimTarget, rect: DOMRect, current: number) => void = () => {};
+  onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void = () => {};
 
   constructor(private container: HTMLElement, opts: ViewerOptions) {
     this.opts = opts;
@@ -295,7 +298,7 @@ export class Viewer {
     }
     this.dimsGroup.visible = this.opts.showBBox;
     this.annGroup.visible = this.opts.showAnnotations;
-    this.renderer.domElement.style.cursor = this.opts.measure ? 'crosshair' : '';
+    this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText ? 'crosshair' : '';
   }
 
   private switchCamera(ortho: boolean) {
@@ -522,6 +525,16 @@ export class Viewer {
     return best ? { point: best, snapped: true } : { point: hit.point.clone(), snapped: false };
   }
 
+  private pickFace(ev: PointerEvent): { part: string; point: Vec3; normal: Vec3 } | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = this.raycaster.intersectObjects(this.meshes.filter((m) => m.parent?.visible), false)[0];
+    if (!hit?.face) return null;
+    const n = hit.face.normal.clone().normalize();
+    return { part: String(hit.object.userData.part), point: [hit.point.x, hit.point.y, hit.point.z], normal: [n.x, n.y, n.z] };
+  }
+
   private hoverPending = false;
   private onPointerMove = (ev: PointerEvent) => {
     if (this.hoverPending || ev.buttons) return;
@@ -547,10 +560,16 @@ export class Viewer {
   private onPointerDown = (ev: PointerEvent) => { this.downAt = { x: ev.clientX, y: ev.clientY }; };
 
   private onPointerUp = (ev: PointerEvent) => {
-    if (!this.downAt || !this.opts.measure || ev.button !== 0) return;
+    if (!this.downAt || ev.button !== 0) return;
     const moved = Math.hypot(ev.clientX - this.downAt.x, ev.clientY - this.downAt.y);
     this.downAt = null;
     if (moved > 4) return;
+    if (this.opts.pickText) {
+      const hit = this.pickFace(ev);
+      if (hit) this.onPickSurface(hit);
+      return;
+    }
+    if (!this.opts.measure) return;
     const res = this.pick(ev);
     if (!res) return;
     const p: Vec3 = [res.point.x, res.point.y, res.point.z];

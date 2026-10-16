@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../shared/types';
 import { SCALE_KEY } from '../shared/runtime';
+import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
+import type { FontEntry } from './lib/api';
 import { api, generate } from './lib/api';
 import { dataUrlToImage, download, slug, toBinaryStl, uid } from './lib/files';
 import { GeometryClient } from './geometry/client';
@@ -45,6 +47,35 @@ export default function App() {
   }));
   const abortRef = useRef<AbortController | null>(null);
   const resultCode = useRef('');
+  const [fonts, setFonts] = useState<FontEntry[]>([]);
+  const [picking, setPicking] = useState<string | null>(null);
+
+  useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPicking(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [picking]);
+
+  const textFeatures = useMemo(() => parseTextFeatures(design.values[TEXT_KEY]), [design.values]);
+  const setTextFeatures = (list: TextFeature[]) => setDesign((d) => {
+    const values = { ...d.values };
+    if (list.length) values[TEXT_KEY] = JSON.stringify(list); else delete values[TEXT_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
+
+  const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
+    const r = result ?? lastGood;
+    const part = r?.parts.find((p) => p.name === hit.part);
+    if (!picking || !part) return;
+    const anchor = [0, 1, 2].map((k) => {
+      const span = part.bbox.max[k] - part.bbox.min[k];
+      return span > 1e-6 ? (hit.point[k] - part.bbox.min[k]) / span : 0.5;
+    }) as [number, number, number];
+    setTextFeatures(textFeatures.map((f) => (f.id === picking ? { ...f, face: 'pick', anchor, normal: hit.normal, part: hit.part, offset: [0, 0] } : f)));
+    setPicking(null);
+  };
   const loaded = useRef(false);
 
   useEffect(() => store('quality', quality), [quality]);
@@ -138,6 +169,7 @@ export default function App() {
         images: images.map(dataUrlToImage),
         code: design.code || undefined,
         values: (result ?? lastGood)?.values,
+        textNote: describeText(textFeatures),
         sessionId: design.sessionId,
         model,
         effort,
@@ -149,7 +181,7 @@ export default function App() {
             const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const }];
             const vi = versions.length - 1;
             return {
-              ...d, versions, currentVersion: vi, code: ev.code, values: (d.values[SCALE_KEY] != null ? { [SCALE_KEY]: d.values[SCALE_KEY] } : {}) as ParamValues, updatedAt: Date.now(),
+              ...d, versions, currentVersion: vi, code: ev.code, values: keepAppValues(d.values), updatedAt: Date.now(),
               messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
             };
           });
@@ -286,11 +318,12 @@ export default function App() {
           error={error}
           busy={busy}
           fitKey={fitKey}
-          options={viewOpts}
+          options={picking ? { ...viewOpts, pickText: true, measure: false } : viewOpts}
           onOptions={setViewOpts}
           quality={quality}
           onQuality={setQuality}
           onEditDimension={onEditDimension}
+          onPickSurface={onPickSurface}
           emptyState={generating
             ? <div className="empty-inner"><span className="spinner big" /><p>Claude is designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}
@@ -301,8 +334,13 @@ export default function App() {
           error={error}
           code={design.code}
           onValue={onValue}
-          onResetValues={() => setDesign((d) => ({ ...d, values: {} }))}
+          onResetValues={() => setDesign((d) => ({ ...d, values: keepAppValues(d.values) }))}
           onEditDimension={onEditDimension}
+          textFeatures={textFeatures}
+          onTextFeatures={setTextFeatures}
+          fonts={fonts}
+          picking={picking}
+          onPick={setPicking}
           scale={Number(design.values[SCALE_KEY] ?? 1)}
           onScale={onScale}
           onApplyCode={onApplyCode}
@@ -314,4 +352,15 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+/** Values owned by the app rather than the script ($scale, $text) survive resets and new AI versions. */
+function keepAppValues(values: ParamValues): ParamValues {
+  return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
+}
+
+function describeText(features: TextFeature[]): string | undefined {
+  const on = features.filter((f) => f.enabled && f.text.trim());
+  if (!on.length) return undefined;
+  return on.map((f) => `"${f.text.replace(/\n/g, ' / ')}" ${f.mode === 'emboss' ? 'raised' : 'engraved'} ${f.depth} mm, ${f.size} mm letters, on the ${f.face === 'pick' ? 'picked surface' : f.face} of part "${f.part ?? 'first part'}"${f.curve !== 'none' ? `, ${f.curve}` : ''}`).join('; ');
 }

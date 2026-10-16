@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
+import { TextPanel } from './TextPanel';
+import { FontPicker } from './FontPicker';
+import type { TextFeature } from '../../shared/textFeatures';
+import type { FontEntry } from '../lib/api';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
-type Tab = 'params' | 'info' | 'code';
+type Tab = 'params' | 'text' | 'info' | 'code';
 
 interface Props {
   result: EvalResult | null;
@@ -20,23 +24,32 @@ interface Props {
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   scale: number;
   onScale: (factor: number) => void;
+  textFeatures: TextFeature[];
+  onTextFeatures: (f: TextFeature[]) => void;
+  fonts: FontEntry[];
+  picking: string | null;
+  onPick: (featureId: string | null) => void;
+  tabRequest?: { tab: Tab; n: number };
 }
 
 const PLA_DENSITY = 1.24; // g/cm³
 
 export function SidePanel(p: Props) {
   const [tab, setTab] = useState<Tab>('params');
+  useEffect(() => { if (p.tabRequest) setTab(p.tabRequest.tab); }, [p.tabRequest]);
   const shown = p.result ?? p.lastGood;
   return (
     <div className="side-panel">
       <div className="tabs">
         <button className={tab === 'params' ? 'on' : ''} onClick={() => setTab('params')}><Icon name="sliders" size={14} /> Parameters</button>
+        <button className={tab === 'text' ? 'on' : ''} onClick={() => setTab('text')}><span className="tab-glyph">T</span> Text{p.textFeatures.length ? <span className="count">{p.textFeatures.length}</span> : null}</button>
         <button className={tab === 'info' ? 'on' : ''} onClick={() => setTab('info')}><Icon name="info" size={14} /> Model</button>
         <button className={tab === 'code' ? 'on' : ''} onClick={() => setTab('code')}><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" /> : null}</button>
       </div>
       <div className="tab-body">
         {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
-        {tab === 'params' && <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} />}
+        {tab === 'params' && <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} />}
+        {tab === 'text' && <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />}
         {tab === 'info' && <InfoTab result={shown} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} />}
         {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={p.onApplyCode} />}
       </div>
@@ -102,7 +115,7 @@ function CommitInput({ value, decimals, onCommit, suffix }: { value: number; dec
   );
 }
 
-function ParamsTab({ result, onValue, onReset }: { result: EvalResult | null; onValue: Props['onValue']; onReset: () => void }) {
+function ParamsTab({ result, onValue, onReset, fonts }: { result: EvalResult | null; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
   if (!result) return <div className="empty-note">Parameters appear here once a model is generated.</div>;
   const entries = Object.entries(result.params);
   if (!entries.length) return <div className="empty-note">This model has no parameters.</div>;
@@ -124,7 +137,7 @@ function ParamsTab({ result, onValue, onReset }: { result: EvalResult | null; on
       {[...groups].map(([g, items]) => (
         <section key={g} className="param-group">
           <h4>{g}</h4>
-          {items.map(([k, d]) => <ParamRow key={k} k={k} def={d} value={result.values[k]} onValue={onValue} />)}
+          {items.map(([k, d]) => <ParamRow key={k} k={k} def={d} value={result.values[k]} onValue={onValue} fonts={fonts} />)}
         </section>
       ))}
       <button className="btn ghost wide" disabled={!modified} onClick={onReset}><Icon name="restore" size={14} /> Reset to AI defaults</button>
@@ -132,7 +145,7 @@ function ParamsTab({ result, onValue, onReset }: { result: EvalResult | null; on
   );
 }
 
-function ParamRow({ k, def, value, onValue }: { k: string; def: ParamDef; value: ParamValue; onValue: Props['onValue'] }) {
+function ParamRow({ k, def, value, onValue, fonts }: { k: string; def: ParamDef; value: ParamValue; onValue: Props['onValue']; fonts: FontEntry[] }) {
   const changed = value !== def.value;
   const head = (
     <div className="param-head">
@@ -149,6 +162,16 @@ function ParamRow({ k, def, value, onValue }: { k: string; def: ParamDef; value:
           <span className="switch-label" title={def.description}>{def.label ?? k}</span>
         </label>
         {changed && <button className="mod-dot" title="Reset" onClick={() => onValue(k, def.value)} />}
+      </div>
+    );
+  }
+  if (def.type === 'text') {
+    return (
+      <div className="param">
+        {head}
+        {def.font
+          ? <FontPicker fonts={fonts} value={String(value)} onChange={(v) => onValue(k, v)} />
+          : <TextValue value={String(value)} onCommit={(v) => onValue(k, v)} />}
       </div>
     );
   }
@@ -170,6 +193,18 @@ function ParamRow({ k, def, value, onValue }: { k: string; def: ParamDef; value:
       <NumberControl def={def} value={Number(value)} onChange={(v) => onValue(k, v)} />
     </div>
   );
+}
+
+function TextValue({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  // Live update while typing (debounced) – text geometry is cheap enough.
+  useEffect(() => {
+    if (draft === value) return;
+    const t = setTimeout(() => onCommit(draft), 250);
+    return () => clearTimeout(t);
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <input className="text-param" value={draft} onChange={(e) => setDraft(e.target.value)} />;
 }
 
 function decimals(step: number) {
