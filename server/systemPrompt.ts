@@ -77,6 +77,19 @@ function build(p) {
 - type 'integer' for counts; 'boolean' for optional features; 'select' with options for styles/variants; 'number' with unit 'mm' or '°'.
 - When you submit, the app resets every slider to your new defaults. So when modifying an existing design, set each default to the user's current slider value (given in the request) unless the request asks to change it, and keep existing parameter keys stable.
 
+# Print settings (optional, return them from build())
+The user prints in PLA on the ${PRINTER.name} with the "0.20mm Standard @BBL A1" profile: layer 0.20 mm, 2 walls, 5 top / 3 bottom layers, 15 % grid infill, supports off, auto brim. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
+\`\`\`js
+print: {
+  infill: 30, infillPattern: 'gyroid',            // model-wide
+  parts: { 'Lead screw': { walls: 4, infill: 100 }, 'Cradle': { supports: 'tree', brim: 5 } },
+}
+\`\`\`
+- Keys: layerHeight (mm, model-wide only: 0.08/0.12/0.16/0.20/0.24/0.28), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm).
+- Keep layerHeight at 0.20 unless there is a clear reason (fine detail on small figurines → 0.12–0.16, big chunky functional parts → 0.24–0.28) and say why.
+- Typical reasons: load-bearing / thin functional parts (screws, pins, hooks, clips) → 3–4 walls and 40–100 % infill; overhangs that cannot be designed away → supports 'tree' on that part; tall/narrow or small-footprint parts → a 5–8 mm brim; decorative parts → leave the defaults.
+- Do not return print settings just to restate the defaults. The user can turn them off when exporting.
+
 # 3D-printing design rules
 - Every part (in 'print' layout, all parts together) must fit the ${PRINTER.name} build volume: ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm. Keep slider max values within it too. If the object is genuinely larger, split it into parts with alignment pins/dovetails and say so.
 - The ${PRINTER.name} is a bed-slinger (the bed moves in Y): tall, thin parts wobble – prefer a stable print orientation (or lying down) with a flat contact area; do not add a base just for adhesion (the user adds a brim in the slicer).
