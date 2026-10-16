@@ -16,6 +16,8 @@ const app = express();
 app.use(express.json({ limit: '80mb' }));
 
 const designFile = (id: string) => path.join(DESIGNS, `${id}.json`);
+// One generation per design at a time (each design has a single working file and session).
+const generatingDesigns = new Set<string>();
 
 app.get('/api/designs', async (_req, res) => {
   await mkdir(DESIGNS, { recursive: true });
@@ -90,6 +92,10 @@ app.post('/api/generate', async (req, res) => {
   const body = req.body as GenerateRequest;
   if (!body || !ID_RE.test(body.designId ?? '')) return void res.status(400).json({ error: 'designId required' });
   if (!body.prompt?.trim() && !body.images?.length) return void res.status(400).json({ error: 'prompt or images required' });
+  if (generatingDesigns.has(body.designId)) {
+    return void res.status(409).json({ error: 'Claude is already working on this design (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
+  }
+  generatingDesigns.add(body.designId);
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -112,6 +118,7 @@ app.post('/api/generate', async (req, res) => {
       send({ type: 'error', message: friendlyError(msg) });
     }
   } finally {
+    generatingDesigns.delete(body.designId);
     clearInterval(ping);
     res.end();
   }
