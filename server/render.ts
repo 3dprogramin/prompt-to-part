@@ -49,7 +49,17 @@ export interface RenderOutput {
 }
 
 export function renderSheet(parts: PartMesh[]): RenderOutput {
-  const W = VIEW * 2, Hh = VIEW * 2;
+  return renderViews(parts, VIEWS, 2, VIEW);
+}
+
+/** A single large iso view (e.g. assembled / exploded pictures for the user). */
+export function renderIso(parts: PartMesh[], size = 720): RenderOutput {
+  return renderViews(parts, [isoView()], 1, size);
+}
+
+function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: number): RenderOutput {
+  const rows = Math.ceil(views.length / cols);
+  const W = VIEW * cols, Hh = VIEW * rows;
   const img = new Uint8Array(W * Hh * 3);
   // global bbox
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
@@ -60,8 +70,8 @@ export function renderSheet(parts: PartMesh[]): RenderOutput {
   // Ortho views share one scale so proportions compare across them.
   const orthoExtent = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1.15 + 1e-6;
 
-  VIEWS.forEach((view, vi) => {
-    const ox = (vi % 2) * VIEW, oy = Math.floor(vi / 2) * VIEW;
+  views.forEach((view, vi) => {
+    const ox = (vi % cols) * VIEW, oy = Math.floor(vi / cols) * VIEW;
     // projected bbox of all corners
     let sMinX = Infinity, sMaxX = -Infinity, sMinY = Infinity, sMaxY = -Infinity;
     for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
@@ -160,10 +170,12 @@ export function renderSheet(parts: PartMesh[]): RenderOutput {
       }
     }
   });
-  // separators
-  for (let i = 0; i < W; i++) for (let w = -1; w <= 0; w++) {
-    const a = ((VIEW + w) * W + i) * 3; img[a] = img[a + 1] = img[a + 2] = 120;
-    const b = (i * W + VIEW + w) * 3; img[b] = img[b + 1] = img[b + 2] = 120;
+  // separators between cells
+  for (let r = 1; r < rows; r++) for (let i = 0; i < W; i++) for (let w = -1; w <= 0; w++) {
+    const a = ((r * VIEW + w) * W + i) * 3; img[a] = img[a + 1] = img[a + 2] = 120;
+  }
+  for (let c = 1; c < cols; c++) for (let i = 0; i < Hh; i++) for (let w = -1; w <= 0; w++) {
+    const b = (i * W + c * VIEW + w) * 3; img[b] = img[b + 1] = img[b + 2] = 120;
   }
   return { png: encodePng(img, W, Hh), gridStep };
 }

@@ -2,7 +2,7 @@
 import { parentPort } from 'node:worker_threads';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, inspectScript } from '../shared/runtime';
-import { renderSheet } from './render';
+import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
 import { loadFontBuffers } from './fonts';
 import type { EvalResult, ParamValues, Quality } from '../shared/types';
@@ -43,7 +43,8 @@ async function run(code: string, values: ParamValues | undefined, quality: Quali
 type Req =
   | { id: number; cmd: 'evaluate'; code: string; values?: ParamValues; quality?: Quality }
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
-  | { id: number; cmd: 'stress'; code: string; budgetMs?: number };
+  | { id: number; cmd: 'stress'; code: string; budgetMs?: number }
+  | { id: number; cmd: 'iso'; code: string; values?: ParamValues };
 
 parentPort!.on('message', async (req: Req) => {
   await ready;
@@ -55,6 +56,10 @@ parentPort!.on('message', async (req: Req) => {
       let png: Buffer | undefined, gridStep: number | undefined;
       if (result && result.parts.length) ({ png, gridStep } = renderSheet(result.parts));
       parentPort!.postMessage({ id: req.id, data: { ...out, png: png?.toString('base64'), gridStep } });
+    } else if (req.cmd === 'iso') {
+      const { result, out } = await run(req.code, req.values, 'normal');
+      const png = result && result.parts.length ? renderIso(result.parts).png.toString('base64') : undefined;
+      parentPort!.postMessage({ id: req.id, data: { ...out, png } });
     } else if (req.cmd === 'stress') {
       parentPort!.postMessage({ id: req.id, data: await stress(req.code, req.budgetMs ?? 20000) });
     }
