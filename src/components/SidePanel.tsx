@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
 import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { FontEntry } from '../lib/api';
+import type { ExportFormat } from '../lib/export';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
 type Tab = 'params' | 'text' | 'info' | 'code';
@@ -17,8 +18,10 @@ interface Props {
   onValue: (key: string, v: ParamValue) => void;
   onResetValues: () => void;
   onApplyCode: (code: string) => void;
-  onExport: (partName?: string) => void;
+  onExport: (format: ExportFormat, partName?: string) => void;
   exporting: boolean;
+  exportError: string | null;
+  blender: string | null;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
@@ -59,10 +62,37 @@ export function SidePanel(p: Props) {
             {(shown.bbox.max[0] - shown.bbox.min[0]).toFixed(2)} × {(shown.bbox.max[1] - shown.bbox.min[1]).toFixed(2)} × {(shown.bbox.max[2] - shown.bbox.min[2]).toFixed(2)} mm
           </div>
         )}
-        <button className="btn primary wide" disabled={!shown || p.exporting} onClick={() => p.onExport()}>
-          <Icon name="download" /> {p.exporting ? 'Exporting…' : `Export STL${shown && shown.parts.length > 1 ? ` (${shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length} parts)` : ''}`}
-        </button>
+<ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
+          count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
+        {p.exportError && <div className="size-note bad">{p.exportError}</div>}
       </div>
+    </div>
+  );
+}
+
+function ExportButton({ disabled, exporting, onExport, blender, count }: { disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: string | null; count: number }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+  const pick = (f: ExportFormat) => { setOpen(false); onExport(f); };
+  return (
+    <div className="export-split" ref={wrap}>
+      <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')}>
+        <Icon name="download" /> {exporting ? 'Exporting…' : `Export STL${count > 1 ? ` (${count} parts)` : ''}`}
+      </button>
+      <button className="btn primary export-more" disabled={disabled} onClick={() => setOpen(!open)} title="More formats"><Icon name="chevron" size={14} /></button>
+      {open && (
+        <div className="export-menu">
+          <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
+          <button onClick={() => pick('3mf')}><b>3MF</b><span>Separate named &amp; coloured parts – best for Bambu Studio</span></button>
+          <button onClick={() => pick('blend')} disabled={!blender}><b>Blender (.blend)</b><span>{blender ? `One object per part, materials, dimensions, params · Blender ${blender}` : 'Blender not found on this computer'}</span></button>
+        </div>
+      )}
     </div>
   );
 }
@@ -289,7 +319,7 @@ function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: Ev
                 <div>{p.name}</div>
                 <div className="mono dim small">{(p.bbox.max[0] - p.bbox.min[0]).toFixed(1)} × {(p.bbox.max[1] - p.bbox.min[1]).toFixed(1)} × {(p.bbox.max[2] - p.bbox.min[2]).toFixed(1)} mm · {(p.volume / 1000).toFixed(2)} cm³</div>
               </div>
-              <button className="icon-btn" title="Export this part as STL" onClick={() => onExport(p.name)}><Icon name="download" size={14} /></button>
+              <button className="icon-btn" title="Export this part as STL" onClick={() => onExport('stl', p.name)}><Icon name="download" size={14} /></button>
             </li>
           );
         })}

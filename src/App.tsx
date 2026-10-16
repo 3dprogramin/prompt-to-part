@@ -4,7 +4,8 @@ import { SCALE_KEY } from '../shared/runtime';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import type { FontEntry } from './lib/api';
 import { api, generate } from './lib/api';
-import { dataUrlToImage, download, slug, toBinaryStl, uid } from './lib/files';
+import { dataUrlToImage, download, slug, uid } from './lib/files';
+import { exportParts, type ExportFormat } from './lib/export';
 import { GeometryClient } from './geometry/client';
 import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
@@ -48,6 +49,9 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null);
   const resultCode = useRef('');
   const [fonts, setFonts] = useState<FontEntry[]>([]);
+  const [blender, setBlender] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  useEffect(() => { fetch('/api/capabilities').then((r) => r.json()).then((c) => setBlender(c.blender ?? null)).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -236,10 +240,11 @@ export default function App() {
 
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
-  const onExport = async (partName?: string) => {
+  const onExport = async (format: ExportFormat, partName?: string) => {
     const base = result ?? lastGood;
     if (!base) return;
     setExporting(true);
+    setExportError(null);
     try {
       // Re-evaluate at high resolution for the exported mesh.
       const o = await geo.evaluate(design.code, fullValues(), 'high');
@@ -247,7 +252,10 @@ export default function App() {
       const parts = partName ? r.parts.filter((p) => p.name === partName) : r.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name));
       if (!parts.length) return;
       const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
-      download(toBinaryStl(parts, name), `${name}.stl`);
+      const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code);
+      download(blob, `${name}.${format}`);
+    } catch (e) {
+      setExportError((e as Error).message);
     } finally {
       setExporting(false);
     }
@@ -346,6 +354,8 @@ export default function App() {
           onApplyCode={onApplyCode}
           onExport={onExport}
           exporting={exporting}
+          exportError={exportError}
+          blender={blender}
           hiddenParts={viewOpts.hiddenParts}
           onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}
         />

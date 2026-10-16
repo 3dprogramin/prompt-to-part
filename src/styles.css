@@ -297,3 +297,13 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .font-style { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 .font-empty { padding: 10px; color: var(--text-3); }
 .tabs button { gap: 4px; padding-left: 2px; padding-right: 2px; font-size: 12.5px; }
+
+/* ---------- export ---------- */
+.export-split { position: relative; display: flex; gap: 1px; }
+.export-main { flex: 1; justify-content: center; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.export-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 6px 9px; }
+.export-more svg { transform: rotate(-90deg); }
+.export-menu { position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 -10px 40px #000a; padding: 4px; z-index: 30; }
+.export-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; background: none; border: 0; border-radius: 6px; padding: 7px 10px; text-align: left; }
+.export-menu button:hover:not(:disabled) { background: #ffffff0d; }
+.export-menu span { font-size: 11.5px; color: var(--text-3); }
