@@ -1,3 +1,5 @@
+import type { PrintProfile } from './print';
+
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 export type Quality = 'draft' | 'normal' | 'high';
@@ -102,6 +104,8 @@ export interface EvalResult {
   meta: ModelMeta;
   /** Assembly sequence returned by the script (may be empty). */
   assembly: AssemblyStep[];
+  /** Print settings suggested by the script (only what differs from the A1 0.20 mm Standard profile). */
+  print: PrintProfile;
   params: Record<string, ParamDef>;
   values: ParamValues;
   parts: PartMesh[];

@@ -3,6 +3,7 @@
 import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { FontMissingError, layoutText, type TextLayoutOptions } from './text';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
+import { cleanProfile } from './print';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
   PartMesh, Quality, ScriptErrorInfo, Vec2, Vec3,
@@ -672,6 +673,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     let rawParts: unknown[] = [];
     let rawDims: unknown[] = [];
     let rawAssembly: unknown[] = [];
+    let rawPrint: unknown;
     const M = rt.wasm.Manifold as any;
     const C = rt.wasm.CrossSection as any;
     if (out instanceof M) rawParts = [out];
@@ -682,6 +684,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       else if (o.shape) rawParts = [o];
       if (Array.isArray(o.dimensions)) rawDims = o.dimensions;
       if (Array.isArray(o.assembly)) rawAssembly = o.assembly;
+      if (o.print && typeof o.print === 'object') rawPrint = o.print;
     }
     if (out instanceof C) throw new ScriptError({ message: 'build() returned a 2D CrossSection – extrude or revolve it into a Manifold', stage: 'output' });
     if (!rawParts.length) throw new ScriptError({ message: 'build() must return a Manifold, an array of parts, or { parts: [...], dimensions: [...] }', stage: 'output' });
@@ -769,7 +772,8 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       }
       assembly.push(step);
     });
-    return { meta, params, values, parts, dimensions, assembly, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
+    const print = cleanProfile(rawPrint, parts.map((p) => p.name));
+    return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
   } catch (e) {
     if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });

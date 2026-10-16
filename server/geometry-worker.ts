@@ -20,6 +20,7 @@ export interface EvalSummary {
   logs: string[];
   dimensions: EvalResult['dimensions'];
   assembly: EvalResult['assembly'];
+  print: EvalResult['print'];
   parts: { name: string; color: string; bbox: EvalResult['bbox']; volume: number; surfaceArea: number; triCount: number; genus: number; components: number }[];
 }
 export interface EvalFailure { ok: false; error: ReturnType<typeof formatScriptError> }
@@ -27,7 +28,7 @@ export interface EvalFailure { ok: false; error: ReturnType<typeof formatScriptE
 function summarize(r: EvalResult): EvalSummary {
   return {
     ok: true, meta: r.meta, params: r.params, values: r.values, bbox: r.bbox, timeMs: r.timeMs,
-    warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly,
+    warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly, print: r.print,
     parts: r.parts.map(({ positions: _p, indices: _i, ...rest }) => rest),
   };
 }

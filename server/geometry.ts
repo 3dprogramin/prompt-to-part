@@ -92,6 +92,10 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
     lines.push('Assembly sequence:');
     r.assembly.forEach((st, i) => lines.push(`  ${i + 1}. ${st.label} – ${st.parts.join(', ')}${st.from ? ` from offset [${st.from.map((x) => f(x, 1)).join(', ')}]` : ' (offset from exploded layout)'}${st.rotate ? `, turning ${st.rotate.degrees}° about [${st.rotate.axis.join(', ')}]` : ''}`));
   }
+  const { parts: partPrint, ...globalPrint } = r.print;
+  if (Object.keys(globalPrint).length || partPrint) {
+    lines.push(`Print settings (differences from A1 0.20 mm Standard, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
+  }
   const warn = [...r.warnings];
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) warn.push(`Model does not rest on the build plate: min Z = ${f(r.bbox.min[2])} (should be 0)`);
   for (const p of r.parts) if (p.components > 1) warn.push(`Part "${p.name}" consists of ${p.components} disconnected pieces – if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);
