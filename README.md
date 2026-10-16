@@ -41,7 +41,7 @@ Orbit/pan/zoom, a home view (`H`) and fit (`F`), view presets, ortho camera, bou
 ## Export
 
 - **STL** (default): a single mesh.
-- **3MF:** one named, coloured object per part, so Bambu Studio keeps them separate.
+- **3MF:** one named, coloured object per part, positioned exactly as in the viewer and centred on the A1 bed. Bambu Studio maps each colour onto a filament.
 - **Blender (.blend):** built by your installed Blender in the background (`BLENDER_PATH` to override). It has one object per part with materials, millimetre units, a *Dimensions* collection, parameter values as custom properties, and the model script embedded.
 
 Every export re-evaluates the model at high resolution.

@@ -9,31 +9,15 @@ const num = (n: number) => (Math.abs(n) < 1e-9 ? '0' : String(+n.toFixed(5)));
 
 // ---------------------------------------------------------------------------
 // 3MF. Colours use the Materials extension colour group per triangle – the encoding
-// Bambu Studio reads from non-Bambu files (each colour becomes its own filament).
+// Bambu Studio reads from non-Bambu files (it offers colour mapping onto filaments).
 // ---------------------------------------------------------------------------
 
-const BED = { w: 256, d: 256 }; // Bambu Lab A1 – parts are centred on this plate
-
-interface Box { min: number[]; max: number[] }
-
-/** Lay parts side by side when they overlap on the plate; otherwise keep their XY arrangement. */
-function arrange(boxes: Box[]): number[][] {
-  const overlaps = boxes.some((a, i) => boxes.some((b, j) => j > i && a.min[0] < b.max[0] && a.max[0] > b.min[0] && a.min[1] < b.max[1] && a.max[1] > b.min[1]));
-  if (!overlaps) return boxes.map(() => [0, 0]);
-  const gap = 6;
-  const total = boxes.reduce((s, b) => s + (b.max[0] - b.min[0]), 0) + gap * (boxes.length - 1);
-  let x = -total / 2;
-  return boxes.map((b) => {
-    const shift = [x - b.min[0], -(b.min[1] + b.max[1]) / 2];
-    x += b.max[0] - b.min[0] + gap;
-    return shift;
-  });
-}
+const BED = { w: 256, d: 256 }; // Bambu Lab A1 – the model is centred on this plate
 
 /**
- * Every part becomes a separate named object resting on the plate (arranged side by side if they
- * overlap), centred on the A1 bed. Verified with Bambu Studio 2.8: no "multiple heights" prompt,
- * and each distinct colour is assigned its own filament.
+ * Exports exactly what the viewer shows: parts keep their positions relative to each other
+ * (coloured pieces of one figurine stay attached); the whole model is only lifted onto the
+ * plate and centred on the A1 bed. Each part is a named object with its colour.
  */
 export function to3mf(parts: PartMesh[], title: string): Blob {
   const colours: string[] = [];
@@ -44,16 +28,13 @@ export function to3mf(parts: PartMesh[], title: string): Blob {
     return i;
   });
 
-  // Per-part translation: arranged in XY, each part dropped onto the plate.
-  const boxes: Box[] = parts.map((p) => ({ min: [...p.bbox.min], max: [...p.bbox.max] }));
-  const xy = arrange(boxes);
-  const shifts = boxes.map((b, i) => [xy[i][0], xy[i][1], -b.min[2]]);
-  const lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
-  boxes.forEach((b, i) => { for (const k of [0, 1]) { lo[k] = Math.min(lo[k], b.min[k] + shifts[i][k]); hi[k] = Math.max(hi[k], b.max[k] + shifts[i][k]); } });
-  const centre = [BED.w / 2 - (lo[0] + hi[0]) / 2, BED.d / 2 - (lo[1] + hi[1]) / 2];
+  // One translation for the whole model: rest on the plate, centred on the bed.
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of parts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.bbox.min[k]); hi[k] = Math.max(hi[k], p.bbox.max[k]); }
+  const shift = [BED.w / 2 - (lo[0] + hi[0]) / 2, BED.d / 2 - (lo[1] + hi[1]) / 2, -lo[2]];
 
   const objects = parts.map((p, i) => {
-    const [dx, dy, dz] = [shifts[i][0] + centre[0], shifts[i][1] + centre[1], shifts[i][2]];
+    const [dx, dy, dz] = shift;
     const v: string[] = [];
     for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k] + dx)}" y="${num(p.positions[k + 1] + dy)}" z="${num(p.positions[k + 2] + dz)}"/>`);
     const t: string[] = [];
