@@ -59,6 +59,16 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   const [solving, setSolving] = useState(false);
   const [hideUi, setHideUi] = useState(false);
   const [idle, setIdle] = useState(false);
+  // The toolbar wraps onto more rows in a narrow window: the overlays below it (section bar,
+  // notices, validation, model errors) follow its real height instead of covering it.
+  const toolbar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const tb = toolbar.current, pnl = panel.current;
+    if (!tb || !pnl) return;
+    const ro = new ResizeObserver(() => pnl.style.setProperty('--toolbar-bottom', `${tb.offsetTop + tb.offsetHeight}px`));
+    ro.observe(tb);
+    return () => ro.disconnect();
+  }, []);
 
   // Fullscreen shows only this panel; leaving fullscreen always brings the controls back.
   useEffect(() => {
@@ -201,13 +211,13 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     <div className={`viewer-panel ${fullscreen ? 'is-fullscreen' : ''} ${fullscreen && hideUi ? 'ui-hidden' : ''}`} ref={panel}>
       <div className="viewer-host" ref={host} />
 
-      <div className="viewer-toolbar">
+      <div className="viewer-toolbar" ref={toolbar}>
         <div className="tb-group">
           {VIEWS.map(([k, l]) => (
             <button key={k} className="tb-btn text" onClick={() => viewer.current?.setView(k)}>{l}</button>
           ))}
-          <button className="tb-btn" title="Home view (Home key)" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
-          <button className="tb-btn" title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen – only the 3D view'} onClick={toggleFullscreen}><Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} /></button>
+          <button className="tb-btn" title="Home view (Home key)" aria-label="Home view" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
+          <button className="tb-btn" title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen – only the 3D view'} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}><Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} /></button>
         </div>
         <div className="tb-group">
           <Toggle on={options.ortho} onClick={() => set({ ortho: !options.ortho })} icon="ortho" title="Orthographic camera (no perspective distortion)" />
@@ -219,7 +229,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           <Toggle on={options.measure} onClick={() => set({ measure: !options.measure })} icon="ruler" title="Measure: click two points (snaps to vertices). Esc cancels." />
         </div>
         <div className="tb-group">
-          <select className="tb-select" value={quality} onChange={(e) => onQuality(e.target.value as Quality)} title="Preview quality (export always uses high)">
+          <select className="tb-select" value={quality} onChange={(e) => onQuality(e.target.value as Quality)} title="Preview quality (export always uses high)" aria-label="Preview quality">
             <option value="draft">Draft</option>
             <option value="normal">Normal</option>
             <option value="high">High</option>
@@ -228,15 +238,15 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
       </div>
 
       {options.section.enabled && (
-        <div className="section-bar">
+        <div className="section-bar" role="group" aria-label="Section view">
           <span>Section</span>
           {(['x', 'y', 'z'] as const).map((a) => (
-            <button key={a} className={`chip ${options.section.axis === a ? 'on' : ''}`} onClick={() => setSection({ axis: a, position: bbox ? (bbox.min[{ x: 0, y: 1, z: 2 }[a]] + bbox.max[{ x: 0, y: 1, z: 2 }[a]]) / 2 : 0 })}>{a.toUpperCase()}</button>
+            <button key={a} className={`chip ${options.section.axis === a ? 'on' : ''}`} aria-pressed={options.section.axis === a} aria-label={`Cut along ${a.toUpperCase()}`} onClick={() => setSection({ axis: a, position: bbox ? (bbox.min[{ x: 0, y: 1, z: 2 }[a]] + bbox.max[{ x: 0, y: 1, z: 2 }[a]]) / 2 : 0 })}>{a.toUpperCase()}</button>
           ))}
-          <input type="range" min={secMin} max={secMax} step={(secMax - secMin) / 400 || 0.1} value={options.section.position}
+          <input type="range" aria-label="Section position" min={secMin} max={secMax} step={(secMax - secMin) / 400 || 0.1} value={options.section.position}
             onChange={(e) => setSection({ position: Number(e.target.value) })} />
           <span className="mono">{f2(options.section.position)} mm</span>
-          <button className="chip" onClick={() => setSection({ flip: !options.section.flip })}>Flip</button>
+          <button className="chip" aria-pressed={options.section.flip} onClick={() => setSection({ flip: !options.section.flip })}>Flip</button>
         </div>
       )}
 
@@ -245,7 +255,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           {parts.map((p) => {
             const hidden = options.hiddenParts.includes(p.name);
             return (
-              <button key={p.name} className={`legend-item ${hidden ? 'off' : ''}`} onClick={() => set({ hiddenParts: hidden ? options.hiddenParts.filter((n) => n !== p.name) : [...options.hiddenParts, p.name] })}>
+              <button key={p.name} className={`legend-item ${hidden ? 'off' : ''}`} aria-pressed={!hidden} title={hidden ? `Show ${p.name}` : `Hide ${p.name}`} onClick={() => set({ hiddenParts: hidden ? options.hiddenParts.filter((n) => n !== p.name) : [...options.hiddenParts, p.name] })}>
                 <span className="swatch" style={{ background: p.color }} />{p.name}
               </button>
             );
@@ -257,6 +267,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
         <div className="dim-editor" style={{ left: editing.x, top: editing.y }}>
           <input
             autoFocus
+            aria-label="Size in mm (Enter to apply, Esc to cancel)"
             className="mono"
             value={editing.value}
             onFocus={(e) => e.target.select()}
@@ -267,27 +278,27 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           <span>mm ↵</span>
         </div>
       )}
-      {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
+      {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`} role="status">{toast.text}</div>}
 
       {validation && validationOpen && (
         <ValidationPanel state={validation} highlight={highlight} onHighlight={setHighlight} onClose={() => onValidationClose?.()} />
       )}
       {notice && (
-        <div className={`export-notice ${notice.level}`}>
+        <div className={`export-notice ${notice.level}`} role={notice.level === 'error' ? 'alert' : 'status'}>
           <Icon name={notice.level === 'ok' ? 'check' : 'alert'} size={15} />
           <span>{notice.text}</span>
           {notice.details && <button className="link" onClick={() => onNoticeDetails?.()}>Details</button>}
-          <button className="icon-btn" onClick={() => onNoticeClose?.()} title="Dismiss"><Icon name="x" size={13} /></button>
+          <button className="icon-btn" onClick={() => onNoticeClose?.()} title="Dismiss" aria-label="Dismiss"><Icon name="x" size={13} /></button>
         </div>
       )}
 
       {onToggleLeft && (
-        <button className={`edge-tab left ${leftOpen ? '' : 'closed'}`} onClick={onToggleLeft} title={leftOpen ? 'Hide the chat sidebar (T)' : 'Show the chat sidebar (T)'}>
+        <button className={`edge-tab left ${leftOpen ? '' : 'closed'}`} onClick={onToggleLeft} title={leftOpen ? 'Hide the chat sidebar (T)' : 'Show the chat sidebar (T)'} aria-label={leftOpen ? 'Hide the chat sidebar' : 'Show the chat sidebar'} aria-expanded={leftOpen}>
           <Icon name="chevron" size={12} />
         </button>
       )}
       {onToggleRight && (
-        <button className={`edge-tab right ${rightOpen ? '' : 'closed'}`} onClick={onToggleRight} title={rightOpen ? 'Hide the parameters sidebar (N)' : 'Show the parameters sidebar (N)'}>
+        <button className={`edge-tab right ${rightOpen ? '' : 'closed'}`} onClick={onToggleRight} title={rightOpen ? 'Hide the parameters sidebar (N)' : 'Show the parameters sidebar (N)'} aria-label={rightOpen ? 'Hide the parameters sidebar' : 'Show the parameters sidebar'} aria-expanded={rightOpen}>
           <Icon name="chevron" size={12} />
         </button>
       )}
@@ -295,7 +306,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
       {!assembly && (layout || canAssemble) && result && (
         <div className="layout-bar">
           {layout && layout.options.map((o) => (
-            <button key={o.value} className={layout.value === o.value ? 'on' : ''} onClick={() => onLayout?.(o.value)} title={`Show the ${o.label} layout`}>
+            <button key={o.value} className={layout.value === o.value ? 'on' : ''} aria-pressed={layout.value === o.value} onClick={() => onLayout?.(o.value)} title={`Show the ${o.label} layout`}>
               {o.label.charAt(0).toUpperCase() + o.label.slice(1)}
             </button>
           ))}
@@ -338,7 +349,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
       {!result && !error && !busy && <div className="viewer-empty">{emptyState}</div>}
 
       {error && (
-        <div className="viewer-error">
+        <div className="viewer-error" role="alert">
           <Icon name="alert" /> <b>Model error</b>{error.line ? ` (line ${error.line})` : ''}: {error.message}
         </div>
       )}
@@ -357,13 +368,13 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           </span>
         )}
         <span className="spacer" />
-        {(busy || solving) && <span className="busy-dot">{solving ? 'finding size…' : 'evaluating…'}</span>}
-        {result && <span className="mono dim">{Math.round(result.timeMs)} ms · {result.parts.reduce((s, p) => s + p.triCount, 0).toLocaleString()} tris</span>}
+        <span className="busy-dot" role="status">{(busy || solving) && (solving ? 'finding size…' : 'evaluating…')}</span>
+        {result && <span className="mono dim tri-count">{Math.round(result.timeMs)} ms · {result.parts.reduce((s, p) => s + p.triCount, 0).toLocaleString()} tris</span>}
       </div>
     </div>
   );
 }
 
 function Toggle({ on, onClick, icon, title }: { on: boolean; onClick: () => void; icon: string; title: string }) {
-  return <button className={`tb-btn ${on ? 'on' : ''}`} title={title} onClick={onClick}><Icon name={icon} /></button>;
+  return <button className={`tb-btn ${on ? 'on' : ''}`} title={title} aria-label={title.split(/[(:.]/)[0].trim()} aria-pressed={on} onClick={onClick}><Icon name={icon} /></button>;
 }

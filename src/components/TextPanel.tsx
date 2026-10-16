@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { EvalResult } from '../../shared/types';
 import { newTextFeature, type TextFace, type TextFeature } from '../../shared/textFeatures';
 import type { FontEntry } from '../lib/api';
@@ -45,11 +45,13 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
     <div className="text-panel">
       <div className="text-list">
         {features.map((f) => (
-          <div key={f.id} className={`text-item ${f.id === selected ? 'on' : ''} ${f.enabled ? '' : 'off'}`} onClick={() => setSelected(f.id)}>
+          <div key={f.id} className={`text-item ${f.id === selected ? 'on' : ''} ${f.enabled ? '' : 'off'}`} onClick={() => setSelected(f.id)}
+            role="button" tabIndex={0} aria-pressed={f.id === selected} aria-label={`Edit text "${f.text.split('\n')[0] || 'empty'}"`}
+            onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelected(f.id); } }}>
             <span className={`text-mode ${f.mode}`}>{f.mode === 'emboss' ? 'Raised' : 'Engraved'}</span>
             <span className="text-preview">{f.text.split('\n')[0] || '(empty)'}</span>
-            <button className="icon-btn" title={f.enabled ? 'Hide' : 'Show'} onClick={(e) => { e.stopPropagation(); update(f.id, { enabled: !f.enabled }); }}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={14} /></button>
-            <button className="icon-btn" title="Delete" onClick={(e) => { e.stopPropagation(); remove(f.id); }}><Icon name="trash" size={14} /></button>
+            <button className="icon-btn" title={f.enabled ? 'Hide' : 'Show'} aria-label={f.enabled ? 'Hide this text' : 'Show this text'} onClick={(e) => { e.stopPropagation(); update(f.id, { enabled: !f.enabled }); }}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={14} /></button>
+            <button className="icon-btn" title="Delete" aria-label="Delete this text" onClick={(e) => { e.stopPropagation(); remove(f.id); }}><Icon name="trash" size={14} /></button>
           </div>
         ))}
         <button className="btn ghost wide" onClick={add}><Icon name="plus" size={14} /> Add text</button>
@@ -57,7 +59,7 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
 
       {sel && (
         <div className="text-editor">
-          <textarea className="text-input" rows={2} value={sel.text} onChange={(e) => update(sel.id, { text: e.target.value })} placeholder="Your text (Enter for a new line)" />
+          <textarea className="text-input" rows={2} aria-label="Text" value={sel.text} onChange={(e) => update(sel.id, { text: e.target.value })} placeholder="Your text (Enter for a new line)" />
           <Row label="Font"><FontPicker fonts={fonts} value={sel.font} onChange={(font) => update(sel.id, { font })} /></Row>
 
           <Row label="Style">
@@ -69,14 +71,14 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
           <h4>Placement</h4>
           {parts.length > 1 && (
             <Row label="Part">
-              <select value={sel.part ?? parts[0]} onChange={(e) => update(sel.id, { part: e.target.value })}>{parts.map((p) => <option key={p}>{p}</option>)}</select>
+              <select aria-label="Part" value={sel.part ?? parts[0]} onChange={(e) => update(sel.id, { part: e.target.value })}>{parts.map((p) => <option key={p}>{p}</option>)}</select>
             </Row>
           )}
           <div className="face-grid">
             {FACES.map(([face, label]) => (
-              <button key={face} className={`chip ${sel.face === face ? 'on' : ''}`} onClick={() => update(sel.id, { face, offset: [0, 0] })}>{label}</button>
+              <button key={face} className={`chip ${sel.face === face ? 'on' : ''}`} aria-pressed={sel.face === face} onClick={() => update(sel.id, { face, offset: [0, 0] })}>{label}</button>
             ))}
-            <button className={`chip ${picking === sel.id ? 'on pulse' : sel.face === 'pick' ? 'on' : ''}`} onClick={() => onPick(picking === sel.id ? null : sel.id)}>
+            <button className={`chip ${picking === sel.id ? 'on pulse' : sel.face === 'pick' ? 'on' : ''}`} aria-pressed={sel.face === 'pick'} onClick={() => onPick(picking === sel.id ? null : sel.id)}>
               {picking === sel.id ? 'Click the model…' : 'Pick on model'}
             </button>
           </div>
@@ -117,7 +119,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
-  return <div className="seg">{options.map(([v, l]) => <button key={v} className={value === v ? 'on' : ''} onClick={() => onChange(v)}>{l}</button>)}</div>;
+  return <div className="seg">{options.map(([v, l]) => <button key={v} className={value === v ? 'on' : ''} aria-pressed={value === v} onClick={() => onChange(v)}>{l}</button>)}</div>;
 }
 
 function Slider({ label, unit, min, max, step, value, onChange }: { label: string; unit: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void }) {
@@ -125,13 +127,14 @@ function Slider({ label, unit, min, max, step, value, onChange }: { label: strin
   const commit = () => { if (draft != null) { const v = Number(draft.replace(',', '.')); if (Number.isFinite(v)) onChange(v); setDraft(null); } };
   const slider = useReleaseSlider(Math.min(max, Math.max(min, value)), onChange);
   const shown = slider.dragging ? slider.shown : value;
+  const id = useId();
   return (
     <div className="param">
-      <div className="param-head"><label>{label}</label></div>
+      <div className="param-head"><label htmlFor={id}>{label}</label></div>
       <div className="num-control">
-        <input type="range" min={min} max={max} step={step} {...slider.inputProps} />
+        <input type="range" id={id} min={min} max={max} step={step} {...slider.inputProps} />
         <div className="num-box">
-          <input className="mono" value={draft ?? String(+shown.toFixed(2))} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+          <input aria-label={`${label} (${unit})`} className="mono" value={draft ?? String(+shown.toFixed(2))} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
           <span className="unit">{unit}</span>
         </div>
       </div>

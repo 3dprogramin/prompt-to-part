@@ -52,7 +52,7 @@ export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
             <span className="dtab-name">{t.name}</span>
           </button>
           {!t.running && (
-            <button className="dtab-close" title="Close tab (the design stays in Designs)" onClick={() => onClose(t.id)}>
+            <button className="dtab-close" title="Close tab (the design stays in Designs)" aria-label={`Close ${t.name}`} onClick={() => onClose(t.id)}>
               <Icon name="x" size={11} />
             </button>
           )}

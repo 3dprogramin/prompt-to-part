@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
 import type { PrintProfile } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
+import { usePopover } from './usePopover';
 import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { FontEntry } from '../lib/api';
 import type { ExportFormat } from '../lib/export';
+import { download } from '../lib/files';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
 type Tab = 'params' | 'text' | 'print' | 'info' | 'code';
 
 interface Props {
+  /** The open design: unapplied code edits are kept per design. */
+  designId: string;
   result: EvalResult | null;
   lastGood: EvalResult | null;
   error: ScriptErrorInfo | null;
@@ -47,33 +51,50 @@ interface Props {
   fonts: FontEntry[];
   picking: string | null;
   onPick: (featureId: string | null) => void;
-  tabRequest?: { tab: Tab; n: number };
 }
 
 const PLA_DENSITY = 1.24; // g/cm³
 
 export function SidePanel(p: Props) {
   const [tab, setTab] = useState<Tab>('params');
-  useEffect(() => { if (p.tabRequest) setTab(p.tabRequest.tab); }, [p.tabRequest]);
+  // Code edits not applied yet, per design, kept while other tabs or designs are open.
+  const [drafts, setDrafts] = useState<Record<string, CodeDraft>>({});
+  const draft = drafts[p.designId];
+  const setDraft = (d: CodeDraft | null) => setDrafts((all) => {
+    const next = { ...all };
+    if (d) next[p.designId] = d; else delete next[p.designId];
+    return next;
+  });
   const shown = p.result ?? p.lastGood;
+  // Without a model the other tabs have nothing to show; say why when the script is the problem.
+  const noModel = (what: string) => (p.error
+    ? <div className="empty-note">The script has an error, so there is no model. <button className="link" onClick={() => setTab('code')}>See the Code tab</button>, or restore an earlier version from the version menu.</div>
+    : <div className="empty-note">{what}</div>);
+  const tabs: [Tab, React.ReactNode][] = [
+    ['params', <><Icon name="sliders" size={14} /> Params</>],
+    ['text', <><span className="tab-glyph" aria-hidden>T</span> Text{p.textFeatures.length ? <span className="count" aria-label={`${p.textFeatures.length} texts`}>{p.textFeatures.length}</span> : null}</>],
+    ['print', <><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count" aria-label={`${p.printChanges} changed settings`}>{p.printChanges}</span> : null}</>],
+    ['info', <><Icon name="info" size={14} /> Model</>],
+    ['code', <><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" aria-label="script error" /> : draft ? <span className="draft-dot" aria-label="unapplied edits" title="Unapplied code edits" /> : null}</>],
+  ];
   return (
     <div className="side-panel">
-      <div className="tabs">
-        <button className={tab === 'params' ? 'on' : ''} onClick={() => setTab('params')}><Icon name="sliders" size={14} /> Params</button>
-        <button className={tab === 'text' ? 'on' : ''} onClick={() => setTab('text')}><span className="tab-glyph">T</span> Text{p.textFeatures.length ? <span className="count">{p.textFeatures.length}</span> : null}</button>
-        <button className={tab === 'print' ? 'on' : ''} onClick={() => setTab('print')}><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count">{p.printChanges}</span> : null}</button>
-        <button className={tab === 'info' ? 'on' : ''} onClick={() => setTab('info')}><Icon name="info" size={14} /> Model</button>
-        <button className={tab === 'code' ? 'on' : ''} onClick={() => setTab('code')}><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" /> : null}</button>
+      <div className="tabs" role="tablist">
+        {tabs.map(([t, label]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>
+        ))}
       </div>
-      <div className="tab-body">
+      <div className="tab-body" role="tabpanel">
         {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
-        {tab === 'params' && <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} />}
+        {tab === 'params' && (shown ? <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /> : noModel('Parameters appear here once a model is generated.'))}
         {tab === 'print' && (shown
           ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} onChange={p.onUserPrint} bambu={p.bambu} />
-          : <div className="empty-note">Print settings appear once a model is generated.</div>)}
-        {tab === 'text' && <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />}
-        {tab === 'info' && <InfoTab result={shown} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} />}
-        {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={p.onApplyCode} />}
+          : noModel('Print settings appear once a model is generated.'))}
+        {tab === 'text' && (shown
+          ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
+          : noModel('Generate a model first, then add text to it.'))}
+        {tab === 'info' && (shown ? <InfoTab result={shown} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} /> : noModel('No model yet.'))}
+        {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />}
       </div>
       <div className="export-bar">
         {shown?.bbox && (
@@ -102,12 +123,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
 }) {
   const [open, setOpen] = useState<false | 'menu' | '3mf'>(false);
   const wrap = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+  usePopover(!!open, () => setOpen(false), wrap);
   const pick = (f: ExportFormat) => { setOpen(false); onExport(f); };
   const printOn = threeMf.print && !!bambu;
   return (
@@ -115,7 +131,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
       <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')} title={count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}>
         <Icon name="download" /> {exporting ? 'Exporting…' : 'Export STL'}
       </button>
-      <button className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats"><Icon name="chevron" size={14} /></button>
+      <button className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats" aria-label="More export formats" aria-haspopup="menu" aria-expanded={!!open}><Icon name="chevron" size={14} /></button>
       {open === 'menu' && (
         <div className="export-menu">
           <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
@@ -192,8 +208,7 @@ function CommitInput({ value, decimals, onCommit, suffix }: { value: number; dec
   );
 }
 
-function ParamsTab({ result, onValue, onReset, fonts }: { result: EvalResult | null; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
-  if (!result) return <div className="empty-note">Parameters appear here once a model is generated.</div>;
+function ParamsTab({ result, onValue, onReset, fonts }: { result: EvalResult; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
   const entries = Object.entries(result.params);
   if (!entries.length) return <div className="empty-note">This model has no parameters.</div>;
   const groups = new Map<string, [string, ParamDef][]>();
@@ -229,10 +244,15 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
   const value = pending ?? resultValue;
   const set = (key: string, v: ParamValue) => { setPending(v); onValue(key, v); };
   const changed = value !== def.value;
+  const id = useId();
+  const label = def.label ?? k;
+  // The reset dot sits beside the label, not inside it: a click on the label must not reset.
+  const reset = changed && <button className="mod-dot" title={`Reset to ${String(def.value)}`} aria-label={`Reset ${label} to ${String(def.value)}`} onClick={() => set(k, def.value)} />;
   const head = (
     <div className="param-head">
-      <label title={def.description}>{def.label ?? k}{changed && <button className="mod-dot" title={`Reset to ${String(def.value)}`} onClick={() => set(k, def.value)} />}</label>
-      {def.description && <span className="hint" title={def.description}>?</span>}
+      <label htmlFor={id} title={def.description}>{label}</label>
+      {reset}
+      {def.description && <span className="hint" title={def.description} aria-hidden>?</span>}
     </div>
   );
   if (def.type === 'boolean') {
@@ -241,9 +261,9 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
         <label className="switch">
           <input type="checkbox" checked={!!value} onChange={(e) => set(k, e.target.checked)} />
           <span className="track" />
-          <span className="switch-label" title={def.description}>{def.label ?? k}</span>
+          <span className="switch-label" title={def.description}>{label}</span>
         </label>
-        {changed && <button className="mod-dot" title="Reset" onClick={() => set(k, def.value)} />}
+        {reset}
       </div>
     );
   }
@@ -252,8 +272,8 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
       <div className="param">
         {head}
         {def.font
-          ? <FontPicker fonts={fonts} value={String(value)} onChange={(v) => set(k, v)} />
-          : <TextValue value={String(value)} onCommit={(v) => set(k, v)} />}
+          ? <FontPicker id={id} fonts={fonts} value={String(value)} onChange={(v) => set(k, v)} />
+          : <TextValue id={id} value={String(value)} onCommit={(v) => set(k, v)} />}
       </div>
     );
   }
@@ -261,10 +281,10 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
     return (
       <div className="param">
         {head}
-        <div className="seg">
+        <div className="seg" role="group" aria-label={label}>
           {def.options.length <= 4
-            ? def.options.map((o) => <button key={o.value} className={value === o.value ? 'on' : ''} onClick={() => set(k, o.value)}>{o.label}</button>)
-            : <select value={String(value)} onChange={(e) => set(k, e.target.value)}>{def.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
+            ? def.options.map((o) => <button key={o.value} id={o === def.options[0] ? id : undefined} className={value === o.value ? 'on' : ''} aria-pressed={value === o.value} onClick={() => set(k, o.value)}>{o.label}</button>)
+            : <select id={id} value={String(value)} onChange={(e) => set(k, e.target.value)}>{def.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
         </div>
       </div>
     );
@@ -272,12 +292,12 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
   return (
     <div className="param">
       {head}
-      <NumberControl def={def} value={Number(value)} onChange={(v) => set(k, v)} />
+      <NumberControl id={id} label={label} def={def} value={Number(value)} onChange={(v) => set(k, v)} />
     </div>
   );
 }
 
-function TextValue({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+function TextValue({ id, value, onCommit }: { id: string; value: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   // Live update while typing (debounced) – text geometry is cheap enough.
@@ -286,7 +306,7 @@ function TextValue({ value, onCommit }: { value: string; onCommit: (v: string) =
     const t = setTimeout(() => onCommit(draft), 250);
     return () => clearTimeout(t);
   }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <input className="text-param" value={draft} onChange={(e) => setDraft(e.target.value)} />;
+  return <input id={id} className="text-param" value={draft} onChange={(e) => setDraft(e.target.value)} />;
 }
 
 function decimals(step: number) {
@@ -294,7 +314,7 @@ function decimals(step: number) {
   return s.includes('.') ? s.split('.')[1].length : 0;
 }
 
-function NumberControl({ def, value, onChange }: { def: NumberParam; value: number; onChange: (v: number) => void }) {
+function NumberControl({ id, label, def, value, onChange }: { id: string; label: string; def: NumberParam; value: number; onChange: (v: number) => void }) {
   const step = def.step ?? (def.type === 'integer' ? 1 : 0.1);
   const dec = def.type === 'integer' ? 0 : Math.min(4, Math.max(decimals(step), 1));
   const [draft, setDraft] = useState<string | null>(null);
@@ -309,9 +329,10 @@ function NumberControl({ def, value, onChange }: { def: NumberParam; value: numb
   const shown = slider.dragging ? slider.shown : value;
   return (
     <div className="num-control">
-      <input type="range" min={def.min} max={def.max} step={step} {...slider.inputProps} />
+      <input type="range" id={id} aria-label={label} min={def.min} max={def.max} step={step} {...slider.inputProps} />
       <div className={`num-box ${out ? 'out' : ''}`} title={out ? `Outside the suggested range ${def.min}–${def.max}` : `${def.min} – ${def.max}`}>
         <input
+          aria-label={`${label}${def.unit ? ` (${def.unit})` : ''}`}
           className="mono"
           value={draft ?? shown.toFixed(dec)}
           onChange={(e) => setDraft(e.target.value)}
@@ -333,8 +354,7 @@ function NumberControl({ def, value, onChange }: { def: NumberParam; value: numb
   );
 }
 
-function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: EvalResult | null; onExport: Props['onExport']; hiddenParts: string[]; onToggleHidden: (n: string) => void }) {
-  if (!result) return <div className="empty-note">No model yet.</div>;
+function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: EvalResult; onExport: Props['onExport']; hiddenParts: string[]; onToggleHidden: (n: string) => void }) {
   const vol = result.parts.reduce((s, p) => s + p.volume, 0) / 1000;
   const area = result.parts.reduce((s, p) => s + p.surfaceArea, 0) / 100;
   const tris = result.parts.reduce((s, p) => s + p.triCount, 0);
@@ -366,13 +386,13 @@ function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: Ev
           const hidden = hiddenParts.includes(p.name);
           return (
             <li key={p.name}>
-              <button className="icon-btn" onClick={() => onToggleHidden(p.name)} title={hidden ? 'Show' : 'Hide'}><Icon name={hidden ? 'eyeOff' : 'eye'} size={14} /></button>
+              <button className="icon-btn" onClick={() => onToggleHidden(p.name)} title={hidden ? 'Show' : 'Hide'} aria-label={`${hidden ? 'Show' : 'Hide'} ${p.name}`} aria-pressed={hidden}><Icon name={hidden ? 'eyeOff' : 'eye'} size={14} /></button>
               <span className="swatch" style={{ background: p.color }} />
               <div className="part-meta">
                 <div>{p.name}</div>
                 <div className="mono dim small">{(p.bbox.max[0] - p.bbox.min[0]).toFixed(1)} × {(p.bbox.max[1] - p.bbox.min[1]).toFixed(1)} × {(p.bbox.max[2] - p.bbox.min[2]).toFixed(1)} mm · {(p.volume / 1000).toFixed(2)} cm³</div>
               </div>
-              <button className="icon-btn" title="Export this part as STL" onClick={() => onExport('stl', p.name)}><Icon name="download" size={14} /></button>
+              <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${p.name} as STL`} onClick={() => onExport('stl', p.name)}><Icon name="download" size={14} /></button>
             </li>
           );
         })}
@@ -405,33 +425,48 @@ function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: Ev
   );
 }
 
-function CodeTab({ code, error, onApply }: { code: string; error: ScriptErrorInfo | null; onApply: (c: string) => void }) {
-  const [draft, setDraft] = useState(code);
-  useEffect(() => setDraft(code), [code]);
-  const dirty = draft !== code;
+/** Code typed in the editor but not applied: `base` is the script it started from. */
+interface CodeDraft { base: string; text: string }
+
+function CodeTab({ code, error, onApply, draft, onDraft }: {
+  code: string; error: ScriptErrorInfo | null; onApply: (c: string) => void; draft: CodeDraft | undefined; onDraft: (d: CodeDraft | null) => void;
+}) {
+  const text = draft?.text ?? code;
+  const dirty = text !== code;
+  // The script changed (Claude's new version, a restore) while unapplied edits were open.
+  const outdated = !!draft && draft.base !== code;
+  // Tab indents; Escape first lets the next Tab move the focus on, as in other code editors.
+  const escaped = useRef(false);
   return (
     <div className="code-tab">
-      {error && <div className="code-error"><Icon name="alert" size={14} /> {error.line ? `Line ${error.line}: ` : ''}{error.message}</div>}
-      <textarea className="code-editor mono" spellCheck={false} value={draft} onChange={(e) => setDraft(e.target.value)}
+      {error && <div className="code-error" role="alert"><Icon name="alert" size={14} /> {error.line ? `Line ${error.line}: ` : ''}{error.message}</div>}
+      {outdated && (
+        <div className="code-note">
+          The script has changed since you started editing.{' '}
+          <button className="link" onClick={() => onDraft(null)}>Load the new script</button> or keep editing yours.
+        </div>
+      )}
+      <textarea className="code-editor mono" spellCheck={false} value={text} aria-label="Model script (model.js)"
+        onChange={(e) => onDraft(e.target.value === code ? null : { base: draft?.base ?? code, text: e.target.value })}
         onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) onApply(draft); }
-          if (e.key === 'Tab') {
+          if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) onApply(text); }
+          if (e.key === 'Escape') { escaped.current = true; return; }
+          if (e.key === 'Tab' && !e.shiftKey && !escaped.current) {
             e.preventDefault();
             const t = e.currentTarget, s = t.selectionStart;
-            setDraft(draft.slice(0, s) + '  ' + draft.slice(t.selectionEnd));
+            onDraft({ base: draft?.base ?? code, text: text.slice(0, s) + '  ' + text.slice(t.selectionEnd) });
             requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = s + 2; });
           }
+          escaped.current = false;
         }}
-        placeholder="The model script appears here." />
+        placeholder="The model script appears here. Tab indents; press Esc, then Tab, to leave the editor." />
       <div className="code-actions">
-        <button className="btn ghost" disabled={!dirty} onClick={() => setDraft(code)}>Revert</button>
-        <button className="btn primary" disabled={!dirty} onClick={() => onApply(draft)}>Apply (Ctrl+S)</button>
+        <button className="btn ghost" disabled={!dirty} onClick={() => onDraft(null)}>Revert</button>
+        <button className="btn primary" disabled={!dirty} onClick={() => onApply(text)}>Apply (Ctrl+S)</button>
         <span className="spacer" />
-        <button className="btn ghost" disabled={!code} onClick={() => {
-          const blob = new Blob([code], { type: 'text/javascript' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob); a.download = 'model.js'; a.click();
-        }}><Icon name="download" size={14} /> .js</button>
+        <button className="btn ghost" disabled={!code} onClick={() => download(new Blob([code], { type: 'text/javascript' }), 'model.js')} aria-label="Download model.js">
+          <Icon name="download" size={14} /> .js
+        </button>
       </div>
     </div>
   );

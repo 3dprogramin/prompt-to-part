@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FontEntry } from '../lib/api';
+import { api, type FontEntry } from '../lib/api';
+import { usePopover } from './usePopover';
 
 // Load fonts into the browser for previews (once per id).
 const loaded = new Map<string, Promise<string | null>>();
@@ -8,9 +9,7 @@ export function previewFamily(id: string): Promise<string | null> {
   if (!p) {
     p = (async () => {
       try {
-        const r = await fetch(`/api/fonts/data?id=${encodeURIComponent(id)}`);
-        if (!r.ok) return null;
-        const { files } = (await r.json()) as { files: string[] };
+        const { files } = await api.fontData(id);
         const family = `pv-${loaded.size}-${id.replace(/[^a-z0-9]/gi, '')}`;
         for (const b64 of files) {
           const face = new FontFace(family, Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
@@ -42,18 +41,12 @@ export function fontLabel(fonts: FontEntry[], id: string) {
   return f ? `${f.family} ${f.style}` : id.replace(/^(std|sys):/, '').replace('|', ' ');
 }
 
-export function FontPicker({ fonts, value, onChange }: { fonts: FontEntry[]; value: string; onChange: (id: string) => void }) {
+export function FontPicker({ id, fonts, value, onChange }: { id?: string; fonts: FontEntry[]; value: string; onChange: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const wrap = useRef<HTMLDivElement>(null);
   const family = usePreview(value);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+  usePopover(open, () => setOpen(false), wrap);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -64,12 +57,12 @@ export function FontPicker({ fonts, value, onChange }: { fonts: FontEntry[]; val
 
   return (
     <div className="font-picker" ref={wrap}>
-      <button className="font-current" onClick={() => setOpen(!open)} style={{ fontFamily: family ?? undefined }}>
+      <button id={id} className="font-current" onClick={() => setOpen(!open)} style={{ fontFamily: family ?? undefined }} aria-haspopup="listbox" aria-expanded={open}>
         {fontLabel(fonts, value)}
       </button>
       {open && (
         <div className="font-menu">
-          <input autoFocus placeholder="Search fonts…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input autoFocus placeholder="Search fonts…" aria-label="Search fonts" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="font-list">
             {std.length > 0 && <div className="font-group">Standard</div>}
             {std.map((f) => <FontRow key={f.id} f={f} on={f.id === value} pick={() => { onChange(f.id); setOpen(false); }} />)}

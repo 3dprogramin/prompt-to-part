@@ -58,10 +58,10 @@ export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
 
       {parts.length > 1 && (
         <div className="pp-scope">
-          <button className={`chip ${part === null ? 'on' : ''}`} onClick={() => setScope(null)}>Whole model</button>
+          <button className={`chip ${part === null ? 'on' : ''}`} aria-pressed={part === null} onClick={() => setScope(null)}>Whole model</button>
           {parts.map((n) => {
             const marked = !!(ai.parts?.[n] || user.parts?.[n]);
-            return <button key={n} className={`chip ${part === n ? 'on' : ''}`} onClick={() => setScope(n)}>{n}{marked && <i className="pp-dot" />}</button>;
+            return <button key={n} className={`chip ${part === n ? 'on' : ''}`} aria-pressed={part === n} onClick={() => setScope(n)}>{n}{marked && <i className="pp-dot" aria-label="has its own settings" />}</button>;
           })}
         </div>
       )}
@@ -76,9 +76,9 @@ export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
               <span className={`pp-src ${src}`} title={src === 'default' ? `A1 default: ${describeSetting(key, A1_DEFAULTS[key])}` : undefined}>
                 {src === 'you' ? 'You' : src === 'ai' ? 'AI' : 'Default'}
               </span>
-              {ownUser && <button className="icon-btn pp-reset" title="Reset" onClick={() => setValue(key, undefined)}><Icon name="restore" size={12} /></button>}
+              {ownUser && <button className="icon-btn pp-reset" title="Reset" aria-label={`Reset ${SETTING_LABELS[key]}`} onClick={() => setValue(key, undefined)}><Icon name="restore" size={12} /></button>}
             </div>
-            <Control k={key} value={eff[key]} onChange={(v) => setValue(key, v)} />
+            <Control k={key} label={SETTING_LABELS[key]} value={eff[key]} onChange={(v) => setValue(key, v)} />
           </div>
         );
       })}
@@ -98,20 +98,20 @@ export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
   );
 }
 
-function Control({ k, value, onChange }: { k: Key; value: PrintSettings[Key]; onChange: (v: PrintSettings[Key]) => void }) {
+function Control({ k, label, value, onChange }: { k: Key; label: string; value: PrintSettings[Key]; onChange: (v: PrintSettings[Key]) => void }) {
   switch (k) {
     case 'layerHeight':
-      return <select value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{LAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{h === 0.2 ? ' (standard)' : ''}</option>)}</select>;
+      return <select aria-label={label} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{LAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{h === 0.2 ? ' (standard)' : ''}</option>)}</select>;
     case 'walls': case 'topLayers': case 'bottomLayers':
-      return <Stepper value={Number(value)} min={k === 'walls' ? 1 : 0} max={k === 'walls' ? 10 : 30} onChange={onChange} />;
+      return <Stepper label={label} value={Number(value)} min={k === 'walls' ? 1 : 0} max={k === 'walls' ? 10 : 30} onChange={onChange} />;
     case 'infill':
       return <InfillSlider value={Number(value)} onChange={onChange} />;
     case 'infillPattern':
-      return <select value={String(value)} onChange={(e) => onChange(e.target.value)}>{INFILL_PATTERNS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select>;
+      return <select aria-label={label} value={String(value)} onChange={(e) => onChange(e.target.value)}>{INFILL_PATTERNS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select>;
     case 'supports':
       return (
         <div className="seg">{(['off', 'normal', 'tree'] as Supports[]).map((s) => (
-          <button key={s} className={value === s ? 'on' : ''} onClick={() => onChange(s)}>{describeSetting('supports', s)}</button>))}
+          <button key={s} className={value === s ? 'on' : ''} aria-pressed={value === s} onClick={() => onChange(s)}>{describeSetting('supports', s)}</button>))}
         </div>
       );
     case 'brim': {
@@ -120,24 +120,24 @@ function Control({ k, value, onChange }: { k: Key; value: PrintSettings[Key]; on
       return (
         <div className="pp-brim">
           <div className="seg">
-            <button className={b === 'auto' ? 'on' : ''} onClick={() => onChange('auto')}>Auto</button>
-            <button className={b === 'none' ? 'on' : ''} onClick={() => onChange('none')}>None</button>
-            <button className={width ? 'on' : ''} onClick={() => onChange(width ? b : 5)}>Width</button>
+            <button className={b === 'auto' ? 'on' : ''} aria-pressed={b === 'auto'} onClick={() => onChange('auto')}>Auto</button>
+            <button className={b === 'none' ? 'on' : ''} aria-pressed={b === 'none'} onClick={() => onChange('none')}>None</button>
+            <button className={width ? 'on' : ''} aria-pressed={width} onClick={() => onChange(width ? b : 5)}>Width</button>
           </div>
-          {width && <Stepper value={b} min={1} max={20} unit="mm" onChange={onChange} />}
+          {width && <Stepper label="Brim width" value={b} min={1} max={20} unit="mm" onChange={onChange} />}
         </div>
       );
     }
   }
 }
 
-function Stepper({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit?: string; onChange: (v: number) => void }) {
+function Stepper({ label, value, min, max, unit, onChange }: { label: string; value: number; min: number; max: number; unit?: string; onChange: (v: number) => void }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v)));
   return (
-    <div className="pp-stepper">
-      <button onClick={() => onChange(clamp(value - 1))} disabled={value <= min}>−</button>
-      <span className="mono">{value}{unit ? ` ${unit}` : ''}</span>
-      <button onClick={() => onChange(clamp(value + 1))} disabled={value >= max}>+</button>
+    <div className="pp-stepper" role="group" aria-label={label}>
+      <button onClick={() => onChange(clamp(value - 1))} disabled={value <= min} aria-label={`Fewer (${label})`}>−</button>
+      <span className="mono" aria-live="polite">{value}{unit ? ` ${unit}` : ''}</span>
+      <button onClick={() => onChange(clamp(value + 1))} disabled={value >= max} aria-label={`More (${label})`}>+</button>
     </div>
   );
 }
@@ -146,7 +146,7 @@ function InfillSlider({ value, onChange }: { value: number; onChange: (v: number
   const s = useReleaseSlider(value, onChange);
   return (
     <div className="num-control">
-      <input type="range" min={0} max={100} step={5} {...s.inputProps} />
+      <input type="range" aria-label="Infill" min={0} max={100} step={5} {...s.inputProps} />
       <span className="mono pp-pct">{Math.round(s.shown)} %</span>
     </div>
   );

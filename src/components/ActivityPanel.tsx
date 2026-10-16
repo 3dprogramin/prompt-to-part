@@ -50,10 +50,10 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
         <span className="activity-title">{live ? 'Claude is working' : "Claude's work"}</span>
         <span className="dim small">{items.length} item{items.length === 1 ? '' : 's'}</span>
         <span className="spacer" />
-        <button className={`icon-btn ${pinned ? 'on' : ''}`} title={pinned ? 'Unpin (closes when the mouse leaves)' : 'Pin open'} onClick={() => onPin(!pinned)}>
+        <button className={`icon-btn ${pinned ? 'on' : ''}`} title={pinned ? 'Unpin (closes when the mouse leaves)' : 'Pin open'} aria-label={pinned ? 'Unpin' : 'Pin open'} aria-pressed={pinned} onClick={() => onPin(!pinned)}>
           <Icon name="pin" size={14} />
         </button>
-        <button className="icon-btn" title="Close (Esc)" onClick={onClose}><Icon name="x" size={14} /></button>
+        <button className="icon-btn" title="Close (Esc)" aria-label="Close" onClick={onClose}><Icon name="x" size={14} /></button>
       </div>
       <div className="activity-body" ref={scroller} onScroll={onScroll}>
         {!items.length && <div className="dim">{live ? 'Waiting for Claude…' : 'Nothing was recorded for this reply.'}</div>}
@@ -77,7 +77,7 @@ const Item = memo(function Item({ it, streaming, onImage }: { it: ActivityItem; 
         <span className="act-time">{s.at != null ? fmtTime(s.at) : ''}</span>
         <div className="act-step-body">
           <span>{s.text}</span>
-          {s.image && <img src={s.image} alt="render" onClick={() => onImage(s.image!)} />}
+          {s.image && <button className="img-btn" onClick={() => onImage(s.image!)} aria-label="Render – enlarge"><img src={s.image} alt="Render" /></button>}
         </div>
       </div>
     );

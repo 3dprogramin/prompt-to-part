@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { DesignVersion } from '../../shared/types';
+import { usePopover } from './usePopover';
 
 interface Props {
   versions: DesignVersion[];
@@ -10,13 +11,15 @@ interface Props {
 /** "v2 of 5" in the top bar; opens the version list (newest first) to jump to any of them. */
 export function VersionMenu({ versions, current, onRestore }: Props) {
   const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  usePopover(open, () => setOpen(false), wrap);
   return (
-    <div className="menu-wrap">
-      <button className={`version-btn ${open ? 'on' : ''}`} title="Versions" onClick={() => setOpen(!open)}>
+    <div className="menu-wrap" ref={wrap}>
+      <button className={`version-btn ${open ? 'on' : ''}`} title="Versions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         v{current + 1} of {versions.length}
       </button>
       {open && (
-        <div className="menu left" onMouseLeave={() => setOpen(false)}>
+        <div className="menu left">
           {versions.map((v, i) => ({ v, i })).reverse().map(({ v, i }) => (
             <div key={i} className={`menu-item ${i === current ? 'on' : ''}`}>
               <button className="menu-open" onClick={() => { setOpen(false); if (i !== current) onRestore(i); }}>

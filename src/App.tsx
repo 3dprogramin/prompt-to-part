@@ -14,6 +14,7 @@ import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
 import { DesignTabs, type DesignTab } from './components/DesignTabs';
+import { usePopover } from './components/usePopover';
 import { VersionMenu } from './components/VersionMenu';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
@@ -49,6 +50,8 @@ export default function App() {
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
   const [showList, setShowList] = useState(false);
+  const listWrap = useRef<HTMLDivElement>(null);
+  usePopover(showList, () => setShowList(false), listWrap);
   const [result, setResult] = useState<EvalResult | null>(null);
   const [lastGood, setLastGood] = useState<EvalResult | null>(null);
   const [error, setError] = useState<ScriptErrorInfo | null>(null);
@@ -84,6 +87,21 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // Photos dropped anywhere go to the chat; the browser must never open a dropped file in place of
+  // Jig (that would also stop a running generation).
+  useEffect(() => {
+    const isFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+    const onOver = (e: DragEvent) => { if (isFiles(e)) e.preventDefault(); };
+    const onDrop = (e: DragEvent) => {
+      if (!isFiles(e)) return;
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('jig-drop-files', { detail: [...e.dataTransfer!.files] }));
+      setLeftOpen(true);
+    };
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => { window.removeEventListener('dragover', onOver); window.removeEventListener('drop', onDrop); };
   }, []);
   const [exporting, setExporting] = useState(false);
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
@@ -731,7 +749,7 @@ export default function App() {
         <a className="brand" href="/" title="New design" onClick={(e) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); createNew(); } }}>
           <span className="logo"><Icon name="cube" size={18} /></span> Jig
         </a>
-        <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
+        <input className="design-name" aria-label="Design name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <VersionMenu versions={design.versions} current={design.currentVersion} onRestore={onRestore} />}
         {unsavedSettings && (
           <button className="btn save-settings" onClick={saveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
@@ -749,10 +767,10 @@ export default function App() {
         )}
         {designTabs.length > 1 ? <DesignTabs tabs={designTabs} current={design.id} onOpen={openDesign} onClose={closeTab} /> : <span className="spacer" />}
         <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
-        <div className="menu-wrap">
-          <button className="btn ghost" onClick={() => { refreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
+        <div className="menu-wrap" ref={listWrap}>
+          <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { refreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
           {showList && (
-            <div className="menu" onMouseLeave={() => setShowList(false)}>
+            <div className="menu">
               {listError
                 ? <div className="menu-empty">Could not load your designs: {listError} <button className="link" onClick={refreshList}>Try again</button></div>
                 : designs.length === 0 && <div className="menu-empty">No saved designs yet</div>}
@@ -762,7 +780,7 @@ export default function App() {
                     <span>{(running[d.id] || remoteRunning[d.id] != null) && <span className="spinner" />} {d.name}</span>
                     <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} versions</span>
                   </button>
-                  <button className="icon-btn" title="Delete" onClick={() => deleteDesign(d.id)}><Icon name="trash" size={14} /></button>
+                  <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => deleteDesign(d.id)}><Icon name="trash" size={14} /></button>
                 </div>
               ))}
             </div>
@@ -822,6 +840,7 @@ export default function App() {
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}
         />
         <SidePanel
+          designId={design.id}
           result={result}
           lastGood={lastGood}
           error={error}
@@ -857,8 +876,8 @@ export default function App() {
       </main>
       {pendingRestore != null && (
         <div className="modal-backdrop" onClick={() => setPendingRestore(null)}>
-          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <h3>Save your changes first?</h3>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title" onClick={(e) => e.stopPropagation()} onKeyDown={trapFocus}>
+            <h3 id="restore-title">Save your changes first?</h3>
             <p>Your slider, scale, text or print changes aren't saved in any version. Switching to v{pendingRestore + 1} replaces them with that version's settings.</p>
             <div className="modal-actions">
               <button className="btn ghost" onClick={() => setPendingRestore(null)}>Cancel</button>
@@ -874,7 +893,16 @@ export default function App() {
   );
 }
 
-/** Values owned by the app rather than the script ($scale, $text) survive resets and new AI versions. */
+/** Keeps Tab and Shift+Tab inside a modal dialog. */
+function trapFocus(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.key !== 'Tab') return;
+  const items = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input, select, textarea')];
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+}
+
+/** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */
 function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }

@@ -34,11 +34,36 @@ export function ChatPanel(p: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
-
+  // Follow new output only while the chat is scrolled to the bottom, so earlier messages can be
+  // read while Claude works; a new message (sending one) always scrolls down.
+  const atBottom = useRef(true);
+  const count = useRef(p.messages.length);
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    const added = p.messages.length !== count.current;
+    count.current = p.messages.length;
+    if (el && (atBottom.current || added)) el.scrollTop = el.scrollHeight;
   }, [p.messages]);
+
+  // Photos dropped anywhere in the window come here (App forwards them): never let the browser
+  // open a dropped file in place of Jig.
+  useEffect(() => {
+    const onFiles = (e: Event) => addFiles((e as CustomEvent<File[]>).detail);
+    window.addEventListener('jig-drop-files', onFiles);
+    return () => window.removeEventListener('jig-drop-files', onFiles);
+  });
+  useEffect(() => {
+    const reset = () => setDragOver(false);
+    window.addEventListener('drop', reset);
+    window.addEventListener('dragend', reset);
+    return () => { window.removeEventListener('drop', reset); window.removeEventListener('dragend', reset); };
+  }, []);
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
 
   const addFiles = async (files: Iterable<File>) => {
     const imgs = [...files].filter((f) => f.type.startsWith('image/'));
@@ -57,10 +82,10 @@ export function ChatPanel(p: Props) {
     <div
       className={`chat-panel ${dragOver ? 'drag' : ''}`}
       onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragOver(true); } }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
-      onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false); }}
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); addFiles(e.dataTransfer.files); }}
     >
-      <div className="chat-scroll" ref={scroller}>
+      <div className="chat-scroll" ref={scroller} onScroll={(e) => { const el = e.currentTarget; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
         {p.messages.length === 0 && (
           <div className="chat-intro">
             <h3>Describe what you want to print</h3>
@@ -87,8 +112,8 @@ export function ChatPanel(p: Props) {
           <div className="attachments">
             {images.map((src, i) => (
               <div key={i} className="thumb">
-                <img src={src} alt="" />
-                <button onClick={() => setImages(images.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
+                <img src={src} alt={`Attached photo ${i + 1}`} />
+                <button onClick={() => setImages(images.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`}><Icon name="x" size={12} /></button>
               </div>
             ))}
           </div>
@@ -98,19 +123,21 @@ export function ChatPanel(p: Props) {
           value={text}
           placeholder={p.hasModel ? 'Ask for changes, e.g. "make the spiral longer and add a bottle cap lifter"' : 'Describe the object… (paste or drop photos)'}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          aria-label={p.hasModel ? 'Ask Claude for changes' : 'Describe the object'}
+          // Enter that confirms an input-method (IME) candidate is not a send.
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); } }}
           onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); addFiles(files); } }}
           rows={3}
         />
         <div className="composer-bar">
-          <button className="icon-btn" title="Attach reference photos" onClick={() => fileInput.current?.click()}><Icon name="image" /></button>
+          <button className="icon-btn" title="Attach reference photos" aria-label="Attach reference photos" onClick={() => fileInput.current?.click()}><Icon name="image" /></button>
           <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
-          <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model">
+          <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
             <option value="opus">Opus</option>
             <option value="sonnet">Sonnet</option>
             <option value="haiku">Haiku</option>
           </select>
-          <select value={p.effort} onChange={(e) => p.onEffort(e.target.value)} title="Reasoning effort">
+          <select value={p.effort} onChange={(e) => p.onEffort(e.target.value)} title="Reasoning effort" aria-label="Reasoning effort">
             <option value="medium">Medium</option>
             <option value="high">High</option>
             <option value="xhigh">X-High</option>
@@ -130,10 +157,15 @@ export function ChatPanel(p: Props) {
             ? <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>
             : <button className="btn primary" onClick={send} disabled={p.busyElsewhere || (!text.trim() && !images.length)} title={p.hasModel ? 'Update' : 'Design'}><Icon name="send" /> <span className="btn-label">{p.hasModel ? 'Update' : 'Design'}</span></button>}
         </div>
-        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note">Claude is working on this design in another tab</span></div>}
+        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Claude is working on this design in another tab</span></div>}
       </div>
       {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
-      {lightbox && <div className="lightbox" onClick={() => setLightbox(null)}><img src={lightbox} alt="" /></div>}
+      {lightbox && (
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged image" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="" />
+          <button className="lightbox-close" autoFocus onClick={() => setLightbox(null)} aria-label="Close (Esc)"><Icon name="x" size={16} /></button>
+        </div>
+      )}
     </div>
   );
 }
@@ -156,7 +188,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
   if (m.role === 'user') {
     return (
       <div className="msg user">
-        {m.images?.length ? <div className="msg-images">{m.images.map((src, i) => <img key={i} src={src} alt="" onClick={() => onImage(src)} />)}</div> : null}
+        {m.images?.length ? <div className="msg-images">{m.images.map((src, i) => <ImageButton key={i} src={src} alt={`Reference photo ${i + 1}`} onOpen={onImage} />)}</div> : null}
         {m.text && <div className="bubble">{m.text}</div>}
       </div>
     );
@@ -210,12 +242,12 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
       {showSteps && (
         <ol className="steps">
           {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
-          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text">{m.live ?? 'Starting…'}</span></li>}
+          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span></li>}
         </ol>
       )}
       {!showSteps && renders.length > 0 && (
         <div className="render-strip">
-          {renders.slice(-1).map((s, i) => <img key={i} src={s.image} alt="render" onClick={() => onImage(s.image!)} />)}
+          {renders.slice(-1).map((s, i) => <ImageButton key={i} src={s.image!} alt="Latest render" onOpen={onImage} />)}
         </div>
       )}
       {m.text && <div className="bubble md-bubble"><Markdown text={m.text} /></div>}
@@ -224,15 +256,15 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
           <div className="assembly-title">Assembly</div>
           <div className="assembly-grid">
             {assembly.map((s, i) => (
-              <figure key={i} onClick={() => onImage(s.image!)}>
-                <img src={s.image} alt={s.text} />
+              <figure key={i}>
+                <ImageButton src={s.image!} alt={s.text} onOpen={onImage} />
                 <figcaption>{s.text}</figcaption>
               </figure>
             ))}
           </div>
         </div>
       )}
-      {m.error && <div className="bubble error"><Icon name="alert" size={14} /> {m.error}</div>}
+      {m.error && <div className="bubble error" role="alert"><Icon name="alert" size={14} /> {m.error}</div>}
       {m.versionIndex != null && versions[m.versionIndex] && (
         <div className="version-row">
           <span className="version-chip">v{m.versionIndex + 1}</span>
@@ -267,9 +299,14 @@ function Step({ s, onImage }: { s: AgentStep; onImage: (src: string) => void }) 
     <li className={`step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
       {s.at != null && <span className="step-time">{fmtElapsed(s.at)}</span>}
       <span className="step-text" onClick={() => long && setExpanded(!expanded)}>{expanded || !long ? s.text : clip(s.text, 160)}</span>
-      {s.image && <img src={s.image} alt="render" onClick={() => onImage(s.image!)} />}
+      {s.image && <ImageButton src={s.image} alt="Render" onOpen={onImage} />}
     </li>
   );
+}
+
+/** A picture that opens enlarged: a real button, so it works from the keyboard too. */
+function ImageButton({ src, alt, onOpen }: { src: string; alt: string; onOpen: (src: string) => void }) {
+  return <button className="img-btn" onClick={() => onOpen(src)} aria-label={`${alt} – enlarge`}><img src={src} alt={alt} /></button>;
 }
 
 /** Where the thinking panel opens: just right of the chat column, level with `el`. */
