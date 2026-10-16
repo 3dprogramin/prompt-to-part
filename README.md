@@ -29,7 +29,7 @@ Requires Node ≥ 20.19 and a logged-in `claude` CLI (`claude` → `/login`). Op
   - `evaluate_model`: errors with line numbers, bounding boxes, volumes, disconnected-piece and build-plate checks
   - `render_model`: a software-rendered ISO/front/right/top sheet with a mm grid, so Claude can compare against your photos
   - `submit_model`: evaluates every slider at its min and max and rejects the model if any combination breaks. Multi-part designs also need an assembly sequence and assembly pictures.
-- **Web search** (the *Web* toggle in the chat, off for every new design and never saved): Claude may use web search and read pages to find exact dimensions of products you name, puts them into parameters and tells you its sources and which numbers are estimates. With it off, Claude says which dimensions come from memory.
+- **Web search** (the globe button next to the model picker, off for every new design and never saved): Claude may use web search and read pages to find exact dimensions of products you name, puts them into parameters and tells you its sources and which numbers are estimates. With it off, Claude says which dimensions come from memory.
 - **Model and effort** start at Opus / High for every new design; a change applies to that design until you reload.
 - **Follow-ups** resume the same Claude session and send what you are looking at: a screenshot of the viewer and a four-view render with your current slider values, scale and text, plus a note if you restored an older version or edited the code.
 - **System prompt**: `server/systemPrompt.ts` covers conventions (mm, Z-up, on the bed), the API reference, the helper library, printability rules and print-setting suggestions.
