@@ -51,14 +51,19 @@ export const SETTING_LABELS: Record<keyof PrintSettings, string> = {
   infill: 'Infill', infillPattern: 'Infill pattern', supports: 'Supports', brim: 'Brim',
 };
 
-const clampInt = (v: unknown, lo: number, hi: number) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : undefined);
+/** A number, or a numeric string; null, '', false and the like mean "not set" (they are not 0). */
+const num = (v: unknown): number | undefined => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : undefined;
+};
+const clampInt = (v: unknown, lo: number, hi: number) => { const n = num(v); return n == null ? undefined : Math.min(hi, Math.max(lo, Math.round(n))); };
 
 /** Sanitise settings from a script or saved JSON; drops anything invalid. */
 export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const out: PrintSettings = {};
-  if (allowLayer && Number.isFinite(Number(o.layerHeight))) {
-    const lh = Number(o.layerHeight);
+  const lh = num(o.layerHeight);
+  if (allowLayer && lh != null) {
     out.layerHeight = LAYER_HEIGHTS.reduce((a, b) => (Math.abs(b - lh) < Math.abs(a - lh) ? b : a));
   }
   const walls = clampInt(o.walls, 1, 10); if (walls != null) out.walls = walls;
@@ -72,9 +77,10 @@ export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
   if (o.supports === 'off' || o.supports === 'normal' || o.supports === 'tree') out.supports = o.supports;
   else if (o.supports === true) out.supports = 'tree';
   else if (o.supports === false) out.supports = 'off';
+  const brim = num(o.brim);
   if (o.brim === 'auto' || o.brim === 'none') out.brim = o.brim;
-  else if (Number.isFinite(Number(o.brim)) && Number(o.brim) > 0) out.brim = Math.min(20, Number(o.brim));
-  else if (Number(o.brim) === 0) out.brim = 'none';
+  else if (brim != null && brim > 0) out.brim = Math.min(20, brim);
+  else if (brim === 0) out.brim = 'none';
   return out;
 }
 

@@ -6,12 +6,18 @@ import { evaluateScript, formatScriptError, initRuntime, runtimeTrapped } from '
 import { solveDimension } from '../../shared/solver';
 import { withFonts } from '../../shared/text';
 import { validateResult, type ValidateOptions } from './validate';
+import { api, HttpError } from '../lib/api';
 
 async function loadFont(id: string): Promise<ArrayBuffer[]> {
-  const r = await fetch(`/api/fonts/data?id=${encodeURIComponent(id)}`);
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
-  const { files } = (await r.json()) as { files: string[] };
-  return files.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
+  try {
+    const { files } = await api.fontData(id);
+    return files.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
+  } catch (e) {
+    // Only "no such font" (404) means falling back to the default font; anything else (the
+    // server restarting) is retried on the next evaluation.
+    if (!(e instanceof HttpError && e.status === 404)) Object.assign(e as Error, { transient: true });
+    throw e;
+  }
 }
 import type { DimTarget, ParamValues, Quality } from '../../shared/types';
 

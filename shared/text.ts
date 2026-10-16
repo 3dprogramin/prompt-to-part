@@ -17,19 +17,27 @@ interface LoadedFont { faces: opentype.Font[] }
 
 const fonts = new Map<string, LoadedFont>();
 const failed = new Map<string, string>();
+// Fonts replaced by the default during the current evaluation (see takeFontSubstitutions).
+const substituted = new Set<string>();
 
 export function registerFont(id: string, buffers: ArrayBuffer[]) {
   fonts.set(id, { faces: buffers.map((b) => opentype.parse(b)) });
 }
 export function markFontFailed(id: string, reason: string) { failed.set(id, reason); }
-export function hasFont(id: string) { return fonts.has(id) || failed.has(id); }
+
+/** Fonts that were not available and were replaced by the default since the last call. */
+export function takeFontSubstitutions(): string[] {
+  const out = [...substituted];
+  substituted.clear();
+  return out;
+}
 
 function getFont(id: string | undefined): LoadedFont {
   const key = id || DEFAULT_FONT;
   const f = fonts.get(key);
   if (f) return f;
   if (failed.has(key)) {
-    if (key !== DEFAULT_FONT) return getFont(DEFAULT_FONT);
+    if (key !== DEFAULT_FONT) { substituted.add(key); return getFont(DEFAULT_FONT); }
     throw new Error(`Default font failed to load: ${failed.get(key)}`);
   }
   throw new FontMissingError(key);
@@ -190,6 +198,9 @@ export async function withFonts<T>(fn: () => T, load: (id: string) => Promise<Ar
       try {
         registerFont(e.fontId, await load(e.fontId));
       } catch (err) {
+        // A font that doesn't exist falls back to the default; a failed download (server
+        // restarting) fails this evaluation instead of switching fonts for the whole session.
+        if ((err as { transient?: boolean }).transient) throw err;
         markFontFailed(e.fontId, (err as Error).message);
       }
     }

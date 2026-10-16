@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../shared/types';
-import { SCALE_KEY } from '../shared/runtime';
+import { resolveValues, SCALE_KEY } from '../shared/runtime';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
@@ -17,7 +17,6 @@ import { DesignTabs, type DesignTab } from './components/DesignTabs';
 import { VersionMenu } from './components/VersionMenu';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
-import type { ValidationReport } from './geometry/validate';
 import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
@@ -143,9 +142,11 @@ export default function App() {
     const r = result ?? lastGood;
     const part = r?.parts.find((p) => p.name === hit.part);
     if (!picking || !part) return;
+    // Relative to the part without text-tool text, as applyTextFeatures maps it back.
+    const box = part.textBase ?? part.bbox;
     const anchor = [0, 1, 2].map((k) => {
-      const span = part.bbox.max[k] - part.bbox.min[k];
-      return span > 1e-6 ? (hit.point[k] - part.bbox.min[k]) / span : 0.5;
+      const span = box.max[k] - box.min[k];
+      return span > 1e-6 ? (hit.point[k] - box.min[k]) / span : 0.5;
     }) as [number, number, number];
     setTextFeatures(textFeatures.map((f) => (f.id === picking ? { ...f, face: 'pick', anchor, normal: hit.normal, part: hit.part, offset: [0, 0] } : f)));
     setPicking(null);
@@ -332,9 +333,17 @@ export default function App() {
     saveSoon(design);
   }, [design, saveSoon]);
 
+  // A newly opened design never shows (or exports) the previous one's model while its own builds.
+  useEffect(() => {
+    resultCode.current = '';
+    setResult(null);
+    setLastGood(null);
+    setError(null);
+  }, [design.id]);
+
   // Live evaluation whenever code, values or quality change.
   useEffect(() => {
-    if (!design.code.trim()) { resultCode.current = ''; setResult(null); setLastGood(null); setError(null); return; }
+    if (!design.code.trim()) { resultCode.current = ''; setResult(null); setLastGood(null); setError(null); setBusy(false); return; }
     let cancelled = false;
     setBusy(true);
     geo.preview(design.code, design.values, quality).then((o) => {
@@ -344,7 +353,7 @@ export default function App() {
       else { setError(o.error); setResult(null); }
     });
     return () => { cancelled = true; };
-  }, [design.code, design.values, quality]);
+  }, [design.id, design.code, design.values, quality]);
 
   // Name untitled designs after the model.
   useEffect(() => {
@@ -377,7 +386,7 @@ export default function App() {
         prompt: text,
         images: images.map(dataUrlToImage),
         code: design.code || undefined,
-        values: (result ?? lastGood)?.values,
+        values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
         textNote: describeText(textFeatures),
         ...current,
         sessionId: design.sessionId,
@@ -503,22 +512,16 @@ export default function App() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  /** Keep only issues about the exported parts (plus model-wide ones). */
-  const forParts = (report: ValidationReport, names: string[]): ValidationReport => ({
-    ...report,
-    issues: report.issues.filter((i) => !i.part || names.includes(i.part)),
-  });
-
   const layoutValue = layoutKey ? String(design.values[layoutKey] ?? shown?.values[layoutKey] ?? '') : undefined;
 
   const onValidate = async () => {
     if (!design.code || !shown) return;
     setValidating(true);
     try {
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, ...printHints() });
+      const parts = shown.parts.map((p) => p.name).filter((n) => !viewOpts.hiddenParts.includes(n));
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, parts, ...printHints() });
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
-      const names = o.result.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name)).map((p) => p.name);
-      setValidation({ report: forParts(o.report, names), label: 'Validation' });
+      setValidation({ report: o.report, label: 'Validation' });
       setValidationOpen(true);
       setNotice(null);
     } finally {
@@ -578,10 +581,12 @@ export default function App() {
     return { currentView, renderValues, scale: scale !== 1 ? scale : undefined, versionNote };
   };
 
-  /** Current values including the uniform scale (which is not a script parameter). */
-  /** Everything needed to rebuild exactly what is shown: sliders, uniform scale and text-tool text. */
+  /**
+   * Everything needed to rebuild the model as the user has set it: the sliders as they are now
+   * (not as last evaluated – a slow preview may still be running), uniform scale and text-tool text.
+   */
   const fullValues = (): ParamValues => {
-    const out: ParamValues = { ...((result ?? lastGood)?.values ?? {}) };
+    const out: ParamValues = resolveValues((result ?? lastGood)?.params ?? {}, design.values);
     const sc = design.values[SCALE_KEY];
     if (sc != null && sc !== 1) out[SCALE_KEY] = sc;
     if (design.values[TEXT_KEY] != null) out[TEXT_KEY] = design.values[TEXT_KEY];
@@ -612,10 +617,17 @@ export default function App() {
     setExporting(true);
     setExportError(null);
     try {
-      // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh.
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, ...printHints() });
-      const r = o.result ?? base;
-      const parts = partName ? r.parts.filter((p) => p.name === partName) : r.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name));
+      // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
+      // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
+      // or may be from other settings, and the file would not be what the user expects.
+      const names = partName ? [partName] : base.parts.map((p) => p.name).filter((n) => !viewOpts.hiddenParts.includes(n));
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, parts: names, ...printHints() });
+      if (!o.result) {
+        setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
+        return;
+      }
+      const r = o.result;
+      const parts = r.parts.filter((p) => names.includes(p.name));
       if (!parts.length) return;
       const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
       const file = `${name}.${format}`;
@@ -625,7 +637,7 @@ export default function App() {
       });
       download(blob, file); // always export – problems are reported, not blocking
       if (o.report) {
-        const report = forParts(o.report, parts.map((p) => p.name));
+        const report = o.report;
         const sum = summarize(report.issues);
         setValidation({ report, label: `Exported ${file}` });
         setValidationOpen(false);

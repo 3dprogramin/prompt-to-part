@@ -83,6 +83,8 @@ export interface PartMesh {
   positions: Float32Array;
   indices: Uint32Array;
   bbox: Box3;
+  /** Bounding box before the text tool's features were applied (only when there are some). */
+  textBase?: Box3;
   volume: number;
   surfaceArea: number;
   triCount: number;

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { fitProblem, PRINTER } from '../../shared/printer';
 import { overlapVolume } from '../../shared/runtime';
-import type { EvalResult, PartMesh } from '../../shared/types';
+import type { EvalResult, PartMesh, Vec3 } from '../../shared/types';
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -31,8 +31,8 @@ export interface ValidationReport {
 }
 
 const OVERHANG_NZ = -Math.SQRT1_2; // normal pointing down more than 45° from vertical
-const MIN_WALL_WARN = 0.8; // two 0.4 mm perimeters
-const MIN_WALL_ERROR = 0.4; // one extrusion line
+const MIN_WALL_WARN = 2 * PRINTER.nozzle; // two perimeters
+const MIN_WALL_ERROR = PRINTER.nozzle; // one extrusion line
 const BED_EPS = 0.05;
 
 interface PartAnalysis {
@@ -168,6 +168,13 @@ function analysePart(part: PartMesh, rand: () => number): PartAnalysis {
   return { part, openEdges, nonManifoldEdges, flippedEdges, degenerate, signedVolume, area, bedContact, overhangArea, overhangTris, pieces, minWall, thinArea, thinPoints };
 }
 
+function boundsOf(parts: PartMesh[]): EvalResult['bbox'] {
+  if (!parts.length) return null;
+  const min = [0, 1, 2].map((k) => Math.min(...parts.map((p) => p.bbox.min[k]))) as Vec3;
+  const max = [0, 1, 2].map((k) => Math.max(...parts.map((p) => p.bbox.max[k]))) as Vec3;
+  return { min, max };
+}
+
 /** Deterministic RNG so the same mesh always gives the same report. */
 function mulberry32(seed: number) {
   return () => {
@@ -182,13 +189,19 @@ const f1 = (n: number) => n.toFixed(1);
 
 export interface ValidateOptions {
   layoutValue?: string;
+  /** Check only these parts (the ones being exported); default: all. */
+  parts?: string[];
   /** Parts that will print with supports / an explicit brim (from the print settings). */
   supportParts?: string[];
   brimParts?: string[];
 }
 
-export function validateResult(result: EvalResult, opts: ValidateOptions = {}): ValidationReport {
+export function validateResult(all: EvalResult, opts: ValidateOptions = {}): ValidationReport {
   const t0 = performance.now();
+  // Parts left out of the export (hidden, or another part exported alone) are not checked: the
+  // size and overlap checks are about what is actually printed.
+  const keep = opts.parts ? all.parts.filter((p) => opts.parts!.includes(p.name)) : all.parts;
+  const result = { ...all, parts: keep, bbox: boundsOf(keep) };
   const issues: ValidationIssue[] = [];
   const add = (severity: Severity, title: string, detail: string, part?: string) => issues.push({ severity, title, detail, part });
   const rand = mulberry32(12345);
@@ -216,6 +229,10 @@ export function validateResult(result: EvalResult, opts: ValidateOptions = {}): 
     area += a.area; overhangArea += a.overhangArea; bedContact += a.bedContact; volume += Math.abs(a.signedVolume);
     if (a.minWall != null) minWall = minWall == null ? a.minWall : Math.min(minWall, a.minWall);
 
+    // A sealed cavity (hollow float, closed magnet pocket) is a surface with negative volume: it
+    // is inside another piece, not a separate one.
+    const solids = a.pieces.filter((p) => p.volume > 0);
+
     // mesh integrity
     if (a.openEdges) add('error', `${label}Mesh has holes`, `${a.openEdges} open edges – the surface is not closed, slicers may fill it wrongly.`, name);
     if (a.nonManifoldEdges) add('error', `${label}Non-manifold edges`, `${a.nonManifoldEdges} edges are shared by more than two faces.`, name);
@@ -240,11 +257,11 @@ export function validateResult(result: EvalResult, opts: ValidateOptions = {}): 
           else add('warning', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the ${PRINTER.name}'s moving bed can make it wobble. Use a brim, slow down, or print it lying down.`, name);
         }
       }
-      const floating = a.pieces.filter((p) => p.minZ > minZ + BED_EPS);
+      const floating = solids.filter((p) => p.minZ > minZ + BED_EPS);
       if (floating.length) add('error', `${label}Pieces in mid-air`, `${floating.length} separate piece${floating.length > 1 ? 's start' : ' starts'} above the plate with nothing under ${floating.length > 1 ? 'them' : 'it'} (lowest at ${f1(Math.min(...floating.map((p) => p.minZ)))} mm).`, name);
     }
-    if (a.pieces.length > 1) add('info', `${label}${a.pieces.length} separate pieces`, 'This part is made of pieces that do not touch – each prints as its own object.', name);
-    const tiny = a.pieces.filter((p) => Math.abs(p.volume) < 2);
+    if (solids.length > 1) add('info', `${label}${solids.length} separate pieces`, 'This part is made of pieces that do not touch – each prints as its own object.', name);
+    const tiny = solids.filter((p) => p.volume < 2);
     if (tiny.length) add('warning', `${label}Tiny pieces`, `${tiny.length} piece${tiny.length > 1 ? 's are' : ' is'} smaller than 2 mm³ and may not print.`, name);
 
     // overhangs
@@ -257,9 +274,9 @@ export function validateResult(result: EvalResult, opts: ValidateOptions = {}): 
 
     // thin walls
     if (a.minWall != null && a.minWall < MIN_WALL_ERROR && a.thinArea > 0.5) {
-      add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a 0.4 mm nozzle cannot print below ~0.4 mm). About ${f1(a.thinArea)} mm² is affected.`, name);
+      add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a ${PRINTER.nozzle} mm nozzle cannot print below ~${MIN_WALL_ERROR} mm). About ${f1(a.thinArea)} mm² is affected.`, name);
     } else if (a.minWall != null && a.minWall < MIN_WALL_WARN && a.thinArea > 1) {
-      add('warning', `${label}Thin walls`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm – thinner than two perimeters (0.8 mm), so it will be weak. About ${f1(a.thinArea)} mm² is affected.`, name);
+      add('warning', `${label}Thin walls`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm – thinner than two perimeters (${MIN_WALL_WARN} mm), so it will be weak. About ${f1(a.thinArea)} mm² is affected.`, name);
     }
 
     for (const t of a.overhangTris) {

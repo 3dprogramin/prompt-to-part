@@ -20,7 +20,7 @@ export interface TextFeature {
   face: TextFace;
   /** Target part name (defaults to the first part) */
   part?: string;
-  /** Normalised point inside the part's bounding box (used with face 'pick') */
+  /** Normalised point inside the bounding box of the part without text-tool text (used with face 'pick') */
   anchor: Vec3;
   /** Surface normal for face 'pick' */
   normal: Vec3;
@@ -79,13 +79,17 @@ export function applyTextFeatures(
   C: typeof CrossSection,
 ): Manifold {
   let out = shape;
+  // A picked point was measured against the part without any text (PartMesh.textBase), so it
+  // stays where it was clicked however much text is added.
+  const base = shape.boundingBox();
   for (const f of features) {
     if (!f.enabled || !f.text.trim() || !(f.size > 0) || !(f.depth > 0)) continue;
     const bb = out.boundingBox();
     const size: Vec3 = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
     const preset = f.face === 'pick' ? { anchor: f.anchor, normal: f.normal } : FACE_DIRS[f.face];
     const n = norm(preset.normal);
-    const a0: Vec3 = [0, 1, 2].map((k) => bb.min[k] + preset.anchor[k] * size[k]) as Vec3;
+    const box = f.face === 'pick' ? base : bb;
+    const a0: Vec3 = [0, 1, 2].map((k) => box.min[k] + preset.anchor[k] * (box.max[k] - box.min[k])) as Vec3;
     // Snap the anchor onto the actual surface by casting a ray inwards along -normal.
     const diag = Math.hypot(...size) + 10;
     const origin: Vec3 = [a0[0] + n[0] * diag, a0[1] + n[1] * diag, a0[2] + n[2] * diag];

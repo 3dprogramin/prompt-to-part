@@ -2,7 +2,7 @@
 // the Node worker (validation + rendering for the AI agent).
 import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { parse } from 'acorn';
-import { FontMissingError, layoutText, type TextLayoutOptions } from './text';
+import { FontMissingError, layoutText, takeFontSubstitutions, type TextLayoutOptions } from './text';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { cleanProfile } from './print';
 import type {
@@ -793,6 +793,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   const logs: string[] = [];
   const warnings: string[] = [];
   applyQuality(rt.wasm, quality);
+  takeFontSubstitutions();
   try {
     const H = makeHelpers(rt, quality);
     let scope;
@@ -855,7 +856,10 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (scale !== 1) shape = shape.scale(scale);
       name = partNames[i];
       const mine = textFeatures.filter((f) => (f.part && partNames.includes(f.part) ? f.part === name : i === 0));
+      let textBase: Box3 | undefined;
       if (mine.length) {
+        const tb = shape.boundingBox();
+        textBase = { min: [tb.min[0], tb.min[1], tb.min[2]], max: [tb.max[0], tb.max[1], tb.max[2]] };
         try {
           shape = applyTextFeatures(shape, mine, rt.Manifold, rt.CrossSection);
         } catch (e) {
@@ -869,7 +873,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }
       if (opts.lite) {
         const bb = shape.boundingBox();
-        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1 });
+        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1 });
         return;
       }
       const mesh = shape.getMesh();
@@ -881,9 +885,10 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       const bb = shape.boundingBox();
       parts.push({
         name, color, positions, indices: new Uint32Array(mesh.triVerts),
-        bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] },
+        bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase,
         volume: shape.volume(), surfaceArea: shape.surfaceArea(), triCount: shape.numTri(), genus: shape.genus(),
-        components: shape.decompose().length,
+        // A sealed cavity is a component with negative volume: it is not a separate piece.
+        components: shape.decompose().filter((c: Manifold) => c.volume() > 0).length,
       });
     });
 
@@ -919,6 +924,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       }
       assembly.push(step);
     });
+    for (const f of takeFontSubstitutions()) warnings.push(`Font "${f.replace(/^(std|sys):/, '').replace('|', ' ')}" is not available – the text uses Roboto Bold instead`);
     const print = cleanProfile(rawPrint, parts.map((p) => p.name));
     return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
   } catch (e) {

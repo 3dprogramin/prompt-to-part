@@ -1,7 +1,7 @@
 // Bambu Studio project 3MF: A1 + PLA template from the user's Bambu Studio, per-object print-setting
 // overrides, and one filament per colour. Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
-import { A1_DEFAULTS, bambuOverrides, effectiveSettings, type PrintProfile } from '../../shared/print';
+import { A1_DEFAULTS, bambuOverrides, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
 import type { PartMesh } from '../../shared/types';
 
 export interface BambuTemplate {
@@ -17,6 +17,21 @@ const NS = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xm
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 const num = (n: number) => (Math.abs(n) < 1e-9 ? '0' : String(+n.toFixed(5)));
 const ID = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
+
+/** Settings Bambu Studio keeps per object only: a part (volume) can't have its own. */
+const OBJECT_ONLY = new Set(['layer_height', 'enable_support', 'support_type', 'brim_type', 'brim_width']);
+
+/**
+ * Settings of an object made of several parts: the main part's, with supports on if any part needs
+ * them and the widest explicit brim (those can only be set for the whole object).
+ */
+function objectSettings(main: Required<PrintSettings>, all: Required<PrintSettings>[]): Required<PrintSettings> {
+  const out = { ...main };
+  if (out.supports === 'off') out.supports = all.find((s) => s.supports !== 'off')?.supports ?? 'off';
+  const widths = all.map((s) => s.brim).filter((b): b is number => typeof b === 'number');
+  if (widths.length) out.brim = Math.max(...widths);
+  return out;
+}
 
 /** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine). */
 function clusters(parts: PartMesh[]): number[][] {
@@ -84,11 +99,16 @@ export function toBambuProject(
     rels.push(`<Relationship Target="/${file}" Id="rel-${gi + 1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
     resources.push(`<object id="${objId}" type="model"><components>${meshIds.map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
     items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
-    // Objects only carry what differs from the model-wide settings (which live in the project).
-    const overrides = opts.print ? bambuOverrides(effectiveSettings(opts.print.ai, opts.print.user, parts[main].name), globalSettings) : {};
+    // Objects only carry what differs from the model-wide settings (which live in the project), and
+    // each part what differs from its object.
+    const own = group.map((i) => (opts.print ? effectiveSettings(opts.print.ai, opts.print.user, parts[i].name) : globalSettings));
+    const objSettings = objectSettings(own[group.indexOf(main)], own);
+    const overrides = opts.print ? bambuOverrides(objSettings, globalSettings) : {};
     const name = group.length > 1 ? `${parts[main].name} (+${group.length - 1})` : parts[main].name;
-    const partCfg = group.map((i, k) =>
-      `<part id="${meshIds[k]}" subtype="normal_part"><metadata key="name" value="${esc(parts[i].name)}"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${slot[i]}"/></part>`).join('');
+    const partCfg = group.map((i, k) => {
+      const partOverrides = Object.entries(bambuOverrides(own[k], objSettings)).filter(([key]) => !OBJECT_ONLY.has(key));
+      return `<part id="${meshIds[k]}" subtype="normal_part"><metadata key="name" value="${esc(parts[i].name)}"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${slot[i]}"/>${partOverrides.map(([key, v]) => `<metadata key="${key}" value="${esc(v)}"/>`).join('')}</part>`;
+    }).join('');
     objectCfg.push(`<object id="${objId}"><metadata key="name" value="${esc(name)}"/><metadata key="extruder" value="${slot[main]}"/>${Object.entries(overrides).map(([k, v]) => `<metadata key="${k}" value="${esc(v)}"/>`).join('')}${partCfg}</object>`);
     instances.push(`<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`);
   });
@@ -104,6 +124,12 @@ export function toBambuProject(
   settings.filament_colour = colours;
   settings.filament_self_index = colours.map((_, i) => String(i + 1));
   settings.filament_map = colours.map(() => '1');
+  // Purge volumes between filaments: an n × n matrix (nothing on the diagonal) and two values per
+  // filament; the slicer refuses a project whose matrix has a different size.
+  const purge = (tpl.settings.flush_volumes_matrix as string[] | undefined)?.find((v) => v !== '0') ?? '280';
+  const vector = (tpl.settings.flush_volumes_vector as string[] | undefined)?.[0] ?? '140';
+  settings.flush_volumes_matrix = colours.flatMap((_, i) => colours.map((_, j) => (i === j ? '0' : purge)));
+  settings.flush_volumes_vector = colours.flatMap(() => [vector, vector]);
   // Changed process values, recorded the way Bambu Studio does so they show as modified.
   Object.assign(settings, globalChanges);
   const diff = settings.different_settings_to_system as string[];

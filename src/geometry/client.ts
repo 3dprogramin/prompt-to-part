@@ -11,6 +11,7 @@ interface Job {
   quality: Quality;
   solve?: { target: DimTarget; goal: number };
   validate?: ValidateOptions;
+  timeoutMs: number;
   resolve: (o: any) => void;
   /** Set once the job has been re-run after a worker crash. */
   retried?: boolean;
@@ -18,7 +19,9 @@ interface Job {
 
 interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean }
 
-const TIMEOUT_MS = 30000;
+// A live preview should be quick; an export or validation at high quality may take longer.
+const PREVIEW_TIMEOUT_MS = 30000;
+const JOB_TIMEOUT_MS = 120000;
 
 /**
  * Evaluates model scripts in a Web Worker. Live-preview requests are coalesced:
@@ -75,7 +78,7 @@ export class GeometryClient {
   preview(code: string, values: ParamValues, quality: Quality): Promise<EvalOutcome | null> {
     return new Promise((resolve) => {
       if (this.pending) this.pending.resolve(null as unknown as EvalOutcome);
-      this.pending = { code, values, quality, resolve: resolve as Job['resolve'] };
+      this.pending = { code, values, quality, timeoutMs: PREVIEW_TIMEOUT_MS, resolve: resolve as Job['resolve'] };
       this.pump();
     });
   }
@@ -83,7 +86,7 @@ export class GeometryClient {
   /** Guaranteed evaluation (e.g. high-quality export); runs before any pending preview. Optionally validates the mesh. */
   evaluate(code: string, values: ParamValues, quality: Quality, validate?: ValidateOptions): Promise<EvalOutcome> {
     return new Promise((resolve) => {
-      this.queue.push({ code, values, quality, validate, resolve });
+      this.queue.push({ code, values, quality, validate, timeoutMs: JOB_TIMEOUT_MS, resolve });
       this.pump();
     });
   }
@@ -91,7 +94,7 @@ export class GeometryClient {
   /** Find the parameter value that makes a dimension hit `goal` mm. */
   solve(code: string, values: ParamValues, quality: Quality, target: DimTarget, goal: number): Promise<SolveResult> {
     return new Promise((resolve) => {
-      this.queue.push({ code, values, quality, solve: { target, goal }, resolve });
+      this.queue.push({ code, values, quality, solve: { target, goal }, timeoutMs: JOB_TIMEOUT_MS, resolve });
       this.pump();
     });
   }
@@ -110,10 +113,10 @@ export class GeometryClient {
       // Script hung: kill the worker and start a fresh one.
       this.running = null;
       this.restart();
-      const message = `Evaluation timed out after ${TIMEOUT_MS / 1000}s`;
+      const message = `Evaluation timed out after ${job.timeoutMs / 1000} s – the script is too slow at this quality (or loops forever)`;
       job.resolve(job.solve ? { ok: false, message } : { error: { message, stage: 'build' } });
       this.pump();
-    }, TIMEOUT_MS);
+    }, job.timeoutMs);
     this.running = { id, job, timer };
     this.worker.postMessage(job.solve
       ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }
