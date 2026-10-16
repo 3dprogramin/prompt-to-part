@@ -9,6 +9,10 @@ interface Props {
   versions: DesignVersion[];
   currentVersion: number;
   generating: boolean;
+  /** Another browser tab is generating this design. */
+  busyElsewhere: boolean;
+  verbose: boolean;
+  onVerbose: (v: boolean) => void;
   onSend: (text: string, images: string[]) => void;
   onStop: () => void;
   onRestore: (versionIndex: number) => void;
@@ -40,7 +44,7 @@ export function ChatPanel(p: Props) {
   };
 
   const send = () => {
-    if (p.generating || (!text.trim() && !images.length)) return;
+    if (p.generating || p.busyElsewhere || (!text.trim() && !images.length)) return;
     p.onSend(text.trim(), images);
     setText('');
     setImages([]);
@@ -71,7 +75,7 @@ export function ChatPanel(p: Props) {
           </div>
         )}
         {p.messages.map((m, i) => (
-          <Message key={m.id} m={m} live={p.generating && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={setLightbox} />
+          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} verbose={p.verbose} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={setLightbox} />
         ))}
       </div>
 
@@ -112,7 +116,13 @@ export function ChatPanel(p: Props) {
           <span className="spacer" />
           {p.generating
             ? <button className="btn danger" onClick={p.onStop}><Icon name="stop" /> Stop</button>
-            : <button className="btn primary" onClick={send} disabled={!text.trim() && !images.length}><Icon name="send" /> {p.hasModel ? 'Update' : 'Design'}</button>}
+            : <button className="btn primary" onClick={send} disabled={p.busyElsewhere || (!text.trim() && !images.length)}><Icon name="send" /> {p.hasModel ? 'Update' : 'Design'}</button>}
+        </div>
+        <div className="composer-opts">
+          <label className="check" title="Show every step Claude takes (thinking, tool calls, file edits, retries) while it works">
+            <input type="checkbox" checked={p.verbose} onChange={(e) => p.onVerbose(e.target.checked)} /> Verbose progress
+          </label>
+          {p.busyElsewhere && <span className="busy-note">Claude is working on this design in another tab</span>}
         </div>
       </div>
       {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
@@ -121,11 +131,12 @@ export function ChatPanel(p: Props) {
   );
 }
 
-function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
-  m: ChatMessage; live: boolean; versions: DesignVersion[]; currentVersion: number;
+function Message({ m, live, verbose, versions, currentVersion, onRestore, onImage }: {
+  m: ChatMessage; live: boolean; verbose: boolean; versions: DesignVersion[]; currentVersion: number;
   onRestore: (i: number) => void; onImage: (src: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const elapsed = useElapsed(live ? m.createdAt : null);
   if (m.role === 'user') {
     return (
       <div className="msg user">
@@ -134,20 +145,26 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
       </div>
     );
   }
-  const steps = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text));
+  const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text));
+  const steps = verbose ? all : all.filter((s) => !s.verbose);
   const renders = steps.filter((s) => s.kind === 'render' && s.image);
-  const showSteps = live || open;
+  // Verbose: the full log is open while Claude works. Compact: one status line unless expanded.
+  const showSteps = (live && verbose) || open;
   const lastStatus = [...steps].reverse().find((s) => s.kind !== 'render');
+  const headline = live
+    ? (verbose ? 'Working' : m.live ?? (lastStatus ? clip(lastStatus.text, 70) : 'Starting…'))
+    : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`;
   return (
     <div className="msg assistant">
       <button className="steps-toggle" onClick={() => setOpen(!open)}>
         {live ? <span className="spinner" /> : <Icon name={m.error ? 'alert' : 'check'} size={14} />}
-        <span>{live ? (lastStatus ? clip(lastStatus.text, 70) : 'Starting…') : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`}</span>
-        {!live && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
+        <span>{headline}{live && <span className="elapsed"> · {fmtElapsed(elapsed)}</span>}</span>
+        {(!live || !verbose) && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
       </button>
       {showSteps && (
         <ol className="steps">
-          {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
+          {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} showTime={verbose} />)}
+          {live && verbose && <li className="step live"><span className="spinner" /> <span className="step-text">{m.live ?? 'Starting…'}</span></li>}
         </ol>
       )}
       {!showSteps && renders.length > 0 && (
@@ -168,11 +185,28 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
   );
 }
 
-function Step({ s, onImage }: { s: AgentStep; onImage: (src: string) => void }) {
+/** Seconds since `since`, ticking once a second (null = stopped). */
+function useElapsed(since: number | null) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since == null) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  return since == null ? 0 : Math.max(0, now - since);
+}
+
+function fmtElapsed(ms: number) {
+  const s = Math.floor(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+}
+
+function Step({ s, onImage, showTime }: { s: AgentStep; onImage: (src: string) => void; showTime: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const long = s.text.length > 160;
   return (
     <li className={`step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
+      {showTime && s.at != null && <span className="step-time">{fmtElapsed(s.at)}</span>}
       <span className="step-text" onClick={() => long && setExpanded(!expanded)}>{expanded || !long ? s.text : clip(s.text, 160)}</span>
       {s.image && <img src={s.image} alt="render" onClick={() => onImage(s.image!)} />}
     </li>
