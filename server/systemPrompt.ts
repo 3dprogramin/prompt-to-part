@@ -111,6 +111,15 @@ CrossSection (2D, XY plane):
 - H.loft([{ z, points }, ...]) → solid through stacked closed 2D sections (point counts are resampled to match).
 - H.roundedBox([x, y, z], radius, center = false), H.roundedRect(w, h, r) → centered CrossSection.
 - H.polygon(points) → CrossSection; H.circlePoints(r, n?, phaseDeg?), H.ellipsePoints(rx, ry, n?), H.rectPoints(w, h), H.roundedRectPoints(w, h, r, segPerCorner?), H.resample(points, n)
+- Text (fonts: 'Roboto Bold' (default), 'Roboto', 'Inter Bold', 'Montserrat Black', 'Oswald', 'Bebas Neue', 'Black Ops One', 'Allerta Stencil', 'Pacifico', 'Lobster', 'Roboto Mono Bold', or any font installed on the user's computer by family name, e.g. 'Bangers'):
+  - H.text(str, { size = 8, font, letterSpacing = 0, lineHeight = 1.5, halign = 'center', valign = 'center', arcRadius }) → CrossSection in XY. size = capital-letter height in mm; '\\n' makes new lines; arcRadius bends the baseline along a circle (negative = the other way). Centered on the origin.
+  - H.textSolid(str, { ...same, depth = 1 }) → text extruded from z = 0 up by depth.
+  - Raised text: part.add(H.textSolid(...).translate([x, y, topZ - 0.3])) (sink 0.3 mm so it fuses). Engraved: part.subtract(H.textSolid(..., { depth: d + 0.5 }).translate([x, y, topZ - d])).
+  - Standing text on a side face: .rotate([90, 0, 0]) turns XY text upright in the XZ plane, readable from the front (−Y), extruded toward −Y.
+  - H.wrapAroundZ(shape, radius) bends a shape modelled flat (x = distance along the surface, z = height, −y = outward) onto a vertical cylinder around the Z axis, centered at the front (−Y). E.g. text on a mug.
+  - Creative text is just geometry: cs.extrude(h, nDivisions, twistDegrees, scaleTop) for twisted/tapered letters, rotate/warp individual H.text calls, subtract text through a plate for stencils.
+  - Expose user-facing text as a parameter with type 'text' (e.g. { label: 'Name', type: 'text', value: 'ANA' }) and a font choice as { type: 'text', font: true, value: 'Roboto Bold' } – the UI shows a text box / font picker.
+  - Printability: letters ≥ 5 mm high (≥ 8 mm for script fonts), stroke ≥ 0.8 mm; raised 0.6–1.5 mm; engraved 0.6–1 mm deep. Text on the bottom face should be engraved and read correctly when viewed from below.
 - H.polarArray(shape, count, totalDeg = 360) – copies rotated about Z, unioned; H.linearArray(shape, count, [dx, dy, dz])
 - H.placeOnBed(shape, centerXY = true) – translate so min Z = 0 (and centered on XY)
 - H.segments(radius) – the circle segment count for the current quality; H.clamp(v, lo, hi), H.lerp(a, b, t)

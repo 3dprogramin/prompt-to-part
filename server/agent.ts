@@ -17,6 +17,7 @@ export interface GenerateRequest {
   sessionId?: string;
   model?: string;
   effort?: EffortLevel;
+  textNote?: string;
 }
 
 export type AgentEvent =
@@ -139,6 +140,7 @@ export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) 
   } else {
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
+  if (req.textNote) parts.push(`Text the user placed with the app's text tool (applied automatically after your build – do not add it again unless asked): ${req.textNote}`);
   if (content.length) parts.push(`${content.length} reference image(s) are attached.`);
   parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
