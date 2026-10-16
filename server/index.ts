@@ -6,6 +6,7 @@ import { DATA_DIR, runGeneration, workspaceDir, type AgentEvent, type GenerateRe
 import { geometry } from './geometry';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderVersion, exportBlend, type BlendRequest } from './blend';
+import { bambuTemplate, bambuVersion } from './bambu';
 import type { Design, DesignSummary } from '../shared/types';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -60,7 +61,15 @@ app.delete('/api/designs/:id', async (req, res) => {
 });
 
 app.get('/api/capabilities', async (_req, res) => {
-  res.json({ blender: await blenderVersion() });
+  res.json({ blender: await blenderVersion(), bambu: await bambuVersion() });
+});
+
+app.get('/api/bambu/template', async (_req, res) => {
+  try {
+    res.json(await bambuTemplate());
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
 });
 
 app.post('/api/export/blend', async (req, res) => {
