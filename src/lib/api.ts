@@ -56,6 +56,8 @@ export interface GenerateBody {
   renderValues?: ParamValues;
   scale?: number;
   versionNote?: string;
+  /** Let Claude search the web (per design, off by default, never saved). */
+  webSearch?: boolean;
 }
 
 export async function generate(body: GenerateBody, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {

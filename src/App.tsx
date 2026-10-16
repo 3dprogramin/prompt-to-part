@@ -87,6 +87,8 @@ export default function App() {
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
   const [model, setModel] = useState(() => load('model', 'opus'));
   const [effort, setEffort] = useState(() => load('effort', 'high'));
+  // Web search per design, in memory only: every new design (and every reload) starts with it off.
+  const [webOn, setWebOn] = useState<Record<string, boolean>>({});
   const [viewOpts, setViewOpts] = useState<ViewerOptions>(() => ({
     showBBox: true, showAnnotations: true, showEdges: true, ortho: false, measure: false, hiddenParts: [],
     section: { enabled: false, axis: 'z', position: 0, flip: false },
@@ -313,6 +315,7 @@ export default function App() {
         sessionId: design.sessionId,
         model,
         effort,
+        webSearch: !!webOn[designId],
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
@@ -647,6 +650,8 @@ export default function App() {
           onRestore={onRestore}
           model={model} onModel={setModel}
           effort={effort} onEffort={setEffort}
+          webSearch={!!webOn[design.id]}
+          onWebSearch={(on) => setWebOn((w) => ({ ...w, [design.id]: on }))}
           hasModel={!!design.code}
         />
         <ViewerPanel

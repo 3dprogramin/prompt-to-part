@@ -27,6 +27,8 @@ export interface GenerateRequest {
   scale?: number;
   /** Restored-version / manual-edit note. */
   versionNote?: string;
+  /** Let Claude use WebSearch / WebFetch (off unless the user turns it on for this design). */
+  webSearch?: boolean;
 }
 
 export type AgentEvent =
@@ -54,7 +56,10 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__evaluate_model: 'Evaluating model',
   mcp__cad__render_model: 'Rendering preview',
   mcp__cad__submit_model: 'Validating & submitting',
+  WebSearch: 'Searching the web',
+  WebFetch: 'Reading a web page',
 };
+const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
 export function workspaceDir(designId: string) {
   return path.join(DATA_DIR, 'workspaces', designId);
@@ -267,12 +272,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file),
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch),
         model: req.model || 'opus',
         effort: req.effort ?? 'high',
         thinking: { type: 'adaptive', display: 'summarized' },
         cwd: ws,
-        tools: ['Read', 'Write', 'Edit'],
+        tools: ['Read', 'Write', 'Edit', ...(req.webSearch ? WEB_TOOLS : [])],
         mcpServers: { cad },
         permissionMode: 'default',
         canUseTool: async (name, input) => {
@@ -282,6 +287,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             return { behavior: 'deny', message: `Only ${file} may be accessed.` };
           }
           if (name.startsWith('mcp__cad__')) return { behavior: 'allow', updatedInput: input };
+          if (req.webSearch && WEB_TOOLS.includes(name)) return { behavior: 'allow', updatedInput: input };
           return { behavior: 'deny', message: 'Tool not available in Jig.' };
         },
         settingSources: [],
@@ -454,5 +460,7 @@ function describeToolInput(name: string, input: Record<string, unknown> | undefi
     return `${name.endsWith('render_model') ? 'Rendering' : 'Evaluating'} with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(', ')}`;
   }
   if (name === 'mcp__cad__submit_model' && typeof input.summary === 'string') return `Submitting: ${input.summary}`;
+  if (name === 'WebSearch' && typeof input.query === 'string') return `Searching the web: ${input.query}`;
+  if (name === 'WebFetch' && typeof input.url === 'string') return `Reading ${input.url}`;
   return null;
 }

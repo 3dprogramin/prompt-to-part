@@ -21,6 +21,9 @@ interface Props {
   effort: string;
   onEffort: (e: string) => void;
   hasModel: boolean;
+  /** Claude may search the web for this design (off for every design until turned on). */
+  webSearch: boolean;
+  onWebSearch: (on: boolean) => void;
 }
 
 export function ChatPanel(p: Props) {
@@ -113,6 +116,13 @@ export function ChatPanel(p: Props) {
             <option value="xhigh">X-High</option>
             <option value="max">Max</option>
           </select>
+          <button
+            className={`web-toggle ${p.webSearch ? 'on' : ''}`}
+            onClick={() => p.onWebSearch(!p.webSearch)}
+            title={p.webSearch ? 'Web search is on: Claude looks up exact dimensions of real products online (this design only, until you reload)' : 'Let Claude search the web for exact dimensions of real products (off for every new design)'}
+          >
+            <Icon name="globe" size={13} /> Web
+          </button>
           <span className="spacer" />
           {p.generating
             ? <button className="btn danger" onClick={p.onStop}><Icon name="stop" /> Stop</button>
