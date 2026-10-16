@@ -519,7 +519,7 @@ export default function App() {
     setValidating(true);
     try {
       const parts = shown.parts.map((p) => p.name).filter((n) => !viewOpts.hiddenParts.includes(n));
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, parts, ...printHints() });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, parts, ...printHints() } });
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
       setValidation({ report: o.report, label: 'Validation' });
       setValidationOpen(true);
@@ -534,7 +534,7 @@ export default function App() {
     setPlaybackLoading(true);
     try {
       const base: ParamValues = fullValues();
-      const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality);
+      const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality, { display: true });
       if (!a.result || !a.result.assembly.length) return;
       const def = shown.params[layoutKey];
       const hasExploded = def.type === 'select' && def.options.some((o) => o.value === 'exploded');
@@ -621,7 +621,7 @@ export default function App() {
       // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
       // or may be from other settings, and the file would not be what the user expects.
       const names = partName ? [partName] : base.parts.map((p) => p.name).filter((n) => !viewOpts.hiddenParts.includes(n));
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, parts: names, ...printHints() });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, parts: names, ...printHints() } });
       if (!o.result) {
         setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
         return;

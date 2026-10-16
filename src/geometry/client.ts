@@ -11,17 +11,25 @@ interface Job {
   quality: Quality;
   solve?: { target: DimTarget; goal: number };
   validate?: ValidateOptions;
+  /** A live preview (superseded by the next one) rather than a job someone waits for. */
+  preview?: boolean;
+  /** Also prepare the viewer's mesh in the worker (PartMesh.display). */
+  display?: boolean;
   timeoutMs: number;
-  resolve: (o: any) => void;
+  resolve: (o: EvalOutcome | SolveResult | null) => void;
   /** Set once the job has been re-run after a worker crash. */
   retried?: boolean;
 }
 
-interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean }
+interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean; oom?: boolean }
 
 // A live preview should be quick; an export or validation at high quality may take longer.
 const PREVIEW_TIMEOUT_MS = 30000;
 const JOB_TIMEOUT_MS = 120000;
+/** A preview still running this long when a newer one arrives is abandoned (worker restarted). */
+const STALE_PREVIEW_MS = 1500;
+/** After an export or validation this big the worker is restarted once idle, so its wasm heap shrinks back. */
+const BIG_JOB_TRIANGLES = 400_000;
 
 /**
  * Evaluates model scripts in a Web Worker. Live-preview requests are coalesced:
@@ -30,9 +38,13 @@ const JOB_TIMEOUT_MS = 120000;
 export class GeometryClient {
   private worker!: Worker;
   private seq = 0;
-  private running: { id: number; job: Job; timer: number } | null = null;
+  private running: { id: number; job: Job; timer: number; started: number } | null = null;
   private pending: Job | null = null;
   private queue: Job[] = [];
+  private staleTimer = 0;
+  private recycle = false;
+  /** The worker failed while idle (e.g. its script didn't load): the next job starts a new one. */
+  private dead = false;
 
   constructor() { this.spawn(); }
 
@@ -43,26 +55,30 @@ export class GeometryClient {
     // An uncaught error kills the job without a reply; treat it like a crash.
     worker.onerror = (ev) => {
       ev.preventDefault();
-      if (this.worker === worker && this.running) {
-        this.reply({ id: this.running.id, error: { message: ev.message || 'Geometry worker failed', stage: 'build' }, crashed: true });
-      }
+      if (this.worker !== worker) return;
+      if (this.running) this.reply({ id: this.running.id, error: { message: ev.message || 'The geometry worker failed to start', stage: 'build' }, crashed: true });
+      else this.dead = true;
     };
   }
 
-  private reply({ id, result, error, solve, report, crashed }: Reply) {
+  private reply({ id, result, error, solve, report, crashed, oom }: Reply) {
     if (!this.running || this.running.id !== id) return;
     clearTimeout(this.running.timer);
     const { job } = this.running;
     this.running = null;
-    // A wasm trap leaves the heap unusable: replace the worker and run the job once more.
+    // A wasm trap leaves the heap unusable: replace the worker and run the job once more (not
+    // after running out of memory, which would only happen again).
     if (crashed) {
       this.restart();
-      if (!job.retried) {
+      if (!job.retried && !oom) {
         console.warn(`Geometry worker crashed (${error?.message ?? 'wasm trap'}); restarting it and retrying`);
         job.retried = true;
         this.start(job);
         return;
       }
+    } else if (!job.preview && (job.quality === 'high' || (result?.parts.reduce((s, p) => s + p.triCount, 0) ?? 0) > BIG_JOB_TRIANGLES)) {
+      // An export or validation often needs far more memory than the previews that follow.
+      this.recycle = true;
     }
     if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
     else job.resolve(result ? { result, report } : { error: error! });
@@ -71,22 +87,43 @@ export class GeometryClient {
 
   private restart() {
     this.worker.terminate();
+    this.dead = false;
+    this.recycle = false;
     this.spawn();
   }
 
   /** Live preview: superseded requests resolve with null. */
   preview(code: string, values: ParamValues, quality: Quality): Promise<EvalOutcome | null> {
     return new Promise((resolve) => {
-      if (this.pending) this.pending.resolve(null as unknown as EvalOutcome);
-      this.pending = { code, values, quality, timeoutMs: PREVIEW_TIMEOUT_MS, resolve: resolve as Job['resolve'] };
+      if (this.pending) this.pending.resolve(null);
+      this.pending = { code, values, quality, preview: true, display: true, timeoutMs: PREVIEW_TIMEOUT_MS, resolve: resolve as Job['resolve'] };
+      this.dropStalePreview();
       this.pump();
     });
   }
 
+  /**
+   * A preview that is still running when a newer one is waiting gets STALE_PREVIEW_MS, then the
+   * worker is restarted: a slider value that makes the script very slow (or loop) must not hold up
+   * the value that fixes it for the full timeout.
+   */
+  private dropStalePreview() {
+    clearTimeout(this.staleTimer);
+    const r = this.running;
+    if (!r?.job.preview || !this.pending) return;
+    const wait = r.started + STALE_PREVIEW_MS - performance.now();
+    if (wait > 0) { this.staleTimer = window.setTimeout(() => this.dropStalePreview(), wait); return; }
+    clearTimeout(r.timer);
+    this.running = null;
+    this.restart();
+    r.job.resolve(null);
+    this.pump();
+  }
+
   /** Guaranteed evaluation (e.g. high-quality export); runs before any pending preview. Optionally validates the mesh. */
-  evaluate(code: string, values: ParamValues, quality: Quality, validate?: ValidateOptions): Promise<EvalOutcome> {
+  evaluate(code: string, values: ParamValues, quality: Quality, opts: { validate?: ValidateOptions; display?: boolean } = {}): Promise<EvalOutcome> {
     return new Promise((resolve) => {
-      this.queue.push({ code, values, quality, validate, timeoutMs: JOB_TIMEOUT_MS, resolve });
+      this.queue.push({ code, values, quality, ...opts, timeoutMs: JOB_TIMEOUT_MS, resolve: resolve as Job['resolve'] });
       this.pump();
     });
   }
@@ -94,7 +131,7 @@ export class GeometryClient {
   /** Find the parameter value that makes a dimension hit `goal` mm. */
   solve(code: string, values: ParamValues, quality: Quality, target: DimTarget, goal: number): Promise<SolveResult> {
     return new Promise((resolve) => {
-      this.queue.push({ code, values, quality, solve: { target, goal }, timeoutMs: JOB_TIMEOUT_MS, resolve });
+      this.queue.push({ code, values, quality, solve: { target, goal }, timeoutMs: JOB_TIMEOUT_MS, resolve: resolve as Job['resolve'] });
       this.pump();
     });
   }
@@ -102,12 +139,16 @@ export class GeometryClient {
   private pump() {
     if (this.running) return;
     const job = this.queue.shift() ?? this.pending;
-    if (!job) return;
+    if (!job) {
+      if (this.recycle) this.restart();
+      return;
+    }
     if (job === this.pending) this.pending = null;
     this.start(job);
   }
 
   private start(job: Job) {
+    if (this.dead) this.restart();
     const id = ++this.seq;
     const timer = window.setTimeout(() => {
       // Script hung: kill the worker and start a fresh one.
@@ -117,9 +158,9 @@ export class GeometryClient {
       job.resolve(job.solve ? { ok: false, message } : { error: { message, stage: 'build' } });
       this.pump();
     }, job.timeoutMs);
-    this.running = { id, job, timer };
+    this.running = { id, job, timer, started: performance.now() };
     this.worker.postMessage(job.solve
       ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }
-      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality, validate: job.validate });
+      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality, validate: job.validate, display: job.display });
   }
 }

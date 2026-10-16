@@ -85,11 +85,23 @@ export interface PartMesh {
   bbox: Box3;
   /** Bounding box before the text tool's features were applied (only when there are some). */
   textBase?: Box3;
+  /** Ready-to-draw mesh for the viewer, prepared in the geometry worker (live previews only). */
+  display?: PartDisplay;
   volume: number;
   surfaceArea: number;
   triCount: number;
   genus: number;
   components: number;
+}
+
+export interface PartDisplay {
+  /** Non-indexed triangles with creased normals. */
+  positions: Float32Array;
+  normals: Float32Array;
+  /** Feature-edge line segments. */
+  edges: Float32Array;
+  /** three-mesh-bvh SerializedBVH for raycasting (hover, measure, pick). */
+  bvh: unknown;
 }
 
 /** One step of the assembly animation. Parts move from `from` (offset relative to their assembled position) into place. */

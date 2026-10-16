@@ -8,8 +8,10 @@ import dgram from 'node:dgram';
 import dns from 'node:dns';
 import inspector from 'node:inspector';
 import net from 'node:net';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import Module from 'manifold-3d';
-import { initRuntime, evaluateScript, formatScriptError, inspectScript, runtimeTrapped } from '../shared/runtime';
+import { initRuntime, evaluateScript, formatScriptError, inspectScript, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../shared/runtime';
 import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
 import type { EvalResult, ParamValues, Quality } from '../shared/types';
@@ -58,7 +60,17 @@ function requestFont(font: string): Promise<ArrayBuffer[]> {
   });
 }
 
-const ready = Module().then((wasm) => initRuntime(wasm));
+let startFailed!: (e: unknown) => void;
+const ready = Promise.race([
+  // instantiateWasm is an emscripten Module option that manifold-3d's types leave out.
+  Module({
+    instantiateWasm: instantiateWith(
+      async (imports) => WebAssembly.instantiate(await readFile(fileURLToPath(import.meta.resolve('manifold-3d/manifold.wasm'))), imports),
+      (e) => startFailed(e),
+    ),
+  } as unknown as Parameters<typeof Module>[0]),
+  new Promise<never>((_, reject) => { startFailed = reject; }),
+]).then((wasm) => initRuntime(wasm));
 
 export interface EvalSummary {
   ok: true;
@@ -101,7 +113,8 @@ type Req =
 
 type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
 
-// `crashed` tells the parent the wasm instance trapped, so it replaces this worker and retries.
+// `crashed` tells the parent the wasm instance trapped, so it replaces this worker and retries
+// (not after running out of memory, `oom`, which a retry would only repeat).
 process.on('message', async (req: Req | FontReply) => {
   if ('fontReply' in req) {
     const w = fontWaiters.get(req.fontReply);
@@ -109,9 +122,14 @@ process.on('message', async (req: Req | FontReply) => {
     if (req.buffers) w?.resolve(req.buffers); else w?.reject(new Error(req.error ?? 'font failed to load'));
     return;
   }
-  const post = (msg: { data?: unknown; error?: string }) => send({ id: req.id, ...msg, crashed: runtimeTrapped() });
+  const post = (msg: { data?: unknown; error?: string; crashed?: boolean }) => send({ id: req.id, crashed: runtimeTrapped(), oom: runtimeOutOfMemory(), ...msg });
   try {
     await ready;
+  } catch (e) {
+    post({ error: `The geometry engine failed to start: ${(e as Error)?.message ?? e}`, crashed: true });
+    return;
+  }
+  try {
     if (req.cmd === 'evaluate') {
       post({ data: (await run(req.code, req.values, req.quality ?? 'normal')).out });
     } else if (req.cmd === 'render') {

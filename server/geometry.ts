@@ -1,5 +1,7 @@
 import { fitProblem } from '../shared/printer';
 import { fork, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildSync } from 'esbuild';
 import { ROOT } from './config';
@@ -11,14 +13,14 @@ type Worker = ChildProcess;
 let worker: Worker | null = null;
 let jobsOnWorker = 0;
 let seq = 0;
-interface Reply { data?: unknown; error?: string; crashed?: boolean }
+interface Reply { data?: unknown; error?: string; crashed?: boolean; oom?: boolean }
 const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>();
 
 /** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
 const RECYCLE_AFTER = 300;
 
 const NODE_MODULES = path.join(ROOT, 'node_modules');
-const BUNDLE = path.join(NODE_MODULES, '.cache', 'jig', 'geometry-worker.mjs');
+const CACHE = path.join(NODE_MODULES, '.cache', 'jig');
 const major = Number(process.versions.node.split('.')[0]);
 // The flag lost its "experimental" prefix in Node 22.13 and 23.5.
 const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
@@ -30,17 +32,37 @@ const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') 
  * tsx's loader needs a thread, which the permission model forbids.
  */
 function spawnWorker(): Worker {
-  buildSync({
-    entryPoints: [path.join(ROOT, 'server', 'geometry-worker.ts')],
-    bundle: true, platform: 'node', format: 'esm', packages: 'external', target: `node${major}`,
-    outfile: BUNDLE, logLevel: 'warning',
-  });
-  return fork(BUNDLE, [], {
+  return fork(workerBundle(), [], {
     execArgv: [PERMISSION_FLAG, '--disable-warning=ExperimentalWarning', `--allow-fs-read=${NODE_MODULES}`, '--max-old-space-size=2048'],
     env: {},
     serialization: 'advanced',
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
+}
+
+let bundle: string | null = null;
+
+/**
+ * The worker bundled once per server process, so a respawned worker always matches the code this
+ * server runs (not files edited since). The file is named after its content and written atomically,
+ * so two servers in the same folder never read each other's half-written bundle.
+ */
+function workerBundle(): string {
+  if (bundle) return bundle;
+  const out = buildSync({
+    entryPoints: [path.join(ROOT, 'server', 'geometry-worker.ts')],
+    bundle: true, platform: 'node', format: 'esm', packages: 'external', target: `node${major}`,
+    outfile: path.join(CACHE, 'geometry-worker.mjs'), write: false, logLevel: 'warning',
+  });
+  const code = out.outputFiles[0].contents;
+  const file = path.join(CACHE, `geometry-worker-${createHash('sha256').update(code).digest('hex').slice(0, 16)}.mjs`);
+  if (!existsSync(file)) {
+    mkdirSync(CACHE, { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, code);
+    renameSync(tmp, file);
+  }
+  return (bundle = file);
 }
 
 function getWorker(): Worker {
@@ -97,9 +119,10 @@ function call<T>(msg: Record<string, unknown>, timeoutMs: number): Promise<T> {
       const w = getWorker();
       const r = await attempt(w, msg, timeoutMs);
       if (r.crashed) {
-        // A wasm trap leaves the heap unusable: replace the worker and run the job once more.
+        // A wasm trap leaves the heap unusable: replace the worker and run the job once more
+        // (not after running out of memory, which would only happen again).
         dropWorker(w);
-        if (!retried) {
+        if (!retried && !r.oom) {
           const reason = r.error ?? (r.data as EvalFailure | undefined)?.error?.message ?? 'wasm trap';
           console.warn(`[geometry] worker crashed during ${String(msg.cmd)} (${reason}); restarting it and retrying`);
           continue;

@@ -49,6 +49,28 @@ function noteTrap(e: unknown) {
 /** True once any evaluation hit a WebAssembly trap; the instance should not be trusted after that. */
 export function runtimeTrapped(): boolean { return trapped; }
 
+// The wasm heap can grow to 4 GB; a trap with it this large means the model ran out of memory,
+// which a retry would only repeat.
+const OUT_OF_MEMORY_BYTES = 2 ** 31;
+let memory: WebAssembly.Memory | null = null;
+/** True if the last trap came from running out of wasm memory. */
+export function runtimeOutOfMemory(): boolean { return trapped && (memory?.buffer.byteLength ?? 0) >= OUT_OF_MEMORY_BYTES; }
+
+/**
+ * manifold-3d Module() option that instantiates the wasm with `load`, keeping a handle on its
+ * memory (to recognise running out of it). `onError` gets a failed load: emscripten would
+ * otherwise wait forever.
+ */
+export function instantiateWith(load: (imports: WebAssembly.Imports) => Promise<WebAssembly.WebAssemblyInstantiatedSource>, onError: (e: unknown) => void) {
+  return (imports: WebAssembly.Imports, receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void) => {
+    load(imports).then(({ instance, module }) => {
+      memory = Object.values(instance.exports).find((x): x is WebAssembly.Memory => x instanceof WebAssembly.Memory) ?? null;
+      receive(instance, module);
+    }, onError);
+    return {};
+  };
+}
+
 export function initRuntime(wasm: ManifoldToplevel): void {
   if (runtime) return;
   wasm.setup();
@@ -929,6 +951,9 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
   } catch (e) {
     noteTrap(e);
+    if (runtimeOutOfMemory()) {
+      throw new ScriptError({ message: `Ran out of memory: building the model needed over ${(OUT_OF_MEMORY_BYTES / 2 ** 30).toFixed(0)} GB. Lower segment counts or resolution (sphere/cylinder segments, levelSet, refine, text detail).`, stage: 'build', ...locate(e) });
+    }
     if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });
   } finally {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
@@ -230,12 +230,25 @@ export class Viewer {
     this.result = result;
     if (result) {
       for (const part of result.parts) {
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
-        g.setIndex(new THREE.BufferAttribute(part.indices, 1));
-        const geom = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
-        g.dispose();
-        geom.computeBoundsTree();
+        // Live previews arrive ready to draw (src/geometry/worker.ts); anything else is prepared here.
+        let geom: THREE.BufferGeometry;
+        let edgeGeom: THREE.BufferGeometry;
+        if (part.display) {
+          geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.BufferAttribute(part.display.positions, 3));
+          geom.setAttribute('normal', new THREE.BufferAttribute(part.display.normals, 3));
+          geom.boundsTree = MeshBVH.deserialize(part.display.bvh as SerializedBVH, geom, { setIndex: true });
+          edgeGeom = new THREE.BufferGeometry();
+          edgeGeom.setAttribute('position', new THREE.BufferAttribute(part.display.edges, 3));
+        } else {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+          g.setIndex(new THREE.BufferAttribute(part.indices, 1));
+          geom = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
+          g.dispose();
+          geom.computeBoundsTree();
+          edgeGeom = new THREE.EdgesGeometry(geom, 30);
+        }
         const color = new THREE.Color(part.color);
         const front = new THREE.MeshStandardMaterial({
           color, roughness: 0.55, metalness: 0.05, side: THREE.FrontSide,
@@ -250,7 +263,7 @@ export class Viewer {
         const backMesh = new THREE.Mesh(geom, back);
         backMesh.raycast = () => {};
         const edges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(geom, 30),
+          edgeGeom,
           new THREE.LineBasicMaterial({ color: 0x15171b, transparent: true, opacity: 0.55 }),
         );
         edges.name = 'edges';
