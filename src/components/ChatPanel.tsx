@@ -145,7 +145,8 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
       </div>
     );
   }
-  const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text));
+  const assembly = (m.steps ?? []).filter((s) => s.kind === 'assembly' && s.image);
+  const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = verbose ? all : all.filter((s) => !s.verbose);
   const renders = steps.filter((s) => s.kind === 'render' && s.image);
   // Verbose: the full log is open while Claude works. Compact: one status line unless expanded.
@@ -173,6 +174,19 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
         </div>
       )}
       {m.text && <div className="bubble md-bubble"><Markdown text={m.text} /></div>}
+      {assembly.length > 0 && (
+        <div className="assembly">
+          <div className="assembly-title">Assembly</div>
+          <div className="assembly-grid">
+            {assembly.map((s, i) => (
+              <figure key={i} onClick={() => onImage(s.image!)}>
+                <img src={s.image} alt={s.text} />
+                <figcaption>{s.text}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      )}
       {m.error && <div className="bubble error"><Icon name="alert" size={14} /> {m.error}</div>}
       {m.versionIndex != null && versions[m.versionIndex] && (
         <div className="version-row">
