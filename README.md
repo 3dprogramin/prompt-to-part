@@ -9,6 +9,7 @@ Uses your **Claude Code subscription** through the Claude Agent SDK. No API key 
 ```sh
 npm install
 npm run dev          # http://localhost:5173  (API on :8787)
+npm run dev:watch    # same, but the API server restarts on code changes (kills running generations)
 # or
 npm run build && npm start   # single server on http://127.0.0.1:8787
 ```
