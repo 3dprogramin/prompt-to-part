@@ -6,6 +6,7 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type
 import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
 import { buildGrid, buildPlate, updatePlate } from './stage';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
+import { boxDimensions } from '../lib/dimensions';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -508,14 +509,11 @@ export class Viewer {
   private rebuildDims() {
     this.clearGroup(this.dimsGroup);
     this.clearGroup(this.annGroup);
-    const box = this.modelBox();
-    if (!box || !this.result) return;
-    const s = box.getSize(new THREE.Vector3());
-    const off = this.modelSize() * 0.12;
-    const { min, max } = box;
-    this.dimLine(this.dimsGroup, new THREE.Vector3(min.x, min.y, min.z), new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(0, -off, 0), `X ${fmt(s.x)} mm`, 0xe46a6a, 'dim-label dim-x', { kind: 'bbox', axis: 0 });
-    this.dimLine(this.dimsGroup, new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(max.x, max.y, min.z), new THREE.Vector3(off, 0, 0), `Y ${fmt(s.y)} mm`, 0x6ac46a, 'dim-label dim-y', { kind: 'bbox', axis: 1 });
-    this.dimLine(this.dimsGroup, new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(max.x, min.y, max.z), new THREE.Vector3(off * 0.7, -off * 0.7, 0), `Z ${fmt(s.z)} mm`, 0x6a9ae4, 'dim-label dim-z', { kind: 'bbox', axis: 2 });
+    if (!this.result?.bbox) return;
+    for (const d of boxDimensions(this.result.bbox, this.modelSize())) {
+      this.dimLine(this.dimsGroup, new THREE.Vector3(...d.from), new THREE.Vector3(...d.to), new THREE.Vector3(...d.offset), d.label,
+        new THREE.Color(d.color).getHex(), `dim-label dim-${'xyz'[d.axis]}`, { kind: 'bbox', axis: d.axis });
+    }
     this.result.dimensions.forEach((d, i) => this.addAnnotation(d, i));
   }
 

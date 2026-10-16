@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from 'fflate';
-import type { DimensionAnnotation, EvalResult, PartMesh } from '../../shared/types';
+import type { Box3, DimensionAnnotation, EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import { toBinaryStl } from './files';
 import { toBambuProject } from './bambu3mf';
 import type { PrintProfile } from '../../shared/print';
@@ -7,6 +7,7 @@ import { bedShift } from '../../shared/printer';
 import type { BambuTemplate, BlendRequest } from '../../shared/api';
 import { request } from './api';
 import { CONTENT_TYPES, colourSlots, esc, num } from './threeMf';
+import { boxDimensions } from './dimensions';
 
 export type ExportFormat = 'stl' | '3mf' | 'blend';
 
@@ -60,18 +61,20 @@ const b64 = (arr: Float32Array | Uint32Array) => {
   return btoa(s);
 };
 
+function boundsOf(parts: PartMesh[]): Box3 {
+  const min = [0, 1, 2].map((k) => Math.min(...parts.map((p) => p.bbox.min[k]))) as Vec3;
+  const max = [0, 1, 2].map((k) => Math.max(...parts.map((p) => p.bbox.max[k]))) as Vec3;
+  return { min, max };
+}
+
 /** .blend via the server's headless Blender: one object per part + a Dimensions collection. */
 export async function toBlend(result: EvalResult, parts: PartMesh[], title: string, code: string): Promise<Blob> {
-  const b = result.bbox!;
+  const b = boundsOf(parts);
   const size = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
-  const off = size * 0.12;
-  const fmt = (n: number) => `${n.toFixed(2)} mm`;
-  const dims: { label: string; from: number[]; to: number[]; offset?: number[]; color?: string }[] = [
-    { label: `X ${fmt(b.max[0] - b.min[0])}`, from: [b.min[0], b.min[1], b.min[2]], to: [b.max[0], b.min[1], b.min[2]], offset: [0, -off, 0], color: '#e46a6a' },
-    { label: `Y ${fmt(b.max[1] - b.min[1])}`, from: [b.max[0], b.min[1], b.min[2]], to: [b.max[0], b.max[1], b.min[2]], offset: [off, 0, 0], color: '#6ac46a' },
-    { label: `Z ${fmt(b.max[2] - b.min[2])}`, from: [b.max[0], b.min[1], b.min[2]], to: [b.max[0], b.min[1], b.max[2]], offset: [off * 0.7, -off * 0.7, 0], color: '#6a9ae4' },
+  const dims: NonNullable<BlendRequest['dimensions']> = [
+    ...boxDimensions(b, size).map(({ label, from, to, offset, color }) => ({ label, from, to, offset, color })),
     ...result.dimensions.map((d: DimensionAnnotation) => ({
-      label: `${d.label ? d.label + ': ' : ''}${fmt(Math.hypot(d.to[0] - d.from[0], d.to[1] - d.from[1], d.to[2] - d.from[2]))}`,
+      label: `${d.label ? d.label + ': ' : ''}${Math.hypot(d.to[0] - d.from[0], d.to[1] - d.from[1], d.to[2] - d.from[2]).toFixed(2)} mm`,
       from: d.from, to: d.to, offset: d.offset,
     })),
   ];
