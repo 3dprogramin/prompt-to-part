@@ -27,6 +27,10 @@ interface Props {
   /** The model's layout parameter (print / assembled / exploded), if it has one. */
   layout?: { value: string; options: { value: string; label: string }[] } | null;
   onLayout?: (value: string) => void;
+  leftOpen?: boolean;
+  rightOpen?: boolean;
+  onToggleLeft?: () => void;
+  onToggleRight?: () => void;
 }
 
 const STEP_SECONDS = 1.6;
@@ -34,7 +38,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -250,6 +254,17 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
         </div>
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
+
+      {onToggleLeft && (
+        <button className={`edge-tab left ${leftOpen ? '' : 'closed'}`} onClick={onToggleLeft} title={leftOpen ? 'Hide the chat sidebar (T)' : 'Show the chat sidebar (T)'}>
+          <Icon name="chevron" size={12} />
+        </button>
+      )}
+      {onToggleRight && (
+        <button className={`edge-tab right ${rightOpen ? '' : 'closed'}`} onClick={onToggleRight} title={rightOpen ? 'Hide the parameters sidebar (N)' : 'Show the parameters sidebar (N)'}>
+          <Icon name="chevron" size={12} />
+        </button>
+      )}
 
       {!assembly && (layout || canAssemble) && result && (
         <div className="layout-bar">

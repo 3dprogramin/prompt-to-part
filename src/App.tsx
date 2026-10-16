@@ -53,6 +53,21 @@ export default function App() {
   const generating = !!running[design.id];
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
   const [verbose, setVerbose] = useState<boolean>(() => load('verbose', true));
+  // Collapsible sidebars (Blender-style: T = left, N = right).
+  const [leftOpen, setLeftOpen] = useState<boolean>(() => load('leftOpen', true));
+  const [rightOpen, setRightOpen] = useState<boolean>(() => load('rightOpen', true));
+  useEffect(() => store('leftOpen', leftOpen), [leftOpen]);
+  useEffect(() => store('rightOpen', rightOpen), [rightOpen]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target;
+      if ((t instanceof Element && t.closest('input, textarea, select, [contenteditable]')) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 't' || e.key === 'T') setLeftOpen((o) => !o);
+      if (e.key === 'n' || e.key === 'N') setRightOpen((o) => !o);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [exporting, setExporting] = useState(false);
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
   const [model, setModel] = useState(() => load('model', 'opus'));
@@ -476,7 +491,7 @@ export default function App() {
           )}
         </div>
       </header>
-      <main className="workspace">
+      <main className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}>
         <ChatPanel
           messages={design.messages}
           versions={design.versions}
@@ -509,6 +524,10 @@ export default function App() {
           assemblyLoading={playbackLoading}
           onAssemble={startAssembly}
           onAssemblyClose={() => setPlayback(null)}
+          leftOpen={leftOpen}
+          rightOpen={rightOpen}
+          onToggleLeft={() => setLeftOpen((o) => !o)}
+          onToggleRight={() => setRightOpen((o) => !o)}
           layout={layoutKey && shown && shown.params[layoutKey].type === 'select' ? {
             value: String(design.values[layoutKey] ?? shown.values[layoutKey]),
             options: (shown.params[layoutKey] as { options: { value: string; label: string }[] }).options,
