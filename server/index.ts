@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promise
 import { DATA_DIR, runGeneration, workspaceDir, type AgentEvent, type GenerateRequest } from './agent';
 import { geometry } from './geometry';
 import { listFonts, loadFontBuffers } from './fonts';
+import { blenderVersion, exportBlend, type BlendRequest } from './blend';
 import type { Design, DesignSummary } from '../shared/types';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -54,6 +55,22 @@ app.delete('/api/designs/:id', async (req, res) => {
   await rm(designFile(req.params.id), { force: true });
   await rm(workspaceDir(req.params.id), { recursive: true, force: true });
   res.json({ ok: true });
+});
+
+app.get('/api/capabilities', async (_req, res) => {
+  res.json({ blender: await blenderVersion() });
+});
+
+app.post('/api/export/blend', async (req, res) => {
+  const body = req.body as BlendRequest;
+  if (!body?.parts?.length) return void res.status(400).json({ error: 'no parts' });
+  try {
+    const file = await exportBlend(body);
+    res.set({ 'Content-Type': 'application/x-blender', 'Content-Disposition': 'attachment; filename="model.blend"' }).send(file);
+  } catch (e) {
+    console.error('[blend]', (e as Error).message);
+    res.status(500).json({ error: (e as Error).message });
+  }
 });
 
 app.get('/api/fonts', async (_req, res) => {
