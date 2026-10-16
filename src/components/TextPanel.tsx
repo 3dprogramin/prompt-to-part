@@ -5,6 +5,7 @@ import type { FontEntry } from '../lib/api';
 import { uid } from '../lib/files';
 import { FontPicker } from './FontPicker';
 import { Icon } from './Icon';
+import { useReleaseSlider } from './useReleaseSlider';
 
 interface Props {
   result: EvalResult | null;
@@ -122,13 +123,15 @@ function Seg<T extends string>({ value, options, onChange }: { value: T; options
 function Slider({ label, unit, min, max, step, value, onChange }: { label: string; unit: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   const commit = () => { if (draft != null) { const v = Number(draft.replace(',', '.')); if (Number.isFinite(v)) onChange(v); setDraft(null); } };
+  const slider = useReleaseSlider(Math.min(max, Math.max(min, value)), onChange);
+  const shown = slider.dragging ? slider.shown : value;
   return (
     <div className="param">
       <div className="param-head"><label>{label}</label></div>
       <div className="num-control">
-        <input type="range" min={min} max={max} step={step} value={Math.min(max, Math.max(min, value))} onChange={(e) => onChange(Number(e.target.value))} />
+        <input type="range" min={min} max={max} step={step} {...slider.inputProps} />
         <div className="num-box">
-          <input className="mono" value={draft ?? String(+value.toFixed(2))} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+          <input className="mono" value={draft ?? String(+shown.toFixed(2))} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
           <span className="unit">{unit}</span>
         </div>
       </div>

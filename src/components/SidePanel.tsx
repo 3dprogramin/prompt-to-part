@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
+import { useReleaseSlider } from './useReleaseSlider';
 import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { FontEntry } from '../lib/api';
@@ -253,14 +254,15 @@ function NumberControl({ def, value, onChange }: { def: NumberParam; value: numb
     setDraft(null);
   };
   const out = value < def.min || value > def.max;
+  const slider = useReleaseSlider(Math.min(def.max, Math.max(def.min, value)), onChange);
+  const shown = slider.dragging ? slider.shown : value;
   return (
     <div className="num-control">
-      <input type="range" min={def.min} max={def.max} step={step} value={Math.min(def.max, Math.max(def.min, value))}
-        onChange={(e) => onChange(Number(e.target.value))} />
+      <input type="range" min={def.min} max={def.max} step={step} {...slider.inputProps} />
       <div className={`num-box ${out ? 'out' : ''}`} title={out ? `Outside the suggested range ${def.min}–${def.max}` : `${def.min} – ${def.max}`}>
         <input
           className="mono"
-          value={draft ?? value.toFixed(dec)}
+          value={draft ?? shown.toFixed(dec)}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
