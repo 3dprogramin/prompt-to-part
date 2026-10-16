@@ -167,6 +167,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             for (const v of [assembly.assembledValue, assembly.explodedValue]) {
               if (v && !def.options.some((o) => o.value === v)) return reject(`"${v}" is not an option of "${assembly.layoutParam}" (${def.options.map((o) => o.value).join(', ')}).`);
             }
+            // The animated assembly needs a sequence returned from build() in the assembled layout.
+            const asm = await geometry.evaluate(code, { [assembly.layoutParam]: assembly.assembledValue });
+            if (!asm.ok) return reject(`The assembled layout fails: ${asm.error.message}`);
+            if (!asm.assembly.length) {
+              return reject('build() must also return an assembly sequence – assembly: [{ label, parts: [partNames], from?: [dx,dy,dz], rotate?: { axis, degrees, center? } }, …] – so the user can watch it being put together. Parts that never appear in a step are the base (already in place).');
+            }
+            const badSteps = asm.warnings.filter((w) => w.startsWith('Assembly step'));
+            if (badSteps.length) return reject(`Fix the assembly sequence: ${badSteps.join('; ')}`);
             const shots: [string, string | undefined][] = [['Assembled', assembly.assembledValue], ['Exploded view', assembly.explodedValue]];
             for (const [label, value] of shots) {
               if (!value) continue;

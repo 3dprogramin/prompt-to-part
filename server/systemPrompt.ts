@@ -65,7 +65,7 @@ function build(p) {
   };
 }
 \`\`\`
-- \`build(p)\` may also return just a Manifold, or an array of Manifolds / { name, shape, color } objects.
+- \`build(p)\` may also return just a Manifold, or an array of Manifolds / { name, shape, color } objects. Multi-part assemblies additionally return \`assembly: [...]\` (see multi-part rules).
 - \`dimensions\`: from/to are [x, y, z] points on the actual geometry; offset (optional) shifts the drawn line away from the part for readability. The app measures and displays the length; label names it. Set \`param\` to the parameter key the callout represents – the user can double-click a callout and type a value, and the app adjusts that parameter until the callout measures exactly that.
 - Top-level code runs on every evaluation; create geometry inside build().
 
@@ -88,6 +88,7 @@ function build(p) {
   - Return each part separately with a clear name ('Base', 'Lid', 'Hinge pin'…) and a distinct colour.
   - Add a select parameter \`layout\` with options ['print', 'assembled', 'exploded'] (default 'print'). 'print': every part in its best print orientation, flat on z = 0, side by side ≥ 5 mm apart. 'assembled': all parts in their final positions. 'exploded': the assembled arrangement with the parts pulled apart along the direction each one is inserted / mounted (≈ 20–40 % of the model size), so the picture alone shows how it goes together.
   - Render the assembled layout (render_model with values { layout: 'assembled' }) and check that mating parts really fit: pins in holes, lids on boxes, no gaps or collisions beyond the intended clearance.
+  - build() must also return an assembly sequence (in every layout): assembly: [{ label: 'Insert the hinge pin', parts: ['Hinge pin'], from: [0, -40, 0] }, { label: 'Screw on the knob', parts: ['Knob'], from: [0, 0, 25], rotate: { axis: [0, 0, 1], degrees: 720 } }, …]. The app animates it on the assembled layout so the user can watch it being put together: each step's parts start at their assembled position + from (mm) and move into place, optionally turning by degrees around axis (through center, default the part's centre – for screws, knobs, bayonets). Parts in no step are the base and are already in place. Omit from to use the part's exploded-layout offset. Order the steps the way a person assembles it, one action per step, and make the labels match your numbered instructions.
   - Call submit_model with assembly: { layoutParam: 'layout', assembledValue: 'assembled', explodedValue: 'exploded' }. The app then shows the user an assembled and an exploded picture. Only if the parts are independent objects that never go together (e.g. a set of coasters) pass assembly: { independentParts: '<why>' } instead.
 - Multi-colour single prints (coloured regions of ONE object printed together with the AMS – eyes, spots, a collar on a figurine, an inlaid logo): keep the coloured parts in place, touching/embedded in the main body, no layout parameter, and pass assembly: { singlePrint: true } – nothing needs assembling.
 - Functional parts (corkscrews, hooks, clips) need strength: avoid thin necks, add fillets/gussets at stress points.
