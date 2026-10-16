@@ -44,11 +44,19 @@ export function initRuntime(wasm: ManifoldToplevel): void {
   const registry: Runtime['registry'] = new Set();
   const M = wasm.Manifold as any;
   const C = wasm.CrossSection as any;
+  // embind's ClassHandle prototype: every wasm object (Manifold, CrossSection, std::vector…) inherits it.
+  let handleProto = M.prototype;
+  while (handleProto && !Object.prototype.hasOwnProperty.call(handleProto, 'isDeleted')) handleProto = Object.getPrototypeOf(handleProto);
+  const isHandle = (x: unknown): x is { delete(): void } => typeof x === 'object' && x !== null && handleProto.isPrototypeOf(x);
   const track = (r: any) => {
-    if (r instanceof M || r instanceof C) registry.add(r);
-    else if (Array.isArray(r)) for (const x of r) if (x instanceof M || x instanceof C) registry.add(x);
+    if (isHandle(r)) registry.add(r);
+    else if (Array.isArray(r)) for (const x of r) if (isHandle(x)) registry.add(x);
     return r;
   };
+  // manifold-3d's JS layer drops temporaries without deleting them (the per-contour vectors
+  // built from polygons, the _ToPolygons() result in extrude/revolve, get() copies in
+  // toPolygons, the un-centred solid of extrude(center)). Tracking the receiver and handle
+  // arguments of every wrapped call, not just the result, catches those too.
   const wrapAll = (obj: any) => {
     for (const name of Object.getOwnPropertyNames(obj)) {
       if (SKIP.has(name)) continue;
@@ -56,15 +64,19 @@ export function initRuntime(wasm: ManifoldToplevel): void {
       if (!desc || typeof desc.value !== 'function' || !desc.writable) continue;
       const orig = desc.value;
       obj[name] = function (this: unknown, ...args: unknown[]) {
+        if (isHandle(this)) registry.add(this);
+        for (const a of args) if (isHandle(a)) registry.add(a);
         return track(orig.apply(this, args));
       };
     }
   };
   // Methods like translate/subtract live on parent prototypes, so wrap the whole chain
-  // (each prototype once; embind's delete/clone/isDeleted are skipped).
-  const seen = new Set<object>();
-  for (const cls of [M, C]) {
-    wrapAll(cls);
+  // (each prototype once; embind's delete/clone/isDeleted are skipped). The std::vector
+  // classes are wrapped as well so their temporaries are tracked.
+  const classes = [M, C, ...Object.values(wasm).filter((v: any) => typeof v === 'function' && v.prototype && handleProto.isPrototypeOf(v.prototype))];
+  const seen = new Set<object>([handleProto]);
+  for (const cls of new Set(classes)) {
+    if (cls === M || cls === C) wrapAll(cls);
     for (let proto = cls.prototype; proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
       if (seen.has(proto)) continue;
       seen.add(proto);
