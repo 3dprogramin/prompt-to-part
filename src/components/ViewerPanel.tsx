@@ -215,6 +215,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           <Toggle on={options.showBBox} onClick={() => set({ showBBox: !options.showBBox })} icon="dims" title="Overall dimensions" />
           <Toggle on={options.showAnnotations} onClick={() => set({ showAnnotations: !options.showAnnotations })} icon="tag" title="Feature dimension callouts" />
           <Toggle on={options.showEdges} onClick={() => set({ showEdges: !options.showEdges })} icon="edges" title="Edge lines" />
+          <Toggle on={options.colors !== false} onClick={() => set({ colors: options.colors === false })} icon="palette" title="Part colours (off = one neutral colour)" />
           <Toggle on={options.section.enabled} onClick={() => setSection({ enabled: !options.section.enabled, position: options.section.enabled ? options.section.position : (secMin + secMax) / 2 })} icon="section" title="Section view" />
           <Toggle on={options.measure} onClick={() => set({ measure: !options.measure })} icon="ruler" title="Measure: click two points (snaps to vertices). Esc cancels." />
         </div>

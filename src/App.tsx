@@ -14,6 +14,7 @@ import { Icon } from './components/Icon';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import type { ValidationReport } from './geometry/validate';
+import { bambuOverrides, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -93,8 +94,11 @@ export default function App() {
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<string | null>(null);
+  const [bambu, setBambu] = useState<string | null>(null);
+  const [threeMf, setThreeMf] = useState<{ colours: boolean; print: boolean }>(() => load('threeMf', { colours: true, print: true }));
+  useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
-  useEffect(() => { fetch('/api/capabilities').then((r) => r.json()).then((c) => setBlender(c.blender ?? null)).catch(() => {}); }, []);
+  useEffect(() => { fetch('/api/capabilities').then((r) => r.json()).then((c) => { setBlender(c.blender ?? null); setBambu(c.bambu ?? null); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -130,8 +134,8 @@ export default function App() {
   useEffect(() => store('effort', effort), [effort]);
   useEffect(() => store('verbose', verbose), [verbose]);
   useEffect(() => {
-    const { showBBox, showAnnotations, showEdges, ortho } = viewOpts;
-    store('viewOpts', { showBBox, showAnnotations, showEdges, ortho });
+    const { showBBox, showAnnotations, showEdges, ortho, colors } = viewOpts;
+    store('viewOpts', { showBBox, showAnnotations, showEdges, ortho, colors });
   }, [viewOpts]);
 
   const refreshList = useCallback(() => { api.listDesigns().then(setDesigns).catch(() => {}); }, []);
@@ -346,6 +350,22 @@ export default function App() {
     });
   };
 
+  // ---- print settings (AI suggestions in the script, user overrides in $print) ----
+  const aiPrint: PrintProfile = (result ?? lastGood)?.print ?? {};
+  const userPrint = useMemo(() => parseProfile(design.values[PRINT_KEY]), [design.values]);
+  const setUserPrint = (p: PrintProfile) => setDesign((d) => {
+    const values = { ...d.values };
+    if (Object.keys(p).length) values[PRINT_KEY] = JSON.stringify(p); else delete values[PRINT_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
+  const partNames = (result ?? lastGood)?.parts.map((p) => p.name) ?? [];
+  const printChanges = partNames.reduce((n, name) => n + Object.keys(bambuOverrides(effectiveSettings(aiPrint, userPrint, name))).length, 0);
+  /** Which parts will print with supports / an explicit brim (validation takes these into account). */
+  const printHints = () => ({
+    supportParts: partNames.filter((n) => effectiveSettings(aiPrint, userPrint, n).supports !== 'off'),
+    brimParts: partNames.filter((n) => typeof effectiveSettings(aiPrint, userPrint, n).brim === 'number'),
+  });
+
   // ---- assembly animation ----
   const shown = result ?? lastGood;
   const layoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
@@ -377,7 +397,7 @@ export default function App() {
     if (!design.code || !shown) return;
     setValidating(true);
     try {
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, ...printHints() });
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
       const names = o.result.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name)).map((p) => p.name);
       setValidation({ report: forParts(o.report, names), label: 'Validation' });
@@ -475,13 +495,16 @@ export default function App() {
     setExportError(null);
     try {
       // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh.
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue, ...printHints() });
       const r = o.result ?? base;
       const parts = partName ? r.parts.filter((p) => p.name === partName) : r.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name));
       if (!parts.length) return;
       const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
       const file = `${name}.${format}`;
-      const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code);
+      const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
+        colours: threeMf.colours,
+        print: threeMf.print && bambu ? { ai: r.print, user: userPrint } : null,
+      });
       download(blob, file); // always export – problems are reported, not blocking
       if (o.report) {
         const report = forParts(o.report, parts.map((p) => p.name));
@@ -618,6 +641,14 @@ export default function App() {
           exportError={exportError}
           onValidate={onValidate}
           validating={validating}
+          aiPrint={aiPrint}
+          userPrint={userPrint}
+          onUserPrint={setUserPrint}
+          bambu={bambu}
+          printChanges={printChanges}
+          threeMf={threeMf}
+          onThreeMf={setThreeMf}
+          onExport3mf={() => onExport('3mf')}
           blender={blender}
           hiddenParts={viewOpts.hiddenParts}
           onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}

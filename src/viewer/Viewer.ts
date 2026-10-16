@@ -23,7 +23,11 @@ export interface ViewerOptions {
   measure: boolean;
   /** Click on the model to place text. */
   pickText?: boolean;
+  /** false = show every part in one neutral colour. */
+  colors?: boolean;
 }
+
+const NEUTRAL = new THREE.Color('#b9bcc2');
 
 export interface Measurement { a: Vec3; b: Vec3 }
 
@@ -242,6 +246,7 @@ export class Viewer {
         group.name = part.name;
         const mesh = new THREE.Mesh(geom, front);
         mesh.userData.part = part.name;
+        mesh.userData.color = color;
         const backMesh = new THREE.Mesh(geom, back);
         backMesh.raycast = () => {};
         const edges = new THREE.LineSegments(
@@ -297,8 +302,14 @@ export class Viewer {
     this.clipPlane.normal.copy(n);
     this.clipPlane.constant = section.flip ? -section.position : section.position;
     const planes = section.enabled ? [this.clipPlane] : [];
+    const colors = this.opts.colors !== false;
     for (const group of this.modelGroup.children) {
       group.visible = !hiddenParts.includes(group.name);
+      // Part colours, or one neutral colour to judge the bare shape.
+      const [front, back] = group.children as THREE.Mesh[];
+      const base = (front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
+      (front.material as THREE.MeshStandardMaterial).color.copy(colors ? base : NEUTRAL);
+      (back.material as THREE.MeshBasicMaterial).color.copy(colors ? base : NEUTRAL).multiplyScalar(0.45);
       group.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
         if (mat) { mat.clippingPlanes = planes; mat.needsUpdate = true; }

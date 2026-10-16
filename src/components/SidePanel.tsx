@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
+import { PrintPanel } from './PrintPanel';
+import type { PrintProfile } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
 import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
@@ -9,7 +11,7 @@ import type { FontEntry } from '../lib/api';
 import type { ExportFormat } from '../lib/export';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
-type Tab = 'params' | 'text' | 'info' | 'code';
+type Tab = 'params' | 'text' | 'print' | 'info' | 'code';
 
 interface Props {
   result: EvalResult | null;
@@ -25,6 +27,15 @@ interface Props {
   blender: string | null;
   onValidate: () => void;
   validating: boolean;
+  aiPrint: PrintProfile;
+  userPrint: PrintProfile;
+  onUserPrint: (p: PrintProfile) => void;
+  bambu: string | null;
+  /** Number of print-setting changes that would be written to a 3MF. */
+  printChanges: number;
+  threeMf: { colours: boolean; print: boolean };
+  onThreeMf: (o: { colours: boolean; print: boolean }) => void;
+  onExport3mf: () => void;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
@@ -47,14 +58,18 @@ export function SidePanel(p: Props) {
   return (
     <div className="side-panel">
       <div className="tabs">
-        <button className={tab === 'params' ? 'on' : ''} onClick={() => setTab('params')}><Icon name="sliders" size={14} /> Parameters</button>
+        <button className={tab === 'params' ? 'on' : ''} onClick={() => setTab('params')}><Icon name="sliders" size={14} /> Params</button>
         <button className={tab === 'text' ? 'on' : ''} onClick={() => setTab('text')}><span className="tab-glyph">T</span> Text{p.textFeatures.length ? <span className="count">{p.textFeatures.length}</span> : null}</button>
+        <button className={tab === 'print' ? 'on' : ''} onClick={() => setTab('print')}><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count">{p.printChanges}</span> : null}</button>
         <button className={tab === 'info' ? 'on' : ''} onClick={() => setTab('info')}><Icon name="info" size={14} /> Model</button>
         <button className={tab === 'code' ? 'on' : ''} onClick={() => setTab('code')}><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" /> : null}</button>
       </div>
       <div className="tab-body">
         {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
         {tab === 'params' && <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} />}
+        {tab === 'print' && (shown
+          ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} onChange={p.onUserPrint} bambu={p.bambu} />
+          : <div className="empty-note">Print settings appear once a model is generated.</div>)}
         {tab === 'text' && <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />}
         {tab === 'info' && <InfoTab result={shown} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} />}
         {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={p.onApplyCode} />}
@@ -70,6 +85,7 @@ export function SidePanel(p: Props) {
             <Icon name="check" size={14} /> {p.validating ? 'Checking…' : 'Validate'}
           </button>
           <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
+            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} onExport3mf={p.onExport3mf}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
         </div>
         {p.exportError && <div className="size-note bad">{p.exportError}</div>}
@@ -78,8 +94,12 @@ export function SidePanel(p: Props) {
   );
 }
 
-function ExportButton({ disabled, exporting, onExport, blender, count }: { disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: string | null; count: number }) {
-  const [open, setOpen] = useState(false);
+function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf }: {
+  disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: string | null; count: number;
+  bambu: string | null; printChanges: number; threeMf: { colours: boolean; print: boolean };
+  onThreeMf: (o: { colours: boolean; print: boolean }) => void; onExport3mf: () => void;
+}) {
+  const [open, setOpen] = useState<false | 'menu' | '3mf'>(false);
   const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -88,17 +108,34 @@ function ExportButton({ disabled, exporting, onExport, blender, count }: { disab
     return () => window.removeEventListener('mousedown', close);
   }, [open]);
   const pick = (f: ExportFormat) => { setOpen(false); onExport(f); };
+  const printOn = threeMf.print && !!bambu;
   return (
     <div className="export-split" ref={wrap}>
-      <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')}>
-        <Icon name="download" /> {exporting ? 'Exporting…' : `Export STL${count > 1 ? ` (${count} parts)` : ''}`}
+      <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')} title={count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}>
+        <Icon name="download" /> {exporting ? 'Exporting…' : 'Export STL'}
       </button>
-      <button className="btn primary export-more" disabled={disabled} onClick={() => setOpen(!open)} title="More formats"><Icon name="chevron" size={14} /></button>
-      {open && (
+      <button className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats"><Icon name="chevron" size={14} /></button>
+      {open === 'menu' && (
         <div className="export-menu">
           <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
-          <button onClick={() => pick('3mf')}><b>3MF</b><span>Each part a separate object on the plate, colours → filaments (Bambu Studio)</span></button>
+          <button onClick={() => setOpen('3mf')}><b>3MF…</b><span>For Bambu Studio – choose colours (AMS) and print settings</span></button>
           <button onClick={() => pick('blend')} disabled={!blender}><b>Blender (.blend)</b><span>{blender ? `One object per part, materials, dimensions, params · Blender ${blender}` : 'Blender not found on this computer'}</span></button>
+        </div>
+      )}
+      {open === '3mf' && (
+        <div className="export-menu threemf">
+          <div className="tm-title">Export 3MF for Bambu Studio</div>
+          <label className="check">
+            <input type="checkbox" checked={threeMf.colours} onChange={(e) => onThreeMf({ ...threeMf, colours: e.target.checked })} />
+            <span><b>Colours (AMS)</b><small>One filament per part colour. Off = everything in one filament.</small></span>
+          </label>
+          <label className={`check ${bambu ? '' : 'off'}`}>
+            <input type="checkbox" disabled={!bambu} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
+            <span><b>Print settings</b><small>{!bambu ? 'Needs Bambu Studio installed on this computer.'
+              : printChanges ? `A1 · PLA · 0.20 Standard with ${printChanges} change${printChanges > 1 ? 's' : ''} (see the Print tab).`
+                : 'A1 · PLA · 0.20 Standard profile, no changes.'}</small></span>
+          </label>
+          <button className="btn primary wide" onClick={() => { setOpen(false); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
         </div>
       )}
     </div>
