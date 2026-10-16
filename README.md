@@ -28,7 +28,23 @@ Requires Node ≥ 20.19 and a logged-in `claude` CLI (`claude` → `/login`).
 
 ## Viewer
 
-Orbit/pan/zoom, view presets, ortho camera, bounding-box dimensions, AI feature callouts, a click-to-measure tool with vertex snapping, a section plane, per-part visibility, and draft/normal/high preview quality. Export always re-evaluates at high quality.
+Orbit/pan/zoom, a home view (`H`) and fit (`F`), view presets, ortho camera, bounding-box dimensions, AI feature callouts, a click-to-measure tool with vertex snapping, a section plane, per-part visibility, and draft/normal/high preview quality. The 256 × 256 mm Bambu Lab A1 plate is drawn (change the printer in `shared/printer.ts`).
+
+**Editable dimensions:** double-click any X/Y/Z or callout label (or type in *Overall size*) and the app solves for the parameter value that produces exactly that size. Uniform *Scale %* is available too.
+
+## Text
+
+- **Text tool (Text tab):** raised or engraved text on any face or on a point you click. Text can lie flat or stand on a side, be straight, follow an arc, or wrap around a cylinder. You set letter height, depth, rotation, spacing and multi-line layout, and it sticks to the surface when sliders change.
+- **Fonts:** bundled open-licence fonts (Roboto, Inter, Montserrat, Oswald, Bebas Neue, Black Ops One, Allerta Stencil, Pacifico, Lobster, Roboto Mono) plus every TTF/OTF font installed on the computer, shown with live previews.
+- **Through Claude:** `H.text`, `H.textSolid` and `H.wrapAroundZ`, plus `text` parameters, cover anything the tool can't do (twisted, tapered, stencil, per-letter effects).
+
+## Export
+
+- **STL** (default): a single mesh.
+- **3MF:** one named, coloured object per part, so Bambu Studio keeps them separate.
+- **Blender (.blend):** built by your installed Blender in the background (`BLENDER_PATH` to override). It has one object per part with materials, millimetre units, a *Dimensions* collection, parameter values as custom properties, and the model script embedded.
+
+Every export re-evaluates the model at high resolution.
 
 ## License
 
