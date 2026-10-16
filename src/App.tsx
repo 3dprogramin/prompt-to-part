@@ -29,6 +29,9 @@ type TabMessage =
   | { type: 'running'; tab: string; id: string; on: boolean }
   | { type: 'hello'; tab: string };
 
+interface ChatOptions { model: string; effort: string; webSearch: boolean }
+const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: false };
+
 function newDesign(): Design {
   const now = Date.now();
   return { id: uid(), name: UNTITLED, createdAt: now, updatedAt: now, messages: [], versions: [], currentVersion: -1, code: '', values: {} };
@@ -85,10 +88,11 @@ export default function App() {
   }, []);
   const [exporting, setExporting] = useState(false);
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
-  const [model, setModel] = useState(() => load('model', 'opus'));
-  const [effort, setEffort] = useState(() => load('effort', 'high'));
-  // Web search per design, in memory only: every new design (and every reload) starts with it off.
-  const [webOn, setWebOn] = useState<Record<string, boolean>>({});
+  // Model, effort and web search per design, in memory only: every new design (and every reload)
+  // starts with Opus, High effort and web search off.
+  const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
+  const chat = chatOpts[design.id] ?? DEFAULT_CHAT;
+  const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? DEFAULT_CHAT), ...patch } }));
   const [viewOpts, setViewOpts] = useState<ViewerOptions>(() => ({
     showBBox: true, showAnnotations: true, showEdges: true, ortho: false, measure: false, hiddenParts: [],
     section: { enabled: false, axis: 'z', position: 0, flip: false },
@@ -144,8 +148,6 @@ export default function App() {
   const loaded = useRef(false);
 
   useEffect(() => store('quality', quality), [quality]);
-  useEffect(() => store('model', model), [model]);
-  useEffect(() => store('effort', effort), [effort]);
   useEffect(() => {
     const { showBBox, showAnnotations, showEdges, ortho, colors } = viewOpts;
     store('viewOpts', { showBBox, showAnnotations, showEdges, ortho, colors });
@@ -313,9 +315,9 @@ export default function App() {
         textNote: describeText(textFeatures),
         ...current,
         sessionId: design.sessionId,
-        model,
-        effort,
-        webSearch: !!webOn[designId],
+        model: chat.model,
+        effort: chat.effort,
+        webSearch: chat.webSearch,
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
@@ -648,10 +650,10 @@ export default function App() {
           onSend={onSend}
           onStop={() => running[design.id]?.abort()}
           onRestore={onRestore}
-          model={model} onModel={setModel}
-          effort={effort} onEffort={setEffort}
-          webSearch={!!webOn[design.id]}
-          onWebSearch={(on) => setWebOn((w) => ({ ...w, [design.id]: on }))}
+          model={chat.model} onModel={(model) => setChat({ model })}
+          effort={chat.effort} onEffort={(effort) => setChat({ effort })}
+          webSearch={chat.webSearch}
+          onWebSearch={(webSearch) => setChat({ webSearch })}
           hasModel={!!design.code}
         />
         <ViewerPanel
