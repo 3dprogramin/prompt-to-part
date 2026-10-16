@@ -20,11 +20,17 @@ Requires Node ≥ 20.19 and a logged-in `claude` CLI (`claude` → `/login`). Op
 
 ## How it works
 
-- **Geometry**: [manifold-3d](https://github.com/elalish/manifold) (WASM), which gives robust booleans and watertight STL. Model scripts are plain JS (`meta`, `params`, `build(p)`) evaluated in a Web Worker for the live preview, and in a Node worker thread for validation and renders. Every WASM object a build creates is freed afterwards. If the WASM instance ever crashes, the worker is replaced and the job runs once more; the server also starts a fresh worker every 300 jobs.
-- **Agent loop** (`server/agent.ts`): Claude can only Read/Write/Edit one file (`data/workspaces/<id>/model.js`) and call three tools:
+- **Geometry**: [manifold-3d](https://github.com/elalish/manifold) (WASM), which gives robust booleans and watertight STL. Model scripts are plain JS (`meta`, `params`, `build(p)`) evaluated in a Web Worker for the live preview, and in a separate Node process for Claude's checks and renders. Every WASM object a build creates is freed afterwards. If the WASM instance ever crashes, the worker is replaced and the job runs once more; the server also starts a fresh worker every 300 jobs.
+- **Sandbox**: model scripts are untrusted code (Claude writes them from your prompts, photos and web pages), so they never run with the app's privileges:
+  - each script runs in an [SES](https://github.com/endojs/endo/tree/master/packages/ses) Compartment (`shared/sandbox.ts`) that holds only `Manifold`, `CrossSection`, `H`, `quality` and `console`: no `process`, `require`, `import()`, `fetch`, timers, network or app API, and the `constructor` escape routes are disarmed;
+  - on the server that happens in its own Node process under the permission model: it may only read `node_modules`, can't write files or start processes, and gets no environment variables (`server/geometry.ts`);
+  - the API only answers Jig's own pages: requests must name Jig's host (against DNS rebinding), come from a local origin, and writes need an `X-Jig` header.
+- **Agent loop** (`server/agent.ts`): Claude can only Read/Write/Edit one file (`data/workspaces/<id>/model.js`), optionally search the web, and call three tools:
   - `evaluate_model`: errors with line numbers, bounding boxes, volumes, disconnected-piece and build-plate checks
   - `render_model`: a software-rendered ISO/front/right/top sheet with a mm grid, so Claude can compare against your photos
   - `submit_model`: evaluates every slider at its min and max and rejects the model if any combination breaks. Multi-part designs also need an assembly sequence and assembly pictures.
+- **Web search** (the *Web* toggle in the chat, off for every new design and never saved): Claude may use web search and read pages to find exact dimensions of products you name, puts them into parameters and tells you its sources and which numbers are estimates. With it off, Claude says which dimensions come from memory.
+- **Model and effort** start at Opus / High for every new design; a change applies to that design until you reload.
 - **Follow-ups** resume the same Claude session and send what you are looking at: a screenshot of the viewer and a four-view render with your current slider values, scale and text, plus a note if you restored an older version or edited the code.
 - **System prompt**: `server/systemPrompt.ts` covers conventions (mm, Z-up, on the bed), the API reference, the helper library, printability rules and print-setting suggestions.
 - **Helpers** (`shared/runtime.ts`): helical sweep (springs, corkscrews), ISO threads and threaded-hole cutters, radial surfaces (knurling), sweeps/tubes, lofts, rounded boxes, arrays, text.
@@ -34,7 +40,9 @@ Requires Node ≥ 20.19 and a logged-in `claude` CLI (`claude` → `/login`). Op
 
 - **Tabs:** designs you open appear as tabs in the top bar, so parallel generations are one click apart. A spinner marks designs Claude is working on, and a dot marks ones that finished while you were looking at another. Every saved design is in *Designs*. Right-click the logo to start a new design in a new browser tab.
 - **Versions:** click *v2 of 5* in the top bar to jump to any version. Gold versions are Claude's, blue ones are settings you saved.
-- **Saved settings:** when your sliders, scale, text or print overrides differ from the current version, *Save as vN* appears next to it and stores them as a new version. Restoring a version brings its settings back.
+- **Saved settings:** when your sliders, scale, text or print overrides differ from the current version, *Save as vN* appears next to it and stores them as a new version. Restoring a version brings its settings back; switching versions with unsaved changes asks whether to save them, discard them or cancel.
+- **Autosave:** every change is saved to `data/designs/<id>.json` about half a second later (one file per design, overwritten; autosave never creates versions). If a save fails, *Not saved – retry* appears in the top bar, and closing the tab asks first.
+- **Questions:** ask Claude something about the design and the reply starts with the short answer, then the explanation; the model is only changed when you ask for a change.
 
 ## Watching Claude work
 
@@ -74,6 +82,7 @@ Every export re-evaluates the model at high resolution and validates exactly tha
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8787` | API server port |
+| `API_PORT` | `8787` | Where the Vite dev server proxies `/api` (set it with `PORT`) |
 | `JIG_DATA` | `./data` | Designs, workspaces, Bambu template cache |
 | `JIG_USE_API_KEY` | off | `1` to use `ANTHROPIC_API_KEY` instead of the subscription |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
