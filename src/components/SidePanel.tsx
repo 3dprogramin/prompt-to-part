@@ -89,7 +89,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count }: { disab
       {open && (
         <div className="export-menu">
           <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
-          <button onClick={() => pick('3mf')}><b>3MF</b><span>Separate named &amp; coloured parts – best for Bambu Studio</span></button>
+          <button onClick={() => pick('3mf')}><b>3MF</b><span>Each part a separate object on the plate, colours → filaments (Bambu Studio)</span></button>
           <button onClick={() => pick('blend')} disabled={!blender}><b>Blender (.blend)</b><span>{blender ? `One object per part, materials, dimensions, params · Blender ${blender}` : 'Blender not found on this computer'}</span></button>
         </div>
       )}

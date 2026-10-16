@@ -7,23 +7,68 @@ export type ExportFormat = 'stl' | '3mf' | 'blend';
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 const num = (n: number) => (Math.abs(n) < 1e-9 ? '0' : String(+n.toFixed(5)));
 
-/** 3MF with one named, coloured object per part (Bambu Studio / PrusaSlicer / Cura). */
-export function to3mf(parts: PartMesh[], title: string): Blob {
-  const colors = parts.map((p) => `<base name="${esc(p.name)}" displaycolor="${/^#[0-9a-f]{6}$/i.test(p.color) ? p.color.toUpperCase() : '#C9A26B'}FF"/>`).join('');
-  const objects: string[] = [];
-  parts.forEach((p, i) => {
-    const v: string[] = [];
-    for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k])}" y="${num(p.positions[k + 1])}" z="${num(p.positions[k + 2])}"/>`);
-    const t: string[] = [];
-    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"/>`);
-    objects.push(`<object id="${i + 2}" name="${esc(p.name)}" type="model" pid="1" pindex="${i}"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`);
+// ---------------------------------------------------------------------------
+// 3MF. Colours use the Materials extension colour group per triangle – the encoding
+// Bambu Studio reads from non-Bambu files (each colour becomes its own filament).
+// ---------------------------------------------------------------------------
+
+const BED = { w: 256, d: 256 }; // Bambu Lab A1 – parts are centred on this plate
+
+interface Box { min: number[]; max: number[] }
+
+/** Lay parts side by side when they overlap on the plate; otherwise keep their XY arrangement. */
+function arrange(boxes: Box[]): number[][] {
+  const overlaps = boxes.some((a, i) => boxes.some((b, j) => j > i && a.min[0] < b.max[0] && a.max[0] > b.min[0] && a.min[1] < b.max[1] && a.max[1] > b.min[1]));
+  if (!overlaps) return boxes.map(() => [0, 0]);
+  const gap = 6;
+  const total = boxes.reduce((s, b) => s + (b.max[0] - b.min[0]), 0) + gap * (boxes.length - 1);
+  let x = -total / 2;
+  return boxes.map((b) => {
+    const shift = [x - b.min[0], -(b.min[1] + b.max[1]) / 2];
+    x += b.max[0] - b.min[0] + gap;
+    return shift;
   });
+}
+
+/**
+ * Every part becomes a separate named object resting on the plate (arranged side by side if they
+ * overlap), centred on the A1 bed. Verified with Bambu Studio 2.8: no "multiple heights" prompt,
+ * and each distinct colour is assigned its own filament.
+ */
+export function to3mf(parts: PartMesh[], title: string): Blob {
+  const colours: string[] = [];
+  const colourIdx = parts.map((p) => {
+    const c = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color.toUpperCase() : '#C9A26B';
+    let i = colours.indexOf(c);
+    if (i < 0) { colours.push(c); i = colours.length - 1; }
+    return i;
+  });
+
+  // Per-part translation: arranged in XY, each part dropped onto the plate.
+  const boxes: Box[] = parts.map((p) => ({ min: [...p.bbox.min], max: [...p.bbox.max] }));
+  const xy = arrange(boxes);
+  const shifts = boxes.map((b, i) => [xy[i][0], xy[i][1], -b.min[2]]);
+  const lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+  boxes.forEach((b, i) => { for (const k of [0, 1]) { lo[k] = Math.min(lo[k], b.min[k] + shifts[i][k]); hi[k] = Math.max(hi[k], b.max[k] + shifts[i][k]); } });
+  const centre = [BED.w / 2 - (lo[0] + hi[0]) / 2, BED.d / 2 - (lo[1] + hi[1]) / 2];
+
+  const objects = parts.map((p, i) => {
+    const [dx, dy, dz] = [shifts[i][0] + centre[0], shifts[i][1] + centre[1], shifts[i][2]];
+    const v: string[] = [];
+    for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k] + dx)}" y="${num(p.positions[k + 1] + dy)}" z="${num(p.positions[k + 2] + dz)}"/>`);
+    const t: string[] = [];
+    const ci = colourIdx[i];
+    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}" pid="1" p1="${ci}"/>`);
+    return `<object id="${i + 2}" name="${esc(p.name)}" type="model" pid="1" pindex="${ci}"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
+  });
+  const resources = objects.join('');
+  const build = parts.map((_, i) => `<item objectid="${i + 2}"/>`).join('');
   const model = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
 <metadata name="Title">${esc(title)}</metadata>
 <metadata name="Application">AI Designer</metadata>
-<resources><basematerials id="1">${colors}</basematerials>${objects.join('')}</resources>
-<build>${parts.map((_, i) => `<item objectid="${i + 2}"/>`).join('')}</build>
+<resources><m:colorgroup id="1">${colours.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>${resources}</resources>
+<build>${build}</build>
 </model>`;
   const zip = zipSync({
     '[Content_Types].xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'),
