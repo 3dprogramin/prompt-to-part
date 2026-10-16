@@ -8,21 +8,13 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { unzipSync, strFromU8 } from 'fflate';
 import { DATA_DIR } from './config';
+import { PRINTER } from '../shared/printer';
+import type { BambuTemplate } from '../shared/api';
 import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
 const CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
-const PRESETS = { machine: 'Bambu Lab A1 0.4 nozzle', process: '0.20mm Standard @BBL A1', filament: 'Bambu PLA Basic @BBL A1' };
-
-export interface BambuTemplate {
-  version: string;
-  /** project_settings.config for one filament */
-  settings: Record<string, unknown>;
-  /** keys holding one value per filament */
-  perFilament: string[];
-  /** keys holding (filaments + 2) entries */
-  perFilamentPlus2: string[];
-}
+const PRESETS = PRINTER.bambu;
 
 async function findBinary(): Promise<string | null> {
   return findExecutable([

@@ -2,47 +2,12 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { query, tool, createSdkMcpServer, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentEvent, GenerateRequest } from '../shared/api';
 import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { buildSystemPrompt } from './systemPrompt';
-import type { AgentStep, ParamValues } from '../shared/types';
 import { partialFields } from './partialJson';
 import { DATA_DIR, USE_API_KEY } from './config';
-
-export interface GenerateRequest {
-  designId: string;
-  prompt: string;
-  images?: { mediaType: string; data: string }[];
-  code?: string;
-  values?: ParamValues;
-  sessionId?: string;
-  model?: string;
-  effort?: EffortLevel;
-  textNote?: string;
-  /** Follow-ups: screenshot of the user's current viewer (their camera angle, with dimension labels). */
-  currentView?: { mediaType: string; data: string };
-  /** Follow-ups: full values to render the current state exactly ($scale, $text included). */
-  renderValues?: ParamValues;
-  /** Uniform scale the user applied in the app (1 = none). */
-  scale?: number;
-  /** Restored-version / manual-edit note. */
-  versionNote?: string;
-  /** Let Claude use WebSearch / WebFetch (off unless the user turns it on for this design). */
-  webSearch?: boolean;
-}
-
-export type AgentEvent =
-  | { type: 'session'; sessionId: string }
-  | { type: 'step'; step: AgentStep }
-  | { type: 'model'; code: string; summary: string }
-  | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
-  | { type: 'error'; message: string }
-  /** Transient one-line status (throttled), replaced by the next one. */
-  | { type: 'live'; text: string }
-  /** Live transcript: a content block starts, its text grows, or a tool call's input fields are re-sent as they stream. */
-  | { type: 'block'; op: 'start'; kind: 'thinking' | 'text' | 'tool'; name?: string; label?: string; at?: number }
-  | { type: 'block'; op: 'append'; text: string }
-  | { type: 'block'; op: 'fields'; fields: Record<string, string> };
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -299,18 +264,20 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Use the Claude plan the `claude` CLI is logged in with, unless JIG_USE_API_KEY=1 asks for API billing.
   if (!USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
 
+  // Whether Claude has answered at all: then a failure is not a missing session, and starting over
+  // in a new one would repeat the work (and could produce a second version).
+  let gotOutput = false;
   const run = async (resume?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
       yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null };
     }
     let finalText = '';
-    let gotOutput = false;
     const q = query({
       prompt: messages(),
       options: {
         systemPrompt: buildSystemPrompt(file, !!req.webSearch),
         model: req.model || 'opus',
-        effort: req.effort ?? 'high',
+        effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
         cwd: ws,
         tools: ['Read', 'Write', 'Edit', ...(req.webSearch ? WEB_TOOLS : [])],
@@ -448,7 +415,6 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted, text: finalText });
       }
     }
-    return gotOutput;
   };
 
   try {
@@ -457,7 +423,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     if (abort.signal.aborted) return;
     const msg = (e as Error).message ?? String(e);
     // Session may have been deleted – retry once without resuming.
-    if (req.sessionId && /session|conversation/i.test(msg)) {
+    if (req.sessionId && !gotOutput && /session|conversation/i.test(msg)) {
       emit({ type: 'step', step: { kind: 'status', text: 'Previous session unavailable – starting a fresh one.' } });
       await run(undefined);
     } else throw e;

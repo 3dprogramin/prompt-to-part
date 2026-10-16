@@ -1,18 +1,8 @@
-import type { AgentStep, Design, DesignSummary, ParamValues } from '../../shared/types';
+import type { Design, DesignSummary } from '../../shared/types';
+import type { AgentEvent, Capabilities, FontEntry, GenerateRequest } from '../../shared/api';
 import { dataUrlToImage } from './files';
 
-export type AgentEvent =
-  | { type: 'session'; sessionId: string }
-  | { type: 'step'; step: AgentStep }
-  | { type: 'model'; code: string; summary: string }
-  | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
-  | { type: 'error'; message: string }
-  | { type: 'live'; text: string }
-  | { type: 'block'; op: 'start'; kind: 'thinking' | 'text' | 'tool'; name?: string; label?: string; at?: number }
-  | { type: 'block'; op: 'append'; text: string }
-  | { type: 'block'; op: 'fields'; fields: Record<string, string> };
-
-export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
+export type { AgentEvent, FontEntry } from '../../shared/api';
 
 /** Every write to the API carries X-Jig: the server refuses writes without it (see server/index.ts). */
 export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Jig': '1' };
@@ -91,33 +81,12 @@ export const api = {
   async deleteDesign(id: string): Promise<void> {
     await request(`/api/designs/${id}`, { method: 'DELETE' });
   },
-  capabilities: () => getJson<{ blender: string | null; blenderProblem: string | null; bambu: string | null }>('/api/capabilities'),
+  capabilities: () => getJson<Capabilities>('/api/capabilities'),
   /** Font files (base64) for the text tool and font previews. */
   fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };
 
-export interface GenerateBody {
-  designId: string;
-  prompt: string;
-  images: { mediaType: string; data: string }[];
-  code?: string;
-  values?: ParamValues;
-  sessionId?: string;
-  model: string;
-  effort: string;
-  /** Description of text the user placed with the text tool (applied after the script). */
-  textNote?: string;
-  /** Follow-ups: screenshot of the current viewer. */
-  currentView?: { mediaType: string; data: string };
-  /** Follow-ups: values to render the current state exactly (incl. $scale and $text). */
-  renderValues?: ParamValues;
-  scale?: number;
-  versionNote?: string;
-  /** Let Claude search the web (per design, off by default, never saved). */
-  webSearch?: boolean;
-}
-
-export async function generate(body: GenerateBody, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
+export async function generate(body: GenerateRequest, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
   const res = await request('/api/generate', { method: 'POST', body: JSON.stringify(body), signal });
   if (!res.body) throw new Error('The server sent no response');
   const reader = res.body.getReader();

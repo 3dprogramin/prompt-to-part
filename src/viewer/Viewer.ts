@@ -784,7 +784,6 @@ export class Viewer {
     }
   }
 
-  /** PNG snapshot of the current view (for thumbnails / sharing). */
   /**
    * JPEG of exactly what the user sees: the 3D view plus the dimension labels
    * (drawn onto the image, since they are HTML overlays). Long side capped at `maxSize`.

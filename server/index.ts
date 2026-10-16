@@ -3,11 +3,12 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
-import { runGeneration, workspaceDir, type AgentEvent, type GenerateRequest } from './agent';
+import { runGeneration, workspaceDir } from './agent';
+import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest } from '../shared/api';
 import { DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
 import { geometry } from './geometry';
 import { listFonts, loadFontBuffers } from './fonts';
-import { blenderInfo, exportBlend, type BlendRequest } from './blend';
+import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion } from './bambu';
 import type { Design, DesignSummary } from '../shared/types';
 
@@ -137,7 +138,7 @@ app.get('/api/designs/:id/images/:name', (req, res) => {
 
 app.get('/api/capabilities', async (_req, res) => {
   const blender = await blenderInfo();
-  res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion() });
+  res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion() } satisfies Capabilities);
 });
 
 // A POST, because the first call runs Bambu Studio for minutes: a GET could be triggered by any

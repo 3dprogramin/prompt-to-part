@@ -1,40 +1,30 @@
 import { zipSync, strToU8 } from 'fflate';
 import type { DimensionAnnotation, EvalResult, PartMesh } from '../../shared/types';
 import { toBinaryStl } from './files';
-import { toBambuProject, type BambuTemplate } from './bambu3mf';
+import { toBambuProject } from './bambu3mf';
 import type { PrintProfile } from '../../shared/print';
-import { WRITE_HEADERS } from './api';
+import { bedShift } from '../../shared/printer';
+import type { BambuTemplate, BlendRequest } from '../../shared/api';
+import { request } from './api';
+import { CONTENT_TYPES, colourSlots, esc, num } from './threeMf';
 
 export type ExportFormat = 'stl' | '3mf' | 'blend';
 
-const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
-const num = (n: number) => (Math.abs(n) < 1e-9 ? '0' : String(+n.toFixed(5)));
 
 // ---------------------------------------------------------------------------
 // 3MF. Colours use the Materials extension colour group per triangle – the encoding
 // Bambu Studio reads from non-Bambu files (it offers colour mapping onto filaments).
 // ---------------------------------------------------------------------------
 
-const BED = { w: 256, d: 256 }; // Bambu Lab A1 – the model is centred on this plate
-
 /**
  * Exports exactly what the viewer shows: parts keep their positions relative to each other
  * (coloured pieces of one figurine stay attached); the whole model is only lifted onto the
- * plate and centred on the A1 bed. Each part is a named object with its colour.
+ * plate and centred on the printer's bed. Each part is a named object with its colour.
  */
 export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
-  const palette: string[] = [];
-  const colourIdx = parts.map((p) => {
-    const c = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color.toUpperCase() : '#C9A26B';
-    let i = palette.indexOf(c);
-    if (i < 0) { palette.push(c); i = palette.length - 1; }
-    return i;
-  });
-
+  const { colours: palette, slot: colourIdx } = colourSlots(parts);
   // One translation for the whole model: rest on the plate, centred on the bed.
-  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-  for (const p of parts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.bbox.min[k]); hi[k] = Math.max(hi[k], p.bbox.max[k]); }
-  const shift = [BED.w / 2 - (lo[0] + hi[0]) / 2, BED.d / 2 - (lo[1] + hi[1]) / 2, -lo[2]];
+  const shift = bedShift(parts.map((p) => p.bbox));
 
   const objects = parts.map((p, i) => {
     const [dx, dy, dz] = shift;
@@ -56,7 +46,7 @@ export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
 <build>${build}</build>
 </model>`;
   const zip = zipSync({
-    '[Content_Types].xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'),
+    '[Content_Types].xml': strToU8(CONTENT_TYPES),
     '_rels/.rels': strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>'),
     '3D/3dmodel.model': strToU8(model),
   }, { level: 6 });
@@ -86,17 +76,12 @@ export async function toBlend(result: EvalResult, parts: PartMesh[], title: stri
     })),
   ];
   const params = Object.fromEntries(Object.entries(result.values).filter(([k]) => !k.startsWith('$')));
-  const res = await fetch('/api/export/blend', {
-    method: 'POST',
-    headers: WRITE_HEADERS,
-    body: JSON.stringify({
-      name: title, code, params, size,
-      parts: parts.map((p) => ({ name: p.name, color: p.color, positions: b64(p.positions), indices: b64(p.indices) })),
-      dimensions: dims,
-    }),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
-  return res.blob();
+  const body: BlendRequest = {
+    name: title, code, params, size,
+    parts: parts.map((p) => ({ name: p.name, color: p.color, positions: b64(p.positions), indices: b64(p.indices) })),
+    dimensions: dims,
+  };
+  return (await request('/api/export/blend', { method: 'POST', body: JSON.stringify(body) })).blob();
 }
 
 export interface ThreeMfOptions {
@@ -108,9 +93,8 @@ export interface ThreeMfOptions {
 export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
   if (format === '3mf') {
     if (!threeMf.print) return to3mf(parts, title, threeMf.colours);
-    const res = await fetch('/api/bambu/template', { method: 'POST', headers: WRITE_HEADERS });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Bambu Studio profile unavailable');
-    return toBambuProject(parts, title, (await res.json()) as BambuTemplate, { colours: threeMf.colours, print: threeMf.print });
+    const tpl = (await (await request('/api/bambu/template', { method: 'POST' })).json()) as BambuTemplate;
+    return toBambuProject(parts, title, tpl, { colours: threeMf.colours, print: threeMf.print });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
   return toBinaryStl(parts, title);

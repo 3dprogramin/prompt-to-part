@@ -1,4 +1,5 @@
-import { fitProblem } from '../shared/printer';
+import { modelWarnings } from '../shared/modelWarnings';
+import { PRINTER } from '../shared/printer';
 import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
@@ -171,7 +172,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   }
   lines.push('Parts:');
   for (const p of r.parts) {
-    const b = p.bbox!;
+    const b = p.bbox;
     lines.push(`  - "${p.name}": ${f(b.max[0] - b.min[0])} × ${f(b.max[1] - b.min[1])} × ${f(b.max[2] - b.min[2])} mm, Z[${f(b.min[2])}, ${f(b.max[2])}], volume ${f(p.volume / 1000, 3)} cm³, ${p.triCount} triangles, ${p.components} connected piece(s), genus ${p.genus}`);
   }
   if (r.dimensions.length) {
@@ -184,14 +185,10 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   }
   const { parts: partPrint, ...globalPrint } = r.print;
   if (Object.keys(globalPrint).length || partPrint) {
-    lines.push(`Print settings (differences from A1 0.20 mm Standard, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
+    lines.push(`Print settings (differences from ${PRINTER.bambu.process}, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
   }
-  const warn = [...r.warnings];
-  if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) warn.push(`Model does not rest on the build plate: min Z = ${f(r.bbox.min[2])} (should be 0)`);
-  for (const p of r.parts) if (p.components > 1) warn.push(`Part "${p.name}" consists of ${p.components} disconnected pieces – if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);
+  const warn = modelWarnings(r);
   const tris = r.parts.reduce((s, p) => s + p.triCount, 0);
-  const fit = fitProblem(r.bbox);
-  if (fit) warn.push(fit);
   if (tris > 1_500_000) warn.push(`Very high triangle count (${tris}); reduce segments for responsive sliders`);
   if (r.timeMs > 1500) warn.push(`Slow evaluation (${Math.round(r.timeMs)} ms) – sliders will feel laggy; simplify or lower segment counts`);
   if (warn.length) { lines.push('Warnings:'); for (const w of warn) lines.push(`  - ${w}`); }

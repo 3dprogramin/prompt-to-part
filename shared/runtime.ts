@@ -5,6 +5,7 @@ import { parse } from 'acorn';
 import { FontMissingError, layoutText, takeFontSubstitutions, type TextLayoutOptions } from './text';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { cleanProfile } from './print';
+import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
   PartMesh, Quality, ScriptErrorInfo, Vec2, Vec3,
@@ -570,13 +571,6 @@ function makeHelpers(rt: Runtime, quality: Quality) {
   return H;
 }
 
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const dist3 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-const norm = (a: Vec3): Vec3 => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 function transport(n: Vec3, t0: Vec3, t1: Vec3): Vec3 {
   const axis = cross(t0, t1);
   const s = Math.hypot(axis[0], axis[1], axis[2]);
@@ -883,7 +877,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         const tb = shape.boundingBox();
         textBase = { min: [tb.min[0], tb.min[1], tb.min[2]], max: [tb.max[0], tb.max[1], tb.max[2]] };
         try {
-          shape = applyTextFeatures(shape, mine, rt.Manifold, rt.CrossSection);
+          shape = applyTextFeatures(shape, mine, rt.CrossSection);
         } catch (e) {
           if (e instanceof FontMissingError) throw e;
           warnings.push(`Text feature failed: ${(e as Error).message}`);

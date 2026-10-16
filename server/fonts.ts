@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ROOT } from './config';
+import type { FontEntry } from '../shared/api';
 
-export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
 
 const STANDARD: { pkg: string; family: string; weight: number; style: string }[] = [
   { pkg: 'roboto', family: 'Roboto', weight: 400, style: 'Regular' },

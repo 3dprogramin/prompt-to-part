@@ -137,7 +137,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     };
     viewer.current = v;
     return () => { v.dispose(); viewer.current = null; if (snapshotRef) snapshotRef.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Created once; callbacks are read through refs (editRef, pickRef).
   }, []);
 
   useEffect(() => {

@@ -2,6 +2,7 @@
 // Produces a 2x2 sheet: ISO | FRONT / RIGHT | TOP, with a mm grid on ortho views.
 import { deflateSync } from 'node:zlib';
 import type { PartMesh, Vec3 } from '../shared/types';
+import { cross, dot, norm } from '../shared/vec3';
 
 const VIEW = 560;
 
@@ -13,9 +14,6 @@ interface View {
   grid: boolean;
 }
 
-const norm = (v: Vec3): Vec3 => { const l = Math.hypot(...v) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 function isoView(): View {
   const dir = norm([-1, 1, -0.75]); // from front-right-above looking toward origin

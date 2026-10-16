@@ -14,7 +14,7 @@ import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, inspectScript, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../shared/runtime';
 import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
-import type { EvalResult, ParamValues, Quality } from '../shared/types';
+import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
 
 // Refuse to run model scripts without the process lock.
 if (!process.permission || process.permission.has('child') || process.permission.has('fs.write')) {
@@ -84,7 +84,7 @@ export interface EvalSummary {
   dimensions: EvalResult['dimensions'];
   assembly: EvalResult['assembly'];
   print: EvalResult['print'];
-  parts: { name: string; color: string; bbox: EvalResult['bbox']; volume: number; surfaceArea: number; triCount: number; genus: number; components: number }[];
+  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number }[];
 }
 export interface EvalFailure { ok: false; error: ReturnType<typeof formatScriptError> }
 
@@ -92,7 +92,7 @@ function summarize(r: EvalResult): EvalSummary {
   return {
     ok: true, meta: r.meta, params: r.params, values: r.values, bbox: r.bbox, timeMs: r.timeMs,
     warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly, print: r.print,
-    parts: r.parts.map(({ positions: _p, indices: _i, ...rest }) => rest),
+    parts: r.parts.map(({ name, color, bbox, volume, surfaceArea, triCount, genus, components }) => ({ name, color, bbox, volume, surfaceArea, triCount, genus, components })),
   };
 }
 

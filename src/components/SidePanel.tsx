@@ -8,10 +8,11 @@ import { useReleaseSlider } from './useReleaseSlider';
 import { usePopover } from './usePopover';
 import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
-import type { FontEntry } from '../lib/api';
+import type { FontEntry } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
 import { PRINTER, fitProblem } from '../../shared/printer';
+import { modelWarnings } from '../../shared/modelWarnings';
 
 type Tab = 'params' | 'text' | 'print' | 'info' | 'code';
 
@@ -305,7 +306,8 @@ function TextValue({ id, value, onCommit }: { id: string; value: string; onCommi
     if (draft === value) return;
     const t = setTimeout(() => onCommit(draft), 250);
     return () => clearTimeout(t);
-  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only typing starts the timer; a new value from outside resets the draft above.
+  }, [draft]);
   return <input id={id} className="text-param" value={draft} onChange={(e) => setDraft(e.target.value)} />;
 }
 
@@ -359,11 +361,8 @@ function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: Ev
   const area = result.parts.reduce((s, p) => s + p.surfaceArea, 0) / 100;
   const tris = result.parts.reduce((s, p) => s + p.triCount, 0);
   const b = result.bbox;
-  const warnings = [...result.warnings];
+  const warnings = modelWarnings(result);
   const fit = fitProblem(b);
-  if (fit) warnings.push(fit);
-  if (b && Math.abs(b.min[2]) > 0.01) warnings.push(`Model does not sit on the build plate (min Z = ${b.min[2].toFixed(2)} mm)`);
-  for (const p of result.parts) if (p.components > 1) warnings.push(`"${p.name}" has ${p.components} disconnected pieces`);
   return (
     <div className="info">
       {b && (

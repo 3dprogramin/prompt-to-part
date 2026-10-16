@@ -2,21 +2,18 @@
 // overrides, and one filament per colour. Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
 import { A1_DEFAULTS, bambuOverrides, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
+import { bedShift } from '../../shared/printer';
+import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
+import { CONTENT_TYPES, colourSlots, esc, num } from './threeMf';
 
-export interface BambuTemplate {
-  version: string;
-  settings: Record<string, unknown>;
-  perFilament: string[];
-  perFilamentPlus2: string[];
-}
-
-const BED = { w: 256, d: 256 };
-const APP = 'BambuStudio-02.08.04.57';
 const NS = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"';
-const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
-const num = (n: number) => (Math.abs(n) < 1e-9 ? '0' : String(+n.toFixed(5)));
 const ID = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
+
+/** "02.08.04.57" from the installed Bambu Studio the template was built with (the project's Application). */
+function bambuAppVersion(v: string): string {
+  return /^\d+(\.\d+)+$/.test(v) ? v.split('.').map((x) => x.padStart(2, '0')).join('.') : '02.08.04.57';
+}
 
 /** Settings Bambu Studio keeps per object only: a part (volume) can't have its own. */
 const OBJECT_ONLY = new Set(['layer_height', 'enable_support', 'support_type', 'brim_type', 'brim_width']);
@@ -61,25 +58,17 @@ export function toBambuProject(
   tpl: BambuTemplate,
   opts: { colours: boolean; print: { ai: PrintProfile; user: PrintProfile } | null },
 ): Blob {
-  // Filament slots: one per distinct colour (or a single filament).
-  const colours: string[] = [];
-  const slot = parts.map((p) => {
-    if (!opts.colours) return 1;
-    const c = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color.toUpperCase() : '#C9A26B';
-    let i = colours.indexOf(c);
-    if (i < 0) { colours.push(c); i = colours.length - 1; }
-    return i + 1;
-  });
-  if (!colours.length) colours.push(opts.colours ? '#C9A26B' : String((tpl.settings.filament_colour as string[] | undefined)?.[0] ?? '#00AE42'));
+  // Filament slots (1-based): one per distinct colour, or a single filament.
+  const slots = colourSlots(parts);
+  const colours = opts.colours ? slots.colours : [String((tpl.settings.filament_colour as string[] | undefined)?.[0] ?? '#00AE42')];
+  const slot = parts.map((_, i) => (opts.colours ? slots.slot[i] + 1 : 1));
 
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
   const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user) : A1_DEFAULTS;
   const globalChanges = bambuOverrides(globalSettings);
 
-  // Whole model moved as one onto the A1 plate (same placement as the viewer).
-  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-  for (const p of parts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.bbox.min[k]); hi[k] = Math.max(hi[k], p.bbox.max[k]); }
-  const shift = [BED.w / 2 - (lo[0] + hi[0]) / 2, BED.d / 2 - (lo[1] + hi[1]) / 2, -lo[2]];
+  // Whole model moved as one onto the plate (same placement as the viewer).
+  const shift = bedShift(parts.map((p) => p.bbox));
 
   const files: Record<string, Uint8Array> = {};
   const resources: string[] = [], items: string[] = [], rels: string[] = [], objectCfg: string[] = [], instances: string[] = [];
@@ -135,11 +124,11 @@ export function toBambuProject(
   const diff = settings.different_settings_to_system as string[];
   diff[0] = Object.keys(globalChanges).sort().join(';');
 
-  files['3D/3dmodel.model'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="Application">${APP}</metadata>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n<metadata name="Title">${esc(title)}</metadata>\n<metadata name="Designer">Jig</metadata>\n<resources>${resources.join('')}</resources>\n<build>${items.join('')}</build>\n</model>`);
+  files['3D/3dmodel.model'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="Application">BambuStudio-${bambuAppVersion(tpl.version)}</metadata>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n<metadata name="Title">${esc(title)}</metadata>\n<metadata name="Designer">Jig</metadata>\n<resources>${resources.join('')}</resources>\n<build>${items.join('')}</build>\n</model>`);
   files['3D/_rels/3dmodel.model.rels'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>`);
   files['Metadata/model_settings.config'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<config>${objectCfg.join('')}<plate><metadata key="plater_id" value="1"/><metadata key="plater_name" value=""/><metadata key="locked" value="false"/>${instances.join('')}</plate><assemble></assemble></config>`);
   files['Metadata/project_settings.config'] = strToU8(JSON.stringify(settings, null, 4));
-  files['[Content_Types].xml'] = strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="png" ContentType="image/png"/></Types>');
+  files['[Content_Types].xml'] = strToU8(CONTENT_TYPES);
   files['_rels/.rels'] = strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>');
   return new Blob([zipSync(files, { level: 6 })], { type: 'model/3mf' });
 }

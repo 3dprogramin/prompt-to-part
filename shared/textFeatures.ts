@@ -2,6 +2,7 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
 import { DEFAULT_FONT, layoutText } from './text';
 import type { Vec3 } from './types';
+import { cross, norm } from './vec3';
 
 export const TEXT_KEY = '$text';
 
@@ -65,8 +66,6 @@ const FACE_DIRS: Record<Exclude<TextFace, 'pick'>, { anchor: Vec3; normal: Vec3 
   right: { anchor: [1, 0.5, 0.5], normal: [1, 0, 0] },
 };
 
-const norm = (v: Vec3): Vec3 => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
-const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 const SINK = 0.4; // emboss overlaps into the surface so it fuses
 const CLEAR = 0.6; // engrave cutter rises above the surface
@@ -75,7 +74,6 @@ const CLEAR = 0.6; // engrave cutter rises above the surface
 export function applyTextFeatures(
   shape: Manifold,
   features: TextFeature[],
-  M: typeof Manifold,
   C: typeof CrossSection,
 ): Manifold {
   let out = shape;

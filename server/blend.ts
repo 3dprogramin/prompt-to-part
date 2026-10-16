@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { findExecutable, installDirs } from './which';
+import type { BlendRequest } from '../shared/api';
 
 const run = promisify(execFile);
 const blenderPath = () => findExecutable([
@@ -15,15 +16,6 @@ const blenderPath = () => findExecutable([
 /** blender_export.py uses Mesh.set_sharp_from_angle, new in Blender 4.1. */
 const MIN_VERSION = [4, 1];
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'blender_export.py');
-
-export interface BlendRequest {
-  name: string;
-  code?: string;
-  params?: Record<string, number | boolean | string>;
-  size?: number;
-  parts: { name: string; color: string; positions: string; indices: string }[]; // base64 float32 / uint32
-  dimensions?: { label: string; from: number[]; to: number[]; offset?: number[]; color?: string }[];
-}
 
 export interface BlenderInfo {
   version: string;
