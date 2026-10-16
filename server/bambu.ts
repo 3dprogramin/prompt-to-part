@@ -40,7 +40,8 @@ export async function bambuVersion(): Promise<string | null> {
   const bin = await findBinary();
   if (!bin) return (versionCache = null);
   try {
-    const { stdout } = await run(bin, ['--help'], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+    // Bambu Studio writes a result.json into its working directory – keep that out of the project.
+    const { stdout } = await run(bin, ['--help'], { cwd: os.tmpdir(), timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
     versionCache = /BambuStudio-([\d.]+)/.exec(stdout)?.[1] ?? 'installed';
   } catch (e) {
     const out = String((e as { stdout?: string }).stdout ?? '');
