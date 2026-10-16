@@ -12,7 +12,11 @@ interface Job {
   solve?: { target: DimTarget; goal: number };
   validate?: ValidateOptions;
   resolve: (o: any) => void;
+  /** Set once the job has been re-run after a worker crash. */
+  retried?: boolean;
 }
+
+interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean }
 
 const TIMEOUT_MS = 30000;
 
@@ -30,17 +34,41 @@ export class GeometryClient {
   constructor() { this.spawn(); }
 
   private spawn() {
-    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (ev) => {
-      const { id, result, error, solve, report } = ev.data as { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport };
-      if (!this.running || this.running.id !== id) return;
-      clearTimeout(this.running.timer);
-      const { job } = this.running;
-      this.running = null;
-      if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
-      else job.resolve(result ? { result, report } : { error: error! });
-      this.pump();
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    this.worker = worker;
+    worker.onmessage = (ev) => this.reply(ev.data as Reply);
+    // An uncaught error kills the job without a reply; treat it like a crash.
+    worker.onerror = (ev) => {
+      ev.preventDefault();
+      if (this.worker === worker && this.running) {
+        this.reply({ id: this.running.id, error: { message: ev.message || 'Geometry worker failed', stage: 'build' }, crashed: true });
+      }
     };
+  }
+
+  private reply({ id, result, error, solve, report, crashed }: Reply) {
+    if (!this.running || this.running.id !== id) return;
+    clearTimeout(this.running.timer);
+    const { job } = this.running;
+    this.running = null;
+    // A wasm trap leaves the heap unusable: replace the worker and run the job once more.
+    if (crashed) {
+      this.restart();
+      if (!job.retried) {
+        console.warn(`Geometry worker crashed (${error?.message ?? 'wasm trap'}); restarting it and retrying`);
+        job.retried = true;
+        this.start(job);
+        return;
+      }
+    }
+    if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
+    else job.resolve(result ? { result, report } : { error: error! });
+    this.pump();
+  }
+
+  private restart() {
+    this.worker.terminate();
+    this.spawn();
   }
 
   /** Live preview: superseded requests resolve with null. */
@@ -80,9 +108,8 @@ export class GeometryClient {
     const id = ++this.seq;
     const timer = window.setTimeout(() => {
       // Script hung: kill the worker and start a fresh one.
-      this.worker.terminate();
       this.running = null;
-      this.spawn();
+      this.restart();
       const message = `Evaluation timed out after ${TIMEOUT_MS / 1000}s`;
       job.resolve(job.solve ? { ok: false, message } : { error: { message, stage: 'build' } });
       this.pump();

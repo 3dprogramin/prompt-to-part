@@ -38,6 +38,16 @@ interface Runtime {
 
 let runtime: Runtime | null = null;
 
+// A WebAssembly trap (out-of-bounds access, unreachable, abort) can leave the wasm heap
+// corrupted, so after one the worker should be replaced rather than reused.
+const TRAP = /memory access out of bounds|^unreachable|table index is out of bounds|function signature mismatch|^Aborted\(/;
+let trapped = false;
+function noteTrap(e: unknown) {
+  if (e instanceof WebAssembly.RuntimeError || TRAP.test((e as Error)?.message ?? '')) trapped = true;
+}
+/** True once any evaluation hit a WebAssembly trap; the instance should not be trusted after that. */
+export function runtimeTrapped(): boolean { return trapped; }
+
 export function initRuntime(wasm: ManifoldToplevel): void {
   if (runtime) return;
   wasm.setup();
@@ -93,7 +103,7 @@ function cleanup(rt: Runtime) {
   for (const obj of rt.registry) {
     try {
       if (!obj.isDeleted || !obj.isDeleted()) obj.delete();
-    } catch { /* already gone */ }
+    } catch (e) { noteTrap(e); }
   }
   rt.registry.clear();
 }
@@ -794,6 +804,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const print = cleanProfile(rawPrint, parts.map((p) => p.name));
     return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
   } catch (e) {
+    noteTrap(e);
     if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });
   } finally {
@@ -812,7 +823,8 @@ export function overlapVolume(a: PartMesh, b: PartMesh): number {
       return new rt.Manifold(mesh) as Manifold;
     };
     return make(a).intersect(make(b)).volume();
-  } catch {
+  } catch (e) {
+    noteTrap(e);
     return 0;
   } finally {
     cleanup(rt);

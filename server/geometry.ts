@@ -4,44 +4,73 @@ import type { ParamValues, Quality } from '../shared/types';
 import type { EvalFailure, EvalSummary } from './geometry-worker';
 
 let worker: Worker | null = null;
+let jobsOnWorker = 0;
 let seq = 0;
-const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+interface Reply { data?: unknown; error?: string; crashed?: boolean }
+const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>();
+
+/** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
+const RECYCLE_AFTER = 300;
 
 function getWorker(): Worker {
   if (worker) return worker;
   const w = new Worker(new URL('./geometry-worker-boot.mjs', import.meta.url));
-  w.on('message', (msg: { id: number; data?: unknown; error?: string }) => {
+  // The worker dying mid-job (uncaught error, abort) counts as a crash, so the job is retried.
+  const crashAll = (error: string) => {
+    for (const [id, p] of pending) if (p.worker === w) { pending.delete(id); p.resolve({ error, crashed: true }); }
+  };
+  w.on('message', (msg: Reply & { id: number }) => {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
-    if (msg.error) p.reject(new Error(msg.error));
-    else p.resolve(msg.data);
+    p.resolve(msg);
   });
-  w.on('error', (e: Error) => { for (const p of pending.values()) p.reject(e); pending.clear(); worker = null; });
-  w.on('exit', () => { if (worker === w) worker = null; });
+  w.on('error', (e: Error) => { if (worker === w) worker = null; crashAll(e.message); });
+  w.on('exit', (code) => { if (worker === w) worker = null; crashAll(`Geometry worker exited (code ${code})`); });
   worker = w;
+  jobsOnWorker = 0;
   return w;
+}
+
+function dropWorker(w: Worker) {
+  if (worker === w) worker = null;
+  void w.terminate();
+}
+
+function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const id = ++seq;
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      dropWorker(w);
+      reject(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s – the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`));
+    }, timeoutMs);
+    pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); resolve(r); } });
+    w.postMessage({ ...msg, id });
+  });
 }
 
 // Serialise jobs: one at a time keeps timeouts meaningful.
 let chain: Promise<unknown> = Promise.resolve();
 
 function call<T>(msg: Record<string, unknown>, timeoutMs: number): Promise<T> {
-  const job = chain.then(() => new Promise<T>((resolve, reject) => {
-    const w = getWorker();
-    const id = ++seq;
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      worker = null;
-      w.terminate();
-      reject(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s – the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`));
-    }, timeoutMs);
-    pending.set(id, {
-      resolve: (v) => { clearTimeout(timer); resolve(v); },
-      reject: (e) => { clearTimeout(timer); reject(e); },
-    });
-    w.postMessage({ ...msg, id });
-  }));
+  const job = chain.then(async () => {
+    for (let retried = false; ; retried = true) {
+      const w = getWorker();
+      const r = await attempt(w, msg, timeoutMs);
+      if (r.crashed) {
+        // A wasm trap leaves the heap unusable: replace the worker and run the job once more.
+        dropWorker(w);
+        if (!retried) {
+          const reason = r.error ?? (r.data as EvalFailure | undefined)?.error?.message ?? 'wasm trap';
+          console.warn(`[geometry] worker crashed during ${String(msg.cmd)} (${reason}); restarting it and retrying`);
+          continue;
+        }
+      } else if (++jobsOnWorker >= RECYCLE_AFTER) dropWorker(w);
+      if (r.error) throw new Error(r.error);
+      return r.data as T;
+    }
+  });
   chain = job.catch(() => undefined);
   return job;
 }

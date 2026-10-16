@@ -1,7 +1,7 @@
 // Runs model scripts in a worker thread so a slow or looping script can be killed.
 import { parentPort } from 'node:worker_threads';
 import Module from 'manifold-3d';
-import { initRuntime, evaluateScript, formatScriptError, inspectScript } from '../shared/runtime';
+import { initRuntime, evaluateScript, formatScriptError, inspectScript, runtimeTrapped } from '../shared/runtime';
 import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
 import { loadFontBuffers } from './fonts';
@@ -48,25 +48,27 @@ type Req =
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues };
 
+// `crashed` tells the parent the wasm instance trapped, so it replaces this worker and retries.
 parentPort!.on('message', async (req: Req) => {
-  await ready;
+  const post = (msg: { data?: unknown; error?: string }) => parentPort!.postMessage({ id: req.id, ...msg, crashed: runtimeTrapped() });
   try {
+    await ready;
     if (req.cmd === 'evaluate') {
-      parentPort!.postMessage({ id: req.id, data: (await run(req.code, req.values, req.quality ?? 'normal')).out });
+      post({ data: (await run(req.code, req.values, req.quality ?? 'normal')).out });
     } else if (req.cmd === 'render') {
       const { result, out } = await run(req.code, req.values, 'normal');
       let png: Buffer | undefined, gridStep: number | undefined;
       if (result && result.parts.length) ({ png, gridStep } = renderSheet(result.parts));
-      parentPort!.postMessage({ id: req.id, data: { ...out, png: png?.toString('base64'), gridStep } });
+      post({ data: { ...out, png: png?.toString('base64'), gridStep } });
     } else if (req.cmd === 'iso') {
       const { result, out } = await run(req.code, req.values, 'normal');
       const png = result && result.parts.length ? renderIso(result.parts).png.toString('base64') : undefined;
-      parentPort!.postMessage({ id: req.id, data: { ...out, png } });
+      post({ data: { ...out, png } });
     } else if (req.cmd === 'stress') {
-      parentPort!.postMessage({ id: req.id, data: await stress(req.code, req.budgetMs ?? 20000) });
+      post({ data: await stress(req.code, req.budgetMs ?? 20000) });
     }
   } catch (e) {
-    parentPort!.postMessage({ id: req.id, error: (e as Error).message });
+    post({ error: (e as Error).message });
   }
 });
 
@@ -97,7 +99,7 @@ async function stress(code: string, budgetMs: number) {
   const failures: { case: string; error: string }[] = [];
   let tested = 0;
   for (const c of cases) {
-    if (performance.now() - t0 > budgetMs) break;
+    if (performance.now() - t0 > budgetMs || runtimeTrapped()) break;
     tested++;
     const { out } = await run(code, c.values, 'draft');
     if (!out.ok) failures.push({ case: c.label, error: `${out.error.message}${out.error.line ? ` (line ${out.error.line})` : ''}` });

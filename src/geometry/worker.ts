@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
-import { evaluateScript, formatScriptError, initRuntime } from '../../shared/runtime';
+import { evaluateScript, formatScriptError, initRuntime, runtimeTrapped } from '../../shared/runtime';
 import { solveDimension } from '../../shared/solver';
 import { withFonts } from '../../shared/text';
 import { validateResult, type ValidateOptions } from './validate';
@@ -23,7 +23,8 @@ type Req =
 self.onmessage = async (ev: MessageEvent<Req>) => {
   const req = ev.data;
   await ready;
-  const post = (msg: unknown, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
+  // `crashed` tells the client the wasm instance trapped, so it replaces this worker and retries.
+  const post = (msg: object, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage({ ...msg, crashed: runtimeTrapped() }, transfer);
   try {
     if (req.kind === 'solve') {
       // Evaluate once first so every font the model needs is loaded before solving.
