@@ -104,8 +104,12 @@ select { background: var(--panel-2); border: 1px solid var(--line-2); border-rad
 .composer { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .composer textarea { resize: none; background: var(--bg); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 9px 10px; outline: none; min-height: 64px; max-height: 220px; }
 .composer textarea:focus { border-color: var(--accent); }
-.composer-bar { display: flex; align-items: center; gap: 6px; }
-.composer-bar select { max-width: 92px; }
+.composer { container-type: inline-size; }
+.composer-bar { display: flex; align-items: center; gap: 4px; }
+/* The menus give way first, so the send button always fits the chat column. */
+.composer-bar select { max-width: 92px; min-width: 0; flex: 0 1 auto; }
+.composer-bar > button { flex-shrink: 0; }
+@container (max-width: 320px) { .composer-bar .btn-label { display: none; } }
 .composer-bar .btn { padding: 6px 10px; }
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; }
 .thumb { position: relative; }
@@ -522,7 +526,7 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .btn.save-settings:hover { background: #5b9bd538; border-color: #5b9bd5; color: #fff; }
 
 /* web search toggle in the composer */
-.web-toggle { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text-3); font-size: 12px; }
+.web-toggle { display: inline-flex; align-items: center; justify-content: center; height: 26px; width: 30px; padding: 0; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text-3); font-size: 12px; }
 .web-toggle:hover { color: var(--text); }
 .web-toggle.on { background: #5b9bd522; border-color: #5b9bd5; color: #b4d4f5; }
 

@@ -118,15 +118,17 @@ export function ChatPanel(p: Props) {
           </select>
           <button
             className={`web-toggle ${p.webSearch ? 'on' : ''}`}
+            aria-label="Web search"
+            aria-pressed={p.webSearch}
             onClick={() => p.onWebSearch(!p.webSearch)}
             title={p.webSearch ? 'Web search is on: Claude looks up exact dimensions of real products online (this design only, until you reload)' : 'Let Claude search the web for exact dimensions of real products (off for every new design)'}
           >
-            <Icon name="globe" size={13} /> Web
+            <Icon name="globe" size={14} />
           </button>
           <span className="spacer" />
           {p.generating
-            ? <button className="btn danger" onClick={p.onStop}><Icon name="stop" /> Stop</button>
-            : <button className="btn primary" onClick={send} disabled={p.busyElsewhere || (!text.trim() && !images.length)}><Icon name="send" /> {p.hasModel ? 'Update' : 'Design'}</button>}
+            ? <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>
+            : <button className="btn primary" onClick={send} disabled={p.busyElsewhere || (!text.trim() && !images.length)} title={p.hasModel ? 'Update' : 'Design'}><Icon name="send" /> <span className="btn-label">{p.hasModel ? 'Update' : 'Design'}</span></button>}
         </div>
         {p.busyElsewhere && <div className="composer-opts"><span className="busy-note">Claude is working on this design in another tab</span></div>}
       </div>
