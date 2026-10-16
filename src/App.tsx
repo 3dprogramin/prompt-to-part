@@ -14,7 +14,7 @@ import { Icon } from './components/Icon';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import type { ValidationReport } from './geometry/validate';
-import { bambuOverrides, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
+import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -359,7 +359,15 @@ export default function App() {
     return { ...d, values, updatedAt: Date.now() };
   });
   const partNames = (result ?? lastGood)?.parts.map((p) => p.name) ?? [];
-  const printChanges = partNames.reduce((n, name) => n + Object.keys(bambuOverrides(effectiveSettings(aiPrint, userPrint, name))).length, 0);
+  // Number of print settings (as shown in the Print tab) that differ from the A1 profile on any part.
+  const printChanges = useMemo(() => {
+    const changed = new Set<string>();
+    for (const name of partNames.length ? partNames : [undefined]) {
+      const eff = effectiveSettings(aiPrint, userPrint, name);
+      for (const k of Object.keys(A1_DEFAULTS) as (keyof typeof A1_DEFAULTS)[]) if (eff[k] !== A1_DEFAULTS[k]) changed.add(k);
+    }
+    return changed.size;
+  }, [aiPrint, userPrint, partNames.join('\u0000')]);
   /** Which parts will print with supports / an explicit brim (validation takes these into account). */
   const printHints = () => ({
     supportParts: partNames.filter((n) => effectiveSettings(aiPrint, userPrint, n).supports !== 'off'),

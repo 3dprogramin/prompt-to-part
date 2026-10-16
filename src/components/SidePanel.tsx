@@ -132,7 +132,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
           <label className={`check ${bambu ? '' : 'off'}`}>
             <input type="checkbox" disabled={!bambu} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
             <span><b>Print settings</b><small>{!bambu ? 'Needs Bambu Studio installed on this computer.'
-              : printChanges ? `A1 · PLA · 0.20 Standard with ${printChanges} change${printChanges > 1 ? 's' : ''} (see the Print tab).`
+              : printChanges ? `A1 · PLA · 0.20 Standard with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
                 : 'A1 · PLA · 0.20 Standard profile, no changes.'}</small></span>
           </label>
           <button className="btn primary wide" onClick={() => { setOpen(false); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
