@@ -11,7 +11,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
-import type { ViewerOptions } from './viewer/Viewer';
+import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -64,6 +64,8 @@ export default function App() {
   }));
   const resultCode = useRef('');
   const snapshotRef = useRef<(() => string | null) | null>(null);
+  const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
+  const [playbackLoading, setPlaybackLoading] = useState(false);
   // In-memory copies of designs that are generating while another design is open.
   const background = useRef(new Map<string, Design>());
   const lastRemote = useRef<Design | null>(null);
@@ -323,6 +325,48 @@ export default function App() {
     });
   };
 
+  // ---- assembly animation ----
+  const shown = result ?? lastGood;
+  const layoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
+  const canAssemble = !!layoutKey && !!shown?.assembly.length;
+  // Any change to the model ends the animation.
+  useEffect(() => { setPlayback(null); }, [design.id, design.code, design.values]);
+
+  const startAssembly = async () => {
+    if (!layoutKey || !shown) return;
+    setPlaybackLoading(true);
+    try {
+      const base: ParamValues = { ...fullValues() };
+      if (design.values[TEXT_KEY] != null) base[TEXT_KEY] = design.values[TEXT_KEY];
+      const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality);
+      if (!a.result || !a.result.assembly.length) return;
+      const def = shown.params[layoutKey];
+      const hasExploded = def.type === 'select' && def.options.some((o) => o.value === 'exploded');
+      const e = hasExploded ? (await geo.evaluate(design.code, { ...base, [layoutKey]: 'exploded' }, quality)).result : undefined;
+      const center = (b: { min: number[]; max: number[] }) => [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
+      const size = a.result.bbox ? Math.max(...[0, 1, 2].map((k) => a.result!.bbox!.max[k] - a.result!.bbox!.min[k])) : 50;
+      const steps: PlaybackStep[] = a.result.assembly.map((st) => ({
+        label: st.label,
+        parts: st.parts.map((name) => {
+          let from = st.from;
+          if (!from) {
+            const pa = a.result!.parts.find((p) => p.name === name);
+            const pe = e?.parts.find((p) => p.name === name);
+            if (pa && pe) {
+              const ca = center(pa.bbox), ce = center(pe.bbox);
+              from = [ce[0] - ca[0], ce[1] - ca[1], ce[2] - ca[2]];
+            }
+            if (!from || Math.hypot(...from) < 1e-3) from = [0, 0, size * 0.6];
+          }
+          return { name, from, rotate: st.rotate };
+        }),
+      }));
+      setPlayback({ result: a.result, steps });
+    } finally {
+      setPlaybackLoading(false);
+    }
+  };
+
   /** What Claude needs to see the model exactly as the user does (follow-ups only). */
   const followUpContext = () => {
     if (!design.code || !(result ?? lastGood)) return {};
@@ -449,7 +493,7 @@ export default function App() {
           hasModel={!!design.code}
         />
         <ViewerPanel
-          result={result ?? lastGood}
+          result={playback ? playback.result : result ?? lastGood}
           error={error}
           busy={busy}
           fitKey={fitKey}
@@ -460,6 +504,11 @@ export default function App() {
           onEditDimension={onEditDimension}
           onPickSurface={onPickSurface}
           snapshotRef={snapshotRef}
+          canAssemble={canAssemble}
+          assembly={playback?.steps ?? null}
+          assemblyLoading={playbackLoading}
+          onAssemble={startAssembly}
+          onAssemblyClose={() => setPlayback(null)}
           emptyState={generating
             ? <div className="empty-inner"><span className="spinner big" /><p>Claude is designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}

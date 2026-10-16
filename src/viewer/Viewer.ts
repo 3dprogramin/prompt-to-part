@@ -27,6 +27,12 @@ export interface ViewerOptions {
 
 export interface Measurement { a: Vec3; b: Vec3 }
 
+/** Assembly animation step with per-part start offsets resolved. */
+export interface PlaybackStep {
+  label: string;
+  parts: { name: string; from: Vec3; rotate?: { axis: Vec3; degrees: number; center?: Vec3 } }[];
+}
+
 const VIEW_DIRS: Record<ViewName, [number, number, number]> = {
   iso: [1, -1.15, 0.85],
   front: [0, -1, 0],
@@ -101,6 +107,7 @@ export class Viewer {
   private downAt: { x: number; y: number } | null = null;
   private lastSize = 0;
   private clean = false;
+  private playback: PlaybackStep[] | null = null;
   onHover: (p: Vec3 | null, snapped: boolean) => void = () => {};
   onMeasurementsChange: (m: Measurement[]) => void = () => {};
   /** Double-click on an editable dimension label. */
@@ -297,9 +304,10 @@ export class Viewer {
         if (o.name === 'edges') o.visible = showEdges;
       });
     }
-    this.dimsGroup.visible = this.opts.showBBox && !this.clean;
-    this.annGroup.visible = this.opts.showAnnotations && !this.clean;
-    this.measureGroup.visible = !this.clean;
+    // Dimension overlays would be wrong while parts are moving, so hide them during playback.
+    this.dimsGroup.visible = this.opts.showBBox && !this.clean && !this.playback;
+    this.annGroup.visible = this.opts.showAnnotations && !this.clean && !this.playback;
+    this.measureGroup.visible = !this.clean && !this.playback;
     this.labelRenderer.domElement.style.display = this.clean ? 'none' : '';
     this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText ? 'crosshair' : '';
   }
@@ -336,6 +344,89 @@ export class Viewer {
 
   setView(name: ViewName) {
     this.placeCamera(this.framingSphere(), new THREE.Vector3(...VIEW_DIRS[name]).normalize());
+  }
+
+  /** Start (steps) or stop (null) the assembly animation. Call after setModel with the assembled layout. */
+  setAssembly(steps: PlaybackStep[] | null) {
+    this.playback = steps && steps.length ? steps : null;
+    if (!this.playback) {
+      for (const g of this.modelGroup.children) {
+        g.matrixAutoUpdate = true;
+        g.position.set(0, 0, 0);
+        g.quaternion.identity();
+        g.updateMatrix();
+        this.setPartLook(g, 1, false);
+      }
+    }
+    this.applyOptions();
+    if (this.playback) {
+      this.setAssemblyTime(0);
+      this.frameAssembly();
+    }
+  }
+
+  /** t in [0, steps]: step i moves during [i, i + 0.8] and holds briefly. */
+  setAssemblyTime(t: number) {
+    const steps = this.playback;
+    if (!steps) return;
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    const m = new THREE.Matrix4(), tmp = new THREE.Matrix4();
+    for (const g of this.modelGroup.children) {
+      const i = steps.findIndex((s) => s.parts.some((p) => p.name === g.name));
+      g.matrixAutoUpdate = false;
+      if (i < 0) { g.matrix.identity(); this.setPartLook(g, 1, false); continue; } // base part
+      const spec = steps[i].parts.find((p) => p.name === g.name)!;
+      const p = ease(Math.min(1, Math.max(0, (t - i) / 0.8)));
+      const left = 1 - p;
+      m.makeTranslation(spec.from[0] * left, spec.from[1] * left, spec.from[2] * left);
+      if (spec.rotate && spec.rotate.degrees) {
+        const c = spec.rotate.center ? new THREE.Vector3(...spec.rotate.center) : this.partCenter(g.name);
+        const axis = new THREE.Vector3(...spec.rotate.axis).normalize();
+        tmp.makeTranslation(c.x, c.y, c.z)
+          .multiply(new THREE.Matrix4().makeRotationAxis(axis, THREE.MathUtils.degToRad(spec.rotate.degrees) * left))
+          .multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+        m.multiply(tmp);
+      }
+      g.matrix.copy(m);
+      // Waiting parts are faded; the part that is moving right now is slightly highlighted.
+      this.setPartLook(g, t < i ? 0.35 : 1, t >= i && t < i + 1);
+    }
+  }
+
+  private partCenter(name: string): THREE.Vector3 {
+    const part = this.result?.parts.find((p) => p.name === name);
+    if (!part) return new THREE.Vector3();
+    return new THREE.Vector3(...part.bbox.min).add(new THREE.Vector3(...part.bbox.max)).multiplyScalar(0.5);
+  }
+
+  private setPartLook(g: THREE.Object3D, opacity: number, active: boolean) {
+    g.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (!mat) return;
+      const base = o.name === 'edges' ? 0.55 : 1;
+      mat.transparent = opacity < 1 || o.name === 'edges';
+      mat.opacity = base * opacity;
+      mat.depthWrite = opacity >= 1;
+      if (mat instanceof THREE.MeshStandardMaterial) mat.emissive.setScalar(active ? 0.12 : 0);
+    });
+  }
+
+  /** Frame the model including every part's start position. */
+  private frameAssembly() {
+    const box = this.modelBox();
+    if (!box || !this.playback) return;
+    const all = box.clone();
+    for (const s of this.playback) for (const p of s.parts) {
+      const part = this.result?.parts.find((x) => x.name === p.name);
+      if (!part) continue;
+      const pb = new THREE.Box3(new THREE.Vector3(...part.bbox.min), new THREE.Vector3(...part.bbox.max));
+      all.union(pb.translate(new THREE.Vector3(...p.from)));
+    }
+    // Extra margin, and aim a little low so the player bar does not cover the model.
+    const sphere = all.getBoundingSphere(new THREE.Sphere());
+    sphere.radius *= 1.3;
+    sphere.center.z -= sphere.radius * 0.12;
+    this.placeCamera(sphere, new THREE.Vector3(...VIEW_DIRS.iso).normalize());
   }
 
   /** Clean view (fullscreen, controls hidden): only the model, grid and plate. */

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Viewer, type Measurement, type ViewName, type ViewerOptions } from '../viewer/Viewer';
+import { Viewer, type Measurement, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import { Icon } from './Icon';
 
@@ -17,12 +17,21 @@ interface Props {
   onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void;
   /** Receives a function that captures the current view as a JPEG data URL. */
   snapshotRef?: React.MutableRefObject<(() => string | null) | null>;
+  /** The model has an assembly sequence that can be played. */
+  canAssemble?: boolean;
+  /** Assembly playback in progress (result prop is then the assembled layout). */
+  assembly?: PlaybackStep[] | null;
+  assemblyLoading?: boolean;
+  onAssemble?: () => void;
+  onAssemblyClose?: () => void;
 }
+
+const STEP_SECONDS = 1.6;
 
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -113,6 +122,36 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   }, [result, fitKey]);
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
+
+  // ---- assembly playback ----
+  const [asmT, setAsmT] = useState(0);
+  const [asmPlaying, setAsmPlaying] = useState(false);
+  const steps = assembly?.length ?? 0;
+  useEffect(() => {
+    // Declared after the setModel effect, so the assembled model is in place first.
+    viewer.current?.setAssembly(assembly ?? null);
+    setAsmT(0);
+    setAsmPlaying(!!assembly?.length);
+  }, [assembly]);
+  useEffect(() => { viewer.current?.setAssemblyTime(asmT); }, [asmT]);
+  useEffect(() => {
+    if (!asmPlaying || !steps) return;
+    let raf = 0, last = performance.now();
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      setAsmT((t) => {
+        const next = Math.min(steps, t + dt / STEP_SECONDS);
+        if (next >= steps) setAsmPlaying(false);
+        return next;
+      });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [asmPlaying, steps]);
+  const stepIndex = Math.min(steps - 1, Math.floor(asmT + 1e-6));
+  const goStep = (i: number) => { setAsmPlaying(false); setAsmT(Math.max(0, Math.min(steps, i))); };
   useEffect(() => { viewer.current?.setClean(fullscreen && hideUi); }, [fullscreen, hideUi]);
 
   useEffect(() => {
@@ -156,11 +195,18 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           <Toggle on={options.section.enabled} onClick={() => setSection({ enabled: !options.section.enabled, position: options.section.enabled ? options.section.position : (secMin + secMax) / 2 })} icon="section" title="Section view" />
           <Toggle on={options.measure} onClick={() => set({ measure: !options.measure })} icon="ruler" title="Measure: click two points (snaps to vertices). Esc cancels." />
         </div>
+        {canAssemble && (
+          <div className="tb-group">
+            <button className={`tb-btn text ${assembly ? 'on' : ''}`} disabled={assemblyLoading} onClick={() => (assembly ? onAssemblyClose?.() : onAssemble?.())} title="Watch the parts being put together step by step">
+              <Icon name="assemble" /> {assemblyLoading ? 'Preparing…' : assembly ? 'Exit' : 'Assemble'}
+            </button>
+          </div>
+        )}
         <div className="tb-group">
-          <select className="tb-select" value={quality} onChange={(e) => onQuality(e.target.value as Quality)} title="Preview resolution (export always uses high)">
-            <option value="draft">Draft preview</option>
-            <option value="normal">Normal preview</option>
-            <option value="high">High preview</option>
+          <select className="tb-select" value={quality} onChange={(e) => onQuality(e.target.value as Quality)} title="Preview quality (export always uses high)">
+            <option value="draft">Draft</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
           </select>
         </div>
       </div>
@@ -206,6 +252,25 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
         </div>
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
+
+      {assembly && steps > 0 && (
+        <div className="asm-player">
+          <div className="asm-caption">
+            {asmT >= steps - 1e-6
+              ? <><b>Assembled</b> · all {steps} steps done</>
+              : <><b>Step {stepIndex + 1} of {steps}</b> · {assembly[stepIndex].label}</>}
+          </div>
+          <div className="asm-controls">
+            <button className="icon-btn" title="Previous step" onClick={() => goStep(Math.ceil(asmT - 1e-6) - 1)}><Icon name="prev" /></button>
+            <button className="icon-btn play" title={asmPlaying ? 'Pause' : 'Play'} onClick={() => { if (asmT >= steps) setAsmT(0); setAsmPlaying(!asmPlaying); }}>
+              <Icon name={asmPlaying ? 'pause' : 'play'} />
+            </button>
+            <button className="icon-btn" title="Next step" onClick={() => goStep(Math.floor(asmT + 1e-6) + 1)}><Icon name="next" /></button>
+            <input type="range" min={0} max={steps} step={0.001} value={asmT} onChange={(e) => { setAsmPlaying(false); setAsmT(Number(e.target.value)); }} />
+            <button className="icon-btn" title="Close assembly view" onClick={() => onAssemblyClose?.()}><Icon name="x" /></button>
+          </div>
+        </div>
+      )}
 
       {fullscreen && (
         <div className={`fs-controls ${hideUi && idle ? 'idle' : ''}`}>
