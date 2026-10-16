@@ -604,7 +604,10 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button className="brand" onClick={createNew} title="New design"><span className="logo"><Icon name="cube" size={18} /></span> AI Designer</button>
+        {/* A real link, so it can be opened in a new tab; a plain click starts a new design in place. */}
+        <a className="brand" href="/" title="New design" onClick={(e) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); createNew(); } }}>
+          <span className="logo"><Icon name="cube" size={18} /></span> AI Designer
+        </a>
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <VersionMenu versions={design.versions} current={design.currentVersion} onRestore={onRestore} />}
         {unsavedSettings && (
