@@ -1,7 +1,7 @@
 // Bambu Studio project 3MF: A1 + PLA template from the user's Bambu Studio, per-object print-setting
 // overrides, and one filament per colour. Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
-import { bambuOverrides, effectiveSettings, type PrintProfile } from '../../shared/print';
+import { A1_DEFAULTS, bambuOverrides, effectiveSettings, type PrintProfile } from '../../shared/print';
 import type { PartMesh } from '../../shared/types';
 
 export interface BambuTemplate {
@@ -57,6 +57,10 @@ export function toBambuProject(
   });
   if (!colours.length) colours.push(opts.colours ? '#C9A26B' : String((tpl.settings.filament_colour as string[] | undefined)?.[0] ?? '#00AE42'));
 
+  // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
+  const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user) : A1_DEFAULTS;
+  const globalChanges = bambuOverrides(globalSettings);
+
   // Whole model moved as one onto the A1 plate (same placement as the viewer).
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (const p of parts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.bbox.min[k]); hi[k] = Math.max(hi[k], p.bbox.max[k]); }
@@ -80,7 +84,8 @@ export function toBambuProject(
     rels.push(`<Relationship Target="/${file}" Id="rel-${gi + 1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
     resources.push(`<object id="${objId}" type="model"><components>${meshIds.map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
     items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
-    const overrides = opts.print ? bambuOverrides(effectiveSettings(opts.print.ai, opts.print.user, parts[main].name)) : {};
+    // Objects only carry what differs from the model-wide settings (which live in the project).
+    const overrides = opts.print ? bambuOverrides(effectiveSettings(opts.print.ai, opts.print.user, parts[main].name), globalSettings) : {};
     const name = group.length > 1 ? `${parts[main].name} (+${group.length - 1})` : parts[main].name;
     const partCfg = group.map((i, k) =>
       `<part id="${meshIds[k]}" subtype="normal_part"><metadata key="name" value="${esc(parts[i].name)}"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${slot[i]}"/></part>`).join('');
@@ -99,6 +104,10 @@ export function toBambuProject(
   settings.filament_colour = colours;
   settings.filament_self_index = colours.map((_, i) => String(i + 1));
   settings.filament_map = colours.map(() => '1');
+  // Changed process values, recorded the way Bambu Studio does so they show as modified.
+  Object.assign(settings, globalChanges);
+  const diff = settings.different_settings_to_system as string[];
+  diff[0] = Object.keys(globalChanges).sort().join(';');
 
   files['3D/3dmodel.model'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="Application">${APP}</metadata>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n<metadata name="Title">${esc(title)}</metadata>\n<metadata name="Designer">AI Designer</metadata>\n<resources>${resources.join('')}</resources>\n<build>${items.join('')}</build>\n</model>`);
   files['3D/_rels/3dmodel.model.rels'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>`);

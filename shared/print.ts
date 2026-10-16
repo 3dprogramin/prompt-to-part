@@ -108,26 +108,29 @@ export function effectiveSettings(ai: PrintProfile, user: PrintProfile, part?: s
   } as Required<PrintSettings>;
 }
 
-/** Bambu Studio setting keys for the values that differ from the A1 baseline. */
-export function bambuOverrides(s: Required<PrintSettings>): Record<string, string> {
-  const out: Record<string, string> = {};
-  const d = A1_DEFAULTS;
-  if (s.layerHeight !== d.layerHeight) out.layer_height = String(s.layerHeight);
-  if (s.walls !== d.walls) out.wall_loops = String(s.walls);
-  if (s.topLayers !== d.topLayers) out.top_shell_layers = String(s.topLayers);
-  if (s.bottomLayers !== d.bottomLayers) out.bottom_shell_layers = String(s.bottomLayers);
-  if (s.infill !== d.infill) out.sparse_infill_density = `${s.infill}%`;
-  if (s.infillPattern !== d.infillPattern) out.sparse_infill_pattern = s.infillPattern;
-  if (s.supports !== d.supports) {
-    out.enable_support = s.supports === 'off' ? '0' : '1';
-    if (s.supports !== 'off') out.support_type = s.supports === 'tree' ? 'tree(auto)' : 'normal(auto)';
-  }
-  if (s.brim !== d.brim) {
-    if (s.brim === 'none') out.brim_type = 'no_brim';
-    else if (s.brim === 'auto') out.brim_type = 'auto_brim';
-    else { out.brim_type = 'outer_only'; out.brim_width = String(s.brim); }
-  }
-  return out;
+/** All Bambu Studio setting values for these settings (density also drives skeleton/skin infill, as in Bambu 2.4+). */
+export function bambuValues(s: Required<PrintSettings>): Record<string, string> {
+  const density = `${s.infill}%`;
+  return {
+    layer_height: String(s.layerHeight),
+    wall_loops: String(s.walls),
+    top_shell_layers: String(s.topLayers),
+    bottom_shell_layers: String(s.bottomLayers),
+    sparse_infill_density: density,
+    skeleton_infill_density: density,
+    skin_infill_density: density,
+    sparse_infill_pattern: s.infillPattern,
+    enable_support: s.supports === 'off' ? '0' : '1',
+    support_type: s.supports === 'normal' ? 'normal(auto)' : 'tree(auto)',
+    brim_type: s.brim === 'none' ? 'no_brim' : s.brim === 'auto' ? 'auto_brim' : 'outer_only',
+    brim_width: typeof s.brim === 'number' ? String(s.brim) : '5',
+  };
+}
+
+/** Bambu keys whose value in `s` differs from `base` (default: the A1 baseline). */
+export function bambuOverrides(s: Required<PrintSettings>, base: Required<PrintSettings> = A1_DEFAULTS): Record<string, string> {
+  const a = bambuValues(s), b = bambuValues(base);
+  return Object.fromEntries(Object.entries(a).filter(([k, v]) => b[k] !== v));
 }
 
 export function describeSetting(key: keyof PrintSettings, v: PrintSettings[keyof PrintSettings]): string {
