@@ -155,7 +155,13 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
   const peekProps = {
     onMouseEnter: (e: React.MouseEvent<HTMLElement>) => peek(true, e.currentTarget),
     onMouseLeave: () => peek(false),
-    title: 'Hover to watch everything Claude is doing',
+    // Clicking pins the panel open (or unpins it).
+    onClick: (e: React.MouseEvent<HTMLElement>) => {
+      clearTimeout(hideTimer.current);
+      const at = besideChat(e.currentTarget);
+      setThink((t) => (t?.mode === 'pinned' ? { ...t, mode: 'hover' } : { mode: 'pinned', at: t?.at ?? at }));
+    },
+    title: 'Hover to watch everything Claude is doing, click to pin it open',
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = all;
