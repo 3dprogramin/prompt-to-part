@@ -1,5 +1,5 @@
 import type { DimTarget, EvalResult, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../../shared/types';
-import type { ValidationReport } from './validate';
+import type { ValidateOptions, ValidationReport } from './validate';
 
 export type EvalOutcome =
   | { result: EvalResult; report?: ValidationReport; error?: undefined }
@@ -10,7 +10,7 @@ interface Job {
   values: ParamValues;
   quality: Quality;
   solve?: { target: DimTarget; goal: number };
-  validate?: { layoutValue?: string };
+  validate?: ValidateOptions;
   resolve: (o: any) => void;
 }
 
@@ -53,7 +53,7 @@ export class GeometryClient {
   }
 
   /** Guaranteed evaluation (e.g. high-quality export); runs before any pending preview. Optionally validates the mesh. */
-  evaluate(code: string, values: ParamValues, quality: Quality, validate?: { layoutValue?: string }): Promise<EvalOutcome> {
+  evaluate(code: string, values: ParamValues, quality: Quality, validate?: ValidateOptions): Promise<EvalOutcome> {
     return new Promise((resolve) => {
       this.queue.push({ code, values, quality, validate, resolve });
       this.pump();

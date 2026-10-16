@@ -180,7 +180,14 @@ function mulberry32(seed: number) {
 
 const f1 = (n: number) => n.toFixed(1);
 
-export function validateResult(result: EvalResult, opts: { layoutValue?: string } = {}): ValidationReport {
+export interface ValidateOptions {
+  layoutValue?: string;
+  /** Parts that will print with supports / an explicit brim (from the print settings). */
+  supportParts?: string[];
+  brimParts?: string[];
+}
+
+export function validateResult(result: EvalResult, opts: ValidateOptions = {}): ValidationReport {
   const t0 = performance.now();
   const issues: ValidationIssue[] = [];
   const add = (severity: Severity, title: string, detail: string, part?: string) => issues.push({ severity, title, detail, part });
@@ -223,8 +230,15 @@ export function validateResult(result: EvalResult, opts: { layoutValue?: string 
       else {
         const b = a.part.bbox;
         const w = b.max[0] - b.min[0], d = b.max[1] - b.min[1], h = b.max[2] - b.min[2];
-        if (a.bedContact < 25 && Math.abs(a.signedVolume) > 1000) add('warning', `${label}Small contact with the plate`, `Only ${f1(a.bedContact)} mm² touches the plate – use a brim so it does not detach.`, name);
-        if (h > 40 && h / Math.max(1e-6, Math.min(w, d)) > 3.5) add('warning', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the ${PRINTER.name}'s moving bed can make it wobble. Use a brim, slow down, or print it lying down.`, name);
+        const brim = opts.brimParts?.includes(name);
+        if (a.bedContact < 25 && Math.abs(a.signedVolume) > 1000) {
+          if (brim) add('info', `${label}Small contact with the plate`, `Only ${f1(a.bedContact)} mm² touches the plate – covered by the brim in the print settings.`, name);
+          else add('warning', `${label}Small contact with the plate`, `Only ${f1(a.bedContact)} mm² touches the plate – use a brim so it does not detach.`, name);
+        }
+        if (h > 40 && h / Math.max(1e-6, Math.min(w, d)) > 3.5) {
+          if (brim) add('info', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the brim in the print settings helps keep it steady.`, name);
+          else add('warning', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the ${PRINTER.name}'s moving bed can make it wobble. Use a brim, slow down, or print it lying down.`, name);
+        }
       }
       const floating = a.pieces.filter((p) => p.minZ > minZ + BED_EPS);
       if (floating.length) add('error', `${label}Pieces in mid-air`, `${floating.length} separate piece${floating.length > 1 ? 's start' : ' starts'} above the plate with nothing under ${floating.length > 1 ? 'them' : 'it'} (lowest at ${f1(Math.min(...floating.map((p) => p.minZ)))} mm).`, name);
@@ -235,7 +249,10 @@ export function validateResult(result: EvalResult, opts: { layoutValue?: string 
 
     // overhangs
     const pct = a.area ? (a.overhangArea / a.area) * 100 : 0;
-    if (a.overhangArea > 20 && pct > 0.5) add('warning', `${label}Overhangs need supports`, `${f1(a.overhangArea)} mm² (${f1(pct)} % of the surface) faces down steeper than 45°. Enable supports or reorient.`, name);
+    if (a.overhangArea > 20 && pct > 0.5) {
+      if (opts.supportParts?.includes(name)) add('info', `${label}Overhangs – supports enabled`, `${f1(a.overhangArea)} mm² (${f1(pct)} % of the surface) faces down steeper than 45°; the print settings turn supports on.`, name);
+      else add('warning', `${label}Overhangs need supports`, `${f1(a.overhangArea)} mm² (${f1(pct)} % of the surface) faces down steeper than 45°. Enable supports or reorient.`, name);
+    }
     else if (a.overhangArea > 1) add('info', `${label}Small overhangs`, `${f1(a.overhangArea)} mm² faces down steeper than 45° – usually prints fine as bridges.`, name);
 
     // thin walls

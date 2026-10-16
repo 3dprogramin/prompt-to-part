@@ -4,7 +4,7 @@ import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import { evaluateScript, formatScriptError, initRuntime } from '../../shared/runtime';
 import { solveDimension } from '../../shared/solver';
 import { withFonts } from '../../shared/text';
-import { validateResult } from './validate';
+import { validateResult, type ValidateOptions } from './validate';
 
 async function loadFont(id: string): Promise<ArrayBuffer[]> {
   const r = await fetch(`/api/fonts/data?id=${encodeURIComponent(id)}`);
@@ -17,7 +17,7 @@ import type { DimTarget, ParamValues, Quality } from '../../shared/types';
 const ready = Module({ locateFile: () => wasmUrl }).then((wasm) => initRuntime(wasm));
 
 type Req =
-  | { id: number; kind: 'eval'; code: string; values: ParamValues; quality: Quality; validate?: { layoutValue?: string } }
+  | { id: number; kind: 'eval'; code: string; values: ParamValues; quality: Quality; validate?: ValidateOptions }
   | { id: number; kind: 'solve'; code: string; values: ParamValues; quality: Quality; target: DimTarget; goal: number };
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
