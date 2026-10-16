@@ -111,10 +111,14 @@ export interface ScriptErrorInfo {
 // ---- Chat / design persistence ----
 
 export interface AgentStep {
-  kind: 'text' | 'tool' | 'status' | 'render' | 'error';
+  kind: 'text' | 'tool' | 'status' | 'thinking' | 'render' | 'error';
   text: string;
   ok?: boolean;
   image?: string; // data URL (render previews)
+  /** ms since the request started */
+  at?: number;
+  /** Only shown in verbose mode */
+  verbose?: boolean;
 }
 
 export interface ChatMessage {
@@ -127,6 +131,8 @@ export interface ChatMessage {
   error?: string;
   createdAt: number;
   durationMs?: number;
+  /** Transient live status while generating (not meaningful once done) */
+  live?: string;
 }
 
 export interface DesignVersion {

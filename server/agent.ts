@@ -25,7 +25,9 @@ export type AgentEvent =
   | { type: 'step'; step: AgentStep }
   | { type: 'model'; code: string; summary: string }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /** Transient one-line status (throttled), replaced by the next one. */
+  | { type: 'live'; text: string };
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -45,7 +47,13 @@ export function workspaceDir(designId: string) {
   return path.join(DATA_DIR, 'workspaces', designId);
 }
 
-export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) => void, abort: AbortController): Promise<void> {
+export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEvent) => void, abort: AbortController): Promise<void> {
+  const t0 = Date.now();
+  const emit = (e: AgentEvent) => {
+    if (e.type === 'step') e.step.at = Date.now() - t0;
+    rawEmit(e);
+  };
+  emit({ type: 'live', text: 'Starting Claude…' });
   const ws = workspaceDir(req.designId);
   const file = path.join(ws, MODEL_FILE);
   await mkdir(ws, { recursive: true });
@@ -188,6 +196,7 @@ export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) 
           return { behavior: 'deny', message: 'Tool not available in AI Designer.' };
         },
         settingSources: [],
+        includePartialMessages: true,
         maxTurns: 60,
         resume,
         abortController: abort,
@@ -196,25 +205,92 @@ export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) 
         stderr: (d) => { if (process.env.DEBUG_AGENT) process.stderr.write(d); },
       },
     });
+    // Live line built from the partial stream, throttled so the client is not flooded.
+    let live = '';
+    let liveSent = 0;
+    let liveTimer: ReturnType<typeof setTimeout> | null = null;
+    const pushLive = (text: string) => {
+      live = text;
+      const now = Date.now();
+      if (now - liveSent >= 250) { liveSent = now; emit({ type: 'live', text: live }); return; }
+      if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; liveSent = Date.now(); emit({ type: 'live', text: live }); }, 250);
+    };
+    let block: { type: string; name?: string; chars: number; text: string } | null = null;
+    const toolNames = new Map<string, string>();
+
     for await (const msg of q) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         emit({ type: 'session', sessionId: msg.session_id });
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Connected to Claude (${msg.model}) · ${resume ? 'continuing the previous conversation' : 'new conversation'}` } });
+        pushLive('Waiting for Claude…');
+      } else if (msg.type === 'stream_event') {
+        const ev = msg.event;
+        if (ev.type === 'message_start') pushLive('Claude is responding…');
+        else if (ev.type === 'content_block_start') {
+          const cb = ev.content_block as { type: string; name?: string };
+          block = { type: cb.type, name: cb.name, chars: 0, text: '' };
+          if (cb.type === 'thinking') pushLive('Thinking…');
+          else if (cb.type === 'text') pushLive('Writing a reply…');
+          else if (cb.type === 'tool_use') pushLive(`Preparing: ${TOOL_LABELS[cb.name ?? ''] ?? cb.name}…`);
+        } else if (ev.type === 'content_block_delta' && block) {
+          const d = ev.delta as { type: string; thinking?: string; text?: string; partial_json?: string };
+          if (d.type === 'thinking_delta' && d.thinking) {
+            block.text = (block.text + d.thinking).slice(-400);
+            pushLive(`Thinking: ${lastSentence(block.text)}`);
+          } else if (d.type === 'text_delta' && d.text) {
+            block.text = (block.text + d.text).slice(-400);
+            pushLive(`Writing a reply: ${lastSentence(block.text)}`);
+          } else if (d.type === 'input_json_delta' && d.partial_json) {
+            block.chars += d.partial_json.length;
+            pushLive(`${TOOL_LABELS[block.name ?? ''] ?? block.name}… ${(block.chars / 1024).toFixed(1)} KB`);
+          }
+        } else if (ev.type === 'content_block_stop') block = null;
       } else if (msg.type === 'assistant') {
         gotOutput = true;
-        for (const block of msg.message.content) {
-          if (block.type === 'text' && block.text.trim()) {
-            finalText = block.text.trim();
+        for (const b of msg.message.content) {
+          if (b.type === 'text' && b.text.trim()) {
+            finalText = b.text.trim();
             emit({ type: 'step', step: { kind: 'text', text: finalText } });
-          } else if (block.type === 'thinking' && block.thinking?.trim()) {
-            emit({ type: 'step', step: { kind: 'status', text: block.thinking.trim() } });
-          } else if (block.type === 'tool_use') {
-            emit({ type: 'step', step: { kind: 'status', text: `${TOOL_LABELS[block.name] ?? block.name}…` } });
+          } else if (b.type === 'thinking' && b.thinking?.trim()) {
+            emit({ type: 'step', step: { kind: 'thinking', verbose: true, text: b.thinking.trim() } });
+          } else if (b.type === 'tool_use') {
+            toolNames.set(b.id, b.name);
+            emit({ type: 'step', step: { kind: 'status', text: `${TOOL_LABELS[b.name] ?? b.name}…` } });
+            const detail = describeToolInput(b.name, b.input as Record<string, unknown>);
+            if (detail) emit({ type: 'step', step: { kind: 'status', verbose: true, text: detail } });
+            pushLive(`Running: ${TOOL_LABELS[b.name] ?? b.name}…`);
           }
         }
+      } else if (msg.type === 'user') {
+        // Tool results for the built-in file tools (our CAD tools report their own results).
+        const content = msg.message.content;
+        if (Array.isArray(content)) {
+          for (const c of content) {
+            if (c.type !== 'tool_result') continue;
+            const name = toolNames.get(c.tool_use_id) ?? '';
+            if (name.startsWith('mcp__cad__')) continue;
+            const text = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map((x) => ('text' in x ? x.text : '')).join(' ') : '';
+            if (c.is_error) emit({ type: 'step', step: { kind: 'tool', ok: false, verbose: true, text: `${TOOL_LABELS[name] ?? name} failed: ${text.slice(0, 200)}` } });
+            else if (name === 'Write' || name === 'Edit') emit({ type: 'step', step: { kind: 'tool', ok: true, verbose: true, text: `${name === 'Write' ? 'Saved' : 'Edited'} model.js` } });
+          }
+        }
+        pushLive('Claude is reading the results…');
+      } else if (msg.type === 'system' && msg.subtype === 'api_retry') {
+        const why = msg.error_status ? `HTTP ${msg.error_status}` : 'connection problem';
+        emit({ type: 'step', step: { kind: 'status', ok: false, text: `Claude API ${why} – retrying in ${Math.round(msg.retry_delay_ms / 1000)} s (attempt ${msg.attempt}/${msg.max_retries})` } });
+        pushLive(`Waiting to retry the Claude API (${why})…`);
+      } else if (msg.type === 'system' && msg.subtype === 'status' && msg.status && String(msg.status) !== 'requesting') {
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Status: ${String(msg.status)}` } });
+      } else if (msg.type === 'rate_limit_event' && msg.rate_limit_info?.status && msg.rate_limit_info.status !== 'allowed') {
+        emit({ type: 'step', step: { kind: 'status', ok: false, text: msg.rate_limit_info.status === 'rejected' ? 'Subscription usage limit reached – waiting for it to reset.' : 'Approaching the subscription usage limit.' } });
+      } else if (msg.type === 'tool_progress') {
+        pushLive(`${TOOL_LABELS[msg.tool_name] ?? msg.tool_name}… ${Math.round(msg.elapsed_time_seconds)} s`);
       } else if (msg.type === 'result') {
+        if (liveTimer) clearTimeout(liveTimer);
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${(msg.duration_ms / 1000).toFixed(0)} s · ${msg.num_turns} turns` } });
         emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted, text: finalText });
       }
     }
@@ -239,4 +315,26 @@ function oneLine(r: { ok: true; bbox: { min: number[]; max: number[] } | null; t
   const size = b ? `${(b.max[0] - b.min[0]).toFixed(1)} × ${(b.max[1] - b.min[1]).toFixed(1)} × ${(b.max[2] - b.min[2]).toFixed(1)} mm` : 'empty';
   const tris = r.parts.reduce((s, p) => s + p.triCount, 0);
   return `${size} · ${r.parts.length} part(s) · ${tris.toLocaleString()} tris · ${Math.round(r.timeMs)} ms`;
+}
+
+function lastSentence(text: string) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length > 140 ? '…' + t.slice(-140) : t;
+}
+
+function describeToolInput(name: string, input: Record<string, unknown> | undefined): string | null {
+  if (!input) return null;
+  if (name === 'Write' && typeof input.content === 'string') {
+    return `Writing model.js – ${input.content.split('\n').length} lines, ${(input.content.length / 1024).toFixed(1)} KB`;
+  }
+  if (name === 'Edit' && typeof input.old_string === 'string' && typeof input.new_string === 'string') {
+    const a = input.old_string.split('\n').length, b = input.new_string.split('\n').length;
+    return `Editing model.js – replacing ${a} line${a === 1 ? '' : 's'} with ${b}${input.replace_all ? ' (all occurrences)' : ''}`;
+  }
+  if (name === 'Read') return 'Reading model.js';
+  if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {
+    return `${name.endsWith('render_model') ? 'Rendering' : 'Evaluating'} with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(', ')}`;
+  }
+  if (name === 'mcp__cad__submit_model' && typeof input.summary === 'string') return `Submitting: ${input.summary}`;
+  return null;
 }
