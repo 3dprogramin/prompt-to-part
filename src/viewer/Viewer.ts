@@ -100,6 +100,7 @@ export class Viewer {
   private measurements: Measurement[] = [];
   private downAt: { x: number; y: number } | null = null;
   private lastSize = 0;
+  private clean = false;
   onHover: (p: Vec3 | null, snapped: boolean) => void = () => {};
   onMeasurementsChange: (m: Measurement[]) => void = () => {};
   /** Double-click on an editable dimension label. */
@@ -296,8 +297,10 @@ export class Viewer {
         if (o.name === 'edges') o.visible = showEdges;
       });
     }
-    this.dimsGroup.visible = this.opts.showBBox;
-    this.annGroup.visible = this.opts.showAnnotations;
+    this.dimsGroup.visible = this.opts.showBBox && !this.clean;
+    this.annGroup.visible = this.opts.showAnnotations && !this.clean;
+    this.measureGroup.visible = !this.clean;
+    this.labelRenderer.domElement.style.display = this.clean ? 'none' : '';
     this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText ? 'crosshair' : '';
   }
 
@@ -333,6 +336,12 @@ export class Viewer {
 
   setView(name: ViewName) {
     this.placeCamera(this.framingSphere(), new THREE.Vector3(...VIEW_DIRS[name]).normalize());
+  }
+
+  /** Clean view (fullscreen, controls hidden): only the model, grid and plate. */
+  setClean(on: boolean) {
+    this.clean = on;
+    this.applyOptions();
   }
 
   /** Standard home view: same iso angle every time, framing the model and its dimension lines. */

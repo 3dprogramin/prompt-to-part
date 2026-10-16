@@ -29,6 +29,34 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   const panel = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState<{ target: DimTarget; x: number; y: number; value: string } | null>(null);
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [hideUi, setHideUi] = useState(false);
+  const [idle, setIdle] = useState(false);
+
+  // Fullscreen shows only this panel; leaving fullscreen always brings the controls back.
+  useEffect(() => {
+    const onFs = () => {
+      const on = document.fullscreenElement === panel.current;
+      setFullscreen(on);
+      if (!on) setHideUi(false);
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void panel.current?.requestFullscreen();
+  };
+
+  // With controls hidden, the toggle button fades out after 2 s without mouse movement.
+  useEffect(() => {
+    if (!hideUi) { setIdle(false); return; }
+    let t = setTimeout(() => setIdle(true), 2000);
+    const wake = () => { setIdle(false); clearTimeout(t); t = setTimeout(() => setIdle(true), 2000); };
+    const el = panel.current;
+    el?.addEventListener('pointermove', wake);
+    return () => { clearTimeout(t); el?.removeEventListener('pointermove', wake); };
+  }, [hideUi]);
   const editRef = useRef<typeof onEditDimension>(onEditDimension);
   editRef.current = onEditDimension;
   const pickRef = useRef(onPickSurface);
@@ -75,6 +103,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   }, [result, fitKey]);
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
+  useEffect(() => { viewer.current?.setClean(fullscreen && hideUi); }, [fullscreen, hideUi]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -82,6 +111,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
       if ((t instanceof Element && t.closest('input, textarea, select, [contenteditable]')) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'h' || e.key === 'H') viewer.current?.home();
       if (e.key === 'f' || e.key === 'F') viewer.current?.fit();
+      if ((e.key === 'u' || e.key === 'U') && document.fullscreenElement) setHideUi((h) => !h);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -96,7 +126,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   const parts = result?.parts ?? [];
 
   return (
-    <div className="viewer-panel" ref={panel}>
+    <div className={`viewer-panel ${fullscreen ? 'is-fullscreen' : ''} ${fullscreen && hideUi ? 'ui-hidden' : ''}`} ref={panel}>
       <div className="viewer-host" ref={host} />
 
       <div className="viewer-toolbar">
@@ -106,6 +136,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           ))}
           <button className="tb-btn" title="Home view (H)" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
           <button className="tb-btn" title="Fit model from the current angle (F)" onClick={() => viewer.current?.fit()}><Icon name="fit" /></button>
+          <button className="tb-btn" title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen – only the 3D view'} onClick={toggleFullscreen}><Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} /></button>
         </div>
         <div className="tb-group">
           <Toggle on={options.ortho} onClick={() => set({ ortho: !options.ortho })} icon="ortho" title="Orthographic camera (no perspective distortion)" />
@@ -165,6 +196,15 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
         </div>
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
+
+      {fullscreen && (
+        <div className={`fs-controls ${hideUi && idle ? 'idle' : ''}`}>
+          <button className="fs-btn" onClick={() => setHideUi(!hideUi)} title={hideUi ? 'Show controls (U)' : 'Hide all controls (U)'}>
+            <Icon name={hideUi ? 'eye' : 'eyeOff'} size={15} /> {hideUi ? 'Show controls' : 'Hide controls'}
+          </button>
+          <button className="fs-btn" onClick={toggleFullscreen} title="Exit fullscreen (Esc)"><Icon name="fullscreenExit" size={15} /></button>
+        </div>
+      )}
 
       {!result && !error && !busy && <div className="viewer-empty">{emptyState}</div>}
 
