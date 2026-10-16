@@ -67,7 +67,6 @@ export default function App() {
     setUnseen((u) => (u.includes(design.id) ? u.filter((x) => x !== design.id) : u));
   }, [design.id, hasContent]);
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
-  const [verbose, setVerbose] = useState<boolean>(() => load('verbose', true));
   // Collapsible sidebars (Blender-style: T = left, N = right).
   const [leftOpen, setLeftOpen] = useState<boolean>(() => load('leftOpen', true));
   const [rightOpen, setRightOpen] = useState<boolean>(() => load('rightOpen', true));
@@ -144,7 +143,6 @@ export default function App() {
   useEffect(() => store('quality', quality), [quality]);
   useEffect(() => store('model', model), [model]);
   useEffect(() => store('effort', effort), [effort]);
-  useEffect(() => store('verbose', verbose), [verbose]);
   useEffect(() => {
     const { showBBox, showAnnotations, showEdges, ortho, colors } = viewOpts;
     store('viewOpts', { showBBox, showAnnotations, showEdges, ortho, colors });
@@ -622,8 +620,6 @@ export default function App() {
           currentVersion={design.currentVersion}
           generating={generating}
           busyElsewhere={busyElsewhere}
-          verbose={verbose}
-          onVerbose={setVerbose}
           onSend={onSend}
           onStop={() => running[design.id]?.abort()}
           onRestore={onRestore}

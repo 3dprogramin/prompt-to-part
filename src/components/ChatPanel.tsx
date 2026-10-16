@@ -13,8 +13,6 @@ interface Props {
   generating: boolean;
   /** Another browser tab is generating this design. */
   busyElsewhere: boolean;
-  verbose: boolean;
-  onVerbose: (v: boolean) => void;
   onSend: (text: string, images: string[]) => void;
   onStop: () => void;
   onRestore: (versionIndex: number) => void;
@@ -77,7 +75,7 @@ export function ChatPanel(p: Props) {
           </div>
         )}
         {p.messages.map((m, i) => (
-          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} verbose={p.verbose} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={setLightbox} />
+          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={setLightbox} />
         ))}
       </div>
 
@@ -120,12 +118,7 @@ export function ChatPanel(p: Props) {
             ? <button className="btn danger" onClick={p.onStop}><Icon name="stop" /> Stop</button>
             : <button className="btn primary" onClick={send} disabled={p.busyElsewhere || (!text.trim() && !images.length)}><Icon name="send" /> {p.hasModel ? 'Update' : 'Design'}</button>}
         </div>
-        <div className="composer-opts">
-          <label className="check" title="Show every step Claude takes (thinking, tool calls, file edits, retries) while it works">
-            <input type="checkbox" checked={p.verbose} onChange={(e) => p.onVerbose(e.target.checked)} /> Verbose progress
-          </label>
-          {p.busyElsewhere && <span className="busy-note">Claude is working on this design in another tab</span>}
-        </div>
+        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note">Claude is working on this design in another tab</span></div>}
       </div>
       {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
       {lightbox && <div className="lightbox" onClick={() => setLightbox(null)}><img src={lightbox} alt="" /></div>}
@@ -133,8 +126,8 @@ export function ChatPanel(p: Props) {
   );
 }
 
-function Message({ m, live, verbose, versions, currentVersion, onRestore, onImage }: {
-  m: ChatMessage; live: boolean; verbose: boolean; versions: DesignVersion[]; currentVersion: number;
+function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
+  m: ChatMessage; live: boolean; versions: DesignVersion[]; currentVersion: number;
   onRestore: (i: number) => void; onImage: (src: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -165,21 +158,18 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
     title: 'Hover to watch everything Claude is doing',
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
-  const steps = verbose ? all : all.filter((s) => !s.verbose);
+  const steps = all;
   const renders = steps.filter((s) => s.kind === 'render' && s.image);
-  // Verbose: the full log is open while Claude works. Compact: one status line unless expanded.
-  const showSteps = (live && verbose) || open;
-  const lastStatus = [...steps].reverse().find((s) => s.kind !== 'render');
-  const headline = live
-    ? (verbose ? 'Working' : m.live ?? (lastStatus ? clip(lastStatus.text, 70) : 'Starting…'))
-    : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`;
+  // The full step log is open while Claude works; afterwards it folds into one line.
+  const showSteps = live || open;
+  const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`;
   return (
     <div className="msg assistant">
       <div className="msg-head">
-        <button className={`steps-toggle ${live && !verbose ? 'peek' : ''}`} onClick={() => setOpen(!open)} {...(live && !verbose ? peekProps : {})}>
+        <button className={`steps-toggle ${live ? 'peek' : ''}`} onClick={() => setOpen(!open)} {...(live ? peekProps : {})}>
           {live ? <span className="spinner" /> : <Icon name={m.error ? 'alert' : 'check'} size={14} />}
           <span>{headline}{live && <span className="elapsed"> · {fmtElapsed(elapsed)}</span>}</span>
-          {(!live || !verbose) && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
+          {!live && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
         </button>
         {(live || hasActivity) && (
           <button className="link think-link" title="Show everything Claude did for this reply: thinking, code, tool calls and results" onClick={(e) => setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) })}>
@@ -201,8 +191,8 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
       )}
       {showSteps && (
         <ol className="steps">
-          {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} showTime={verbose} />)}
-          {live && verbose && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text">{m.live ?? 'Starting…'}</span></li>}
+          {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
+          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text">{m.live ?? 'Starting…'}</span></li>}
         </ol>
       )}
       {!showSteps && renders.length > 0 && (
@@ -252,12 +242,12 @@ function fmtElapsed(ms: number) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 }
 
-function Step({ s, onImage, showTime }: { s: AgentStep; onImage: (src: string) => void; showTime: boolean }) {
+function Step({ s, onImage }: { s: AgentStep; onImage: (src: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const long = s.text.length > 160;
   return (
     <li className={`step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
-      {showTime && s.at != null && <span className="step-time">{fmtElapsed(s.at)}</span>}
+      {s.at != null && <span className="step-time">{fmtElapsed(s.at)}</span>}
       <span className="step-text" onClick={() => long && setExpanded(!expanded)}>{expanded || !long ? s.text : clip(s.text, 160)}</span>
       {s.image && <img src={s.image} alt="render" onClick={() => onImage(s.image!)} />}
     </li>
