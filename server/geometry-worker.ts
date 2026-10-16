@@ -1,12 +1,32 @@
-// Runs model scripts in a worker thread so a slow or looping script can be killed.
+// Runs model scripts in a separate, locked-down Node process (started by server/geometry.ts with
+// Node's permission model: no child processes, workers or file writes, file reads only inside
+// node_modules, an empty environment), so a slow or looping script can be killed and a script
+// that ever got past the SES sandbox would still find nothing to reach.
 import '../shared/sandbox'; // first: locks down the worker before anything else loads
-import { parentPort } from 'node:worker_threads';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, inspectScript, runtimeTrapped } from '../shared/runtime';
 import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
-import { loadFontBuffers } from './fonts';
 import type { EvalResult, ParamValues, Quality } from '../shared/types';
+
+// Refuse to run model scripts without the process lock.
+if (!process.permission || process.permission.has('child') || process.permission.has('fs.write')) {
+  console.error('[geometry] refusing to start: the Node permission model is not active');
+  process.exit(78);
+}
+
+const send = (msg: object) => process.send?.(msg);
+
+// Fonts are read by the server (this process may not read them) and sent over IPC.
+let fontSeq = 0;
+const fontWaiters = new Map<number, { resolve: (b: ArrayBuffer[]) => void; reject: (e: Error) => void }>();
+function requestFont(font: string): Promise<ArrayBuffer[]> {
+  return new Promise((resolve, reject) => {
+    const fontReq = ++fontSeq;
+    fontWaiters.set(fontReq, { resolve, reject });
+    send({ fontReq, font });
+  });
+}
 
 const ready = Module().then((wasm) => initRuntime(wasm));
 
@@ -36,7 +56,7 @@ function summarize(r: EvalResult): EvalSummary {
 
 async function run(code: string, values: ParamValues | undefined, quality: Quality): Promise<{ result?: EvalResult; out: EvalSummary | EvalFailure }> {
   try {
-    const result = await withFonts(() => evaluateScript(code, values, quality), loadFontBuffers);
+    const result = await withFonts(() => evaluateScript(code, values, quality), requestFont);
     return { result, out: summarize(result) };
   } catch (e) {
     return { out: { ok: false, error: formatScriptError(e) } };
@@ -49,9 +69,17 @@ type Req =
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues };
 
+type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
+
 // `crashed` tells the parent the wasm instance trapped, so it replaces this worker and retries.
-parentPort!.on('message', async (req: Req) => {
-  const post = (msg: { data?: unknown; error?: string }) => parentPort!.postMessage({ id: req.id, ...msg, crashed: runtimeTrapped() });
+process.on('message', async (req: Req | FontReply) => {
+  if ('fontReply' in req) {
+    const w = fontWaiters.get(req.fontReply);
+    fontWaiters.delete(req.fontReply);
+    if (req.buffers) w?.resolve(req.buffers); else w?.reject(new Error(req.error ?? 'font failed to load'));
+    return;
+  }
+  const post = (msg: { data?: unknown; error?: string }) => send({ id: req.id, ...msg, crashed: runtimeTrapped() });
   try {
     await ready;
     if (req.cmd === 'evaluate') {

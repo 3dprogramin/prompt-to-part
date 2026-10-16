@@ -1,8 +1,13 @@
 import { fitProblem } from '../shared/printer';
-import { Worker } from 'node:worker_threads';
+import { fork, type ChildProcess } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildSync } from 'esbuild';
+import { loadFontBuffers } from './fonts';
 import type { ParamValues, Quality } from '../shared/types';
 import type { EvalFailure, EvalSummary } from './geometry-worker';
 
+type Worker = ChildProcess;
 let worker: Worker | null = null;
 let jobsOnWorker = 0;
 let seq = 0;
@@ -12,21 +17,54 @@ const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>
 /** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
 const RECYCLE_AFTER = 300;
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const NODE_MODULES = path.join(ROOT, 'node_modules');
+const BUNDLE = path.join(NODE_MODULES, '.cache', 'jig', 'geometry-worker.mjs');
+const [major, minor] = process.versions.node.split('.').map(Number);
+const PERMISSION_FLAG = major > 22 || (major === 22 && minor >= 13) ? '--permission' : '--experimental-permission';
+
+/**
+ * Model scripts are evaluated in their own Node process under the permission model: it may read
+ * only node_modules (where its bundled code lives), may not write files, start processes or
+ * threads, and gets no environment variables. The worker is bundled to plain JS first because
+ * tsx's loader needs a thread, which the permission model forbids.
+ */
+function spawnWorker(): Worker {
+  buildSync({
+    entryPoints: [path.join(ROOT, 'server', 'geometry-worker.ts')],
+    bundle: true, platform: 'node', format: 'esm', packages: 'external', target: `node${major}`,
+    outfile: BUNDLE, logLevel: 'warning',
+  });
+  return fork(BUNDLE, [], {
+    execArgv: [PERMISSION_FLAG, '--disable-warning=ExperimentalWarning', `--allow-fs-read=${NODE_MODULES}`, '--max-old-space-size=2048'],
+    env: {},
+    serialization: 'advanced',
+    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+  });
+}
+
 function getWorker(): Worker {
   if (worker) return worker;
-  const w = new Worker(new URL('./geometry-worker-boot.mjs', import.meta.url));
+  const w = spawnWorker();
   // The worker dying mid-job (uncaught error, abort) counts as a crash, so the job is retried.
   const crashAll = (error: string) => {
     for (const [id, p] of pending) if (p.worker === w) { pending.delete(id); p.resolve({ error, crashed: true }); }
   };
-  w.on('message', (msg: Reply & { id: number }) => {
+  w.on('message', (msg: Reply & { id: number } | { fontReq: number; font: string }) => {
+    if ('fontReq' in msg) {
+      loadFontBuffers(msg.font).then(
+        (buffers) => w.connected && w.send({ fontReply: msg.fontReq, buffers }),
+        (e: Error) => w.connected && w.send({ fontReply: msg.fontReq, error: e.message }),
+      );
+      return;
+    }
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
     p.resolve(msg);
   });
   w.on('error', (e: Error) => { if (worker === w) worker = null; crashAll(e.message); });
-  w.on('exit', (code) => { if (worker === w) worker = null; crashAll(`Geometry worker exited (code ${code})`); });
+  w.on('exit', (code, signal) => { if (worker === w) worker = null; crashAll(`Geometry worker exited (${signal ?? `code ${code}`})`); });
   worker = w;
   jobsOnWorker = 0;
   return w;
@@ -34,7 +72,7 @@ function getWorker(): Worker {
 
 function dropWorker(w: Worker) {
   if (worker === w) worker = null;
-  void w.terminate();
+  w.kill();
 }
 
 function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number): Promise<Reply> {
@@ -46,7 +84,7 @@ function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number): Pr
       reject(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s – the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`));
     }, timeoutMs);
     pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); resolve(r); } });
-    w.postMessage({ ...msg, id });
+    w.send({ ...msg, id });
   });
 }
 
