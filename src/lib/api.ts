@@ -13,6 +13,9 @@ export type AgentEvent =
 
 export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
 
+/** Every write to the API carries X-Jig: the server refuses writes without it (see server/index.ts). */
+export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Jig': '1' };
+
 export const api = {
   async listFonts(): Promise<FontEntry[]> {
     const r = await fetch('/api/fonts');
@@ -29,10 +32,10 @@ export const api = {
   async saveDesign(d: Design): Promise<void> {
     // The live activity transcript stays in memory (it can hold every model.js Claude typed).
     const body = JSON.stringify(d, (k, v) => (k === 'activity' ? undefined : v));
-    await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: WRITE_HEADERS, body });
   },
   async deleteDesign(id: string): Promise<void> {
-    await fetch(`/api/designs/${id}`, { method: 'DELETE' });
+    await fetch(`/api/designs/${id}`, { method: 'DELETE', headers: { 'X-Jig': '1' } });
   },
 };
 
@@ -58,7 +61,7 @@ export interface GenerateBody {
 export async function generate(body: GenerateBody, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
   const res = await fetch('/api/generate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: WRITE_HEADERS,
     body: JSON.stringify(body),
     signal,
   });

@@ -14,6 +14,19 @@ const DESIGNS = path.join(DATA_DIR, 'designs');
 const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
 
 const app = express();
+
+// Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
+// domain is re-pointed at 127.0.0.1), the Origin check refuses other sites, and requiring the
+// X-Jig header on writes means a plain cross-site form or beacon can never change anything.
+const LOCAL_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+app.use('/api', (req, res, next) => {
+  if (!LOCAL_HOSTS.has(req.headers.host ?? '')) return void res.status(421).json({ error: 'Unexpected Host header' });
+  const origin = req.headers.origin;
+  if (origin && !LOCAL_ORIGIN.test(origin)) return void res.status(403).json({ error: 'Cross-origin request refused' });
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['x-jig'] !== '1') return void res.status(403).json({ error: 'Missing X-Jig header' });
+  next();
+});
 app.use(express.json({ limit: '80mb' }));
 
 const designFile = (id: string) => path.join(DESIGNS, `${id}.json`);

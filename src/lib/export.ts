@@ -3,6 +3,7 @@ import type { DimensionAnnotation, EvalResult, PartMesh } from '../../shared/typ
 import { toBinaryStl } from './files';
 import { toBambuProject, type BambuTemplate } from './bambu3mf';
 import type { PrintProfile } from '../../shared/print';
+import { WRITE_HEADERS } from './api';
 
 export type ExportFormat = 'stl' | '3mf' | 'blend';
 
@@ -87,7 +88,7 @@ export async function toBlend(result: EvalResult, parts: PartMesh[], title: stri
   const params = Object.fromEntries(Object.entries(result.values).filter(([k]) => !k.startsWith('$')));
   const res = await fetch('/api/export/blend', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: WRITE_HEADERS,
     body: JSON.stringify({
       name: title, code, params, size,
       parts: parts.map((p) => ({ name: p.name, color: p.color, positions: b64(p.positions), indices: b64(p.indices) })),
