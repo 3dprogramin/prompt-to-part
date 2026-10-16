@@ -545,11 +545,11 @@ function transport(n: Vec3, t0: Vec3, t1: Vec3): Vec3 {
 // Script compilation & evaluation
 // ---------------------------------------------------------------------------
 
-const PRELUDE_LINES = 3; // "function anonymous(...\n) {\n" + '"use strict";'
+const PRELUDE_LINES = 2; // "(function (...) {" + '"use strict";'
 
 function locate(err: unknown): { line?: number; column?: number } {
   const stack = (err as Error)?.stack ?? '';
-  const m = /<anonymous>:(\d+):(\d+)/.exec(stack) || /anonymous>?:(\d+):(\d+)/.exec(stack);
+  const m = /model\.js:(\d+):(\d+)/.exec(stack);
   if (!m) return {};
   return { line: Number(m[1]) - PRELUDE_LINES, column: Number(m[2]) };
 }
@@ -557,13 +557,15 @@ function locate(err: unknown): { line?: number; column?: number } {
 type Compiled = (...args: unknown[]) => { meta: unknown; params: unknown; build: unknown };
 const compileCache = new Map<string, Compiled>();
 
+/** Compiles a model script inside an SES Compartment (see shared/sandbox.ts); never outside one. */
 function compile(code: string): Compiled {
   const hit = compileCache.get(code);
   if (hit) return hit;
+  if (typeof Compartment === 'undefined') throw new Error('Model sandbox is not active: import shared/sandbox.ts first');
   let fn: Compiled;
   try {
-    fn = new Function('Manifold', 'CrossSection', 'H', 'quality', 'console',
-      `"use strict";\n${code}\n;return { meta: typeof meta !== "undefined" ? meta : {}, params: typeof params !== "undefined" ? params : {}, build: typeof build === "function" ? build : undefined };`) as Compiled;
+    const src = `(function (Manifold, CrossSection, H, quality, console) {\n"use strict";\n${code}\n;return { meta: typeof meta !== "undefined" ? meta : {}, params: typeof params !== "undefined" ? params : {}, build: typeof build === "function" ? build : undefined };\n})\n//# sourceURL=model.js\n`;
+    fn = new Compartment({ __options__: true, name: 'model.js' }).evaluate(src) as Compiled;
   } catch (e) {
     throw new ScriptError({ message: `Syntax error: ${(e as Error).message}`, stage: 'compile' });
   }

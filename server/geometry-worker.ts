@@ -1,4 +1,5 @@
 // Runs model scripts in a worker thread so a slow or looping script can be killed.
+import '../shared/sandbox'; // first: locks down the worker before anything else loads
 import { parentPort } from 'node:worker_threads';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, inspectScript, runtimeTrapped } from '../shared/runtime';

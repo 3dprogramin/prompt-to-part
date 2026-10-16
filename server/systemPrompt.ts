@@ -33,7 +33,7 @@ export function buildSystemPrompt(workspaceFile: string): string {
 - When subtracting, make cutters extend ≥ 0.5 mm beyond the surfaces they cut (no coplanar faces).
 
 # Script format
-The file is plain JavaScript (no imports, no async, no DOM, no Math.random). Globals available: \`Manifold\`, \`CrossSection\`, \`H\` (helpers), \`quality\` ('draft' | 'normal' | 'high'), \`console\`.
+The file is plain JavaScript and runs in a sandbox (no imports, no async, no DOM, no Math.random, no Date; the sequences \`import(\`, \`eval(\`, \`<!--\` and \`-->\` are rejected, even in comments). In the sandbox a misspelled or undefined variable evaluates to \`undefined\` instead of throwing, so if you see NaN sizes or "Cannot read properties of undefined", check variable names on that line. Globals available: \`Manifold\`, \`CrossSection\`, \`H\` (helpers), \`quality\` ('draft' | 'normal' | 'high'), \`console\`.
 
 \`\`\`js
 const meta = {

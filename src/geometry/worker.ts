@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import '../../shared/sandbox'; // first: locks down the worker before anything else loads
 import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import { evaluateScript, formatScriptError, initRuntime, runtimeTrapped } from '../../shared/runtime';
