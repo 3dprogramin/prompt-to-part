@@ -57,6 +57,8 @@ export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) 
   };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
   let submitted = false;
+  // Code of model.js at the last successful render: submit requires the current file to have been looked at.
+  let renderedCode: string | null = null;
 
   const cad = createSdkMcpServer({
     name: 'cad',
@@ -86,6 +88,7 @@ export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) 
             return { content: [{ type: 'text', text: report }], isError: true };
           }
           emit({ type: 'step', step: { kind: 'render', ok: true, text: oneLine(r), image: `data:image/png;base64,${r.png}` } });
+          renderedCode = code;
           return {
             content: [
               { type: 'image', data: r.png, mimeType: 'image/png' },
@@ -103,6 +106,15 @@ export async function runGeneration(req: GenerateRequest, emit: (e: AgentEvent) 
       }, async ({ summary, force }) => {
         const code = await readModel();
         if (code == null) return noFile;
+        if (code !== renderedCode) {
+          emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: render and inspect the current model first' } });
+          return {
+            content: [{ type: 'text', text: renderedCode == null
+              ? 'Rejected – you have not looked at the model yet. Call render_model, inspect the image carefully (and compare it with the reference photos if any), fix what is wrong, then submit.'
+              : 'Rejected – model.js changed since your last render. Call render_model again and verify the current version visually before submitting.' }],
+            isError: true,
+          };
+        }
         try {
           const r = await geometry.evaluate(code);
           if (!r.ok || !r.parts.length) {
