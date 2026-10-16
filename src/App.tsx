@@ -57,8 +57,11 @@ export default function App() {
 
   const refreshList = useCallback(() => { api.listDesigns().then(setDesigns).catch(() => {}); }, []);
 
-  // Open the last design on startup.
+  // Open the last design on startup (guarded: hot reload re-runs effects).
+  const started = useRef(false);
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     (async () => {
       const last = new URLSearchParams(location.search).get('design') ?? load<string | null>('lastDesign', null);
       if (last) {
@@ -69,6 +72,15 @@ export default function App() {
       refreshList();
     })();
   }, [refreshList]);
+
+  // Keep the URL pointing at the open design so a reload reopens it.
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (url.searchParams.get('design') === design.id) return;
+    if (!design.messages.length && !design.code) url.searchParams.delete('design');
+    else url.searchParams.set('design', design.id);
+    history.replaceState(null, '', url);
+  }, [design.id, design.messages.length, design.code]);
 
   // Autosave (debounced) once the design has content.
   useEffect(() => {
@@ -105,12 +117,20 @@ export default function App() {
     const now = Date.now();
     const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, createdAt: now };
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
+    const designId = design.id;
     setDesign((d) => ({ ...d, messages: [...d.messages, userMsg, asst], updatedAt: now }));
+    // Apply updates to the design this generation belongs to, even if another design is open by now.
+    const update = (fn: (d: Design) => Design) => setDesign((d) => {
+      if (d.id === designId) return fn(d);
+      void api.getDesign(designId).then((stored) => stored && api.saveDesign(fn(stored)));
+      return d;
+    });
     const patchAsst = (fn: (m: ChatMessage) => ChatMessage) =>
-      setDesign((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asst.id ? fn(m) : m)) }));
+      update((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asst.id ? fn(m) : m)) }));
     const abort = new AbortController();
     abortRef.current = abort;
     setGenerating(true);
+    let finished = false;
     try {
       await generate({
         designId: design.id,
@@ -122,21 +142,22 @@ export default function App() {
         model,
         effort,
       }, (ev) => {
-        if (ev.type === 'session') setDesign((d) => ({ ...d, sessionId: ev.sessionId }));
+        if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step] }));
         else if (ev.type === 'model') {
-          setDesign((d) => {
+          update((d) => {
             const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const }];
             const vi = versions.length - 1;
             return {
-              ...d, versions, currentVersion: vi, code: ev.code, values: {}, updatedAt: Date.now(),
+              ...d, versions, currentVersion: vi, code: ev.code, values: (d.values[SCALE_KEY] != null ? { [SCALE_KEY]: d.values[SCALE_KEY] } : {}) as ParamValues, updatedAt: Date.now(),
               messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
             };
           });
           setViewOpts((o) => ({ ...o, hiddenParts: [] }));
-        } else if (ev.type === 'done') patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs }));
-        else if (ev.type === 'error') patchAsst((m) => ({ ...m, error: ev.message }));
+        } else if (ev.type === 'done') { finished = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
+        else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
       }, abort.signal);
+      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Claude finished (the server may have restarted). Please send the request again.' }));
     } catch (e) {
       if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
