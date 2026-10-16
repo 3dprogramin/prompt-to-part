@@ -15,12 +15,14 @@ interface Props {
   emptyState: React.ReactNode;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void;
+  /** Receives a function that captures the current view as a JPEG data URL. */
+  snapshotRef?: React.MutableRefObject<(() => string | null) | null>;
 }
 
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -94,12 +96,13 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     v.onHover = (p, snapped) => setHover(p ? { p, snapped } : null);
     v.onMeasurementsChange = setMeasures;
     v.onPickSurface = (hit) => pickRef.current(hit);
+    if (snapshotRef) snapshotRef.current = () => v.snapshot();
     v.onDimEdit = (target, rect, current) => {
       const p = panel.current!.getBoundingClientRect();
       setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
     };
     viewer.current = v;
-    return () => { v.dispose(); viewer.current = null; };
+    return () => { v.dispose(); viewer.current = null; if (snapshotRef) snapshotRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

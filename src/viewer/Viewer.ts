@@ -638,8 +638,40 @@ export class Viewer {
   }
 
   /** PNG snapshot of the current view (for thumbnails / sharing). */
-  snapshot(): string {
+  /**
+   * JPEG of exactly what the user sees: the 3D view plus the dimension labels
+   * (drawn onto the image, since they are HTML overlays). Long side capped at `maxSize`.
+   */
+  snapshot(maxSize = 1280): string {
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL('image/png');
+    const src = this.renderer.domElement;
+    const w = this.container.clientWidth, h = this.container.clientHeight;
+    const k = Math.min(1, maxSize / Math.max(w, h));
+    const out = document.createElement('canvas');
+    out.width = Math.round(w * k);
+    out.height = Math.round(h * k);
+    const ctx = out.getContext('2d')!;
+    ctx.fillStyle = '#1b1d22';
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(src, 0, 0, out.width, out.height);
+    if (!this.clean) {
+      const base = this.container.getBoundingClientRect();
+      ctx.font = `600 ${Math.max(9, Math.round(11.5 * k))}px ui-monospace, monospace`;
+      ctx.textBaseline = 'middle';
+      for (const el of this.labelRenderer.domElement.querySelectorAll<HTMLElement>('.dim-label')) {
+        if (el.offsetParent === null) continue;
+        const r = el.getBoundingClientRect();
+        const x = (r.left - base.left) * k, y = (r.top - base.top) * k, rw = r.width * k, rh = r.height * k;
+        if (x + rw < 0 || y + rh < 0 || x > out.width || y > out.height) continue;
+        const style = getComputedStyle(el);
+        ctx.fillStyle = '#0f1012e6';
+        ctx.fillRect(x, y, rw, rh);
+        ctx.strokeStyle = style.borderColor;
+        ctx.strokeRect(x + 0.5, y + 0.5, rw - 1, rh - 1);
+        ctx.fillStyle = style.color;
+        ctx.fillText(el.textContent ?? '', x + 4 * k, y + rh / 2);
+      }
+    }
+    return out.toDataURL('image/jpeg', 0.85);
   }
 }

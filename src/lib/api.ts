@@ -42,6 +42,12 @@ export interface GenerateBody {
   effort: string;
   /** Description of text the user placed with the text tool (applied after the script). */
   textNote?: string;
+  /** Follow-ups: screenshot of the current viewer. */
+  currentView?: { mediaType: string; data: string };
+  /** Follow-ups: values to render the current state exactly (incl. $scale and $text). */
+  renderValues?: ParamValues;
+  scale?: number;
+  versionNote?: string;
 }
 
 export async function generate(body: GenerateBody, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {

@@ -63,6 +63,7 @@ export default function App() {
     ...load<Partial<ViewerOptions>>('viewOpts', {}),
   }));
   const resultCode = useRef('');
+  const snapshotRef = useRef<(() => string | null) | null>(null);
   // In-memory copies of designs that are generating while another design is open.
   const background = useRef(new Map<string, Design>());
   const lastRemote = useRef<Design | null>(null);
@@ -251,6 +252,8 @@ export default function App() {
     const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, createdAt: now };
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
     const designId = design.id;
+    // For follow-ups, capture exactly what the user is looking at before the chat changes anything.
+    const current = followUpContext();
     setDesign((d) => ({ ...d, messages: [...d.messages, userMsg, asst], updatedAt: now }));
     // Updates always go to the design this generation belongs to, even if another one is open by now.
     const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
@@ -268,6 +271,7 @@ export default function App() {
         code: design.code || undefined,
         values: (result ?? lastGood)?.values,
         textNote: describeText(textFeatures),
+        ...current,
         sessionId: design.sessionId,
         model,
         effort,
@@ -317,6 +321,25 @@ export default function App() {
       const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const }];
       return { ...d, code, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
+  };
+
+  /** What Claude needs to see the model exactly as the user does (follow-ups only). */
+  const followUpContext = () => {
+    if (!design.code || !(result ?? lastGood)) return {};
+    let currentView: { mediaType: string; data: string } | undefined;
+    try {
+      const shot = snapshotRef.current?.();
+      if (shot) currentView = dataUrlToImage(shot);
+    } catch { /* screenshot is optional */ }
+    const renderValues: ParamValues = { ...fullValues() };
+    if (design.values[TEXT_KEY] != null) renderValues[TEXT_KEY] = design.values[TEXT_KEY];
+    const scale = Number(design.values[SCALE_KEY] ?? 1);
+    const latest = design.versions.length - 1;
+    const cur = design.versions[design.currentVersion];
+    const versionNote = design.currentVersion >= 0 && design.currentVersion < latest
+      ? `The user restored version ${design.currentVersion + 1} of ${latest + 1} ("${cur.summary}"). The current script is that version, not your latest one – work from it.`
+      : cur?.source === 'manual' ? 'The user edited the script by hand after your last version – keep their edits.' : undefined;
+    return { currentView, renderValues, scale: scale !== 1 ? scale : undefined, versionNote };
   };
 
   /** Current values including the uniform scale (which is not a script parameter). */
@@ -436,6 +459,7 @@ export default function App() {
           onQuality={setQuality}
           onEditDimension={onEditDimension}
           onPickSurface={onPickSurface}
+          snapshotRef={snapshotRef}
           emptyState={generating
             ? <div className="empty-inner"><span className="spinner big" /><p>Claude is designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}

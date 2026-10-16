@@ -18,6 +18,14 @@ export interface GenerateRequest {
   model?: string;
   effort?: EffortLevel;
   textNote?: string;
+  /** Follow-ups: screenshot of the user's current viewer (their camera angle, with dimension labels). */
+  currentView?: { mediaType: string; data: string };
+  /** Follow-ups: full values to render the current state exactly ($scale, $text included). */
+  renderValues?: ParamValues;
+  /** Uniform scale the user applied in the app (1 = none). */
+  scale?: number;
+  /** Restored-version / manual-edit note. */
+  versionNote?: string;
 }
 
 export type AgentEvent =
@@ -149,19 +157,49 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   });
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
-  for (const img of req.images ?? []) {
-    if (!IMAGE_TYPES.has(img.mediaType)) continue;
-    content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType as 'image/jpeg', data: img.data } });
-  }
   const parts: string[] = [];
-  if (req.code?.trim()) {
-    parts.push(`This is a follow-up on the existing design. Its current script is in ${file} (Read it before editing).`);
+  const isFollowUp = !!req.code?.trim();
+
+  // Follow-ups: show Claude exactly what the user is looking at before they describe the change.
+  if (isFollowUp) {
+    emit({ type: 'live', text: 'Capturing the current model for Claude…' });
+    const sent: string[] = [];
+    if (req.currentView && IMAGE_TYPES.has(req.currentView.mediaType)) {
+      content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
+      content.push({ type: 'image', source: { type: 'base64', media_type: req.currentView.mediaType as 'image/jpeg', data: req.currentView.data } });
+      sent.push('your current view');
+    }
+    if (req.renderValues) {
+      try {
+        const r = await geometry.render(req.code!, req.renderValues);
+        if (r.ok && r.png) {
+          content.push({ type: 'text', text: `CURRENT MODEL – four-view render at the user's exact current settings (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP; grid ${r.gridStep} mm):` });
+          content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
+          parts.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
+          sent.push('a four-view render with measurements');
+        }
+      } catch { /* the request still works without the render */ }
+    }
+    if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent Claude ${sent.join(' and ')} of the current model` } });
+  }
+
+  const refs = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType));
+  if (refs.length) {
+    content.push({ type: 'text', text: `REFERENCE IMAGE${refs.length > 1 ? 'S' : ''} attached by the user with this request:` });
+    for (const img of refs) content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType as 'image/jpeg', data: img.data } });
+  }
+
+  if (isFollowUp) {
+    parts.unshift(`This is a follow-up on the existing design. Its current script is in ${file} (Read it before editing). The images above show the current model – when the user says "this", "here" or refers to a part, use them to work out what they mean.`);
     if (req.values && Object.keys(req.values).length) parts.push(`The user's current slider values: ${JSON.stringify(req.values)}`);
+    if (req.versionNote) parts.push(req.versionNote);
+    if (req.scale && Math.abs(req.scale - 1) > 1e-6) {
+      parts.push(`The user scaled the whole model uniformly to ${+(req.scale * 100).toFixed(1)} % in the app; the scale is applied after your build. Sizes the user mentions refer to the scaled model, while evaluate_model/render_model report unscaled sizes – convert accordingly.`);
+    }
   } else {
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
   if (req.textNote) parts.push(`Text the user placed with the app's text tool (applied automatically after your build – do not add it again unless asked): ${req.textNote}`);
-  if (content.length) parts.push(`${content.length} reference image(s) are attached.`);
   parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 
