@@ -24,6 +24,9 @@ interface Props {
   assemblyLoading?: boolean;
   onAssemble?: () => void;
   onAssemblyClose?: () => void;
+  /** The model's layout parameter (print / assembled / exploded), if it has one. */
+  layout?: { value: string; options: { value: string; label: string }[] } | null;
+  onLayout?: (value: string) => void;
 }
 
 const STEP_SECONDS = 1.6;
@@ -31,7 +34,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -116,8 +119,9 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   }, []);
 
   useEffect(() => {
-    const fit = fitKey !== lastFit.current;
-    lastFit.current = fitKey;
+    // Only consume the one-time fit once a model exists – otherwise the camera frames an empty scene.
+    const fit = !!result && fitKey !== lastFit.current;
+    if (result) lastFit.current = fitKey;
     viewer.current?.setModel(result, fit);
   }, [result, fitKey]);
 
@@ -138,10 +142,11 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     if (!asmPlaying || !steps) return;
     let raf = 0, last = performance.now();
     const tick = (now: number) => {
-      const dt = (now - last) / 1000;
-      last = now;
+      // rAF timestamps can be slightly earlier than performance.now() at start – never go backwards.
+      const dt = Math.max(0, (now - last) / 1000);
+      last = Math.max(last, now);
       setAsmT((t) => {
-        const next = Math.min(steps, t + dt / STEP_SECONDS);
+        const next = Math.max(0, Math.min(steps, t + dt / STEP_SECONDS));
         if (next >= steps) setAsmPlaying(false);
         return next;
       });
@@ -150,7 +155,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [asmPlaying, steps]);
-  const stepIndex = Math.min(steps - 1, Math.floor(asmT + 1e-6));
+  const stepIndex = Math.max(0, Math.min(steps - 1, Math.floor(asmT + 1e-6)));
   const goStep = (i: number) => { setAsmPlaying(false); setAsmT(Math.max(0, Math.min(steps, i))); };
   useEffect(() => { viewer.current?.setClean(fullscreen && hideUi); }, [fullscreen, hideUi]);
 
@@ -195,13 +200,6 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           <Toggle on={options.section.enabled} onClick={() => setSection({ enabled: !options.section.enabled, position: options.section.enabled ? options.section.position : (secMin + secMax) / 2 })} icon="section" title="Section view" />
           <Toggle on={options.measure} onClick={() => set({ measure: !options.measure })} icon="ruler" title="Measure: click two points (snaps to vertices). Esc cancels." />
         </div>
-        {canAssemble && (
-          <div className="tb-group">
-            <button className={`tb-btn text ${assembly ? 'on' : ''}`} disabled={assemblyLoading} onClick={() => (assembly ? onAssemblyClose?.() : onAssemble?.())} title="Watch the parts being put together step by step">
-              <Icon name="assemble" /> {assemblyLoading ? 'Preparing…' : assembly ? 'Exit' : 'Assemble'}
-            </button>
-          </div>
-        )}
         <div className="tb-group">
           <select className="tb-select" value={quality} onChange={(e) => onQuality(e.target.value as Quality)} title="Preview quality (export always uses high)">
             <option value="draft">Draft</option>
@@ -253,12 +251,27 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
 
+      {!assembly && (layout || canAssemble) && result && (
+        <div className="layout-bar">
+          {layout && layout.options.map((o) => (
+            <button key={o.value} className={layout.value === o.value ? 'on' : ''} onClick={() => onLayout?.(o.value)} title={`Show the ${o.label} layout`}>
+              {o.label.charAt(0).toUpperCase() + o.label.slice(1)}
+            </button>
+          ))}
+          {canAssemble && (
+            <button className="assemble" disabled={assemblyLoading} onClick={() => onAssemble?.()} title="Watch the parts being put together step by step">
+              <Icon name="play" size={13} /> {assemblyLoading ? 'Preparing…' : 'Assemble'}
+            </button>
+          )}
+        </div>
+      )}
+
       {assembly && steps > 0 && (
         <div className="asm-player">
           <div className="asm-caption">
             {asmT >= steps - 1e-6
               ? <><b>Assembled</b> · all {steps} steps done</>
-              : <><b>Step {stepIndex + 1} of {steps}</b> · {assembly[stepIndex].label}</>}
+              : <><b>Step {stepIndex + 1} of {steps}</b> · {assembly[stepIndex]?.label}</>}
           </div>
           <div className="asm-controls">
             <button className="icon-btn" title="Previous step" onClick={() => goStep(Math.ceil(asmT - 1e-6) - 1)}><Icon name="prev" /></button>
