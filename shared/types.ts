@@ -164,7 +164,10 @@ export interface DesignVersion {
   code: string;
   summary: string;
   createdAt: number;
-  source: 'ai' | 'manual';
+  /** Claude's script, the user's code edit, or the user's saved slider/scale/text/print settings. */
+  source: 'ai' | 'manual' | 'settings';
+  /** Parameter values that go with this version; restoring the version brings them back. */
+  values?: ParamValues;
 }
 
 export interface Design {

@@ -515,3 +515,8 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .menu.left .menu-open { min-width: 0; }
 .version-line { display: flex; align-items: center; gap: 7px; min-width: 0; align-self: stretch; }
 .version-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* saved settings versions are blue, Claude's are gold */
+.version-chip.settings { background: #5b9bd522; color: #9cc6f2; border-color: #5b9bd566; }
+.btn.save-settings { padding: 3px 9px; font-size: 12px; background: #5b9bd522; border-color: #5b9bd566; color: #b4d4f5; }
+.btn.save-settings:hover { background: #5b9bd538; border-color: #5b9bd5; color: #fff; }

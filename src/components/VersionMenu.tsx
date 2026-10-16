@@ -21,11 +21,11 @@ export function VersionMenu({ versions, current, onRestore }: Props) {
             <div key={i} className={`menu-item ${i === current ? 'on' : ''}`}>
               <button className="menu-open" onClick={() => { setOpen(false); if (i !== current) onRestore(i); }}>
                 <span className="version-line">
-                  <span className="version-chip">v{i + 1}</span>
+                  <span className={`version-chip ${v.source}`}>v{i + 1}</span>
                   <span className="version-summary">{v.summary}</span>
                 </span>
                 <span className="dim small">
-                  {new Date(v.createdAt).toLocaleString()} · {v.source === 'manual' ? 'your code edit' : 'Claude'}{i === current ? ' · shown now' : ''}
+                  {new Date(v.createdAt).toLocaleString()} · {v.source === 'manual' ? 'your code edit' : v.source === 'settings' ? 'your saved settings' : 'Claude'}{i === current ? ' · shown now' : ''}
                 </span>
               </button>
             </div>

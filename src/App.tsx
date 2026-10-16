@@ -5,6 +5,7 @@ import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFea
 import type { FontEntry } from './lib/api';
 import { api, generate } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
+import { describeSettings, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
 import { GeometryClient } from './geometry/client';
@@ -319,10 +320,11 @@ export default function App() {
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
         else if (ev.type === 'model') {
           update((d) => {
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const }];
+            const values = keepAppValues(d.values);
+            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values }];
             const vi = versions.length - 1;
             return {
-              ...d, versions, currentVersion: vi, code: ev.code, values: keepAppValues(d.values), updatedAt: Date.now(),
+              ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
               messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
             };
           });
@@ -352,12 +354,12 @@ export default function App() {
 
   const onRestore = (vi: number) => {
     const v = design.versions[vi];
-    if (v) setDesign((d) => ({ ...d, code: v.code, currentVersion: vi, values: {}, updatedAt: Date.now() }));
+    if (v) setDesign((d) => ({ ...d, code: v.code, currentVersion: vi, values: { ...v.values }, updatedAt: Date.now() }));
   };
 
   const onApplyCode = (code: string) => {
     setDesign((d) => {
-      const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const }];
+      const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const, values: { ...d.values } }];
       return { ...d, code, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };
@@ -388,6 +390,18 @@ export default function App() {
 
   // ---- assembly animation ----
   const shown = result ?? lastGood;
+
+  // ---- saving slider / scale / text / print settings as a version ----
+  const unsavedSettings = !!shown && !!design.code && design.versions.length > 0 && !generating
+    && settingsChanged(design.versions[design.currentVersion]?.values ?? {}, design.values, shown.params);
+  const saveSettings = () => {
+    if (!shown) return;
+    setDesign((d) => {
+      const base = d.versions[d.currentVersion]?.values ?? {};
+      const versions = [...d.versions, { code: d.code, summary: describeSettings(base, d.values, shown.params), createdAt: Date.now(), source: 'settings' as const, values: { ...d.values } }];
+      return { ...d, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
+    });
+  };
   const layoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
   const canAssemble = !!layoutKey && !!shown?.assembly.length;
   // Any change to the model ends the animation and makes validation results stale.
@@ -593,6 +607,11 @@ export default function App() {
         <button className="brand" onClick={createNew} title="New design"><span className="logo"><Icon name="cube" size={18} /></span> AI Designer</button>
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <VersionMenu versions={design.versions} current={design.currentVersion} onRestore={onRestore} />}
+        {unsavedSettings && (
+          <button className="btn save-settings" onClick={saveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
+            <Icon name="save" size={13} /> Save as v{design.versions.length + 1}
+          </button>
+        )}
         {designTabs.length > 1 ? <DesignTabs tabs={designTabs} current={design.id} onOpen={openDesign} onClose={closeTab} /> : <span className="spacer" />}
         <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
         <div className="menu-wrap">
