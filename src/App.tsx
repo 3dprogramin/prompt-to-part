@@ -11,6 +11,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
+import { DesignTabs, type DesignTab } from './components/DesignTabs';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import type { ValidationReport } from './geometry/validate';
@@ -54,6 +55,15 @@ export default function App() {
   // Designs generating in other tabs (id → last heartbeat).
   const [remoteRunning, setRemoteRunning] = useState<Record<string, number>>({});
   const generating = !!running[design.id];
+  // Designs open as tabs in the top bar (kept across reloads), and those that finished in the background unseen.
+  const [tabIds, setTabIds] = useState<string[]>(() => load('designTabs', []));
+  useEffect(() => store('designTabs', tabIds), [tabIds]);
+  const [unseen, setUnseen] = useState<string[]>([]);
+  const hasContent = design.messages.length > 0 || !!design.code;
+  useEffect(() => {
+    if (hasContent) setTabIds((t) => (t.includes(design.id) ? t : [...t, design.id]));
+    setUnseen((u) => (u.includes(design.id) ? u.filter((x) => x !== design.id) : u));
+  }, [design.id, hasContent]);
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
   const [verbose, setVerbose] = useState<boolean>(() => load('verbose', true));
   // Collapsible sidebars (Blender-style: T = left, N = right).
@@ -327,6 +337,7 @@ export default function App() {
     } finally {
       patchAsst((m) => ({ ...m, live: undefined, thinking: undefined }));
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
+      if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
       channel?.postMessage({ type: 'running', tab: TAB_ID, id: designId, on: false } satisfies TabMessage);
       // A design that finished in the background is persisted, then dropped from memory.
       setTimeout(() => {
@@ -542,11 +553,36 @@ export default function App() {
 
   const createNew = () => switchTo(newDesign());
 
+  // The open design always has a tab (an empty new one only until another is opened).
+  const designTabs: DesignTab[] = [...tabIds, ...(tabIds.includes(design.id) ? [] : [design.id])].flatMap((id) => {
+    const name = id === design.id ? design.name : background.current.get(id)?.name ?? designs.find((d) => d.id === id)?.name;
+    return name == null ? [] : [{ id, name, running: !!running[id] || remoteRunning[id] != null, unseen: unseen.includes(id) }];
+  });
+
+  // Forget tabs of designs that no longer exist (deleted, e.g. in another browser tab).
+  useEffect(() => {
+    if (!designs.length) return;
+    setTabIds((t) => {
+      const kept = t.filter((id) => id === currentId.current || runningRef.current[id] || designs.some((d) => d.id === id));
+      return kept.length === t.length ? t : kept;
+    });
+  }, [designs]);
+
+  const closeTab = (id: string) => {
+    setTabIds((t) => t.filter((x) => x !== id));
+    if (id !== design.id) return;
+    const ids = designTabs.map((t) => t.id);
+    const i = ids.indexOf(id);
+    const next = ids[i + 1] ?? ids[i - 1];
+    if (next) openDesign(next); else createNew();
+  };
+
   const deleteDesign = async (id: string) => {
     if (!confirm('Delete this design permanently?')) return;
     running[id]?.abort();
     background.current.delete(id);
     await api.deleteDesign(id);
+    setTabIds((t) => t.filter((x) => x !== id));
     if (id === design.id) createNew();
     refreshList();
   };
@@ -557,7 +593,7 @@ export default function App() {
         <button className="brand" onClick={createNew} title="New design"><span className="logo"><Icon name="cube" size={18} /></span> AI Designer</button>
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <span className="dim small">v{design.currentVersion + 1} of {design.versions.length}</span>}
-        <span className="spacer" />
+        {designTabs.length > 1 ? <DesignTabs tabs={designTabs} current={design.id} onOpen={openDesign} onClose={closeTab} /> : <span className="spacer" />}
         <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
         <div className="menu-wrap">
           <button className="btn ghost" onClick={() => { refreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>

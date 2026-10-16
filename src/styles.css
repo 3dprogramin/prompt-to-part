@@ -461,6 +461,22 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .side-panel { overflow: hidden; }
 .export-menu.threemf .btn { flex-direction: row; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; }
 
+/* design tabs in the top bar */
+.design-tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; padding: 0 6px; }
+.design-tabs::-webkit-scrollbar { display: none; }
+.dtab { display: flex; align-items: center; flex: 0 1 auto; min-width: 70px; max-width: 190px; height: 30px; border: 1px solid transparent; border-radius: 7px; color: var(--text-2); }
+.dtab:hover { background: #ffffff08; color: var(--text); }
+.dtab.on { background: var(--panel-2); border-color: var(--line-2); color: var(--text); }
+.dtab-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 2px 0 10px; background: none; border: 0; color: inherit; font-size: 12.5px; }
+.dtab-open:last-child { padding-right: 10px; }
+.dtab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtab .spinner { width: 10px; height: 10px; }
+.dtab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.dtab.unseen .dtab-name { color: var(--accent-2); }
+.dtab-close { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 4px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-3); opacity: 0; flex-shrink: 0; }
+.dtab:hover .dtab-close, .dtab.on .dtab-close { opacity: 1; }
+.dtab-close:hover { background: #ffffff14; color: var(--text); }
+
 /* claude's thinking, beside the chat */
 .msg-head { display: flex; align-items: center; gap: 10px; }
 .think-link { color: var(--text-3); font-size: 11.5px; }
