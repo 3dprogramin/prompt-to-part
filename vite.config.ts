@@ -36,6 +36,8 @@ export default defineConfig({
       },
     },
   },
+  // dist/.vite/license.md: the licences of every dependency bundled into the built app.
+  build: { license: true },
   worker: { format: 'es' },
   optimizeDeps: { exclude: ['manifold-3d'] },
 });

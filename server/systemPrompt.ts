@@ -177,4 +177,4 @@ const WEB_ON = `Web search is ON for this design (WebSearch and WebFetch tools).
 - Put looked-up dimensions into named parameters so the user can correct them with a slider.
 - In your final message, list the key dimensions you used with their source (site name), and mark any you had to estimate.`;
 
-const WEB_OFF = `You have no web access in this design. For real products whose exact size matters, use what you know, say in your final message which dimensions come from memory and may be off by a few mm, and mention that the user can turn on "Web" in the chat so you can look them up.`;
+const WEB_OFF = `You have no web access in this design. For real products whose exact size matters, use what you know, say in your final message which dimensions come from memory and may be off by a few mm, and mention that the user can turn on web search (the globe button under the chat box) so you can look them up.`;
