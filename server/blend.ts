@@ -33,7 +33,7 @@ export async function blenderVersion(): Promise<string | null> {
 }
 
 export async function exportBlend(req: BlendRequest): Promise<Buffer> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-designer-blend-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'jig-blend-'));
   try {
     const parts = await Promise.all(req.parts.map(async (p, i) => {
       await writeFile(path.join(dir, `p${i}.pos`), Buffer.from(p.positions, 'base64'));

@@ -1,8 +1,8 @@
-# AI Designer
+# Jig
 
 AI-powered parametric CAD for 3D printing. Describe an object (and/or attach photos). Claude writes a parametric model with sliders and dimension callouts, checks it, looks at renders of it, and stress-tests every slider. You tweak it live, check that it prints, and export STL, a Bambu Studio project or a Blender file.
 
-Uses your **Claude Code subscription** through the Claude Agent SDK. No API key is needed, and `ANTHROPIC_API_KEY` is ignored unless `AI_DESIGNER_USE_API_KEY=1`.
+Uses your **Claude Code subscription** through the Claude Agent SDK. No API key is needed, and `ANTHROPIC_API_KEY` is ignored unless `JIG_USE_API_KEY=1`.
 
 ## Run
 
@@ -74,8 +74,8 @@ Every export re-evaluates the model at high resolution and validates exactly tha
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8787` | API server port |
-| `AI_DESIGNER_DATA` | `./data` | Designs, workspaces, Bambu template cache |
-| `AI_DESIGNER_USE_API_KEY` | off | `1` to use `ANTHROPIC_API_KEY` instead of the subscription |
+| `JIG_DATA` | `./data` | Designs, workspaces, Bambu template cache |
+| `JIG_USE_API_KEY` | off | `1` to use `ANTHROPIC_API_KEY` instead of the subscription |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | `bambustudio` on `PATH` | Bambu Studio executable |
 | `BLENDER_PATH` | `blender` on `PATH` | Blender executable |

@@ -50,7 +50,7 @@ export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
 <metadata name="Title">${esc(title)}</metadata>
-<metadata name="Application">AI Designer</metadata>
+<metadata name="Application">Jig</metadata>
 <resources>${colours ? `<m:colorgroup id="1">${palette.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>` : ''}${resources}</resources>
 <build>${build}</build>
 </model>`;

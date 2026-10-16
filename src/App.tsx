@@ -23,7 +23,7 @@ import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProf
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
 const TAB_ID = uid();
-const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('ai-designer') : null;
+const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('jig') : null;
 type TabMessage =
   | { type: 'saved'; tab: string; design: Design }
   | { type: 'running'; tab: string; id: string; on: boolean }
@@ -606,7 +606,7 @@ export default function App() {
       <header className="topbar">
         {/* A real link, so it can be opened in a new tab; a plain click starts a new design in place. */}
         <a className="brand" href="/" title="New design" onClick={(e) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); createNew(); } }}>
-          <span className="logo"><Icon name="cube" size={18} /></span> AI Designer
+          <span className="logo"><Icon name="cube" size={18} /></span> Jig
         </a>
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <VersionMenu versions={design.versions} current={design.currentVersion} onRestore={onRestore} />}

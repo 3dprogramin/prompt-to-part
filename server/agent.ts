@@ -7,7 +7,7 @@ import { buildSystemPrompt } from './systemPrompt';
 import type { AgentStep, ParamValues } from '../shared/types';
 import { partialFields } from './partialJson';
 
-export const DATA_DIR = path.resolve(process.env.AI_DESIGNER_DATA ?? path.join(process.cwd(), 'data'));
+export const DATA_DIR = path.resolve(process.env.JIG_DATA ?? process.env.AI_DESIGNER_DATA ?? path.join(process.cwd(), 'data'));
 
 export interface GenerateRequest {
   designId: string;
@@ -254,9 +254,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'ai-designer/1.0' };
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
   // Use the logged-in Claude Code subscription rather than API billing.
-  if (!process.env.AI_DESIGNER_USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
+  if (!process.env.JIG_USE_API_KEY && !process.env.AI_DESIGNER_USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
 
   const run = async (resume?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
@@ -282,7 +282,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             return { behavior: 'deny', message: `Only ${file} may be accessed.` };
           }
           if (name.startsWith('mcp__cad__')) return { behavior: 'allow', updatedInput: input };
-          return { behavior: 'deny', message: 'Tool not available in AI Designer.' };
+          return { behavior: 'deny', message: 'Tool not available in Jig.' };
         },
         settingSources: [],
         includePartialMessages: true,

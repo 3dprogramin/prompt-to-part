@@ -147,5 +147,5 @@ if (process.env.NODE_ENV === 'production' && existsSync(dist)) {
 
 geometry.warmup();
 app.listen(PORT, '127.0.0.1', () => {
-  console.log(`AI Designer server on http://127.0.0.1:${PORT}  (data: ${DATA_DIR})`);
+  console.log(`Jig server on http://127.0.0.1:${PORT}  (data: ${DATA_DIR})`);
 });

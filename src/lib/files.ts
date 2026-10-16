@@ -5,7 +5,7 @@ export function toBinaryStl(parts: PartMesh[], name = 'model'): Blob {
   const triCount = parts.reduce((s, p) => s + p.indices.length / 3, 0);
   const buf = new ArrayBuffer(84 + triCount * 50);
   const view = new DataView(buf);
-  const header = `AI Designer - ${name}`.slice(0, 79);
+  const header = `Jig - ${name}`.slice(0, 79);
   for (let i = 0; i < header.length; i++) view.setUint8(i, header.charCodeAt(i) & 0x7f);
   view.setUint32(80, triCount, true);
   let o = 84;

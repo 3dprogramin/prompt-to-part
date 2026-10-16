@@ -107,7 +107,7 @@ export async function bambuTemplate(): Promise<BambuTemplate> {
   pending ??= (async () => {
     const bin = await findBinary();
     if (!bin) throw new Error('Bambu Studio was not found on this computer');
-    const work = await mkdtemp(path.join(os.tmpdir(), 'ai-designer-bambu-'));
+    const work = await mkdtemp(path.join(os.tmpdir(), 'jig-bambu-'));
     try {
       const dir = await profilesDir(bin, work);
       for (const [kind, name] of Object.entries(PRESETS)) {
