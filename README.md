@@ -28,7 +28,7 @@ Requires Node ≥ 20.19 and a logged-in `claude` CLI (`claude` → `/login`).
 
 ## Viewer
 
-Orbit/pan/zoom, a home view (`H`) and fit (`F`), view presets, ortho camera, bounding-box dimensions, AI feature callouts, a click-to-measure tool with vertex snapping, a section plane, per-part visibility, and draft/normal/high preview quality. The 256 × 256 mm Bambu Lab A1 plate is drawn (change the printer in `shared/printer.ts`).
+Orbit/pan/zoom, a home view (`Home` key) and fit (`F`), view presets, ortho camera, bounding-box dimensions, AI feature callouts, a click-to-measure tool with vertex snapping, a section plane, per-part visibility, and draft/normal/high preview quality. The 256 × 256 mm Bambu Lab A1 plate is drawn (change the printer in `shared/printer.ts`).
 
 **Editable dimensions:** double-click any X/Y/Z or callout label (or type in *Overall size*) and the app solves for the parameter value that produces exactly that size. Uniform *Scale %* is available too.
 

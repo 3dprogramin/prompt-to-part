@@ -116,7 +116,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     const onKey = (e: KeyboardEvent) => {
       const t = e.target;
       if ((t instanceof Element && t.closest('input, textarea, select, [contenteditable]')) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === 'h' || e.key === 'H') viewer.current?.home();
+      if (e.key === 'Home') { e.preventDefault(); viewer.current?.home(); }
       if (e.key === 'f' || e.key === 'F') viewer.current?.fit();
       if ((e.key === 'u' || e.key === 'U') && document.fullscreenElement) setHideUi((h) => !h);
     };
@@ -141,7 +141,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           {VIEWS.map(([k, l]) => (
             <button key={k} className="tb-btn text" onClick={() => viewer.current?.setView(k)}>{l}</button>
           ))}
-          <button className="tb-btn" title="Home view (H)" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
+          <button className="tb-btn" title="Home view (Home key)" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
           <button className="tb-btn" title="Fit model from the current angle (F)" onClick={() => viewer.current?.fit()}><Icon name="fit" /></button>
           <button className="tb-btn" title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen – only the 3D view'} onClick={toggleFullscreen}><Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} /></button>
         </div>
