@@ -12,6 +12,7 @@ import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
 import { DesignTabs, type DesignTab } from './components/DesignTabs';
+import { VersionMenu } from './components/VersionMenu';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import type { ValidationReport } from './geometry/validate';
@@ -592,7 +593,7 @@ export default function App() {
       <header className="topbar">
         <button className="brand" onClick={createNew} title="New design"><span className="logo"><Icon name="cube" size={18} /></span> AI Designer</button>
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
-        {design.versions.length > 0 && <span className="dim small">v{design.currentVersion + 1} of {design.versions.length}</span>}
+        {design.versions.length > 0 && <VersionMenu versions={design.versions} current={design.currentVersion} onRestore={onRestore} />}
         {designTabs.length > 1 ? <DesignTabs tabs={designTabs} current={design.id} onOpen={openDesign} onClose={closeTab} /> : <span className="spacer" />}
         <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
         <div className="menu-wrap">
