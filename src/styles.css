@@ -525,3 +525,12 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .web-toggle { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text-3); font-size: 12px; }
 .web-toggle:hover { color: var(--text); }
 .web-toggle.on { background: #5b9bd522; border-color: #5b9bd5; color: #b4d4f5; }
+
+/* failed save warning and the switch-version prompt */
+.btn.save-error { padding: 3px 9px; font-size: 12px; background: #3a1e1d; border-color: #c0504d; color: #ffb4ad; }
+.btn.save-error:hover { background: #4a2523; color: #fff; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 90; background: #0009; display: grid; place-items: center; padding: 16px; }
+.modal { width: min(460px, 100%); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 20px 60px #000b; padding: 18px 18px 14px; }
+.modal h3 { margin: 0 0 8px; font-size: 15px; }
+.modal p { margin: 0 0 16px; color: var(--text-2); }
+.modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }

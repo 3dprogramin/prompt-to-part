@@ -32,7 +32,8 @@ export const api = {
   async saveDesign(d: Design): Promise<void> {
     // The live activity transcript stays in memory (it can hold every model.js Claude typed).
     const body = JSON.stringify(d, (k, v) => (k === 'activity' ? undefined : v));
-    await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: WRITE_HEADERS, body });
+    const r = await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: WRITE_HEADERS, body });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
   },
   async deleteDesign(id: string): Promise<void> {
     await fetch(`/api/designs/${id}`, { method: 'DELETE', headers: { 'X-Jig': '1' } });

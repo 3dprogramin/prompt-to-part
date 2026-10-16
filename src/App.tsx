@@ -155,14 +155,32 @@ export default function App() {
 
   const refreshList = useCallback(() => { api.listDesigns().then(setDesigns).catch(() => {}); }, []);
 
+  // Failed saves are shown in the top bar ("Not saved – retry") instead of being dropped, and
+  // closing the tab with a change the server hasn't confirmed asks first.
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
+  const unsaved = useRef(new Set<string>());
   const saveNow = useCallback(async (d: Design) => {
-    await api.saveDesign(d);
+    unsaved.current.add(d.id);
+    try {
+      await api.saveDesign(d);
+    } catch (e) {
+      setSaveErrors((s) => ({ ...s, [d.id]: (e as Error).message || 'the server could not be reached' }));
+      throw e;
+    }
+    unsaved.current.delete(d.id);
+    setSaveErrors((s) => { if (!(d.id in s)) return s; const next = { ...s }; delete next[d.id]; return next; });
     channel?.postMessage({ type: 'saved', tab: TAB_ID, design: d } satisfies TabMessage);
     refreshList();
   }, [refreshList]);
+  useEffect(() => {
+    const onUnload = (e: BeforeUnloadEvent) => { if (unsaved.current.size) e.preventDefault(); };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, []);
 
   const saveSoon = useCallback((d: Design) => {
     const timers = saveTimers.current;
+    unsaved.current.add(d.id);
     clearTimeout(timers.get(d.id));
     timers.set(d.id, setTimeout(() => { timers.delete(d.id); saveNow(d).catch(() => {}); }, 600));
   }, [saveNow]);
@@ -262,6 +280,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded.current || (!design.messages.length && !design.code)) return;
     if (design === lastRemote.current) return; // came from another tab – already saved there
+    unsaved.current.add(design.id);
     const t = setTimeout(() => { saveNow(design).catch(() => {}); }, 600);
     return () => clearTimeout(t);
   }, [design, saveNow]);
@@ -357,10 +376,22 @@ export default function App() {
     }
   };
 
-  const onRestore = (vi: number) => {
+  const restore = (vi: number) => {
     const v = design.versions[vi];
     if (v) setDesign((d) => ({ ...d, code: v.code, currentVersion: vi, values: { ...v.values }, updatedAt: Date.now() }));
   };
+  // Switching versions replaces the sliders with that version's settings: ask first if yours aren't saved.
+  const [pendingRestore, setPendingRestore] = useState<number | null>(null);
+  const onRestore = (vi: number) => {
+    if (vi !== design.currentVersion && unsavedSettings) setPendingRestore(vi);
+    else restore(vi);
+  };
+  useEffect(() => {
+    if (pendingRestore == null) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPendingRestore(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pendingRestore]);
 
   const onApplyCode = (code: string) => {
     setDesign((d) => {
@@ -620,6 +651,15 @@ export default function App() {
             <Icon name="save" size={13} /> Save as v{design.versions.length + 1}
           </button>
         )}
+        {saveErrors[design.id] && (
+          <button
+            className="btn save-error"
+            onClick={() => saveNow(design).catch(() => {})}
+            title={`Your latest changes are not saved: ${saveErrors[design.id]}. ${/X-Jig/.test(saveErrors[design.id]) ? 'This page is older than the server – reload it.' : 'Click to try again.'}`}
+          >
+            <Icon name="alert" size={13} /> Not saved – retry
+          </button>
+        )}
         {designTabs.length > 1 ? <DesignTabs tabs={designTabs} current={design.id} onOpen={openDesign} onClose={closeTab} /> : <span className="spacer" />}
         <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
         <div className="menu-wrap">
@@ -726,6 +766,21 @@ export default function App() {
           onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}
         />
       </main>
+      {pendingRestore != null && (
+        <div className="modal-backdrop" onClick={() => setPendingRestore(null)}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h3>Save your changes first?</h3>
+            <p>Your slider, scale, text or print changes aren't saved in any version. Switching to v{pendingRestore + 1} replaces them with that version's settings.</p>
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setPendingRestore(null)}>Cancel</button>
+              <button className="btn danger" onClick={() => { restore(pendingRestore); setPendingRestore(null); }}>Discard changes</button>
+              <button className="btn primary" autoFocus onClick={() => { saveSettings(); restore(pendingRestore); setPendingRestore(null); }}>
+                Save as v{design.versions.length + 1}, then switch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
