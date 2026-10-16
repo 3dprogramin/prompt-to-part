@@ -24,7 +24,8 @@ interface Props {
   onExport: (format: ExportFormat, partName?: string) => void;
   exporting: boolean;
   exportError: string | null;
-  blender: string | null;
+  /** Installed Blender, and why .blend export can't use it (too old). */
+  blender: { version: string; problem: string | null } | null;
   onValidate: () => void;
   validating: boolean;
   aiPrint: PrintProfile;
@@ -95,7 +96,7 @@ export function SidePanel(p: Props) {
 }
 
 function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf }: {
-  disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: string | null; count: number;
+  disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: Props['blender']; count: number;
   bambu: string | null; printChanges: number; threeMf: { colours: boolean; print: boolean };
   onThreeMf: (o: { colours: boolean; print: boolean }) => void; onExport3mf: () => void;
 }) {
@@ -119,7 +120,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
         <div className="export-menu">
           <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
           <button onClick={() => setOpen('3mf')}><b>3MF…</b><span>For Bambu Studio – choose colours (AMS) and print settings</span></button>
-          <button onClick={() => pick('blend')} disabled={!blender}><b>Blender (.blend)</b><span>{blender ? `One object per part, materials, dimensions, params · Blender ${blender}` : 'Blender not found on this computer'}</span></button>
+          <button onClick={() => pick('blend')} disabled={!blender || !!blender.problem}><b>Blender (.blend)</b><span>{!blender ? 'Blender not found on this computer' : blender.problem ?? `One object per part, materials, dimensions, params · Blender ${blender.version}`}</span></button>
         </div>
       )}
       {open === '3mf' && (

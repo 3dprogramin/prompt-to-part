@@ -108,7 +108,7 @@ export interface ThreeMfOptions {
 export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
   if (format === '3mf') {
     if (!threeMf.print) return to3mf(parts, title, threeMf.colours);
-    const res = await fetch('/api/bambu/template');
+    const res = await fetch('/api/bambu/template', { method: 'POST', headers: WRITE_HEADERS });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Bambu Studio profile unavailable');
     return toBambuProject(parts, title, (await res.json()) as BambuTemplate, { colours: threeMf.colours, print: threeMf.print });
   }

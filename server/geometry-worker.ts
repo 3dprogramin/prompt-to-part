@@ -1,8 +1,13 @@
 // Runs model scripts in a separate, locked-down Node process (started by server/geometry.ts with
 // Node's permission model: no child processes, workers or file writes, file reads only inside
-// node_modules, an empty environment), so a slow or looping script can be killed and a script
-// that ever got past the SES sandbox would still find nothing to reach.
+// node_modules, an empty environment; and no network, see closeNetwork below), so a slow or
+// looping script can be killed and a script that ever got past the SES sandbox would still find
+// nothing to reach.
 import '../shared/sandbox'; // first: locks down the worker before anything else loads
+import dgram from 'node:dgram';
+import dns from 'node:dns';
+import inspector from 'node:inspector';
+import net from 'node:net';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, inspectScript, runtimeTrapped } from '../shared/runtime';
 import { renderIso, renderSheet } from './render';
@@ -14,6 +19,31 @@ if (!process.permission || process.permission.has('child') || process.permission
   console.error('[geometry] refusing to start: the Node permission model is not active');
   process.exit(78);
 }
+
+/**
+ * The permission model has no network switch before Node 25, so close the network here: an
+ * escaped script could otherwise call Jig's own API (which trusts local requests) or send data
+ * out. The low-level socket bindings are already refused by the permission model; this replaces
+ * every public way to open a connection, listen, or resolve a name. IPC to the server is an
+ * already-open channel and keeps working.
+ */
+function closeNetwork() {
+  const refuse = () => { throw new Error('The geometry worker has no network access'); };
+  const lock = (o: object, keys: string[]) => {
+    for (const k of keys) if (k in o) Object.defineProperty(o, k, { value: refuse, writable: false, configurable: false });
+  };
+  lock(net.Socket.prototype, ['connect']);
+  lock(net.Server.prototype, ['listen']);
+  lock(dgram.Socket.prototype, ['bind', 'connect', 'send']);
+  lock(net, ['connect', 'createConnection', 'createServer']);
+  lock(dgram, ['createSocket']);
+  lock(inspector, ['open']);
+  for (const R of [dns.Resolver, dns.promises.Resolver]) lock(R.prototype, Object.getOwnPropertyNames(R.prototype).filter((k) => k !== 'constructor'));
+  // Functions only, not the Resolver classes (their prototypes are locked above).
+  for (const m of [dns, dns.promises]) lock(m, Object.keys(m).filter((k) => typeof (m as Record<string, unknown>)[k] === 'function' && !/^[A-Z]/.test(k)));
+  for (const k of ['fetch', 'WebSocket', 'EventSource']) delete (globalThis as Record<string, unknown>)[k];
+}
+closeNetwork();
 
 const send = (msg: object) => process.send?.(msg);
 

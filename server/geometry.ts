@@ -1,8 +1,8 @@
 import { fitProblem } from '../shared/printer';
 import { fork, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { buildSync } from 'esbuild';
+import { ROOT } from './config';
 import { loadFontBuffers } from './fonts';
 import type { ParamValues, Quality } from '../shared/types';
 import type { EvalFailure, EvalSummary } from './geometry-worker';
@@ -17,11 +17,11 @@ const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>
 /** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
 const RECYCLE_AFTER = 300;
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NODE_MODULES = path.join(ROOT, 'node_modules');
 const BUNDLE = path.join(NODE_MODULES, '.cache', 'jig', 'geometry-worker.mjs');
-const [major, minor] = process.versions.node.split('.').map(Number);
-const PERMISSION_FLAG = major > 22 || (major === 22 && minor >= 13) ? '--permission' : '--experimental-permission';
+const major = Number(process.versions.node.split('.')[0]);
+// The flag lost its "experimental" prefix in Node 22.13 and 23.5.
+const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
 
 /**
  * Model scripts are evaluated in their own Node process under the permission model: it may read

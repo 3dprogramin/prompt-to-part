@@ -5,9 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
-const BLENDER = process.env.BLENDER_PATH || 'blender';
+const blenderPath = () => findExecutable([
+  process.env.BLENDER_PATH, 'blender',
+  ...installDirs(['Blender Foundation/*/blender.exe'], ['/Applications/Blender.app/Contents/MacOS/Blender']),
+]);
+/** blender_export.py uses Mesh.set_sharp_from_angle, new in Blender 4.1. */
+const MIN_VERSION = [4, 1];
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'blender_export.py');
 
 export interface BlendRequest {
@@ -19,20 +25,37 @@ export interface BlendRequest {
   dimensions?: { label: string; from: number[]; to: number[]; offset?: number[]; color?: string }[];
 }
 
-let version: string | null | undefined;
+export interface BlenderInfo {
+  version: string;
+  /** Why .blend export can't use this Blender (too old), or null. */
+  problem: string | null;
+}
 
-export async function blenderVersion(): Promise<string | null> {
-  if (version !== undefined) return version;
-  try {
-    const { stdout } = await run(BLENDER, ['--version'], { timeout: 20000 });
-    version = /Blender\s+([\d.]+(?:\s+\w+)?)/.exec(stdout)?.[1] ?? 'unknown';
-  } catch {
-    version = null;
-  }
-  return version;
+let info: Promise<BlenderInfo | null> | undefined;
+
+/** The installed Blender, or null if there is none. */
+export function blenderInfo(): Promise<BlenderInfo | null> {
+  info ??= (async () => {
+    const bin = blenderPath();
+    if (!bin) return null;
+    try {
+      const { stdout } = await run(bin, ['--version'], { timeout: 20000 });
+      const version = /Blender\s+([\d.]+(?:\s+\w+)?)/.exec(stdout)?.[1] ?? 'unknown';
+      const [major, minor] = version.split('.').map(Number);
+      const old = major < MIN_VERSION[0] || (major === MIN_VERSION[0] && minor < MIN_VERSION[1]);
+      return { version, problem: old ? `Blender ${version} is too old – .blend export needs Blender ${MIN_VERSION.join('.')} or newer` : null };
+    } catch {
+      return null;
+    }
+  })();
+  return info;
 }
 
 export async function exportBlend(req: BlendRequest): Promise<Buffer> {
+  const blender = await blenderInfo();
+  if (!blender) throw new Error('Blender was not found on this computer');
+  if (blender.problem) throw new Error(blender.problem);
+  const bin = blenderPath()!;
   const dir = await mkdtemp(path.join(os.tmpdir(), 'jig-blend-'));
   try {
     const parts = await Promise.all(req.parts.map(async (p, i) => {
@@ -45,7 +68,7 @@ export async function exportBlend(req: BlendRequest): Promise<Buffer> {
     }));
     const out = path.join(dir, 'model.blend');
     try {
-      await run(BLENDER, ['-b', '--factory-startup', '--python-exit-code', '1', '--python', SCRIPT, '--', dir, out], { timeout: 180000, maxBuffer: 32 * 1024 * 1024 });
+      await run(bin, ['-b', '--factory-startup', '--python-exit-code', '1', '--python', SCRIPT, '--', dir, out], { timeout: 180000, maxBuffer: 32 * 1024 * 1024 });
     } catch (e) {
       const err = e as { stderr?: string; stdout?: string; message: string };
       const tail = `${err.stdout ?? ''}\n${err.stderr ?? ''}`.split('\n').filter((l) => /error|Error|Traceback/.test(l)).slice(-6).join('\n');

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { ROOT } from './config';
 
 export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
 
@@ -24,7 +25,7 @@ const STANDARD: { pkg: string; family: string; weight: number; style: string }[]
   { pkg: 'lobster', family: 'Lobster', weight: 400, style: 'Regular' },
 ];
 
-const FONTSOURCE = path.resolve(process.cwd(), 'node_modules/@fontsource');
+const FONTSOURCE = path.join(ROOT, 'node_modules', '@fontsource');
 const stdId = (pkg: string, weight: number) => `std:${pkg}-${weight}`;
 
 function standardFiles(pkg: string, weight: number): string[] {

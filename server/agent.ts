@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { query, tool, createSdkMcpServer, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
@@ -6,8 +7,7 @@ import { geometry, formatReport } from './geometry';
 import { buildSystemPrompt } from './systemPrompt';
 import type { AgentStep, ParamValues } from '../shared/types';
 import { partialFields } from './partialJson';
-
-export const DATA_DIR = path.resolve(process.env.JIG_DATA ?? process.env.AI_DESIGNER_DATA ?? path.join(process.cwd(), 'data'));
+import { DATA_DIR, USE_API_KEY } from './config';
 
 export interface GenerateRequest {
   designId: string;
@@ -63,6 +63,42 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
 export function workspaceDir(designId: string) {
   return path.join(DATA_DIR, 'workspaces', designId);
+}
+
+/**
+ * What Claude may do in a design's workspace: read and write its model.js, use the CAD tools, and
+ * (only with web search on) search and read public web pages. Returns why a call is refused, or
+ * null to allow it.
+ */
+export function toolPolicy(ws: string, webSearch: boolean) {
+  const file = path.join(ws, MODEL_FILE);
+  return (name: string, input: Record<string, unknown>): string | null => {
+    if (['Read', 'Write', 'Edit'].includes(name)) {
+      return path.resolve(ws, String(input.file_path ?? '')) === file ? null : `Only ${file} may be accessed.`;
+    }
+    if (name.startsWith('mcp__cad__')) return null;
+    if (webSearch && name === 'WebSearch') return null;
+    // A page Claude reads could tell it to fetch a local address (Jig's own API, a router) or to
+    // send the design somewhere; local and private addresses are never fetched.
+    if (webSearch && name === 'WebFetch') return publicUrl(input.url) ? null : 'Only public http(s) web pages can be fetched.';
+    return 'Tool not available in Jig.';
+  };
+}
+
+/** http(s) URL on a public host: not this computer, the local network or a private address. */
+export function publicUrl(raw: unknown): boolean {
+  let u: URL;
+  try { u = new URL(String(raw)); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (net.isIPv4(h)) {
+    const [a, b] = h.split('.').map(Number);
+    return !(a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224);
+  }
+  if (net.isIPv6(h)) return !(h === '::' || h === '::1' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:'));
+  // Single-label names (e.g. "router") and local-only domains resolve on the local network.
+  return h.includes('.') && !/\.(localhost|local|internal|lan|home\.arpa)$/.test(h);
 }
 
 export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEvent) => void, abort: AbortController): Promise<void> {
@@ -260,8 +296,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   content.push({ type: 'text', text: parts.join('\n\n') });
 
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
-  // Use the logged-in Claude Code subscription rather than API billing.
-  if (!process.env.JIG_USE_API_KEY && !process.env.AI_DESIGNER_USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
+  // Use the Claude plan the `claude` CLI is logged in with, unless JIG_USE_API_KEY=1 asks for API billing.
+  if (!USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
 
   const run = async (resume?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
@@ -281,14 +317,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         mcpServers: { cad },
         permissionMode: 'default',
         canUseTool: async (name, input) => {
-          if (['Read', 'Write', 'Edit'].includes(name)) {
-            const p = path.resolve(ws, String(input.file_path ?? ''));
-            if (p === file) return { behavior: 'allow', updatedInput: input };
-            return { behavior: 'deny', message: `Only ${file} may be accessed.` };
-          }
-          if (name.startsWith('mcp__cad__')) return { behavior: 'allow', updatedInput: input };
-          if (req.webSearch && WEB_TOOLS.includes(name)) return { behavior: 'allow', updatedInput: input };
-          return { behavior: 'deny', message: 'Tool not available in Jig.' };
+          const denied = toolPolicy(ws, !!req.webSearch)(name, input);
+          return denied ? { behavior: 'deny', message: denied } : { behavior: 'allow', updatedInput: input };
         },
         settingSources: [],
         includePartialMessages: true,

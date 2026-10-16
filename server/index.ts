@@ -1,29 +1,31 @@
 import express from 'express';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
-import { DATA_DIR, runGeneration, workspaceDir, type AgentEvent, type GenerateRequest } from './agent';
+import { runGeneration, workspaceDir, type AgentEvent, type GenerateRequest } from './agent';
+import { DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
 import { geometry } from './geometry';
 import { listFonts, loadFontBuffers } from './fonts';
-import { blenderVersion, exportBlend, type BlendRequest } from './blend';
+import { blenderInfo, exportBlend, type BlendRequest } from './blend';
 import { bambuTemplate, bambuVersion } from './bambu';
 import type { Design, DesignSummary } from '../shared/types';
 
-const PORT = Number(process.env.PORT ?? 8787);
 const DESIGNS = path.join(DATA_DIR, 'designs');
 const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
 
 const app = express();
 
 // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
-// domain is re-pointed at 127.0.0.1), the Origin check refuses other sites, and requiring the
-// X-Jig header on writes means a plain cross-site form or beacon can never change anything.
+// domain is re-pointed at 127.0.0.1), the Origin check refuses every other site, including pages
+// on other local ports, and requiring the X-Jig header on writes means a plain cross-site form or
+// beacon can never change anything. In development the Vite proxy (vite.config.ts) passes requests
+// from Jig's own page on with the API's origin and leaves every other origin as it is.
 const LOCAL_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
-const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const LOCAL_ORIGINS = new Set([...LOCAL_HOSTS].map((h) => `http://${h}`));
 app.use('/api', (req, res, next) => {
   if (!LOCAL_HOSTS.has(req.headers.host ?? '')) return void res.status(421).json({ error: 'Unexpected Host header' });
   const origin = req.headers.origin;
-  if (origin && !LOCAL_ORIGIN.test(origin)) return void res.status(403).json({ error: 'Cross-origin request refused' });
+  if (origin && !LOCAL_ORIGINS.has(origin)) return void res.status(403).json({ error: 'Cross-origin request refused' });
   if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['x-jig'] !== '1') return void res.status(403).json({ error: 'Missing X-Jig header' });
   next();
 });
@@ -74,10 +76,13 @@ app.delete('/api/designs/:id', async (req, res) => {
 });
 
 app.get('/api/capabilities', async (_req, res) => {
-  res.json({ blender: await blenderVersion(), bambu: await bambuVersion() });
+  const blender = await blenderInfo();
+  res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion() });
 });
 
-app.get('/api/bambu/template', async (_req, res) => {
+// A POST, because the first call runs Bambu Studio for minutes: a GET could be triggered by any
+// website's <img> tag.
+app.post('/api/bambu/template', async (_req, res) => {
   try {
     res.json(await bambuTemplate());
   } catch (e) {
@@ -152,10 +157,25 @@ function friendlyError(msg: string) {
   return msg;
 }
 
-const dist = path.resolve(process.cwd(), 'dist');
-if (process.env.NODE_ENV === 'production' && existsSync(dist)) {
+const dist = path.join(ROOT, 'dist');
+if (PRODUCTION) {
+  if (!existsSync(path.join(dist, 'index.html'))) console.warn('[jig] dist/ is missing – run `npm run build` first; only the API is served.');
+  else if (newestSource() > statSync(path.join(dist, 'index.html')).mtimeMs) console.warn('[jig] dist/ is older than the source code – run `npm run build` to serve the current app.');
   app.use(express.static(dist));
   app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+}
+
+/** Newest modification time of the files the browser app is built from. */
+function newestSource(): number {
+  let newest = 0;
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p); else newest = Math.max(newest, statSync(p).mtimeMs);
+    }
+  };
+  for (const d of ['src', 'shared']) walk(path.join(ROOT, d));
+  return Math.max(newest, ...['index.html', 'vite.config.ts', 'package.json'].map((f) => statSync(path.join(ROOT, f)).mtimeMs));
 }
 
 geometry.warmup();

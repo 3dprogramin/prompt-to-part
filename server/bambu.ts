@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { unzipSync, strFromU8 } from 'fflate';
-import { DATA_DIR } from './agent';
+import { DATA_DIR } from './config';
+import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
 const CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
@@ -24,14 +25,10 @@ export interface BambuTemplate {
 }
 
 async function findBinary(): Promise<string | null> {
-  const candidates = [process.env.BAMBU_STUDIO_PATH, 'bambustudio', 'bambu-studio', 'BambuStudio'].filter(Boolean) as string[];
-  for (const c of candidates) {
-    try {
-      const { stdout } = await run('sh', ['-c', `command -v "${c}"`]);
-      if (stdout.trim()) return stdout.trim();
-    } catch { /* next */ }
-  }
-  return null;
+  return findExecutable([
+    process.env.BAMBU_STUDIO_PATH, 'bambustudio', 'bambu-studio', 'BambuStudio',
+    ...installDirs(['Bambu Studio/bambu-studio.exe'], ['/Applications/BambuStudio.app/Contents/MacOS/BambuStudio']),
+  ]);
 }
 
 let versionCache: string | null | undefined;
@@ -64,7 +61,9 @@ async function profilesDir(bin: string, work: string): Promise<string> {
     return path.join(work, 'squashfs-root', 'resources', 'profiles', 'BBL');
   }
   const real = await realpath(bin);
-  const roots = [path.join(path.dirname(real), '..', 'resources'), path.join(path.dirname(real), 'resources'), '/usr/share/bambu-studio/resources', '/opt/bambu-studio/resources', '/usr/share/BambuStudio/resources'];
+  // Linux packages, Windows (resources next to the .exe) and macOS (Contents/Resources in the .app).
+  const roots = [path.join(path.dirname(real), '..', 'resources'), path.join(path.dirname(real), 'resources'), path.join(path.dirname(real), '..', 'Resources'),
+    '/usr/share/bambu-studio/resources', '/opt/bambu-studio/resources', '/usr/share/BambuStudio/resources'];
   for (const r of roots) if (existsSync(path.join(r, 'profiles', 'BBL', 'process'))) return path.join(r, 'profiles', 'BBL');
   throw new Error('Could not find Bambu Studio printer profiles');
 }
@@ -139,8 +138,4 @@ export async function bambuTemplate(): Promise<BambuTemplate> {
     }
   })();
   return pending;
-}
-
-export async function bambuCached(): Promise<boolean> {
-  return existsSync(CACHE);
 }

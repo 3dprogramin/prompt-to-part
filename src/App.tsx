@@ -111,12 +111,12 @@ export default function App() {
   const lastRemote = useRef<Design | null>(null);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [fonts, setFonts] = useState<FontEntry[]>([]);
-  const [blender, setBlender] = useState<string | null>(null);
+  const [blender, setBlender] = useState<{ version: string; problem: string | null } | null>(null);
   const [bambu, setBambu] = useState<string | null>(null);
   const [threeMf, setThreeMf] = useState<{ colours: boolean; print: boolean }>(() => load('threeMf', { colours: true, print: true }));
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
-  useEffect(() => { fetch('/api/capabilities').then((r) => r.json()).then((c) => { setBlender(c.blender ?? null); setBambu(c.bambu ?? null); }).catch(() => {}); }, []);
+  useEffect(() => { fetch('/api/capabilities').then((r) => r.json()).then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);

@@ -96,7 +96,34 @@ export function initRuntime(wasm: ManifoldToplevel): void {
   const proxied = (cls: any) => new Proxy(cls, {
     construct(target, args) { return track(Reflect.construct(target, args)); },
   });
+  // Every script in this worker gets the same classes, so freeze what a script can reach from them:
+  // otherwise one design could patch e.g. Manifold.prototype.scale for every later design. embind's
+  // per-class records come from sample objects (deleted before freezing, as delete() writes to them).
+  const samples = [M.cube([1, 1, 1]), C.square([1, 1])];
+  for (const c of classes) if (c !== M && c !== C) try { samples.push(new c()); } catch { /* needs arguments */ }
+  const records = samples.map((s) => s.$$?.ptrType);
+  for (const s of samples) s.delete();
+  freezeReachable([M, C, handleProto, wasm.Mesh, ...classes, ...records]);
   runtime = { wasm, registry, Manifold: proxied(M), CrossSection: proxied(C) };
+}
+
+/** Object.freeze everything reachable through own properties and prototypes (not the wasm heap). */
+function freezeReachable(roots: unknown[]) {
+  // The shared intrinsics are already frozen by lockdown(); stop there.
+  const seen = new Set<object>([Object.prototype, Function.prototype]);
+  const stack = [...roots];
+  while (stack.length) {
+    const o = stack.pop();
+    if ((typeof o !== 'object' && typeof o !== 'function') || o === null || seen.has(o)) continue;
+    seen.add(o);
+    if (ArrayBuffer.isView(o) || o instanceof ArrayBuffer || o instanceof WebAssembly.Memory || 'HEAPU8' in o) continue;
+    Object.freeze(o);
+    stack.push(Object.getPrototypeOf(o));
+    for (const k of Reflect.ownKeys(o)) {
+      const d = Object.getOwnPropertyDescriptor(o, k)!;
+      stack.push(d.value, d.get, d.set);
+    }
+  }
 }
 
 function cleanup(rt: Runtime) {
@@ -652,12 +679,25 @@ export function inspectScript(code: string): { meta: ModelMeta; params: Record<s
 
 function normalizeMeta(m: unknown): ModelMeta {
   const o = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>;
-  return { name: typeof o.name === 'string' ? o.name : undefined, description: typeof o.description === 'string' ? o.description : undefined };
+  return { name: typeof o.name === 'string' ? o.name.slice(0, 200) : undefined, description: typeof o.description === 'string' ? o.description.slice(0, 2000) : undefined };
 }
+
+// Logs and errors go into Claude's tool results: one console.log of a 50k-point array must not
+// produce megabytes of text.
+const MAX_LOG_LINE = 500;
+const MAX_LOG_TOTAL = 8000;
+const MAX_ERROR = 2000;
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length - n} more characters)` : s);
 
 function makeConsole(logs: string[]) {
   const fmt = (args: unknown[]) => args.map((a) => (typeof a === 'string' ? a : safeJson(a))).join(' ');
-  const push = (lvl: string) => (...args: unknown[]) => { if (logs.length < 200) logs.push((lvl ? lvl + ': ' : '') + fmt(args)); };
+  let total = 0;
+  const push = (lvl: string) => (...args: unknown[]) => {
+    if (logs.length >= 200 || total >= MAX_LOG_TOTAL) return;
+    const line = clip((lvl ? lvl + ': ' : '') + fmt(args), MAX_LOG_LINE);
+    total += line.length;
+    logs.push(total >= MAX_LOG_TOTAL ? `${line}\n… further console output dropped` : line);
+  };
   return { log: push(''), info: push(''), warn: push('warn'), error: push('error'), debug: push('') };
 }
 function safeJson(a: unknown) {
@@ -723,7 +763,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const parts: PartMesh[] = [];
     const textFeatures = parseTextFeatures(inputValues?.[TEXT_KEY]);
     const partNames = rawParts.map((rp, i) => {
-      const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name : '';
+      const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name.slice(0, 120) : '';
       return n || (rawParts.length === 1 ? meta.name || 'Model' : `Part ${i + 1}`);
     });
     rawParts.forEach((rp, i) => {
@@ -834,6 +874,6 @@ export function overlapVolume(a: PartMesh, b: PartMesh): number {
 }
 
 export function formatScriptError(e: unknown): ScriptErrorInfo {
-  if (e instanceof ScriptError) return e.info;
-  return { message: (e as Error)?.message ?? String(e), stage: 'build' };
+  const info: ScriptErrorInfo = e instanceof ScriptError ? e.info : { message: (e as Error)?.message ?? String(e), stage: 'build' };
+  return { ...info, message: clip(String(info.message), MAX_ERROR) };
 }
