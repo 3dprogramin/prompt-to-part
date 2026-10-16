@@ -1,6 +1,8 @@
 import { zipSync, strToU8 } from 'fflate';
 import type { DimensionAnnotation, EvalResult, PartMesh } from '../../shared/types';
 import { toBinaryStl } from './files';
+import { toBambuProject, type BambuTemplate } from './bambu3mf';
+import type { PrintProfile } from '../../shared/print';
 
 export type ExportFormat = 'stl' | '3mf' | 'blend';
 
@@ -19,12 +21,12 @@ const BED = { w: 256, d: 256 }; // Bambu Lab A1 – the model is centred on this
  * (coloured pieces of one figurine stay attached); the whole model is only lifted onto the
  * plate and centred on the A1 bed. Each part is a named object with its colour.
  */
-export function to3mf(parts: PartMesh[], title: string): Blob {
-  const colours: string[] = [];
+export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
+  const palette: string[] = [];
   const colourIdx = parts.map((p) => {
     const c = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color.toUpperCase() : '#C9A26B';
-    let i = colours.indexOf(c);
-    if (i < 0) { colours.push(c); i = colours.length - 1; }
+    let i = palette.indexOf(c);
+    if (i < 0) { palette.push(c); i = palette.length - 1; }
     return i;
   });
 
@@ -39,8 +41,9 @@ export function to3mf(parts: PartMesh[], title: string): Blob {
     for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k] + dx)}" y="${num(p.positions[k + 1] + dy)}" z="${num(p.positions[k + 2] + dz)}"/>`);
     const t: string[] = [];
     const ci = colourIdx[i];
-    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}" pid="1" p1="${ci}"/>`);
-    return `<object id="${i + 2}" name="${esc(p.name)}" type="model" pid="1" pindex="${ci}"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
+    const pid = colours ? ` pid="1" p1="${ci}"` : '';
+    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${pid}/>`);
+    return `<object id="${i + 2}" name="${esc(p.name)}" type="model"${colours ? ` pid="1" pindex="${ci}"` : ''}><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
   });
   const resources = objects.join('');
   const build = parts.map((_, i) => `<item objectid="${i + 2}"/>`).join('');
@@ -48,7 +51,7 @@ export function to3mf(parts: PartMesh[], title: string): Blob {
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
 <metadata name="Title">${esc(title)}</metadata>
 <metadata name="Application">AI Designer</metadata>
-<resources><m:colorgroup id="1">${colours.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>${resources}</resources>
+<resources>${colours ? `<m:colorgroup id="1">${palette.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>` : ''}${resources}</resources>
 <build>${build}</build>
 </model>`;
   const zip = zipSync({
@@ -95,8 +98,19 @@ export async function toBlend(result: EvalResult, parts: PartMesh[], title: stri
   return res.blob();
 }
 
-export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string): Promise<Blob> {
-  if (format === '3mf') return to3mf(parts, title);
+export interface ThreeMfOptions {
+  colours: boolean;
+  /** Print settings to embed (Bambu project format); null = plain 3MF. */
+  print: { ai: PrintProfile; user: PrintProfile } | null;
+}
+
+export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
+  if (format === '3mf') {
+    if (!threeMf.print) return to3mf(parts, title, threeMf.colours);
+    const res = await fetch('/api/bambu/template');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Bambu Studio profile unavailable');
+    return toBambuProject(parts, title, (await res.json()) as BambuTemplate, { colours: threeMf.colours, print: threeMf.print });
+  }
   if (format === 'blend') return toBlend(result, parts, title, code);
   return toBinaryStl(parts, title);
 }
