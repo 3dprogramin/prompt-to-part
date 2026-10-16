@@ -119,7 +119,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max. Rejected if anything fails (set force=true only if a failure is truly unavoidable and harmless).', {
         summary: z.string().describe('One or two sentences describing this version (shown in version history)'),
         force: z.boolean().optional(),
-      }, async ({ summary, force }) => {
+        assembly: z.object({
+          layoutParam: z.string().optional().describe('Key of the select parameter that switches the layout'),
+          assembledValue: z.string().optional().describe('Option value that shows the parts assembled in place'),
+          explodedValue: z.string().optional().describe('Option value that shows the assembly with parts pulled apart along their assembly direction'),
+          independentParts: z.string().optional().describe('Only if the parts are separate objects that are never assembled together: say why'),
+          singlePrint: z.boolean().optional().describe('True if the parts are coloured regions of one object printed together in place (multi-colour)'),
+        }).optional().describe('Required when the model has more than one part'),
+      }, async ({ summary, force, assembly }) => {
         const code = await readModel();
         if (code == null) return noFile;
         if (code !== renderedCode) {
@@ -145,10 +152,40 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
               isError: true,
             };
           }
+          // Multi-part designs: the user gets assembled + exploded pictures.
+          const pictures: { label: string; png: string }[] = [];
+          if (r.parts.length > 1 && !assembly?.independentParts && !assembly?.singlePrint) {
+            const reject = (why: string) => {
+              emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: assembly views missing' } });
+              return { content: [{ type: 'text' as const, text: `Rejected – this design has ${r.parts.length} parts (${r.parts.map((p) => p.name).join(', ')}). ${why}` }], isError: true };
+            };
+            const def = assembly?.layoutParam ? r.params[assembly.layoutParam] : undefined;
+            if (!assembly?.layoutParam || !assembly.assembledValue) {
+              return reject('Add a select parameter (e.g. layout: [\'print\', \'assembled\', \'exploded\']) and pass assembly: { layoutParam, assembledValue, explodedValue } so the user gets assembly pictures. If the parts are coloured regions of one object printed together, pass assembly: { singlePrint: true }; if they are separate objects that are never assembled, pass assembly: { independentParts: "<why>" }.');
+            }
+            if (!def || def.type !== 'select') return reject(`"${assembly.layoutParam}" is not a select parameter.`);
+            for (const v of [assembly.assembledValue, assembly.explodedValue]) {
+              if (v && !def.options.some((o) => o.value === v)) return reject(`"${v}" is not an option of "${assembly.layoutParam}" (${def.options.map((o) => o.value).join(', ')}).`);
+            }
+            const shots: [string, string | undefined][] = [['Assembled', assembly.assembledValue], ['Exploded view', assembly.explodedValue]];
+            for (const [label, value] of shots) {
+              if (!value) continue;
+              const shot = await geometry.iso(code, { [assembly.layoutParam]: value });
+              if (!shot.ok || !shot.png) return reject(`Rendering the ${label.toLowerCase()} layout failed: ${shot.ok ? 'no geometry' : shot.error.message}`);
+              pictures.push({ label, png: shot.png });
+            }
+          }
           submitted = true;
           emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Stress test passed (${s.tested} cases)${s.skipped ? `, ${s.skipped} skipped for time` : ''}` } });
           emit({ type: 'model', code, summary });
-          return { content: [{ type: 'text', text: 'Accepted and loaded in the user\'s viewer. Now end your turn with a short message to the user.' }] };
+          for (const p of pictures) emit({ type: 'step', step: { kind: 'assembly', ok: true, text: p.label, image: `data:image/png;base64,${p.png}` } });
+          if (!pictures.length) return { content: [{ type: 'text', text: 'Accepted and loaded in the user\'s viewer. Now end your turn with a short message to the user.' }] };
+          return {
+            content: [
+              { type: 'text', text: 'Accepted and loaded in the user\'s viewer. The user also sees these assembly pictures. Check them: assembled parts must sit exactly where they belong, and the exploded view must show clearly how they go together. If something is wrong, fix it and submit again. Otherwise end your turn with your message to the user, including the assembly instructions.' },
+              ...pictures.flatMap((p) => [{ type: 'text' as const, text: `${p.label}:` }, { type: 'image' as const, data: p.png, mimeType: 'image/png' }]),
+            ],
+          };
         } catch (e) {
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }

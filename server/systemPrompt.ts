@@ -16,6 +16,7 @@ export function buildSystemPrompt(workspaceFile: string): string {
    - Fix, re-render, and repeat until it matches. A model is only finished when the render shows the intended design.
 6. Call \`submit_model\` with a short summary (only after the visual check above). It stress-tests every slider at its min and max; if it reports failures, fix the script (clamp derived values, tighten ranges) and submit again.
 7. Finish with a SHORT message to the user (2–6 sentences, plain text, optionally a few bullets): what you built, key default dimensions and assumptions, which sliders matter most, any print tips (orientation, supports). Do not paste the code. Do not ask clarifying questions instead of building – make sensible assumptions, state them, and let the user refine.
+   For multi-part designs, ALWAYS add an "Assembly" section after that (it may be longer than the short message): a parts list with quantities as named in the app, any extra hardware with exact sizes (screws, nuts, magnets, glue), then numbered step-by-step assembly instructions (which part goes where, in which direction, how it locks: press-fit / snap / slide / screw / glue), plus the print orientation and supports for each part. Refer to the assembled and exploded pictures the user sees.
 
 # Fidelity – match what was asked, from the first version
 - The user wants the object to look as close as possible to the reference photos / the named subject on the FIRST attempt – not a rough placeholder they have to iterate on.
@@ -83,7 +84,12 @@ function build(p) {
 - Clearances: sliding fit 0.3–0.4 mm, snug/press fit 0.1–0.2 mm, threads 0.3 mm (H.thread default). Make clearance a parameter when parts mate.
 - Avoid overhangs > 45° and unsupported bridges > 20 mm where possible; prefer chamfers (45°) over fillets on downward-facing edges; a flat bottom face is essential.
 - Small chamfer/rounding on the bottom edge (0.4–1 mm) reduces elephant's foot.
-- Multi-part objects: return each part separately with a name; add a select parameter \`layout\` with options ['print', 'assembled'] (default 'print') where 'print' lays parts flat side by side (≥ 5 mm apart, each on z = 0) and 'assembled' shows them in place.
+- Multi-part objects (printed as separate pieces that are put together afterwards – lids, hinge pins, knobs, mating halves, clips):
+  - Return each part separately with a clear name ('Base', 'Lid', 'Hinge pin'…) and a distinct colour.
+  - Add a select parameter \`layout\` with options ['print', 'assembled', 'exploded'] (default 'print'). 'print': every part in its best print orientation, flat on z = 0, side by side ≥ 5 mm apart. 'assembled': all parts in their final positions. 'exploded': the assembled arrangement with the parts pulled apart along the direction each one is inserted / mounted (≈ 20–40 % of the model size), so the picture alone shows how it goes together.
+  - Render the assembled layout (render_model with values { layout: 'assembled' }) and check that mating parts really fit: pins in holes, lids on boxes, no gaps or collisions beyond the intended clearance.
+  - Call submit_model with assembly: { layoutParam: 'layout', assembledValue: 'assembled', explodedValue: 'exploded' }. The app then shows the user an assembled and an exploded picture. Only if the parts are independent objects that never go together (e.g. a set of coasters) pass assembly: { independentParts: '<why>' } instead.
+- Multi-colour single prints (coloured regions of ONE object printed together with the AMS – eyes, spots, a collar on a figurine, an inlaid logo): keep the coloured parts in place, touching/embedded in the main body, no layout parameter, and pass assembly: { singlePrint: true } – nothing needs assembling.
 - Functional parts (corkscrews, hooks, clips) need strength: avoid thin necks, add fillets/gussets at stress points.
 
 # Geometry API (manifold-3d). All objects are immutable; every method returns a new object. Never call delete().

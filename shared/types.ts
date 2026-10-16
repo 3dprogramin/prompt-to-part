@@ -111,7 +111,7 @@ export interface ScriptErrorInfo {
 // ---- Chat / design persistence ----
 
 export interface AgentStep {
-  kind: 'text' | 'tool' | 'status' | 'thinking' | 'render' | 'error';
+  kind: 'text' | 'tool' | 'status' | 'thinking' | 'render' | 'assembly' | 'error';
   text: string;
   ok?: boolean;
   image?: string; // data URL (render previews)
