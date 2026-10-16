@@ -351,8 +351,7 @@ export default function App() {
     if (!layoutKey || !shown) return;
     setPlaybackLoading(true);
     try {
-      const base: ParamValues = { ...fullValues() };
-      if (design.values[TEXT_KEY] != null) base[TEXT_KEY] = design.values[TEXT_KEY];
+      const base: ParamValues = fullValues();
       const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality);
       if (!a.result || !a.result.assembly.length) return;
       const def = shown.params[layoutKey];
@@ -390,8 +389,7 @@ export default function App() {
       const shot = snapshotRef.current?.();
       if (shot) currentView = dataUrlToImage(shot);
     } catch { /* screenshot is optional */ }
-    const renderValues: ParamValues = { ...fullValues() };
-    if (design.values[TEXT_KEY] != null) renderValues[TEXT_KEY] = design.values[TEXT_KEY];
+    const renderValues: ParamValues = fullValues();
     const scale = Number(design.values[SCALE_KEY] ?? 1);
     const latest = design.versions.length - 1;
     const cur = design.versions[design.currentVersion];
@@ -402,10 +400,13 @@ export default function App() {
   };
 
   /** Current values including the uniform scale (which is not a script parameter). */
+  /** Everything needed to rebuild exactly what is shown: sliders, uniform scale and text-tool text. */
   const fullValues = (): ParamValues => {
-    const base = (result ?? lastGood)?.values ?? {};
+    const out: ParamValues = { ...((result ?? lastGood)?.values ?? {}) };
     const sc = design.values[SCALE_KEY];
-    return sc != null && sc !== 1 ? { ...base, [SCALE_KEY]: sc } : { ...base };
+    if (sc != null && sc !== 1) out[SCALE_KEY] = sc;
+    if (design.values[TEXT_KEY] != null) out[TEXT_KEY] = design.values[TEXT_KEY];
+    return out;
   };
 
   const onEditDimension = async (target: DimTarget, goal: number): Promise<SolveResult | null> => {
