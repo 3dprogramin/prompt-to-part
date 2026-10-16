@@ -104,6 +104,7 @@ function OverallSize({ result, onEdit, scale, onScale }: { result: EvalResult; o
   if (!b) return null;
   const axes = [['W', 'X'], ['D', 'Y'], ['H', 'Z']] as const;
   const edit = async (axis: 0 | 1 | 2, goal: number) => {
+    setNote({ ok: true, text: `Finding the right size for ${'XYZ'[axis]}…` });
     const r = await onEdit({ kind: 'bbox', axis }, goal);
     if (!r) return;
     const label = r.key ? result.params[r.key]?.label ?? r.key : '';
@@ -176,11 +177,16 @@ function ParamsTab({ result, onValue, onReset, fonts }: { result: EvalResult | n
   );
 }
 
-function ParamRow({ k, def, value, onValue, fonts }: { k: string; def: ParamDef; value: ParamValue; onValue: Props['onValue']; fonts: FontEntry[] }) {
+function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; def: ParamDef; value: ParamValue; onValue: Props['onValue']; fonts: FontEntry[] }) {
+  // Show the user's choice immediately; the evaluated result catches up when the rebuild finishes.
+  const [pending, setPending] = useState<ParamValue | undefined>(undefined);
+  useEffect(() => setPending(undefined), [resultValue]);
+  const value = pending ?? resultValue;
+  const set = (key: string, v: ParamValue) => { setPending(v); onValue(key, v); };
   const changed = value !== def.value;
   const head = (
     <div className="param-head">
-      <label title={def.description}>{def.label ?? k}{changed && <button className="mod-dot" title={`Reset to ${String(def.value)}`} onClick={() => onValue(k, def.value)} />}</label>
+      <label title={def.description}>{def.label ?? k}{changed && <button className="mod-dot" title={`Reset to ${String(def.value)}`} onClick={() => set(k, def.value)} />}</label>
       {def.description && <span className="hint" title={def.description}>?</span>}
     </div>
   );
@@ -188,11 +194,11 @@ function ParamRow({ k, def, value, onValue, fonts }: { k: string; def: ParamDef;
     return (
       <div className="param bool">
         <label className="switch">
-          <input type="checkbox" checked={!!value} onChange={(e) => onValue(k, e.target.checked)} />
+          <input type="checkbox" checked={!!value} onChange={(e) => set(k, e.target.checked)} />
           <span className="track" />
           <span className="switch-label" title={def.description}>{def.label ?? k}</span>
         </label>
-        {changed && <button className="mod-dot" title="Reset" onClick={() => onValue(k, def.value)} />}
+        {changed && <button className="mod-dot" title="Reset" onClick={() => set(k, def.value)} />}
       </div>
     );
   }
@@ -201,8 +207,8 @@ function ParamRow({ k, def, value, onValue, fonts }: { k: string; def: ParamDef;
       <div className="param">
         {head}
         {def.font
-          ? <FontPicker fonts={fonts} value={String(value)} onChange={(v) => onValue(k, v)} />
-          : <TextValue value={String(value)} onCommit={(v) => onValue(k, v)} />}
+          ? <FontPicker fonts={fonts} value={String(value)} onChange={(v) => set(k, v)} />
+          : <TextValue value={String(value)} onCommit={(v) => set(k, v)} />}
       </div>
     );
   }
@@ -212,8 +218,8 @@ function ParamRow({ k, def, value, onValue, fonts }: { k: string; def: ParamDef;
         {head}
         <div className="seg">
           {def.options.length <= 4
-            ? def.options.map((o) => <button key={o.value} className={value === o.value ? 'on' : ''} onClick={() => onValue(k, o.value)}>{o.label}</button>)
-            : <select value={String(value)} onChange={(e) => onValue(k, e.target.value)}>{def.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
+            ? def.options.map((o) => <button key={o.value} className={value === o.value ? 'on' : ''} onClick={() => set(k, o.value)}>{o.label}</button>)
+            : <select value={String(value)} onChange={(e) => set(k, e.target.value)}>{def.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
         </div>
       </div>
     );
@@ -221,7 +227,7 @@ function ParamRow({ k, def, value, onValue, fonts }: { k: string; def: ParamDef;
   return (
     <div className="param">
       {head}
-      <NumberControl def={def} value={Number(value)} onChange={(v) => onValue(k, v)} />
+      <NumberControl def={def} value={Number(value)} onChange={(v) => set(k, v)} />
     </div>
   );
 }

@@ -30,6 +30,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   const [editing, setEditing] = useState<{ target: DimTarget; x: number; y: number; value: string } | null>(null);
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [solving, setSolving] = useState(false);
   const [hideUi, setHideUi] = useState(false);
   const [idle, setIdle] = useState(false);
 
@@ -74,7 +75,13 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
     const target = editing.target;
     setEditing(null);
     if (!Number.isFinite(goal)) return;
-    const r = await editRef.current(target, goal);
+    setSolving(true);
+    let r: SolveResult | null;
+    try {
+      r = await editRef.current(target, goal);
+    } finally {
+      setSolving(false);
+    }
     if (!r) return;
     const what = target.kind === 'bbox' ? 'XYZ'[target.axis] : result?.dimensions[target.index]?.label ?? 'Dimension';
     const param = r.key ? result?.params[r.key]?.label ?? r.key : '';
@@ -228,7 +235,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           </span>
         )}
         <span className="spacer" />
-        {busy && <span className="busy-dot">evaluating…</span>}
+        {(busy || solving) && <span className="busy-dot">{solving ? 'finding size…' : 'evaluating…'}</span>}
         {result && <span className="mono dim">{Math.round(result.timeMs)} ms · {result.parts.reduce((s, p) => s + p.triCount, 0).toLocaleString()} tris</span>}
       </div>
     </div>
