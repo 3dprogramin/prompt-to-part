@@ -509,6 +509,11 @@ export default function App() {
           assemblyLoading={playbackLoading}
           onAssemble={startAssembly}
           onAssemblyClose={() => setPlayback(null)}
+          layout={layoutKey && shown && shown.params[layoutKey].type === 'select' ? {
+            value: String(design.values[layoutKey] ?? shown.values[layoutKey]),
+            options: (shown.params[layoutKey] as { options: { value: string; label: string }[] }).options,
+          } : null}
+          onLayout={(v) => layoutKey && onValue(layoutKey, v)}
           emptyState={generating
             ? <div className="empty-inner"><span className="spinner big" /><p>Claude is designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}
