@@ -15,6 +15,12 @@ import type { ViewerOptions } from './viewer/Viewer';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
+const TAB_ID = uid();
+const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('ai-designer') : null;
+type TabMessage =
+  | { type: 'saved'; tab: string; design: Design }
+  | { type: 'running'; tab: string; id: string; on: boolean }
+  | { type: 'hello'; tab: string };
 
 function newDesign(): Design {
   const now = Date.now();
@@ -30,13 +36,23 @@ function store(key: string, v: unknown) {
 
 export default function App() {
   const [design, setDesign] = useState<Design>(newDesign);
+  const currentId = useRef(design.id);
+  currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
   const [showList, setShowList] = useState(false);
   const [result, setResult] = useState<EvalResult | null>(null);
   const [lastGood, setLastGood] = useState<EvalResult | null>(null);
   const [error, setError] = useState<ScriptErrorInfo | null>(null);
   const [busy, setBusy] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  // Generations started in this tab, per design (they keep running when another design is opened).
+  const [running, setRunning] = useState<Record<string, AbortController>>({});
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  // Designs generating in other tabs (id → last heartbeat).
+  const [remoteRunning, setRemoteRunning] = useState<Record<string, number>>({});
+  const generating = !!running[design.id];
+  const busyElsewhere = !generating && remoteRunning[design.id] != null;
+  const [verbose, setVerbose] = useState<boolean>(() => load('verbose', true));
   const [exporting, setExporting] = useState(false);
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
   const [model, setModel] = useState(() => load('model', 'opus'));
@@ -46,8 +62,11 @@ export default function App() {
     section: { enabled: false, axis: 'z', position: 0, flip: false },
     ...load<Partial<ViewerOptions>>('viewOpts', {}),
   }));
-  const abortRef = useRef<AbortController | null>(null);
   const resultCode = useRef('');
+  // In-memory copies of designs that are generating while another design is open.
+  const background = useRef(new Map<string, Design>());
+  const lastRemote = useRef<Design | null>(null);
+  const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -85,6 +104,7 @@ export default function App() {
   useEffect(() => store('quality', quality), [quality]);
   useEffect(() => store('model', model), [model]);
   useEffect(() => store('effort', effort), [effort]);
+  useEffect(() => store('verbose', verbose), [verbose]);
   useEffect(() => {
     const { showBBox, showAnnotations, showEdges, ortho } = viewOpts;
     store('viewOpts', { showBBox, showAnnotations, showEdges, ortho });
@@ -92,13 +112,91 @@ export default function App() {
 
   const refreshList = useCallback(() => { api.listDesigns().then(setDesigns).catch(() => {}); }, []);
 
+  const saveNow = useCallback(async (d: Design) => {
+    await api.saveDesign(d);
+    channel?.postMessage({ type: 'saved', tab: TAB_ID, design: d } satisfies TabMessage);
+    refreshList();
+  }, [refreshList]);
+
+  const saveSoon = useCallback((d: Design) => {
+    const timers = saveTimers.current;
+    clearTimeout(timers.get(d.id));
+    timers.set(d.id, setTimeout(() => { timers.delete(d.id); saveNow(d).catch(() => {}); }, 600));
+  }, [saveNow]);
+
+  /** Apply a change to a design whether it is open (React state) or generating in the background. */
+  const updateDesign = useCallback((id: string, fn: (d: Design) => Design) => {
+    setDesign((d) => {
+      if (d.id === id) return fn(d);
+      const bg = background.current.get(id);
+      if (bg) {
+        const next = fn(bg);
+        background.current.set(id, next);
+        saveSoon(next);
+      }
+      return d;
+    });
+  }, [saveSoon]);
+
+  /** Switch the open design, keeping a still-generating one alive in memory. */
+  const switchTo = useCallback((next: Design) => {
+    setDesign((cur) => {
+      if (cur.id === next.id) return cur;
+      if (runningRef.current[cur.id]) background.current.set(cur.id, cur);
+      const live = background.current.get(next.id);
+      background.current.delete(next.id);
+      return live ?? next;
+    });
+    setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false }));
+  }, []);
+
+  // Cross-tab sync: other tabs' saves and generation status.
+  useEffect(() => {
+    if (!channel) return;
+    const onMsg = (ev: MessageEvent<TabMessage>) => {
+      const m = ev.data;
+      if (!m || m.tab === TAB_ID) return;
+      if (m.type === 'hello') {
+        for (const id of Object.keys(runningRef.current)) channel.postMessage({ type: 'running', tab: TAB_ID, id, on: true } satisfies TabMessage);
+      } else if (m.type === 'running') {
+        setRemoteRunning((r) => {
+          const next = { ...r };
+          if (m.on) next[m.id] = Date.now(); else delete next[m.id];
+          return next;
+        });
+      } else if (m.type === 'saved') {
+        setDesign((d) => {
+          if (d.id !== m.design.id || runningRef.current[d.id]) return d;
+          lastRemote.current = m.design;
+          return m.design;
+        });
+      }
+    };
+    channel.addEventListener('message', onMsg);
+    channel.postMessage({ type: 'hello', tab: TAB_ID } satisfies TabMessage);
+    // Heartbeat our generations; forget other tabs' that went quiet (tab closed).
+    const beat = setInterval(() => {
+      for (const id of Object.keys(runningRef.current)) channel.postMessage({ type: 'running', tab: TAB_ID, id, on: true } satisfies TabMessage);
+      setRemoteRunning((r) => {
+        const now = Date.now();
+        const stale = Object.entries(r).filter(([, t]) => now - t > 12000);
+        if (!stale.length) return r;
+        const next = { ...r };
+        for (const [id] of stale) delete next[id];
+        return next;
+      });
+    }, 4000);
+    return () => { channel.removeEventListener('message', onMsg); clearInterval(beat); };
+  }, []);
+
   // Open the last design on startup (guarded: hot reload re-runs effects).
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     (async () => {
-      const last = new URLSearchParams(location.search).get('design') ?? load<string | null>('lastDesign', null);
+      // A bare URL (new tab) starts a fresh design; ?design=<id> reopens that one.
+      const last = new URLSearchParams(location.search).get('design');
       if (last) {
         const d = await api.getDesign(last).catch(() => null);
         if (d) setDesign(d);
@@ -120,10 +218,10 @@ export default function App() {
   // Autosave (debounced) once the design has content.
   useEffect(() => {
     if (!loaded.current || (!design.messages.length && !design.code)) return;
-    store('lastDesign', design.id);
-    const t = setTimeout(() => { api.saveDesign(design).then(refreshList).catch(() => {}); }, 600);
+    if (design === lastRemote.current) return; // came from another tab – already saved there
+    const t = setTimeout(() => { saveNow(design).catch(() => {}); }, 600);
     return () => clearTimeout(t);
-  }, [design, refreshList]);
+  }, [design, saveNow]);
 
   // Live evaluation whenever code, values or quality change.
   useEffect(() => {
@@ -154,17 +252,13 @@ export default function App() {
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
     const designId = design.id;
     setDesign((d) => ({ ...d, messages: [...d.messages, userMsg, asst], updatedAt: now }));
-    // Apply updates to the design this generation belongs to, even if another design is open by now.
-    const update = (fn: (d: Design) => Design) => setDesign((d) => {
-      if (d.id === designId) return fn(d);
-      void api.getDesign(designId).then((stored) => stored && api.saveDesign(fn(stored)));
-      return d;
-    });
+    // Updates always go to the design this generation belongs to, even if another one is open by now.
+    const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
     const patchAsst = (fn: (m: ChatMessage) => ChatMessage) =>
       update((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asst.id ? fn(m) : m)) }));
     const abort = new AbortController();
-    abortRef.current = abort;
-    setGenerating(true);
+    setRunning((r) => ({ ...r, [designId]: abort }));
+    channel?.postMessage({ type: 'running', tab: TAB_ID, id: designId, on: true } satisfies TabMessage);
     let finished = false;
     try {
       await generate({
@@ -180,6 +274,7 @@ export default function App() {
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step] }));
+        else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'model') {
           update((d) => {
             const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const }];
@@ -189,7 +284,7 @@ export default function App() {
               messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
             };
           });
-          setViewOpts((o) => ({ ...o, hiddenParts: [] }));
+          if (currentId.current === designId) setViewOpts((o) => ({ ...o, hiddenParts: [] }));
         } else if (ev.type === 'done') { finished = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
         else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
       }, abort.signal);
@@ -198,8 +293,17 @@ export default function App() {
       if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
     } finally {
-      setGenerating(false);
-      abortRef.current = null;
+      patchAsst((m) => ({ ...m, live: undefined }));
+      setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
+      channel?.postMessage({ type: 'running', tab: TAB_ID, id: designId, on: false } satisfies TabMessage);
+      // A design that finished in the background is persisted, then dropped from memory.
+      setTimeout(() => {
+        const bg = background.current.get(designId);
+        if (bg && currentId.current !== designId) {
+          clearTimeout(saveTimers.current.get(designId));
+          saveNow(bg).finally(() => { if (currentId.current !== designId) background.current.delete(designId); });
+        }
+      }, 0);
     }
   };
 
@@ -263,20 +367,17 @@ export default function App() {
 
   const openDesign = async (id: string) => {
     setShowList(false);
-    if (generating) return;
-    const d = await api.getDesign(id);
-    if (d) { setDesign(d); setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false })); store('lastDesign', id); }
+    if (id === design.id) return;
+    const d = background.current.get(id) ?? (await api.getDesign(id));
+    if (d) switchTo(d);
   };
 
-  const createNew = () => {
-    if (generating) return;
-    setDesign(newDesign());
-    setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false }));
-    store('lastDesign', null);
-  };
+  const createNew = () => switchTo(newDesign());
 
   const deleteDesign = async (id: string) => {
     if (!confirm('Delete this design permanently?')) return;
+    running[id]?.abort();
+    background.current.delete(id);
     await api.deleteDesign(id);
     if (id === design.id) createNew();
     refreshList();
@@ -289,7 +390,7 @@ export default function App() {
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <span className="dim small">v{design.currentVersion + 1} of {design.versions.length}</span>}
         <span className="spacer" />
-        <button className="btn ghost" onClick={createNew} disabled={generating}><Icon name="plus" size={14} /> New</button>
+        <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
         <div className="menu-wrap">
           <button className="btn ghost" onClick={() => { refreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
           {showList && (
@@ -298,7 +399,7 @@ export default function App() {
               {designs.map((d) => (
                 <div key={d.id} className={`menu-item ${d.id === design.id ? 'on' : ''}`}>
                   <button className="menu-open" onClick={() => openDesign(d.id)}>
-                    <span>{d.name}</span>
+                    <span>{(running[d.id] || remoteRunning[d.id] != null) && <span className="spinner" />} {d.name}</span>
                     <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} versions</span>
                   </button>
                   <button className="icon-btn" title="Delete" onClick={() => deleteDesign(d.id)}><Icon name="trash" size={14} /></button>
@@ -314,8 +415,11 @@ export default function App() {
           versions={design.versions}
           currentVersion={design.currentVersion}
           generating={generating}
+          busyElsewhere={busyElsewhere}
+          verbose={verbose}
+          onVerbose={setVerbose}
           onSend={onSend}
-          onStop={() => abortRef.current?.abort()}
+          onStop={() => running[design.id]?.abort()}
           onRestore={onRestore}
           model={model} onModel={setModel}
           effort={effort} onEffort={setEffort}
