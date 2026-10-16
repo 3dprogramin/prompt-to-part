@@ -3,7 +3,7 @@ import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamVa
 import { SCALE_KEY } from '../shared/runtime';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import type { FontEntry } from './lib/api';
-import { api, generate } from './lib/api';
+import { api, generate, HttpError } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
 import { describeSettings, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
@@ -108,15 +108,20 @@ export default function App() {
   const [notice, setNotice] = useState<{ text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean } | null>(null);
   // In-memory copies of designs that are generating while another design is open.
   const background = useRef(new Map<string, Design>());
-  const lastRemote = useRef<Design | null>(null);
+  // The design object as it came from the server or another tab: already saved, so not autosaved.
+  const lastLoaded = useRef<Design | null>(null);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // Designs being deleted: nothing may save them again (a pending autosave would bring them back).
+  const deleting = useRef(new Set<string>());
+  // A design adopted after a save conflict keeps the notice that explains it.
+  const adopted = useRef<Design | null>(null);
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<{ version: string; problem: string | null } | null>(null);
   const [bambu, setBambu] = useState<string | null>(null);
   const [threeMf, setThreeMf] = useState<{ colours: boolean; print: boolean }>(() => load('threeMf', { colours: true, print: true }));
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
-  useEffect(() => { fetch('/api/capabilities').then((r) => r.json()).then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -146,6 +151,8 @@ export default function App() {
     setPicking(null);
   };
   const loaded = useRef(false);
+  // A design named in the URL that couldn't be loaded because the server was down.
+  const unreachable = useRef<string | null>(null);
 
   useEffect(() => store('quality', quality), [quality]);
   useEffect(() => {
@@ -153,32 +160,60 @@ export default function App() {
     store('viewOpts', { showBBox, showAnnotations, showEdges, ortho, colors });
   }, [viewOpts]);
 
-  const refreshList = useCallback(() => { api.listDesigns().then(setDesigns).catch(() => {}); }, []);
+  // Why the design list couldn't be loaded (the server is down), so the menu doesn't claim there are none.
+  const [listError, setListError] = useState<string | null>(null);
+  const refreshList = useCallback(() => {
+    api.listDesigns().then((l) => { setDesigns(l); setListError(null); }, (e: Error) => setListError(e.message));
+  }, []);
 
   // Failed saves are shown in the top bar ("Not saved – retry") instead of being dropped, and
   // closing the tab with a change the server hasn't confirmed asks first.
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
   const unsaved = useRef(new Set<string>());
+  const clearSaveError = (id: string) => setSaveErrors((s) => { if (!(id in s)) return s; const next = { ...s }; delete next[id]; return next; });
   const saveNow = useCallback(async (d: Design) => {
+    if (deleting.current.has(d.id)) return;
     unsaved.current.add(d.id);
+    let saved: Design;
     try {
-      await api.saveDesign(d);
+      saved = await api.saveDesign(d);
     } catch (e) {
+      if (e instanceof HttpError && e.status === 409 && !deleting.current.has(d.id)) {
+        // Another tab saved a newer copy. A generation running here owns the design, so its copy
+        // wins; otherwise the newer copy replaces this one.
+        if (runningRef.current[d.id]) return saveNow({ ...d, updatedAt: Number(e.body.updatedAt) + 1 });
+        const fresh = await api.getDesign(d.id).catch(() => null);
+        if (fresh) {
+          unsaved.current.delete(d.id);
+          clearSaveError(d.id);
+          setDesign((cur) => {
+            if (cur.id !== d.id) return cur;
+            lastLoaded.current = adopted.current = fresh;
+            return fresh;
+          });
+          if (currentId.current === d.id) setNotice({ text: 'This design was changed in another tab or window – showing the newest version.', level: 'info', details: false });
+          return;
+        }
+      }
       setSaveErrors((s) => ({ ...s, [d.id]: (e as Error).message || 'the server could not be reached' }));
       throw e;
     }
     unsaved.current.delete(d.id);
-    setSaveErrors((s) => { if (!(d.id in s)) return s; const next = { ...s }; delete next[d.id]; return next; });
-    channel?.postMessage({ type: 'saved', tab: TAB_ID, design: d } satisfies TabMessage);
+    clearSaveError(d.id);
+    channel?.postMessage({ type: 'saved', tab: TAB_ID, design: saved } satisfies TabMessage);
     refreshList();
   }, [refreshList]);
   useEffect(() => {
-    const onUnload = (e: BeforeUnloadEvent) => { if (unsaved.current.size) e.preventDefault(); };
+    // Closing the tab loses unsaved changes and stops Claude (the server aborts a generation whose
+    // page is gone), so both ask first.
+    const onUnload = (e: BeforeUnloadEvent) => { if (unsaved.current.size || Object.keys(runningRef.current).length) e.preventDefault(); };
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
 
+  /** Save a design about half a second after its last change; each design has its own timer. */
   const saveSoon = useCallback((d: Design) => {
+    if (deleting.current.has(d.id)) return;
     const timers = saveTimers.current;
     unsaved.current.add(d.id);
     clearTimeout(timers.get(d.id));
@@ -206,6 +241,8 @@ export default function App() {
       if (runningRef.current[cur.id]) background.current.set(cur.id, cur);
       const live = background.current.get(next.id);
       background.current.delete(next.id);
+      // A background copy saves itself as it changes; a loaded one is saved already.
+      lastLoaded.current = live ?? next;
       return live ?? next;
     });
     setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false }));
@@ -228,7 +265,7 @@ export default function App() {
       } else if (m.type === 'saved') {
         setDesign((d) => {
           if (d.id !== m.design.id || runningRef.current[d.id]) return d;
-          lastRemote.current = m.design;
+          lastLoaded.current = m.design;
           return m.design;
         });
       }
@@ -259,8 +296,14 @@ export default function App() {
       // A bare URL (new tab) starts a fresh design; ?design=<id> reopens that one.
       const last = new URLSearchParams(location.search).get('design');
       if (last) {
-        const d = await api.getDesign(last).catch(() => null);
-        if (d) setDesign(d);
+        try {
+          const d = await api.getDesign(last);
+          if (d) { lastLoaded.current = d; setDesign(d); }
+        } catch (e) {
+          // Keep ?design= so a reload once the server is back opens it again.
+          unreachable.current = last;
+          setNotice({ text: `${(e as Error).message} Reload this page once it is running.`, level: 'error', details: false });
+        }
       }
       loaded.current = true;
       refreshList();
@@ -271,19 +314,23 @@ export default function App() {
   useEffect(() => {
     const url = new URL(location.href);
     if (url.searchParams.get('design') === design.id) return;
-    if (!design.messages.length && !design.code) url.searchParams.delete('design');
-    else url.searchParams.set('design', design.id);
+    if (!design.messages.length && !design.code) {
+      if (unreachable.current) return; // the design in the URL couldn't be loaded yet
+      url.searchParams.delete('design');
+    } else {
+      unreachable.current = null;
+      url.searchParams.set('design', design.id);
+    }
     history.replaceState(null, '', url);
   }, [design.id, design.messages.length, design.code]);
 
-  // Autosave (debounced) once the design has content.
+  // Autosave once the design has content. The timer belongs to the design, so opening another
+  // design right after a change still saves it.
   useEffect(() => {
     if (!loaded.current || (!design.messages.length && !design.code)) return;
-    if (design === lastRemote.current) return; // came from another tab – already saved there
-    unsaved.current.add(design.id);
-    const t = setTimeout(() => { saveNow(design).catch(() => {}); }, 600);
-    return () => clearTimeout(t);
-  }, [design, saveNow]);
+    if (design === lastLoaded.current) return; // as loaded from the server or another tab
+    saveSoon(design);
+  }, [design, saveSoon]);
 
   // Live evaluation whenever code, values or quality change.
   useEffect(() => {
@@ -442,6 +489,7 @@ export default function App() {
   const canAssemble = !!layoutKey && !!shown?.assembly.length;
   // Any change to the model ends the animation and makes validation results stale.
   useEffect(() => {
+    if (design === adopted.current) { adopted.current = null; return; }
     setPlayback(null);
     setValidation(null);
     setValidationOpen(false);
@@ -597,8 +645,13 @@ export default function App() {
   const openDesign = async (id: string) => {
     setShowList(false);
     if (id === design.id) return;
-    const d = background.current.get(id) ?? (await api.getDesign(id));
-    if (d) switchTo(d);
+    try {
+      const d = background.current.get(id) ?? (await api.getDesign(id));
+      if (d) switchTo(d);
+      else { setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
+    } catch (e) {
+      setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
+    }
   };
 
   const createNew = () => switchTo(newDesign());
@@ -629,9 +682,31 @@ export default function App() {
 
   const deleteDesign = async (id: string) => {
     if (!confirm('Delete this design permanently?')) return;
-    running[id]?.abort();
+    deleting.current.add(id);
+    clearTimeout(saveTimers.current.get(id));
+    saveTimers.current.delete(id);
+    unsaved.current.delete(id);
+    try {
+      // The server refuses to delete a design Claude is working on: stop it and wait until it has.
+      running[id]?.abort();
+      for (let tries = 0; ; tries++) {
+        try {
+          await api.deleteDesign(id);
+          break;
+        } catch (e) {
+          if (!(e instanceof HttpError && e.status === 409 && running[id] && tries < 40)) throw e;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+    } catch (e) {
+      deleting.current.delete(id);
+      const copy = background.current.get(id) ?? (design.id === id ? design : null);
+      if (copy) saveSoon(copy);
+      setNotice({ text: `Could not delete the design: ${(e as Error).message}`, level: 'error', details: false });
+      return;
+    }
     background.current.delete(id);
-    await api.deleteDesign(id);
+    clearSaveError(id);
     setTabIds((t) => t.filter((x) => x !== id));
     if (id === design.id) createNew();
     refreshList();
@@ -666,7 +741,9 @@ export default function App() {
           <button className="btn ghost" onClick={() => { refreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
           {showList && (
             <div className="menu" onMouseLeave={() => setShowList(false)}>
-              {designs.length === 0 && <div className="menu-empty">No saved designs yet</div>}
+              {listError
+                ? <div className="menu-empty">Could not load your designs: {listError} <button className="link" onClick={refreshList}>Try again</button></div>
+                : designs.length === 0 && <div className="menu-empty">No saved designs yet</div>}
               {designs.map((d) => (
                 <div key={d.id} className={`menu-item ${d.id === design.id ? 'on' : ''}`}>
                   <button className="menu-open" onClick={() => openDesign(d.id)}>

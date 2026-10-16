@@ -1,4 +1,5 @@
 import type { AgentStep, Design, DesignSummary, ParamValues } from '../../shared/types';
+import { dataUrlToImage } from './files';
 
 export type AgentEvent =
   | { type: 'session'; sessionId: string }
@@ -16,28 +17,83 @@ export interface FontEntry { id: string; family: string; style: string; source: 
 /** Every write to the API carries X-Jig: the server refuses writes without it (see server/index.ts). */
 export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Jig': '1' };
 
+/** A failed API call: the server's message, the HTTP status and the response body. */
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number, readonly body: Record<string, unknown> = {}) {
+    super(message);
+  }
+}
+
+const UNREACHABLE = "Can't reach the Jig server – is it running?";
+
+/** fetch() that adds X-Jig to writes and turns a network failure or an error status into an HttpError. */
+export async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  const write = !!init.method && init.method !== 'GET';
+  let r: Response;
+  try {
+    r = await fetch(path, write ? { ...init, headers: { ...WRITE_HEADERS, ...init.headers } } : init);
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    throw new HttpError(UNREACHABLE, 0);
+  }
+  if (r.ok) return r;
+  if (r.status === 413) throw new HttpError('Too big for the server to accept', 413);
+  const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+  throw new HttpError(typeof body.error === 'string' ? body.error : `HTTP ${r.status}`, r.status, body);
+}
+
+const getJson = async <T>(path: string, init?: RequestInit): Promise<T> => (await request(path, init)).json() as Promise<T>;
+
+// Images already stored on the server, by the data URL they came from. Only images that arrived
+// in this tab are data URLs; a design loaded from the server already refers to stored ones.
+const storedImages = new Map<string, string>();
+
+/** The design with every data-URL image replaced by its stored copy (uploaded first if needed). */
+async function withStoredImages(d: Design): Promise<Design> {
+  const sub = async (src: string) => {
+    if (!src.startsWith('data:')) return src;
+    let url = storedImages.get(src);
+    if (!url) {
+      ({ url } = await getJson<{ url: string }>(`/api/designs/${d.id}/images`, { method: 'POST', body: JSON.stringify(dataUrlToImage(src)) }));
+      storedImages.set(src, url);
+      if (storedImages.size > 500) storedImages.delete(storedImages.keys().next().value!);
+    }
+    return url;
+  };
+  const messages = await Promise.all(d.messages.map(async (m) => ({
+    ...m,
+    images: m.images && await Promise.all(m.images.map(sub)),
+    steps: m.steps && await Promise.all(m.steps.map(async (s) => (s.image ? { ...s, image: await sub(s.image) } : s))),
+  })));
+  return { ...d, messages };
+}
+
 export const api = {
-  async listFonts(): Promise<FontEntry[]> {
-    const r = await fetch('/api/fonts');
-    return r.ok ? r.json() : [];
-  },
-  async listDesigns(): Promise<DesignSummary[]> {
-    const r = await fetch('/api/designs');
-    return r.ok ? r.json() : [];
-  },
+  listFonts: () => getJson<FontEntry[]>('/api/fonts'),
+  listDesigns: () => getJson<DesignSummary[]>('/api/designs'),
+  /** null if there is no such design; throws if the server can't be reached. */
   async getDesign(id: string): Promise<Design | null> {
-    const r = await fetch(`/api/designs/${id}`);
-    return r.ok ? r.json() : null;
+    try {
+      return await getJson<Design>(`/api/designs/${id}`);
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 404) return null;
+      throw e;
+    }
   },
-  async saveDesign(d: Design): Promise<void> {
+  /** Saves the design and returns what was saved (images replaced by their stored URLs). */
+  async saveDesign(d: Design): Promise<Design> {
+    const saved = await withStoredImages(d);
     // The live activity transcript stays in memory (it can hold every model.js Claude typed).
-    const body = JSON.stringify(d, (k, v) => (k === 'activity' ? undefined : v));
-    const r = await fetch(`/api/designs/${d.id}`, { method: 'PUT', headers: WRITE_HEADERS, body });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+    const body = JSON.stringify(saved, (k, v) => (k === 'activity' ? undefined : v));
+    await request(`/api/designs/${d.id}`, { method: 'PUT', body });
+    return saved;
   },
   async deleteDesign(id: string): Promise<void> {
-    await fetch(`/api/designs/${id}`, { method: 'DELETE', headers: { 'X-Jig': '1' } });
+    await request(`/api/designs/${id}`, { method: 'DELETE' });
   },
+  capabilities: () => getJson<{ blender: string | null; blenderProblem: string | null; bambu: string | null }>('/api/capabilities'),
+  /** Font files (base64) for the text tool and font previews. */
+  fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };
 
 export interface GenerateBody {
@@ -62,17 +118,8 @@ export interface GenerateBody {
 }
 
 export async function generate(body: GenerateBody, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
-  const res = await fetch('/api/generate', {
-    method: 'POST',
-    headers: WRITE_HEADERS,
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    let msg = `HTTP ${res.status}`;
-    try { msg = (await res.json()).error ?? msg; } catch { /* ignore */ }
-    throw new Error(msg);
-  }
+  const res = await request('/api/generate', { method: 'POST', body: JSON.stringify(body), signal });
+  if (!res.body) throw new Error('The server sent no response');
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
