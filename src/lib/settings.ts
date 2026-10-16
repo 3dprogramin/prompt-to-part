@@ -1,5 +1,5 @@
 import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
-import { SCALE_KEY } from '../../shared/runtime';
+import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
 import { PRINT_KEY } from '../../shared/print';
 

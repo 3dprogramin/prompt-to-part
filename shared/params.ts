@@ -1,6 +1,9 @@
 // Normalising the parameters a script declares, and the values the user set for them.
 import type { ParamDef, ParamValues } from './types';
 
+/** Uniform scale applied after build (a reserved value key, not a script parameter). */
+export const SCALE_KEY = '$scale';
+
 function niceStep(range: number) {
   const raw = range / 200;
   const p = Math.pow(10, Math.floor(Math.log10(raw)));

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
-import { resolveValues, SCALE_KEY } from '../shared/runtime';
+import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';

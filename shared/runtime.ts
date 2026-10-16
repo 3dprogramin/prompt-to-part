@@ -4,7 +4,7 @@ import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { FontMissingError, takeFontSubstitutions } from './text';
 import { compile, locate, ScriptError } from './compile';
 import { makeHelpers } from './helpers';
-import { normalizeParams, resolveValues } from './params';
+import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { cleanProfile } from './print';
 import type {
@@ -13,9 +13,7 @@ import type {
 } from './types';
 
 export { ScriptError } from './compile';
-export { normalizeParams, resolveValues } from './params';
-
-export const SCALE_KEY = '$scale';
+export { normalizeParams, resolveValues, SCALE_KEY } from './params';
 
 const PALETTE = ['#d9a441', '#5b9bd5', '#7fbf6a', '#d46a6a', '#9b7fd4', '#4fc1c1', '#e08a3c', '#b0b7c3'];
 
