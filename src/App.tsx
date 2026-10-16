@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../shared/types';
+import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
 import { resolveValues, SCALE_KEY } from '../shared/runtime';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import type { FontEntry } from './lib/api';
@@ -13,22 +13,20 @@ import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
-import { DesignTabs, type DesignTab } from './components/DesignTabs';
-import { usePopover } from './components/usePopover';
-import { VersionMenu } from './components/VersionMenu';
+import type { DesignTab } from './components/DesignTabs';
+import { TopBar } from './components/TopBar';
+import { RestoreDialog } from './components/RestoreDialog';
+import { useDesignSaving } from './hooks/useDesignSaving';
+import { useCrossTabSync } from './hooks/useCrossTabSync';
+import { useLiveModel } from './hooks/useLiveModel';
+import { load, store } from './lib/storage';
+import { tell } from './lib/tabs';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
-const TAB_ID = uid();
-const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('jig') : null;
-type TabMessage =
-  | { type: 'saved'; tab: string; design: Design }
-  | { type: 'running'; tab: string; id: string; on: boolean }
-  | { type: 'hello'; tab: string };
-
 interface ChatOptions { model: string; effort: string; webSearch: boolean }
 const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: false };
 
@@ -37,31 +35,26 @@ function newDesign(): Design {
   return { id: uid(), name: UNTITLED, createdAt: now, updatedAt: now, messages: [], versions: [], currentVersion: -1, code: '', values: {} };
 }
 
-function load<T>(key: string, fallback: T): T {
-  try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; }
-}
-function store(key: string, v: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ }
-}
-
 export default function App() {
   const [design, setDesign] = useState<Design>(newDesign);
   const currentId = useRef(design.id);
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
-  const [showList, setShowList] = useState(false);
-  const listWrap = useRef<HTMLDivElement>(null);
-  usePopover(showList, () => setShowList(false), listWrap);
-  const [result, setResult] = useState<EvalResult | null>(null);
-  const [lastGood, setLastGood] = useState<EvalResult | null>(null);
-  const [error, setError] = useState<ScriptErrorInfo | null>(null);
-  const [busy, setBusy] = useState(false);
   // Generations started in this tab, per design (they keep running when another design is opened).
   const [running, setRunning] = useState<Record<string, AbortController>>({});
   const runningRef = useRef(running);
   runningRef.current = running;
-  // Designs generating in other tabs (id → last heartbeat).
-  const [remoteRunning, setRemoteRunning] = useState<Record<string, number>>({});
+  const { saveNow, saveSoon, saveErrors, clearSaveError, saveTimers, lastLoaded, adopted, stopSaving } = useDesignSaving({
+    setDesign, currentId, runningRef,
+    onSaved: () => refreshList(),
+    onAdopted: () => setNotice({ text: 'This design was changed in another tab or window – showing the newest version.', level: 'info', details: false }),
+  });
+  // Designs generating in other tabs (id → last heartbeat); their saves replace the open copy.
+  const remoteRunning = useCrossTabSync(runningRef, (saved) => setDesign((d) => {
+    if (d.id !== saved.id || runningRef.current[d.id]) return d;
+    lastLoaded.current = saved;
+    return saved;
+  }));
   const generating = !!running[design.id];
   // Designs open as tabs in the top bar (kept across reloads), and those that finished in the background unseen.
   const [tabIds, setTabIds] = useState<string[]>(() => load('designTabs', []));
@@ -115,7 +108,7 @@ export default function App() {
     section: { enabled: false, axis: 'z', position: 0, flip: false },
     ...load<Partial<ViewerOptions>>('viewOpts', {}),
   }));
-  const resultCode = useRef('');
+  const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality);
   const snapshotRef = useRef<(() => string | null) | null>(null);
   const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
@@ -125,13 +118,6 @@ export default function App() {
   const [notice, setNotice] = useState<{ text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean } | null>(null);
   // In-memory copies of designs that are generating while another design is open.
   const background = useRef(new Map<string, Design>());
-  // The design object as it came from the server or another tab: already saved, so not autosaved.
-  const lastLoaded = useRef<Design | null>(null);
-  const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  // Designs being deleted: nothing may save them again (a pending autosave would bring them back).
-  const deleting = useRef(new Set<string>());
-  // A design adopted after a save conflict keeps the notice that explains it.
-  const adopted = useRef<Design | null>(null);
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<{ version: string; problem: string | null } | null>(null);
   const [bambu, setBambu] = useState<string | null>(null);
@@ -185,60 +171,6 @@ export default function App() {
     api.listDesigns().then((l) => { setDesigns(l); setListError(null); }, (e: Error) => setListError(e.message));
   }, []);
 
-  // Failed saves are shown in the top bar ("Not saved – retry") instead of being dropped, and
-  // closing the tab with a change the server hasn't confirmed asks first.
-  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
-  const unsaved = useRef(new Set<string>());
-  const clearSaveError = (id: string) => setSaveErrors((s) => { if (!(id in s)) return s; const next = { ...s }; delete next[id]; return next; });
-  const saveNow = useCallback(async (d: Design) => {
-    if (deleting.current.has(d.id)) return;
-    unsaved.current.add(d.id);
-    let saved: Design;
-    try {
-      saved = await api.saveDesign(d);
-    } catch (e) {
-      if (e instanceof HttpError && e.status === 409 && !deleting.current.has(d.id)) {
-        // Another tab saved a newer copy. A generation running here owns the design, so its copy
-        // wins; otherwise the newer copy replaces this one.
-        if (runningRef.current[d.id]) return saveNow({ ...d, updatedAt: Number(e.body.updatedAt) + 1 });
-        const fresh = await api.getDesign(d.id).catch(() => null);
-        if (fresh) {
-          unsaved.current.delete(d.id);
-          clearSaveError(d.id);
-          setDesign((cur) => {
-            if (cur.id !== d.id) return cur;
-            lastLoaded.current = adopted.current = fresh;
-            return fresh;
-          });
-          if (currentId.current === d.id) setNotice({ text: 'This design was changed in another tab or window – showing the newest version.', level: 'info', details: false });
-          return;
-        }
-      }
-      setSaveErrors((s) => ({ ...s, [d.id]: (e as Error).message || 'the server could not be reached' }));
-      throw e;
-    }
-    unsaved.current.delete(d.id);
-    clearSaveError(d.id);
-    channel?.postMessage({ type: 'saved', tab: TAB_ID, design: saved } satisfies TabMessage);
-    refreshList();
-  }, [refreshList]);
-  useEffect(() => {
-    // Closing the tab loses unsaved changes and stops Claude (the server aborts a generation whose
-    // page is gone), so both ask first.
-    const onUnload = (e: BeforeUnloadEvent) => { if (unsaved.current.size || Object.keys(runningRef.current).length) e.preventDefault(); };
-    window.addEventListener('beforeunload', onUnload);
-    return () => window.removeEventListener('beforeunload', onUnload);
-  }, []);
-
-  /** Save a design about half a second after its last change; each design has its own timer. */
-  const saveSoon = useCallback((d: Design) => {
-    if (deleting.current.has(d.id)) return;
-    const timers = saveTimers.current;
-    unsaved.current.add(d.id);
-    clearTimeout(timers.get(d.id));
-    timers.set(d.id, setTimeout(() => { timers.delete(d.id); saveNow(d).catch(() => {}); }, 600));
-  }, [saveNow]);
-
   /** Apply a change to a design whether it is open (React state) or generating in the background. */
   const updateDesign = useCallback((id: string, fn: (d: Design) => Design) => {
     setDesign((d) => {
@@ -265,45 +197,6 @@ export default function App() {
       return live ?? next;
     });
     setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false }));
-  }, []);
-
-  // Cross-tab sync: other tabs' saves and generation status.
-  useEffect(() => {
-    if (!channel) return;
-    const onMsg = (ev: MessageEvent<TabMessage>) => {
-      const m = ev.data;
-      if (!m || m.tab === TAB_ID) return;
-      if (m.type === 'hello') {
-        for (const id of Object.keys(runningRef.current)) channel.postMessage({ type: 'running', tab: TAB_ID, id, on: true } satisfies TabMessage);
-      } else if (m.type === 'running') {
-        setRemoteRunning((r) => {
-          const next = { ...r };
-          if (m.on) next[m.id] = Date.now(); else delete next[m.id];
-          return next;
-        });
-      } else if (m.type === 'saved') {
-        setDesign((d) => {
-          if (d.id !== m.design.id || runningRef.current[d.id]) return d;
-          lastLoaded.current = m.design;
-          return m.design;
-        });
-      }
-    };
-    channel.addEventListener('message', onMsg);
-    channel.postMessage({ type: 'hello', tab: TAB_ID } satisfies TabMessage);
-    // Heartbeat our generations; forget other tabs' that went quiet (tab closed).
-    const beat = setInterval(() => {
-      for (const id of Object.keys(runningRef.current)) channel.postMessage({ type: 'running', tab: TAB_ID, id, on: true } satisfies TabMessage);
-      setRemoteRunning((r) => {
-        const now = Date.now();
-        const stale = Object.entries(r).filter(([, t]) => now - t > 12000);
-        if (!stale.length) return r;
-        const next = { ...r };
-        for (const [id] of stale) delete next[id];
-        return next;
-      });
-    }, 4000);
-    return () => { channel.removeEventListener('message', onMsg); clearInterval(beat); };
   }, []);
 
   // Open the last design on startup (guarded: hot reload re-runs effects).
@@ -351,28 +244,6 @@ export default function App() {
     saveSoon(design);
   }, [design, saveSoon]);
 
-  // A newly opened design never shows (or exports) the previous one's model while its own builds.
-  useEffect(() => {
-    resultCode.current = '';
-    setResult(null);
-    setLastGood(null);
-    setError(null);
-  }, [design.id]);
-
-  // Live evaluation whenever code, values or quality change.
-  useEffect(() => {
-    if (!design.code.trim()) { resultCode.current = ''; setResult(null); setLastGood(null); setError(null); setBusy(false); return; }
-    let cancelled = false;
-    setBusy(true);
-    geo.preview(design.code, design.values, quality).then((o) => {
-      if (cancelled || !o) return;
-      setBusy(false);
-      if (o.result) { resultCode.current = design.code; setResult(o.result); setLastGood(o.result); setError(null); }
-      else { setError(o.error); setResult(null); }
-    });
-    return () => { cancelled = true; };
-  }, [design.id, design.code, design.values, quality]);
-
   // Name untitled designs after the model.
   useEffect(() => {
     const name = result?.meta.name;
@@ -396,7 +267,7 @@ export default function App() {
       update((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asst.id ? fn(m) : m)) }));
     const abort = new AbortController();
     setRunning((r) => ({ ...r, [designId]: abort }));
-    channel?.postMessage({ type: 'running', tab: TAB_ID, id: designId, on: true } satisfies TabMessage);
+    tell({ type: 'running', id: designId, on: true });
     let finished = false;
     try {
       await generate({
@@ -438,7 +309,7 @@ export default function App() {
       patchAsst((m) => ({ ...m, live: undefined }));
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
       if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
-      channel?.postMessage({ type: 'running', tab: TAB_ID, id: designId, on: false } satisfies TabMessage);
+      tell({ type: 'running', id: designId, on: false });
       // A design that finished in the background is persisted, then dropped from memory.
       setTimeout(() => {
         const bg = background.current.get(designId);
@@ -460,12 +331,6 @@ export default function App() {
     if (vi !== design.currentVersion && unsavedSettings) setPendingRestore(vi);
     else restore(vi);
   };
-  useEffect(() => {
-    if (pendingRestore == null) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPendingRestore(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pendingRestore]);
 
   const onApplyCode = (code: string) => {
     setDesign((d) => {
@@ -673,7 +538,6 @@ export default function App() {
   };
 
   const openDesign = async (id: string) => {
-    setShowList(false);
     if (id === design.id) return;
     try {
       const d = background.current.get(id) ?? (await api.getDesign(id));
@@ -712,10 +576,7 @@ export default function App() {
 
   const deleteDesign = async (id: string) => {
     if (!confirm('Delete this design permanently?')) return;
-    deleting.current.add(id);
-    clearTimeout(saveTimers.current.get(id));
-    saveTimers.current.delete(id);
-    unsaved.current.delete(id);
+    const saving = stopSaving(id);
     try {
       // The server refuses to delete a design Claude is working on: stop it and wait until it has.
       running[id]?.abort();
@@ -729,7 +590,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      deleting.current.delete(id);
+      saving.undo();
       const copy = background.current.get(id) ?? (design.id === id ? design : null);
       if (copy) saveSoon(copy);
       setNotice({ text: `Could not delete the design: ${(e as Error).message}`, level: 'error', details: false });
@@ -744,49 +605,24 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        {/* A real link, so it can be opened in a new tab; a plain click starts a new design in place. */}
-        <a className="brand" href="/" title="New design" onClick={(e) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); createNew(); } }}>
-          <span className="logo"><Icon name="cube" size={18} /></span> Jig
-        </a>
-        <input className="design-name" aria-label="Design name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
-        {design.versions.length > 0 && <VersionMenu versions={design.versions} current={design.currentVersion} onRestore={onRestore} />}
-        {unsavedSettings && (
-          <button className="btn save-settings" onClick={saveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
-            <Icon name="save" size={13} /> Save as v{design.versions.length + 1}
-          </button>
-        )}
-        {saveErrors[design.id] && (
-          <button
-            className="btn save-error"
-            onClick={() => saveNow(design).catch(() => {})}
-            title={`Your latest changes are not saved: ${saveErrors[design.id]}. ${/X-Jig/.test(saveErrors[design.id]) ? 'This page is older than the server – reload it.' : 'Click to try again.'}`}
-          >
-            <Icon name="alert" size={13} /> Not saved – retry
-          </button>
-        )}
-        {designTabs.length > 1 ? <DesignTabs tabs={designTabs} current={design.id} onOpen={openDesign} onClose={closeTab} /> : <span className="spacer" />}
-        <button className="btn ghost" onClick={createNew}><Icon name="plus" size={14} /> New</button>
-        <div className="menu-wrap" ref={listWrap}>
-          <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { refreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
-          {showList && (
-            <div className="menu">
-              {listError
-                ? <div className="menu-empty">Could not load your designs: {listError} <button className="link" onClick={refreshList}>Try again</button></div>
-                : designs.length === 0 && <div className="menu-empty">No saved designs yet</div>}
-              {designs.map((d) => (
-                <div key={d.id} className={`menu-item ${d.id === design.id ? 'on' : ''}`}>
-                  <button className="menu-open" onClick={() => openDesign(d.id)}>
-                    <span>{(running[d.id] || remoteRunning[d.id] != null) && <span className="spinner" />} {d.name}</span>
-                    <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} versions</span>
-                  </button>
-                  <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => deleteDesign(d.id)}><Icon name="trash" size={14} /></button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </header>
+      <TopBar
+        design={design}
+        onRename={(name) => setDesign((d) => ({ ...d, name }))}
+        onRestore={onRestore}
+        unsavedSettings={unsavedSettings}
+        onSaveSettings={saveSettings}
+        saveError={saveErrors[design.id]}
+        onRetrySave={() => saveNow(design).catch(() => {})}
+        tabs={designTabs}
+        onOpen={openDesign}
+        onCloseTab={closeTab}
+        onNew={createNew}
+        designs={designs}
+        listError={listError}
+        onRefreshList={refreshList}
+        isRunning={(id) => !!running[id] || remoteRunning[id] != null}
+        onDelete={deleteDesign}
+      />
       <main className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}>
         <ChatPanel
           messages={design.messages}
@@ -875,31 +711,16 @@ export default function App() {
         />
       </main>
       {pendingRestore != null && (
-        <div className="modal-backdrop" onClick={() => setPendingRestore(null)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title" onClick={(e) => e.stopPropagation()} onKeyDown={trapFocus}>
-            <h3 id="restore-title">Save your changes first?</h3>
-            <p>Your slider, scale, text or print changes aren't saved in any version. Switching to v{pendingRestore + 1} replaces them with that version's settings.</p>
-            <div className="modal-actions">
-              <button className="btn ghost" onClick={() => setPendingRestore(null)}>Cancel</button>
-              <button className="btn danger" onClick={() => { restore(pendingRestore); setPendingRestore(null); }}>Discard changes</button>
-              <button className="btn primary" autoFocus onClick={() => { saveSettings(); restore(pendingRestore); setPendingRestore(null); }}>
-                Save as v{design.versions.length + 1}, then switch
-              </button>
-            </div>
-          </div>
-        </div>
+        <RestoreDialog
+          target={pendingRestore}
+          nextVersion={design.versions.length + 1}
+          onCancel={() => setPendingRestore(null)}
+          onDiscard={() => { restore(pendingRestore); setPendingRestore(null); }}
+          onSaveAndSwitch={() => { saveSettings(); restore(pendingRestore); setPendingRestore(null); }}
+        />
       )}
     </div>
   );
-}
-
-/** Keeps Tab and Shift+Tab inside a modal dialog. */
-function trapFocus(e: React.KeyboardEvent<HTMLElement>) {
-  if (e.key !== 'Tab') return;
-  const items = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input, select, textarea')];
-  const first = items[0], last = items[items.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
 }
 
 /** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */

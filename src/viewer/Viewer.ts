@@ -4,7 +4,8 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
-import { PRINTER, fitProblem } from '../../shared/printer';
+import { buildGrid, buildPlate, updatePlate } from './stage';
+import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -46,41 +47,6 @@ const VIEW_DIRS: Record<ViewName, [number, number, number]> = {
   top: [0, -1e-4, 1],
   bottom: [0, -1e-4, -1],
 };
-
-const fmt = (n: number) => (Math.abs(n) < 0.005 ? '0' : n.toFixed(2));
-
-function niceStep(span: number) {
-  const steps = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
-  return steps.find((s) => span / s <= 30) ?? 1000;
-}
-
-function label(text: string, cls: string) {
-  const wrap = document.createElement('div');
-  const el = document.createElement('div');
-  el.className = cls;
-  el.textContent = text;
-  wrap.appendChild(el);
-  return new CSS2DObject(wrap);
-}
-
-/** Push overlapping dimension labels apart vertically (screen space). */
-function declutter(root: HTMLElement) {
-  const items = [...root.querySelectorAll<HTMLElement>('.dim-label')]
-    .filter((el) => el.offsetParent !== null)
-    .map((el) => ({ el, r: el.parentElement!.getBoundingClientRect() }))
-    .sort((a, b) => a.r.top - b.r.top);
-  const placed: { l: number; r: number; t: number; b: number }[] = [];
-  for (const { el, r } of items) {
-    let dy = 0;
-    for (let iter = 0; iter < 12; iter++) {
-      const hit = placed.find((p) => r.left < p.r && r.right > p.l && r.top + dy < p.b && r.bottom + dy > p.t);
-      if (!hit) break;
-      dy = hit.b - r.top + 2;
-    }
-    el.style.transform = dy ? `translateY(${dy}px)` : '';
-    placed.push({ l: r.left, r: r.right, t: r.top + dy, b: r.bottom + dy });
-  }
-}
 
 export class Viewer {
   private renderer: THREE.WebGLRenderer;
@@ -525,115 +491,19 @@ export class Viewer {
 
   // ---------------------------------------------------------------- grid
 
-  private buildGrid(size: number) {
-    this.gridGroup.clear();
-    const step = niceStep(size * 1.5);
-    const extent = Math.max(step * 20, Math.ceil((size * 2.5) / (step * 10)) * step * 10);
-    const half = extent / 2;
-    const minor: number[] = [], major: number[] = [];
-    for (let v = -half; v <= half + 1e-6; v += step) {
-      const isMajor = Math.abs(Math.round(v / (step * 5)) * step * 5 - v) < 1e-6;
-      const arr = isMajor ? major : minor;
-      arr.push(v, -half, 0, v, half, 0, -half, v, 0, half, v, 0);
-    }
-    const mk = (pts: number[], color: number, opacity: number) => {
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false }));
-    };
-    this.gridGroup.add(mk(minor, 0x8890a0, 0.13), mk(major, 0x8890a0, 0.3));
-    const axes = (to: [number, number, number], color: number) => {
-      const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(...to)]);
-      return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
-    };
-    this.gridGroup.add(axes([half, 0, 0], 0xe05a5a), axes([0, half, 0], 0x5ac05a), axes([0, 0, Math.min(half, size * 0.6)], 0x5a8ae0));
-    this.gridGroup.userData.step = step;
-  }
-
-  private buildPlate() {
-    const [w, d] = PRINTER.bed, h = PRINTER.height;
-    const rect = (z: number) => [[-w / 2, -d / 2, z], [w / 2, -d / 2, z], [w / 2, d / 2, z], [-w / 2, d / 2, z]].map((p) => new THREE.Vector3(...(p as [number, number, number])));
-    const loop = (pts: THREE.Vector3[]) => [...pts, pts[0]];
-    const plate = new THREE.Line(new THREE.BufferGeometry().setFromPoints(loop(rect(0))), new THREE.LineBasicMaterial({ color: 0xe0a43c, transparent: true, opacity: 0.55 }));
-    const fill = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: 0xe0a43c, transparent: true, opacity: 0.035, depthWrite: false, side: THREE.DoubleSide }));
-    fill.raycast = () => {};
-    // Build-volume outline (shown only when the model gets close to the limits)
-    const top = rect(h), bottom = rect(0);
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i < 4; i++) pts.push(bottom[i], top[i], top[i], top[(i + 1) % 4]);
-    const volume = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0xe0a43c, dashSize: 4, gapSize: 4, transparent: true, opacity: 0.35 }));
-    volume.computeLineDistances();
-    volume.name = 'volume';
-    const tag = label(`${PRINTER.name} · ${w} × ${d} mm plate`, 'plate-label');
-    tag.position.set(-w / 2, -d / 2, 0);
-    this.plateGroup.add(plate, fill, volume, tag);
-  }
-
-  private updatePlate() {
-    const b = this.result?.bbox;
-    const vol = this.plateGroup.getObjectByName('volume');
-    if (!vol) return;
-    const big = !!b && (b.max[0] - b.min[0] > PRINTER.bed[0] * 0.6 || b.max[1] - b.min[1] > PRINTER.bed[1] * 0.6 || b.max[2] - b.min[2] > PRINTER.height * 0.6);
-    vol.visible = big || !!fitProblem(b ?? null);
-    const color = fitProblem(b ?? null) ? 0xe5675f : 0xe0a43c;
-    for (const o of this.plateGroup.children) {
-      const mat = (o as THREE.Line).material as THREE.LineBasicMaterial | undefined;
-      if (mat && 'color' in mat && o.type !== 'Mesh') mat.color.set(color);
-    }
-  }
+  private buildGrid(size: number) { this.gridGroup.userData.step = buildGrid(this.gridGroup, size); }
+  private buildPlate() { buildPlate(this.plateGroup); }
+  private updatePlate() { updatePlate(this.plateGroup, this.result?.bbox); }
 
   get gridStep(): number { return this.gridGroup.userData.step ?? 10; }
 
   // ---------------------------------------------------------------- dimensions
 
   private dimLine(group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3, offset: THREE.Vector3, text: string, color: number, cls: string, target?: DimTarget) {
-    const a = from.clone().add(offset), b = to.clone().add(offset);
-    const len = a.distanceTo(b);
-    if (len < 1e-6) return;
-    const mat = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
-    const pts: THREE.Vector3[] = [a, b];
-    if (offset.lengthSq() > 1e-9) {
-      const ext = offset.clone().normalize().multiplyScalar(this.modelSize() * 0.02);
-      pts.push(from, a.clone().add(ext), to, b.clone().add(ext));
-    }
-    const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), mat);
-    lines.renderOrder = 999;
-    group.add(lines);
-    const dir = b.clone().sub(a).normalize();
-    const arrowLen = Math.min(len * 0.25, this.modelSize() * 0.035);
-    const coneGeom = new THREE.ConeGeometry(arrowLen * 0.32, arrowLen, 12);
-    coneGeom.translate(0, -arrowLen / 2, 0);
-    const coneMat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
-    for (const [p, d] of [[a, dir.clone().negate()], [b, dir]] as const) {
-      const cone = new THREE.Mesh(coneGeom, coneMat);
-      cone.position.copy(p);
-      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
-      cone.renderOrder = 999;
-      cone.raycast = () => {};
-      group.add(cone);
-    }
-    const lbl = label(text, cls);
-    lbl.position.copy(a.clone().add(b).multiplyScalar(0.5));
-    if (target) {
-      const el = lbl.element.firstElementChild as HTMLElement;
-      el.classList.add('editable');
-      el.title = 'Double-click to edit';
-      el.addEventListener('dblclick', (ev) => {
-        ev.stopPropagation();
-        this.onDimEdit(target, el.getBoundingClientRect(), from.distanceTo(to));
-      });
-    }
-    group.add(lbl);
+    dimLine(group, from, to, offset, text, color, cls, this.modelSize(), target && ((el, current) => this.onDimEdit(target, el.getBoundingClientRect(), current)));
   }
 
-  private clearGroup(group: THREE.Group) {
-    group.traverse((o) => {
-      if (o instanceof CSS2DObject) o.element.remove();
-      const m = o as THREE.Mesh;
-      m.geometry?.dispose?.();
-    });
-    group.clear();
-  }
+  private clearGroup(group: THREE.Group) { clearGroup(group); }
 
   private rebuildDims() {
     this.clearGroup(this.dimsGroup);

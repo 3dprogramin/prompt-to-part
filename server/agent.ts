@@ -1,18 +1,16 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
-import { query, tool, createSdkMcpServer, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, GenerateRequest } from '../shared/api';
-import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
+import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { DATA_DIR, USE_API_KEY } from './config';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional()
-  .describe('Optional parameter values to test with (defaults are used for missing keys)');
 
 const TOOL_LABELS: Record<string, string> = {
   Read: 'Reading model.js',
@@ -80,138 +78,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (req.code?.trim()) await writeFile(file, req.code);
   else await rm(file, { force: true });
 
-  const readModel = async () => {
-    try { return await readFile(file, 'utf8'); } catch { return null; }
-  };
-  const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
-  let submitted = false;
-  // Code of model.js at the last successful render: submit requires the current file to have been looked at.
-  let renderedCode: string | null = null;
-
-  const cad = createSdkMcpServer({
-    name: 'cad',
-    version: '1.0.0',
-    tools: [
-      tool('evaluate_model', 'Run model.js with the given (or default) parameter values. Returns errors with line numbers, or bounding boxes, volumes, connected-piece counts, dimension callouts and warnings.', { values: valuesSchema }, async ({ values }) => {
-        const code = await readModel();
-        if (code == null) return noFile;
-        try {
-          const r = await geometry.evaluate(code, values);
-          const report = formatReport(r);
-          emit({ type: 'step', step: { kind: 'tool', ok: r.ok, text: r.ok ? oneLine(r) : `Error: ${r.error.message}${r.error.line ? ` (line ${r.error.line})` : ''}` } });
-          return { content: [{ type: 'text', text: report }], isError: !r.ok };
-        } catch (e) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: (e as Error).message } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      }),
-      tool('render_model', 'Render model.js to an image sheet: top-left ISO view (from front-right, above), top-right FRONT (looking +Y; X right, Z up), bottom-left RIGHT (looking −X; Y right, Z up), bottom-right TOP (looking down; X right, Y up). Ortho views share one scale and show a mm grid. Use it to visually verify the design.', { values: valuesSchema }, async ({ values }) => {
-        const code = await readModel();
-        if (code == null) return noFile;
-        try {
-          const r = await geometry.render(code, values);
-          if (!r.ok || !r.png) {
-            const report = formatReport(r);
-            emit({ type: 'step', step: { kind: 'tool', ok: false, text: r.ok ? 'Nothing to render' : `Error: ${r.error.message}` } });
-            return { content: [{ type: 'text', text: report }], isError: true };
-          }
-          emit({ type: 'step', step: { kind: 'render', ok: true, text: oneLine(r), image: `data:image/png;base64,${r.png}` } });
-          renderedCode = code;
-          return {
-            content: [
-              { type: 'image', data: r.png, mimeType: 'image/png' },
-              { type: 'text', text: `Grid spacing on FRONT/RIGHT/TOP views: ${r.gridStep} mm (darker lines = X/Y/Z axes through the origin).\n${formatReport(r)}` },
-            ],
-          };
-        } catch (e) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: (e as Error).message } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      }),
-      tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max. Rejected if anything fails (set force=true only if a failure is truly unavoidable and harmless).', {
-        summary: z.string().describe('One or two sentences describing this version (shown in version history)'),
-        force: z.boolean().optional(),
-        assembly: z.object({
-          layoutParam: z.string().optional().describe('Key of the select parameter that switches the layout'),
-          assembledValue: z.string().optional().describe('Option value that shows the parts assembled in place'),
-          explodedValue: z.string().optional().describe('Option value that shows the assembly with parts pulled apart along their assembly direction'),
-          independentParts: z.string().optional().describe('Only if the parts are separate objects that are never assembled together: say why'),
-          singlePrint: z.boolean().optional().describe('True if the parts are coloured regions of one object printed together in place (multi-colour)'),
-        }).optional().describe('Required when the model has more than one part'),
-      }, async ({ summary, force, assembly }) => {
-        const code = await readModel();
-        if (code == null) return noFile;
-        if (code !== renderedCode) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: render and inspect the current model first' } });
-          return {
-            content: [{ type: 'text', text: renderedCode == null
-              ? 'Rejected – you have not looked at the model yet. Call render_model, inspect the image carefully (and compare it with the reference photos if any), fix what is wrong, then submit.'
-              : 'Rejected – model.js changed since your last render. Call render_model again and verify the current version visually before submitting.' }],
-            isError: true,
-          };
-        }
-        try {
-          const r = await geometry.evaluate(code);
-          if (!r.ok || !r.parts.length) {
-            emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: defaults fail' } });
-            return { content: [{ type: 'text', text: `Rejected – the default parameters do not produce a valid model:\n${formatReport(r)}` }], isError: true };
-          }
-          const s = await geometry.stress(code);
-          if (s.failures.length && !force) {
-            emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Stress test: ${s.failures.length} slider extreme(s) fail` } });
-            return {
-              content: [{ type: 'text', text: `Rejected – ${s.failures.length} of ${s.tested} slider-extreme cases fail:\n${s.failures.slice(0, 15).map((f) => `  - ${f.case}: ${f.error}`).join('\n')}\nClamp derived values inside build() or narrow the parameter ranges, then submit again.` }],
-              isError: true,
-            };
-          }
-          // Multi-part designs: the user gets assembled + exploded pictures.
-          const pictures: { label: string; png: string }[] = [];
-          if (r.parts.length > 1 && !assembly?.independentParts && !assembly?.singlePrint) {
-            const reject = (why: string) => {
-              emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: assembly views missing' } });
-              return { content: [{ type: 'text' as const, text: `Rejected – this design has ${r.parts.length} parts (${r.parts.map((p) => p.name).join(', ')}). ${why}` }], isError: true };
-            };
-            const def = assembly?.layoutParam ? r.params[assembly.layoutParam] : undefined;
-            if (!assembly?.layoutParam || !assembly.assembledValue) {
-              return reject('Add a select parameter (e.g. layout: [\'print\', \'assembled\', \'exploded\']) and pass assembly: { layoutParam, assembledValue, explodedValue } so the user gets assembly pictures. If the parts are coloured regions of one object printed together, pass assembly: { singlePrint: true }; if they are separate objects that are never assembled, pass assembly: { independentParts: "<why>" }.');
-            }
-            if (!def || def.type !== 'select') return reject(`"${assembly.layoutParam}" is not a select parameter.`);
-            for (const v of [assembly.assembledValue, assembly.explodedValue]) {
-              if (v && !def.options.some((o) => o.value === v)) return reject(`"${v}" is not an option of "${assembly.layoutParam}" (${def.options.map((o) => o.value).join(', ')}).`);
-            }
-            // The animated assembly needs a sequence returned from build() in the assembled layout.
-            const asm = await geometry.evaluate(code, { [assembly.layoutParam]: assembly.assembledValue });
-            if (!asm.ok) return reject(`The assembled layout fails: ${asm.error.message}`);
-            if (!asm.assembly.length) {
-              return reject('build() must also return an assembly sequence – assembly: [{ label, parts: [partNames], from?: [dx,dy,dz], rotate?: { axis, degrees, center? } }, …] – so the user can watch it being put together. Parts that never appear in a step are the base (already in place).');
-            }
-            const badSteps = asm.warnings.filter((w) => w.startsWith('Assembly step'));
-            if (badSteps.length) return reject(`Fix the assembly sequence: ${badSteps.join('; ')}`);
-            const shots: [string, string | undefined][] = [['Assembled', assembly.assembledValue], ['Exploded view', assembly.explodedValue]];
-            for (const [label, value] of shots) {
-              if (!value) continue;
-              const shot = await geometry.iso(code, { [assembly.layoutParam]: value });
-              if (!shot.ok || !shot.png) return reject(`Rendering the ${label.toLowerCase()} layout failed: ${shot.ok ? 'no geometry' : shot.error.message}`);
-              pictures.push({ label, png: shot.png });
-            }
-          }
-          submitted = true;
-          emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Stress test passed (${s.tested} cases)${s.skipped ? `, ${s.skipped} skipped for time` : ''}` } });
-          emit({ type: 'model', code, summary });
-          for (const p of pictures) emit({ type: 'step', step: { kind: 'assembly', ok: true, text: p.label, image: `data:image/png;base64,${p.png}` } });
-          if (!pictures.length) return { content: [{ type: 'text', text: 'Accepted and loaded in the user\'s viewer. Now end your turn with a short message to the user.' }] };
-          return {
-            content: [
-              { type: 'text', text: 'Accepted and loaded in the user\'s viewer. The user also sees these assembly pictures. Check them: assembled parts must sit exactly where they belong, and the exploded view must show clearly how they go together. If something is wrong, fix it and submit again. Otherwise end your turn with your message to the user, including the assembly instructions.' },
-              ...pictures.flatMap((p) => [{ type: 'text' as const, text: `${p.label}:` }, { type: 'image' as const, data: p.png, mimeType: 'image/png' }]),
-            ],
-          };
-        } catch (e) {
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      }),
-    ],
-  });
+  const { server: cad, state } = cadTools(file, emit);
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
   const parts: string[] = [];
@@ -412,7 +279,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${(msg.duration_ms / 1000).toFixed(0)} s · ${msg.num_turns} turns` } });
-        emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted, text: finalText });
+        emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted: state.submitted, text: finalText });
       }
     }
   };
@@ -428,13 +295,6 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       await run(undefined);
     } else throw e;
   }
-}
-
-function oneLine(r: { ok: true; bbox: { min: number[]; max: number[] } | null; timeMs: number; parts: { triCount: number }[]; warnings: string[] }) {
-  const b = r.bbox;
-  const size = b ? `${(b.max[0] - b.min[0]).toFixed(1)} × ${(b.max[1] - b.min[1]).toFixed(1)} × ${(b.max[2] - b.min[2]).toFixed(1)} mm` : 'empty';
-  const tris = r.parts.reduce((s, p) => s + p.triCount, 0);
-  return `${size} · ${r.parts.length} part(s) · ${tris.toLocaleString()} tris · ${Math.round(r.timeMs)} ms`;
 }
 
 function lastSentence(text: string) {
