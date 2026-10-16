@@ -460,3 +460,20 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .export-menu { left: auto; right: 0; width: 296px; max-width: calc(100vw - 24px); }
 .side-panel { overflow: hidden; }
 .export-menu.threemf .btn { flex-direction: row; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; }
+
+/* claude's thinking, beside the chat */
+.msg-head { display: flex; align-items: center; gap: 10px; }
+.think-link { color: var(--text-3); font-size: 11.5px; }
+.think-link:hover { color: var(--accent-2); }
+.peek { cursor: help; }
+.thinking-panel { position: fixed; z-index: 60; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 16px 48px #000a; }
+.thinking-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); }
+.thinking-head .spinner { width: 11px; height: 11px; }
+.thinking-title { font-weight: 600; }
+.thinking-head .icon-btn.on { color: var(--accent); background: #e0a43c1a; }
+.thinking-body { overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 16px; display: flex; flex-direction: column; gap: 10px; color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
+.thinking-block + .thinking-block { border-top: 1px solid var(--line); padding-top: 10px; }
+.thinking-block p { margin: 0 0 6px; }
+.thinking-block.current { color: var(--text); }
+.thinking-time { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); margin-bottom: 2px; }
+.thinking-jump { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 99px; border: 1px solid #e0a43c66; background: #2a2418; color: var(--accent-2); font-size: 11.5px; box-shadow: 0 4px 14px #0008; }

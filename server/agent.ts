@@ -35,7 +35,9 @@ export type AgentEvent =
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
   | { type: 'error'; message: string }
   /** Transient one-line status (throttled), replaced by the next one. */
-  | { type: 'live'; text: string };
+  | { type: 'live'; text: string }
+  /** Text of the thinking block in progress (batched); the finished block follows as a 'thinking' step. */
+  | { type: 'thinking'; delta: string };
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -298,6 +300,13 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       if (now - liveSent >= 250) { liveSent = now; emit({ type: 'live', text: live }); return; }
       if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; liveSent = Date.now(); emit({ type: 'live', text: live }); }, 250);
     };
+    // Thinking text streams in small batches so the client can show all of it, not just the live line.
+    let thinking = '';
+    let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushThinking = () => {
+      if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
+      if (thinking) { emit({ type: 'thinking', delta: thinking }); thinking = ''; }
+    };
     let block: { type: string; name?: string; chars: number; text: string } | null = null;
     const toolNames = new Map<string, string>();
 
@@ -320,6 +329,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           if (d.type === 'thinking_delta' && d.thinking) {
             block.text = (block.text + d.thinking).slice(-400);
             pushLive(`Thinking: ${lastSentence(block.text)}`);
+            thinking += d.thinking;
+            thinkingTimer ??= setTimeout(flushThinking, 200);
           } else if (d.type === 'text_delta' && d.text) {
             block.text = (block.text + d.text).slice(-400);
             pushLive(`Writing a reply: ${lastSentence(block.text)}`);
@@ -327,7 +338,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             block.chars += d.partial_json.length;
             pushLive(`${TOOL_LABELS[block.name ?? ''] ?? block.name}… ${(block.chars / 1024).toFixed(1)} KB`);
           }
-        } else if (ev.type === 'content_block_stop') block = null;
+        } else if (ev.type === 'content_block_stop') {
+          if (block?.type === 'thinking') flushThinking();
+          block = null;
+        }
       } else if (msg.type === 'assistant') {
         gotOutput = true;
         for (const b of msg.message.content) {
@@ -370,6 +384,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         pushLive(`${TOOL_LABELS[msg.tool_name] ?? msg.tool_name}… ${Math.round(msg.elapsed_time_seconds)} s`);
       } else if (msg.type === 'result') {
         if (liveTimer) clearTimeout(liveTimer);
+        flushThinking();
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }

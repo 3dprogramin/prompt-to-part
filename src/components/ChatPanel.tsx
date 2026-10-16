@@ -3,6 +3,7 @@ import type { AgentStep, ChatMessage, DesignVersion } from '../../shared/types';
 import { prepareImage } from '../lib/files';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
+import { ThinkingPanel } from './ThinkingPanel';
 
 interface Props {
   messages: ChatMessage[];
@@ -137,6 +138,15 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
 }) {
   const [open, setOpen] = useState(false);
   const elapsed = useElapsed(live ? m.createdAt : null);
+  // Claude's full thinking beside the chat: opens while hovering the live line, can be pinned.
+  const [think, setThink] = useState<{ mode: 'hover' | 'pinned'; at: { left: number; top: number } } | null>(null);
+  const hideTimer = useRef(0);
+  const peek = (inside: boolean, el?: HTMLElement) => {
+    clearTimeout(hideTimer.current);
+    if (inside) { if (el) setThink((t) => t ?? { mode: 'hover', at: besideChat(el) }); }
+    else hideTimer.current = window.setTimeout(() => setThink((t) => (t?.mode === 'hover' ? null : t)), 250);
+  };
+  useEffect(() => () => clearTimeout(hideTimer.current), []);
   if (m.role === 'user') {
     return (
       <div className="msg user">
@@ -146,6 +156,12 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
     );
   }
   const assembly = (m.steps ?? []).filter((s) => s.kind === 'assembly' && s.image);
+  const thoughts = (m.steps ?? []).filter((s) => s.kind === 'thinking');
+  const peekProps = {
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => peek(true, e.currentTarget),
+    onMouseLeave: () => peek(false),
+    title: "Hover to read all of Claude's thinking",
+  };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = verbose ? all : all.filter((s) => !s.verbose);
   const renders = steps.filter((s) => s.kind === 'render' && s.image);
@@ -157,15 +173,34 @@ function Message({ m, live, verbose, versions, currentVersion, onRestore, onImag
     : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`;
   return (
     <div className="msg assistant">
-      <button className="steps-toggle" onClick={() => setOpen(!open)}>
-        {live ? <span className="spinner" /> : <Icon name={m.error ? 'alert' : 'check'} size={14} />}
-        <span>{headline}{live && <span className="elapsed"> · {fmtElapsed(elapsed)}</span>}</span>
-        {(!live || !verbose) && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
-      </button>
+      <div className="msg-head">
+        <button className={`steps-toggle ${live && !verbose ? 'peek' : ''}`} onClick={() => setOpen(!open)} {...(live && !verbose ? peekProps : {})}>
+          {live ? <span className="spinner" /> : <Icon name={m.error ? 'alert' : 'check'} size={14} />}
+          <span>{headline}{live && <span className="elapsed"> · {fmtElapsed(elapsed)}</span>}</span>
+          {(!live || !verbose) && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
+        </button>
+        {(live || thoughts.length > 0) && (
+          <button className="link think-link" title="Show all of Claude's thinking for this reply" onClick={(e) => setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) })}>
+            <Icon name="spark" size={12} /> thinking
+          </button>
+        )}
+      </div>
+      {think && (
+        <ThinkingPanel
+          blocks={thoughts}
+          current={m.thinking}
+          live={live}
+          at={think.at}
+          pinned={think.mode === 'pinned'}
+          onPin={(pinned) => setThink((t) => t && { ...t, mode: pinned ? 'pinned' : 'hover' })}
+          onClose={() => setThink(null)}
+          onHover={(inside) => peek(inside)}
+        />
+      )}
       {showSteps && (
         <ol className="steps">
           {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} showTime={verbose} />)}
-          {live && verbose && <li className="step live"><span className="spinner" /> <span className="step-text">{m.live ?? 'Starting…'}</span></li>}
+          {live && verbose && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text">{m.live ?? 'Starting…'}</span></li>}
         </ol>
       )}
       {!showSteps && renders.length > 0 && (
@@ -225,6 +260,13 @@ function Step({ s, onImage, showTime }: { s: AgentStep; onImage: (src: string) =
       {s.image && <img src={s.image} alt="render" onClick={() => onImage(s.image!)} />}
     </li>
   );
+}
+
+/** Where the thinking panel opens: just right of the chat column, level with `el`. */
+function besideChat(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  const chat = el.closest('.chat-panel')?.getBoundingClientRect();
+  return { left: (chat?.right ?? r.right) + 8, top: r.top };
 }
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);

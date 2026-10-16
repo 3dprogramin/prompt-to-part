@@ -149,6 +149,8 @@ export interface ChatMessage {
   durationMs?: number;
   /** Transient live status while generating (not meaningful once done) */
   live?: string;
+  /** Transient text of the thinking block in progress; finished blocks are 'thinking' steps. */
+  thinking?: string;
 }
 
 export interface DesignVersion {

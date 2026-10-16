@@ -304,8 +304,9 @@ export default function App() {
         effort,
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
-        else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step] }));
+        else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], thinking: ev.step.kind === 'thinking' ? undefined : m.thinking }));
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
+        else if (ev.type === 'thinking') patchAsst((m) => ({ ...m, thinking: (m.thinking ?? '') + ev.delta }));
         else if (ev.type === 'model') {
           update((d) => {
             const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const }];
@@ -324,7 +325,7 @@ export default function App() {
       if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
     } finally {
-      patchAsst((m) => ({ ...m, live: undefined }));
+      patchAsst((m) => ({ ...m, live: undefined, thinking: undefined }));
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
       channel?.postMessage({ type: 'running', tab: TAB_ID, id: designId, on: false } satisfies TabMessage);
       // A design that finished in the background is persisted, then dropped from memory.

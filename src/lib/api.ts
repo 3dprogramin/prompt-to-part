@@ -6,7 +6,8 @@ export type AgentEvent =
   | { type: 'model'; code: string; summary: string }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
   | { type: 'error'; message: string }
-  | { type: 'live'; text: string };
+  | { type: 'live'; text: string }
+  | { type: 'thinking'; delta: string };
 
 export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
 
