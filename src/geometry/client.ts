@@ -1,12 +1,16 @@
 import type { DimTarget, EvalResult, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../../shared/types';
+import type { ValidationReport } from './validate';
 
-export type EvalOutcome = { result: EvalResult; error?: undefined } | { result?: undefined; error: ScriptErrorInfo };
+export type EvalOutcome =
+  | { result: EvalResult; report?: ValidationReport; error?: undefined }
+  | { result?: undefined; report?: undefined; error: ScriptErrorInfo };
 
 interface Job {
   code: string;
   values: ParamValues;
   quality: Quality;
   solve?: { target: DimTarget; goal: number };
+  validate?: { layoutValue?: string };
   resolve: (o: any) => void;
 }
 
@@ -28,13 +32,13 @@ export class GeometryClient {
   private spawn() {
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (ev) => {
-      const { id, result, error, solve } = ev.data as { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult };
+      const { id, result, error, solve, report } = ev.data as { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport };
       if (!this.running || this.running.id !== id) return;
       clearTimeout(this.running.timer);
       const { job } = this.running;
       this.running = null;
       if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
-      else job.resolve(result ? { result } : { error: error! });
+      else job.resolve(result ? { result, report } : { error: error! });
       this.pump();
     };
   }
@@ -48,10 +52,10 @@ export class GeometryClient {
     });
   }
 
-  /** Guaranteed evaluation (e.g. high-quality export); runs before any pending preview. */
-  evaluate(code: string, values: ParamValues, quality: Quality): Promise<EvalOutcome> {
+  /** Guaranteed evaluation (e.g. high-quality export); runs before any pending preview. Optionally validates the mesh. */
+  evaluate(code: string, values: ParamValues, quality: Quality, validate?: { layoutValue?: string }): Promise<EvalOutcome> {
     return new Promise((resolve) => {
-      this.queue.push({ code, values, quality, resolve });
+      this.queue.push({ code, values, quality, validate, resolve });
       this.pump();
     });
   }
@@ -86,6 +90,6 @@ export class GeometryClient {
     this.running = { id, job, timer };
     this.worker.postMessage(job.solve
       ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }
-      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality });
+      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality, validate: job.validate });
   }
 }

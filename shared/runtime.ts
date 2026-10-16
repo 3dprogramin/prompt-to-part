@@ -778,6 +778,24 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   }
 }
 
+/** Volume (mm³) where two part meshes intersect. */
+export function overlapVolume(a: PartMesh, b: PartMesh): number {
+  if (!runtime) throw new Error('runtime not initialised');
+  const rt = runtime;
+  try {
+    const make = (p: PartMesh) => {
+      const mesh = new rt.wasm.Mesh({ numProp: 3, vertProperties: p.positions, triVerts: p.indices });
+      mesh.merge();
+      return new rt.Manifold(mesh) as Manifold;
+    };
+    return make(a).intersect(make(b)).volume();
+  } catch {
+    return 0;
+  } finally {
+    cleanup(rt);
+  }
+}
+
 export function formatScriptError(e: unknown): ScriptErrorInfo {
   if (e instanceof ScriptError) return e.info;
   return { message: (e as Error)?.message ?? String(e), stage: 'build' };
