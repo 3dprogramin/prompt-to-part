@@ -60,9 +60,16 @@ export function initRuntime(wasm: ManifoldToplevel): void {
       };
     }
   };
+  // Methods like translate/subtract live on parent prototypes, so wrap the whole chain
+  // (each prototype once; embind's delete/clone/isDeleted are skipped).
+  const seen = new Set<object>();
   for (const cls of [M, C]) {
     wrapAll(cls);
-    wrapAll(cls.prototype);
+    for (let proto = cls.prototype; proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+      if (seen.has(proto)) continue;
+      seen.add(proto);
+      wrapAll(proto);
+    }
   }
   const proxied = (cls: any) => new Proxy(cls, {
     construct(target, args) { return track(Reflect.construct(target, args)); },
