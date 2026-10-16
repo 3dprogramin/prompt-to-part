@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, Design, DesignSummary, EvalResult, ParamValue, Quality, ScriptErrorInfo } from '../shared/types';
+import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../shared/types';
+import { SCALE_KEY } from '../shared/runtime';
 import { api, generate } from './lib/api';
 import { dataUrlToImage, download, slug, toBinaryStl, uid } from './lib/files';
 import { GeometryClient } from './geometry/client';
@@ -157,6 +158,29 @@ export default function App() {
     });
   };
 
+  /** Current values including the uniform scale (which is not a script parameter). */
+  const fullValues = (): ParamValues => {
+    const base = (result ?? lastGood)?.values ?? {};
+    const sc = design.values[SCALE_KEY];
+    return sc != null && sc !== 1 ? { ...base, [SCALE_KEY]: sc } : { ...base };
+  };
+
+  const onEditDimension = async (target: DimTarget, goal: number): Promise<SolveResult | null> => {
+    if (!design.code || !(result ?? lastGood)) return null;
+    const r = await geo.solve(design.code, fullValues(), quality, target, goal);
+    if (r.ok && r.key && r.value != null) {
+      const v = +r.value.toFixed(4);
+      setDesign((d) => ({ ...d, values: { ...d.values, [r.key!]: v } }));
+    }
+    return r;
+  };
+
+  const onScale = (factor: number) => setDesign((d) => {
+    const values = { ...d.values };
+    if (Math.abs(factor - 1) < 1e-9) delete values[SCALE_KEY]; else values[SCALE_KEY] = factor;
+    return { ...d, values };
+  });
+
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
   const onExport = async (partName?: string) => {
@@ -165,7 +189,7 @@ export default function App() {
     setExporting(true);
     try {
       // Re-evaluate at high resolution for the exported mesh.
-      const o = await geo.evaluate(design.code, base.values, 'high');
+      const o = await geo.evaluate(design.code, fullValues(), 'high');
       const r = o.result ?? base;
       const parts = partName ? r.parts.filter((p) => p.name === partName) : r.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name));
       if (!parts.length) return;
@@ -245,6 +269,7 @@ export default function App() {
           onOptions={setViewOpts}
           quality={quality}
           onQuality={setQuality}
+          onEditDimension={onEditDimension}
           emptyState={generating
             ? <div className="empty-inner"><span className="spinner big" /><p>Claude is designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}
@@ -256,6 +281,9 @@ export default function App() {
           code={design.code}
           onValue={onValue}
           onResetValues={() => setDesign((d) => ({ ...d, values: {} }))}
+          onEditDimension={onEditDimension}
+          scale={Number(design.values[SCALE_KEY] ?? 1)}
+          onScale={onScale}
           onApplyCode={onApplyCode}
           onExport={onExport}
           exporting={exporting}

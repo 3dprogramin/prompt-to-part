@@ -1,8 +1,14 @@
-import type { EvalResult, ParamValues, Quality, ScriptErrorInfo } from '../../shared/types';
+import type { DimTarget, EvalResult, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../../shared/types';
 
 export type EvalOutcome = { result: EvalResult; error?: undefined } | { result?: undefined; error: ScriptErrorInfo };
 
-interface Job { code: string; values: ParamValues; quality: Quality; resolve: (o: EvalOutcome) => void }
+interface Job {
+  code: string;
+  values: ParamValues;
+  quality: Quality;
+  solve?: { target: DimTarget; goal: number };
+  resolve: (o: any) => void;
+}
 
 const TIMEOUT_MS = 30000;
 
@@ -22,12 +28,13 @@ export class GeometryClient {
   private spawn() {
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (ev) => {
-      const { id, result, error } = ev.data as { id: number; result?: EvalResult; error?: ScriptErrorInfo };
+      const { id, result, error, solve } = ev.data as { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult };
       if (!this.running || this.running.id !== id) return;
       clearTimeout(this.running.timer);
       const { job } = this.running;
       this.running = null;
-      job.resolve(result ? { result } : { error: error! });
+      if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
+      else job.resolve(result ? { result } : { error: error! });
       this.pump();
     };
   }
@@ -49,6 +56,14 @@ export class GeometryClient {
     });
   }
 
+  /** Find the parameter value that makes a dimension hit `goal` mm. */
+  solve(code: string, values: ParamValues, quality: Quality, target: DimTarget, goal: number): Promise<SolveResult> {
+    return new Promise((resolve) => {
+      this.queue.push({ code, values, quality, solve: { target, goal }, resolve });
+      this.pump();
+    });
+  }
+
   private pump() {
     if (this.running) return;
     const job = this.queue.shift() ?? this.pending;
@@ -64,10 +79,13 @@ export class GeometryClient {
       this.worker.terminate();
       this.running = null;
       this.spawn();
-      job.resolve({ error: { message: `Evaluation timed out after ${TIMEOUT_MS / 1000}s`, stage: 'build' } });
+      const message = `Evaluation timed out after ${TIMEOUT_MS / 1000}s`;
+      job.resolve(job.solve ? { ok: false, message } : { error: { message, stage: 'build' } });
       this.pump();
     }, TIMEOUT_MS);
     this.running = { id, job, timer };
-    this.worker.postMessage({ id, code: job.code, values: job.values, quality: job.quality });
+    this.worker.postMessage(job.solve
+      ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }
+      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality });
   }
 }

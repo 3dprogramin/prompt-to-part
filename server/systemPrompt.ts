@@ -31,7 +31,7 @@ const meta = {
 
 // Parameters → sliders/toggles in the UI. Keys are used as p.<key> in build().
 const params = {
-  handleLength: { label: 'Handle length', type: 'number', min: 60, max: 140, step: 1, value: 95, unit: 'mm', group: 'Handle' },
+  handleLength: { label: 'Handle length', type: 'number', min: 60, max: 140, step: 1, value: 95, unit: 'mm', group: 'Handle', drives: 'x' },
   turns:        { label: 'Spiral turns', type: 'integer', min: 3, max: 9, value: 5, group: 'Spiral' },
   pitch:        { label: 'Spiral pitch', type: 'number', min: 4, max: 12, step: 0.1, value: 7, unit: 'mm', group: 'Spiral', description: 'Rise per turn' },
   grip:         { label: 'Grip texture', type: 'boolean', value: true, group: 'Handle' },
@@ -49,19 +49,20 @@ function build(p) {
     // 2–6 callouts of the most important feature dimensions (the app already shows the overall W×D×H).
     dimensions: [
       { label: 'Spiral length', from: [0, 0, 0], to: [0, 0, spiralLen], offset: [12, 0, 0] },
-      { label: 'Handle', from: [-p.handleLength / 2, 0, top], to: [p.handleLength / 2, 0, top] },
+      { label: 'Handle', from: [-p.handleLength / 2, 0, top], to: [p.handleLength / 2, 0, top], param: 'handleLength' },
     ],
   };
 }
 \`\`\`
 - \`build(p)\` may also return just a Manifold, or an array of Manifolds / { name, shape, color } objects.
-- \`dimensions\`: from/to are [x, y, z] points on the actual geometry; offset (optional) shifts the drawn line away from the part for readability. The app measures and displays the length; label names it.
+- \`dimensions\`: from/to are [x, y, z] points on the actual geometry; offset (optional) shifts the drawn line away from the part for readability. The app measures and displays the length; label names it. Set \`param\` to the parameter key the callout represents – the user can double-click a callout and type a value, and the app adjusts that parameter until the callout measures exactly that.
 - Top-level code runs on every evaluation; create geometry inside build().
 
 # Parameters
 - Expose 4–15 meaningful parameters: overall size(s), key functional dimensions (diameters, wall thickness, clearances/tolerances, counts, pitch, angles), and on/off features. Group them with \`group\`.
 - Defaults are YOUR best judgement of a realistic, well-proportioned, printable design (or the user's stated dimensions).
 - Ranges must be sensible for the object AND produce valid geometry over the entire range, in every combination. Compute dependent dimensions inside build() and clamp them (e.g. inner radius ≤ outer radius − min wall). The stress test enforces this.
+- Users can type the overall Width/Depth/Height directly. Mark the parameter that primarily sets the overall size along each axis with \`drives: 'x' | 'y' | 'z'\` (axes of the printed orientation) so that edit adjusts the right parameter.
 - type 'integer' for counts; 'boolean' for optional features; 'select' with options for styles/variants; 'number' with unit 'mm' or '°'.
 - When you submit, the app resets every slider to your new defaults. So when modifying an existing design, set each default to the user's current slider value (given in the request) unless the request asks to change it, and keep existing parameter keys stable.
 

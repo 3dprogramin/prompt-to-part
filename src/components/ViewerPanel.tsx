@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Viewer, type Measurement, type ViewName, type ViewerOptions } from '../viewer/Viewer';
-import type { EvalResult, Quality, ScriptErrorInfo, Vec3 } from '../../shared/types';
+import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import { Icon } from './Icon';
 
 interface Props {
@@ -13,22 +13,52 @@ interface Props {
   quality: Quality;
   onQuality: (q: Quality) => void;
   emptyState: React.ReactNode;
+  onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
 }
 
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
   const [measures, setMeasures] = useState<Measurement[]>([]);
   const lastFit = useRef('');
+  const panel = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState<{ target: DimTarget; x: number; y: number; value: string } | null>(null);
+  const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
+  const editRef = useRef<typeof onEditDimension>(onEditDimension);
+  editRef.current = onEditDimension;
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const commitEdit = async () => {
+    if (!editing) return;
+    const goal = Number(editing.value.replace(',', '.'));
+    const target = editing.target;
+    setEditing(null);
+    if (!Number.isFinite(goal)) return;
+    const r = await editRef.current(target, goal);
+    if (!r) return;
+    const what = target.kind === 'bbox' ? 'XYZ'[target.axis] : result?.dimensions[target.index]?.label ?? 'Dimension';
+    const param = r.key ? result?.params[r.key]?.label ?? r.key : '';
+    if (r.ok) setToast({ ok: true, text: r.key ? `${what} → ${goal.toFixed(2)} mm  ·  ${param} = ${+r.value!.toFixed(3)}` : `${what} is already ${goal.toFixed(2)} mm` });
+    else setToast({ ok: false, text: r.message ?? 'Could not reach that size.' });
+  };
 
   useEffect(() => {
     const v = new Viewer(host.current!, options);
     v.onHover = (p, snapped) => setHover(p ? { p, snapped } : null);
     v.onMeasurementsChange = setMeasures;
+    v.onDimEdit = (target, rect, current) => {
+      const p = panel.current!.getBoundingClientRect();
+      setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
+    };
     viewer.current = v;
     return () => { v.dispose(); viewer.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -42,6 +72,17 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target;
+      if ((t instanceof Element && t.closest('input, textarea, select, [contenteditable]')) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'h' || e.key === 'H') viewer.current?.home();
+      if (e.key === 'f' || e.key === 'F') viewer.current?.fit();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const set = (patch: Partial<ViewerOptions>) => onOptions({ ...options, ...patch });
   const setSection = (patch: Partial<ViewerOptions['section']>) => onOptions({ ...options, section: { ...options.section, ...patch } });
   const bbox = result?.bbox;
@@ -51,7 +92,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   const parts = result?.parts ?? [];
 
   return (
-    <div className="viewer-panel">
+    <div className="viewer-panel" ref={panel}>
       <div className="viewer-host" ref={host} />
 
       <div className="viewer-toolbar">
@@ -59,7 +100,8 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           {VIEWS.map(([k, l]) => (
             <button key={k} className="tb-btn text" onClick={() => viewer.current?.setView(k)}>{l}</button>
           ))}
-          <button className="tb-btn" title="Fit to model" onClick={() => viewer.current?.fit()}><Icon name="fit" /></button>
+          <button className="tb-btn" title="Home view (H)" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
+          <button className="tb-btn" title="Fit model from the current angle (F)" onClick={() => viewer.current?.fit()}><Icon name="fit" /></button>
         </div>
         <div className="tb-group">
           <Toggle on={options.ortho} onClick={() => set({ ortho: !options.ortho })} icon="ortho" title="Orthographic camera (no perspective distortion)" />
@@ -103,6 +145,22 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           })}
         </div>
       )}
+
+      {editing && (
+        <div className="dim-editor" style={{ left: editing.x, top: editing.y }}>
+          <input
+            autoFocus
+            className="mono"
+            value={editing.value}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditing(null); }}
+            onBlur={() => setEditing(null)}
+          />
+          <span>mm ↵</span>
+        </div>
+      )}
+      {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
 
       {!result && !error && !busy && <div className="viewer-empty">{emptyState}</div>}
 

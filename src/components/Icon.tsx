@@ -6,6 +6,7 @@ const PATHS: Record<string, string> = {
   folder: 'M3 7h6l2 2h10v10H3z',
   trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',
   x: 'M6 6l12 12M18 6 6 18',
+  home: 'M3 11 12 4l9 7M5 9.5V20h5v-6h4v6h5V9.5',
   fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   ruler: 'M3 17 17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
   cube: 'M12 3 20 7.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12 4 7.5',

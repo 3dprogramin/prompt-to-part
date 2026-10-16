@@ -551,7 +551,8 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
       if (max < min) [min, max] = [max, min];
       const isInt = type === 'integer';
       const step = Number(p.step) > 0 ? Number(p.step) : isInt ? 1 : niceStep(max - min || 1);
-      out[key] = { ...common, type: isInt ? 'integer' : 'number', min, max, step, value: isInt ? Math.round(val) : val, unit: typeof p.unit === 'string' ? p.unit : isInt ? undefined : 'mm' };
+      const drives = ['x', 'y', 'z'].includes(p.drives) ? p.drives : undefined;
+      out[key] = { ...common, type: isInt ? 'integer' : 'number', min, max, step, value: isInt ? Math.round(val) : val, unit: typeof p.unit === 'string' ? p.unit : isInt ? undefined : 'mm', drives };
     }
   }
   return out;
@@ -604,7 +605,7 @@ function isVec3(v: unknown): v is Vec3 {
   return Array.isArray(v) && v.length >= 3 && v.slice(0, 3).every((x) => Number.isFinite(x));
 }
 
-export function evaluateScript(code: string, inputValues: ParamValues | undefined, quality: Quality = 'normal'): EvalResult {
+export function evaluateScript(code: string, inputValues: ParamValues | undefined, quality: Quality = 'normal', opts: { lite?: boolean } = {}): EvalResult {
   if (!runtime) throw new Error('runtime not initialised');
   const rt = runtime;
   const t0 = performance.now();
@@ -668,6 +669,11 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       const st = shape.status();
       if (st !== 'NoError') warnings.push(`Part "${name}" has status ${st}`);
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }
+      if (opts.lite) {
+        const bb = shape.boundingBox();
+        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1 });
+        return;
+      }
       const mesh = shape.getMesh();
       const np = mesh.numProp;
       const vp = mesh.vertProperties;
@@ -689,7 +695,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       const o = d as Record<string, unknown>;
       if (!isVec3(o.from) || !isVec3(o.to)) { warnings.push(`Ignored dimension "${o.label ?? '?'}": from/to must be [x, y, z]`); continue; }
       const sc = (v: number[]) => v.slice(0, 3).map((x) => x * scale) as Vec3;
-      dimensions.push({ label: typeof o.label === 'string' ? o.label : undefined, from: sc(o.from), to: sc(o.to), offset: isVec3(o.offset) ? sc(o.offset) : undefined });
+      dimensions.push({ label: typeof o.label === 'string' ? o.label : undefined, from: sc(o.from), to: sc(o.to), offset: isVec3(o.offset) ? sc(o.offset) : undefined, param: typeof o.param === 'string' && o.param in params ? o.param : undefined });
     }
 
     let bbox: Box3 | null = null;

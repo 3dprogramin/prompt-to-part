@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
-import type { DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
+import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -100,6 +100,8 @@ export class Viewer {
   private lastSize = 0;
   onHover: (p: Vec3 | null, snapped: boolean) => void = () => {};
   onMeasurementsChange: (m: Measurement[]) => void = () => {};
+  /** Double-click on an editable dimension label. */
+  onDimEdit: (target: DimTarget, rect: DOMRect, current: number) => void = () => {};
 
   constructor(private container: HTMLElement, opts: ViewerOptions) {
     this.opts = opts;
@@ -247,7 +249,7 @@ export class Viewer {
     const size = this.modelSize();
     if (Math.abs(size - this.lastSize) / Math.max(1, size) > 0.5) this.buildGrid(size);
     this.lastSize = size;
-    if (fit) this.fit();
+    if (fit) this.home();
   }
 
   private modelBox(): THREE.Box3 | null {
@@ -320,20 +322,35 @@ export class Viewer {
   // ---------------------------------------------------------------- camera
 
   fit() {
-    const box = this.modelBox() ?? new THREE.Box3(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 50));
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const sphere = this.framingSphere();
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!Number.isFinite(dir.x) || dir.lengthSq() < 0.5) dir.set(...VIEW_DIRS.iso).normalize();
     this.placeCamera(sphere, dir);
   }
 
   setView(name: ViewName) {
+    this.placeCamera(this.framingSphere(), new THREE.Vector3(...VIEW_DIRS[name]).normalize());
+  }
+
+  /** Standard home view: same iso angle every time, framing the model and its dimension lines. */
+  home() {
+    if (this.opts.ortho) this.orthoCam.up.set(0, 0, 1);
+    this.persp.up.set(0, 0, 1);
+    this.setView('iso');
+  }
+
+  private framingSphere(): THREE.Sphere {
     const box = this.modelBox() ?? new THREE.Box3(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 50));
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
-    this.placeCamera(sphere, new THREE.Vector3(...VIEW_DIRS[name]).normalize());
+    // Grow by the dimension-line offset so the overall X/Y/Z callouts stay in view.
+    if (this.opts.showBBox && this.result) box.expandByScalar(this.modelSize() * 0.14);
+    return box.getBoundingSphere(new THREE.Sphere());
   }
 
   private placeCamera(sphere: THREE.Sphere, dir: THREE.Vector3) {
+    // Flush leftover orbit/pan momentum so the new view is exact.
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = true;
     const r = Math.max(sphere.radius, 1);
     const dist = (r / Math.sin(THREE.MathUtils.degToRad(this.persp.fov / 2))) * 0.95;
     this.controls.target.copy(sphere.center);
@@ -410,7 +427,7 @@ export class Viewer {
 
   // ---------------------------------------------------------------- dimensions
 
-  private dimLine(group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3, offset: THREE.Vector3, text: string, color: number, cls: string) {
+  private dimLine(group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3, offset: THREE.Vector3, text: string, color: number, cls: string, target?: DimTarget) {
     const a = from.clone().add(offset), b = to.clone().add(offset);
     const len = a.distanceTo(b);
     if (len < 1e-6) return;
@@ -438,6 +455,15 @@ export class Viewer {
     }
     const lbl = label(text, cls);
     lbl.position.copy(a.clone().add(b).multiplyScalar(0.5));
+    if (target) {
+      const el = lbl.element.firstElementChild as HTMLElement;
+      el.classList.add('editable');
+      el.title = 'Double-click to edit';
+      el.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation();
+        this.onDimEdit(target, el.getBoundingClientRect(), from.distanceTo(to));
+      });
+    }
     group.add(lbl);
   }
 
@@ -458,17 +484,17 @@ export class Viewer {
     const s = box.getSize(new THREE.Vector3());
     const off = this.modelSize() * 0.12;
     const { min, max } = box;
-    this.dimLine(this.dimsGroup, new THREE.Vector3(min.x, min.y, min.z), new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(0, -off, 0), `X ${fmt(s.x)} mm`, 0xe46a6a, 'dim-label dim-x');
-    this.dimLine(this.dimsGroup, new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(max.x, max.y, min.z), new THREE.Vector3(off, 0, 0), `Y ${fmt(s.y)} mm`, 0x6ac46a, 'dim-label dim-y');
-    this.dimLine(this.dimsGroup, new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(max.x, min.y, max.z), new THREE.Vector3(off * 0.7, -off * 0.7, 0), `Z ${fmt(s.z)} mm`, 0x6a9ae4, 'dim-label dim-z');
-    for (const d of this.result.dimensions) this.addAnnotation(d);
+    this.dimLine(this.dimsGroup, new THREE.Vector3(min.x, min.y, min.z), new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(0, -off, 0), `X ${fmt(s.x)} mm`, 0xe46a6a, 'dim-label dim-x', { kind: 'bbox', axis: 0 });
+    this.dimLine(this.dimsGroup, new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(max.x, max.y, min.z), new THREE.Vector3(off, 0, 0), `Y ${fmt(s.y)} mm`, 0x6ac46a, 'dim-label dim-y', { kind: 'bbox', axis: 1 });
+    this.dimLine(this.dimsGroup, new THREE.Vector3(max.x, min.y, min.z), new THREE.Vector3(max.x, min.y, max.z), new THREE.Vector3(off * 0.7, -off * 0.7, 0), `Z ${fmt(s.z)} mm`, 0x6a9ae4, 'dim-label dim-z', { kind: 'bbox', axis: 2 });
+    this.result.dimensions.forEach((d, i) => this.addAnnotation(d, i));
   }
 
-  private addAnnotation(d: DimensionAnnotation) {
+  private addAnnotation(d: DimensionAnnotation, index: number) {
     const from = new THREE.Vector3(...d.from), to = new THREE.Vector3(...d.to);
     const len = from.distanceTo(to);
     const offset = d.offset ? new THREE.Vector3(...d.offset) : new THREE.Vector3();
-    this.dimLine(this.annGroup, from, to, offset, `${d.label ? d.label + ': ' : ''}${fmt(len)} mm`, 0xf0b54a, 'dim-label dim-ann');
+    this.dimLine(this.annGroup, from, to, offset, `${d.label ? d.label + ': ' : ''}${fmt(len)} mm`, 0xf0b54a, 'dim-label dim-ann', { kind: 'callout', index });
   }
 
   // ---------------------------------------------------------------- picking & measuring

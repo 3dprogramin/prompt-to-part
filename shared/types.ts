@@ -12,6 +12,8 @@ export interface NumberParam {
   unit?: string;
   group?: string;
   description?: string;
+  /** This parameter sets the model's overall size along this axis (used when editing dimensions directly). */
+  drives?: 'x' | 'y' | 'z';
 }
 export interface BooleanParam {
   type: 'boolean';
@@ -43,6 +45,19 @@ export interface DimensionAnnotation {
   to: Vec3;
   /** Optional world-space offset applied to the drawn dimension line. */
   offset?: Vec3;
+  /** Parameter this callout represents; editing the callout adjusts it. */
+  param?: string;
+}
+
+/** What a dimension edit targets: an overall bounding-box axis or one callout. */
+export type DimTarget = { kind: 'bbox'; axis: 0 | 1 | 2 } | { kind: 'callout'; index: number };
+
+export interface SolveResult {
+  ok: boolean;
+  key?: string;
+  value?: number;
+  achieved?: number;
+  message?: string;
 }
 
 export interface Box3 {

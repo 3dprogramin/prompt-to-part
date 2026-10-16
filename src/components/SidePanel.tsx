@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo } from '../../shared/types';
+import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { PRINTER, fitProblem } from '../../shared/printer';
 
@@ -17,6 +17,9 @@ interface Props {
   exporting: boolean;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
+  onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
+  scale: number;
+  onScale: (factor: number) => void;
 }
 
 const PLA_DENSITY = 1.24; // g/cm³
@@ -32,6 +35,7 @@ export function SidePanel(p: Props) {
         <button className={tab === 'code' ? 'on' : ''} onClick={() => setTab('code')}><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" /> : null}</button>
       </div>
       <div className="tab-body">
+        {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
         {tab === 'params' && <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} />}
         {tab === 'info' && <InfoTab result={shown} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} />}
         {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={p.onApplyCode} />}
@@ -46,6 +50,54 @@ export function SidePanel(p: Props) {
           <Icon name="download" /> {p.exporting ? 'Exporting…' : `Export STL${shown && shown.parts.length > 1 ? ` (${shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length} parts)` : ''}`}
         </button>
       </div>
+    </div>
+  );
+}
+
+function OverallSize({ result, onEdit, scale, onScale }: { result: EvalResult; onEdit: Props['onEditDimension']; scale: number; onScale: (f: number) => void }) {
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+  const b = result.bbox;
+  if (!b) return null;
+  const axes = [['W', 'X'], ['D', 'Y'], ['H', 'Z']] as const;
+  const edit = async (axis: 0 | 1 | 2, goal: number) => {
+    const r = await onEdit({ kind: 'bbox', axis }, goal);
+    if (!r) return;
+    const label = r.key ? result.params[r.key]?.label ?? r.key : '';
+    setNote(r.ok ? { ok: true, text: r.key ? `${'XYZ'[axis]} set via “${label}”` : 'Already that size' } : { ok: false, text: r.message ?? 'Not reachable' });
+  };
+  return (
+    <section className="param-group overall">
+      <h4>Overall size <span className="h4-hint">type a size, or double-click a dimension in the view</span></h4>
+      <div className="size-grid">
+        {axes.map(([name, ax], i) => (
+          <label key={ax} className={`size-cell axis-${ax.toLowerCase()}`}>
+            <span>{name} <small>{ax}</small></span>
+            <CommitInput value={b.max[i] - b.min[i]} decimals={2} onCommit={(v) => edit(i as 0 | 1 | 2, v)} />
+          </label>
+        ))}
+        <label className="size-cell">
+          <span>Scale</span>
+          <CommitInput value={scale * 100} decimals={1} suffix="%" onCommit={(v) => v > 0 && onScale(v / 100)} />
+        </label>
+      </div>
+      {note && <div className={`size-note ${note.ok ? '' : 'bad'}`}>{note.text}</div>}
+    </section>
+  );
+}
+
+function CommitInput({ value, decimals, onCommit, suffix }: { value: number; decimals: number; onCommit: (v: number) => void; suffix?: string }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft == null) return;
+    const v = Number(draft.replace(',', '.'));
+    setDraft(null);
+    if (Number.isFinite(v) && Math.abs(v - value) > 1e-6) onCommit(v);
+  };
+  return (
+    <div className="num-box">
+      <input className="mono" value={draft ?? value.toFixed(decimals)} onChange={(e) => setDraft(e.target.value)} onFocus={(e) => e.target.select()} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); } }} />
+      <span className="unit">{suffix ?? 'mm'}</span>
     </div>
   );
 }
