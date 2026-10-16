@@ -522,7 +522,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand"><span className="logo"><Icon name="cube" size={18} /></span> AI Designer</div>
+        <button className="brand" onClick={createNew} title="New design"><span className="logo"><Icon name="cube" size={18} /></span> AI Designer</button>
         <input className="design-name" value={design.name} onChange={(e) => setDesign((d) => ({ ...d, name: e.target.value }))} />
         {design.versions.length > 0 && <span className="dim small">v{design.currentVersion + 1} of {design.versions.length}</span>}
         <span className="spacer" />
