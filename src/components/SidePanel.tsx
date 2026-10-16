@@ -23,6 +23,8 @@ interface Props {
   exporting: boolean;
   exportError: string | null;
   blender: string | null;
+  onValidate: () => void;
+  validating: boolean;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
@@ -63,8 +65,13 @@ export function SidePanel(p: Props) {
             {(shown.bbox.max[0] - shown.bbox.min[0]).toFixed(2)} × {(shown.bbox.max[1] - shown.bbox.min[1]).toFixed(2)} × {(shown.bbox.max[2] - shown.bbox.min[2]).toFixed(2)} mm
           </div>
         )}
-<ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
+<div className="export-row">
+          <button className="btn ghost validate-btn" disabled={!shown || p.validating || p.exporting} onClick={p.onValidate} title="Check the export mesh for printing problems (also runs automatically on export)">
+            <Icon name="check" size={14} /> {p.validating ? 'Checking…' : 'Validate'}
+          </button>
+          <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
+        </div>
         {p.exportError && <div className="size-note bad">{p.exportError}</div>}
       </div>
     </div>

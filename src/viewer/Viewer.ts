@@ -92,6 +92,7 @@ export class Viewer {
   private measureGroup = new THREE.Group();
   private gridGroup = new THREE.Group();
   private plateGroup = new THREE.Group();
+  private issueGroup = new THREE.Group();
   private headlight = new THREE.DirectionalLight(0xffffff, 1.6);
   private clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
   private meshes: THREE.Mesh[] = [];
@@ -143,7 +144,7 @@ export class Viewer {
     this.scene.add(key);
     this.scene.add(this.headlight);
     this.scene.add(this.headlight.target);
-    this.scene.add(this.gridGroup, this.plateGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup);
+    this.scene.add(this.gridGroup, this.plateGroup, this.issueGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup);
 
     const marker = document.createElement('div');
     marker.className = 'snap-marker';
@@ -308,6 +309,7 @@ export class Viewer {
     this.dimsGroup.visible = this.opts.showBBox && !this.clean && !this.playback;
     this.annGroup.visible = this.opts.showAnnotations && !this.clean && !this.playback;
     this.measureGroup.visible = !this.clean && !this.playback;
+    this.issueGroup.visible = !this.playback;
     this.labelRenderer.domElement.style.display = this.clean ? 'none' : '';
     this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText ? 'crosshair' : '';
   }
@@ -344,6 +346,36 @@ export class Viewer {
 
   setView(name: ViewName) {
     this.placeCamera(this.framingSphere(), new THREE.Vector3(...VIEW_DIRS[name]).normalize());
+  }
+
+  /** Paint validation results on the model: overhang triangles red, thin-wall spots orange. */
+  setValidationOverlay(overlay: { overhang: Float32Array; thin: Float32Array } | null) {
+    for (const o of [...this.issueGroup.children]) {
+      const m = o as THREE.Mesh;
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+      this.issueGroup.remove(o);
+    }
+    if (!overlay) return;
+    if (overlay.overhang.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(overlay.overhang, 3));
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        color: 0xff3b30, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      }));
+      mesh.raycast = () => {};
+      mesh.renderOrder = 5;
+      this.issueGroup.add(mesh);
+    }
+    if (overlay.thin.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(overlay.thin, 3));
+      const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffa21f, size: 7, sizeAttenuation: false, depthTest: false, transparent: true }));
+      pts.raycast = () => {};
+      pts.renderOrder = 6;
+      this.issueGroup.add(pts);
+    }
   }
 
   /** Start (steps) or stop (null) the assembly animation. Call after setModel with the assembled layout. */

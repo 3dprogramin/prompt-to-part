@@ -12,6 +12,8 @@ import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
+import { summarize, type ValidationState } from './components/ValidationPanel';
+import type { ValidationReport } from './geometry/validate';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -81,6 +83,10 @@ export default function App() {
   const snapshotRef = useRef<(() => string | null) | null>(null);
   const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
+  const [validation, setValidation] = useState<ValidationState | null>(null);
+  const [validationOpen, setValidationOpen] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean } | null>(null);
   // In-memory copies of designs that are generating while another design is open.
   const background = useRef(new Map<string, Design>());
   const lastRemote = useRef<Design | null>(null);
@@ -344,8 +350,43 @@ export default function App() {
   const shown = result ?? lastGood;
   const layoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
   const canAssemble = !!layoutKey && !!shown?.assembly.length;
-  // Any change to the model ends the animation.
-  useEffect(() => { setPlayback(null); }, [design.id, design.code, design.values]);
+  // Any change to the model ends the animation and makes validation results stale.
+  useEffect(() => {
+    setPlayback(null);
+    setValidation(null);
+    setValidationOpen(false);
+    setNotice(null);
+  }, [design.id, design.code, design.values]);
+
+  // A clean result fades away by itself; problems stay until dismissed.
+  useEffect(() => {
+    if (!notice || notice.level !== 'ok') return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  /** Keep only issues about the exported parts (plus model-wide ones). */
+  const forParts = (report: ValidationReport, names: string[]): ValidationReport => ({
+    ...report,
+    issues: report.issues.filter((i) => !i.part || names.includes(i.part)),
+  });
+
+  const layoutValue = layoutKey ? String(design.values[layoutKey] ?? shown?.values[layoutKey] ?? '') : undefined;
+
+  const onValidate = async () => {
+    if (!design.code || !shown) return;
+    setValidating(true);
+    try {
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue });
+      if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
+      const names = o.result.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name)).map((p) => p.name);
+      setValidation({ report: forParts(o.report, names), label: 'Validation' });
+      setValidationOpen(true);
+      setNotice(null);
+    } finally {
+      setValidating(false);
+    }
+  };
 
   const startAssembly = async () => {
     if (!layoutKey || !shown) return;
@@ -433,14 +474,26 @@ export default function App() {
     setExporting(true);
     setExportError(null);
     try {
-      // Re-evaluate at high resolution for the exported mesh.
-      const o = await geo.evaluate(design.code, fullValues(), 'high');
+      // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh.
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { layoutValue });
       const r = o.result ?? base;
       const parts = partName ? r.parts.filter((p) => p.name === partName) : r.parts.filter((p) => !viewOpts.hiddenParts.includes(p.name));
       if (!parts.length) return;
       const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
+      const file = `${name}.${format}`;
       const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code);
-      download(blob, `${name}.${format}`);
+      download(blob, file); // always export – problems are reported, not blocking
+      if (o.report) {
+        const report = forParts(o.report, parts.map((p) => p.name));
+        const sum = summarize(report.issues);
+        setValidation({ report, label: `Exported ${file}` });
+        setValidationOpen(false);
+        setNotice(sum.level === 'ok'
+          ? { text: `Exported ${file} · checked, no problems found`, level: 'ok', details: true }
+          : { text: `Exported ${file} · ${sum.text} found`, level: sum.level === 'error' ? 'error' : 'warning', details: true });
+      } else {
+        setNotice({ text: `Exported ${file} · could not validate`, level: 'warning', details: false });
+      }
     } catch (e) {
       setExportError((e as Error).message);
     } finally {
@@ -529,6 +582,12 @@ export default function App() {
           rightOpen={rightOpen}
           onToggleLeft={() => setLeftOpen((o) => !o)}
           onToggleRight={() => setRightOpen((o) => !o)}
+          validation={validation}
+          validationOpen={validationOpen}
+          onValidationClose={() => setValidationOpen(false)}
+          notice={notice}
+          onNoticeDetails={() => { setValidationOpen(true); setNotice(null); }}
+          onNoticeClose={() => setNotice(null)}
           layout={layoutKey && shown && shown.params[layoutKey].type === 'select' ? {
             value: String(design.values[layoutKey] ?? shown.values[layoutKey]),
             options: (shown.params[layoutKey] as { options: { value: string; label: string }[] }).options,
@@ -557,6 +616,8 @@ export default function App() {
           onExport={onExport}
           exporting={exporting}
           exportError={exportError}
+          onValidate={onValidate}
+          validating={validating}
           blender={blender}
           hiddenParts={viewOpts.hiddenParts}
           onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}

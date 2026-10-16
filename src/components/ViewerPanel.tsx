@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Viewer, type Measurement, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import { Icon } from './Icon';
+import { ValidationPanel, type ValidationState } from './ValidationPanel';
 
 interface Props {
   result: EvalResult | null;
@@ -31,6 +32,13 @@ interface Props {
   rightOpen?: boolean;
   onToggleLeft?: () => void;
   onToggleRight?: () => void;
+  validation?: ValidationState | null;
+  validationOpen?: boolean;
+  onValidationClose?: () => void;
+  /** Short message after export / validation, e.g. "Exported x.stl · 2 warnings". */
+  notice?: { text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean } | null;
+  onNoticeDetails?: () => void;
+  onNoticeClose?: () => void;
 }
 
 const STEP_SECONDS = 1.6;
@@ -38,7 +46,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight }: Props) {
+export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -130,6 +138,12 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
   }, [result, fitKey]);
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
+
+  // ---- validation overlay ----
+  const [highlight, setHighlight] = useState(true);
+  useEffect(() => {
+    viewer.current?.setValidationOverlay(validation && validationOpen && highlight ? validation.report.overlay : null);
+  }, [validation, validationOpen, highlight, result]);
 
   // ---- assembly playback ----
   const [asmT, setAsmT] = useState(0);
@@ -254,6 +268,18 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
         </div>
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`}>{toast.text}</div>}
+
+      {validation && validationOpen && (
+        <ValidationPanel state={validation} highlight={highlight} onHighlight={setHighlight} onClose={() => onValidationClose?.()} />
+      )}
+      {notice && (
+        <div className={`export-notice ${notice.level}`}>
+          <Icon name={notice.level === 'ok' ? 'check' : 'alert'} size={15} />
+          <span>{notice.text}</span>
+          {notice.details && <button className="link" onClick={() => onNoticeDetails?.()}>Details</button>}
+          <button className="icon-btn" onClick={() => onNoticeClose?.()} title="Dismiss"><Icon name="x" size={13} /></button>
+        </div>
+      )}
 
       {onToggleLeft && (
         <button className={`edge-tab left ${leftOpen ? '' : 'closed'}`} onClick={onToggleLeft} title={leftOpen ? 'Hide the chat sidebar (T)' : 'Show the chat sidebar (T)'}>
