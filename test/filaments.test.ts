@@ -133,6 +133,10 @@ test('library filaments come back listed, others from Claude (once)', async () =
   assert.equal(l.confidence, 'listed');
   assert.equal(id(l.filament), 'Bambu Lab PLA Basic Black');
   assert.deepEqual(asked, []);
+  const unverified = await (await post({ brand: 'Bambu Lab', name: 'PLA Silk+ Gold' })).json();
+  assert.equal(unverified.confidence, 'estimate');
+  assert.equal(unverified.filament.unverified, true);
+  assert.ok(unverified.note);
   const found = await (await post({ brand: 'Polymaker', name: 'PolyTerra Teal' })).json();
   assert.deepEqual(found, { filament: { brand: 'Polymaker', name: 'PolyTerra Teal', color: '#336699', td: 2.5, source: 'https://example.com/td' }, confidence: 'similar', note: 'From a close match.' });
   await post({ brand: 'polymaker', name: 'polyterra  teal' });

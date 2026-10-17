@@ -87,9 +87,10 @@ async function askClaude(q: FilamentQuery): Promise<string> {
 const cache = new Map<string, Promise<FilamentLookup>>();
 const MAX_CACHED = 200;
 
-/** The filament from the library ('listed'), or as Claude finds it on the web ('similar' or 'estimate'). */
+/** The filament from the library ('listed', or 'estimate' for an unverified TD), or as Claude finds it on the web ('similar' or 'estimate'). */
 export async function lookupFilament(q: FilamentQuery, ask: (q: FilamentQuery) => Promise<string> = askClaude): Promise<FilamentLookup> {
   const listed = matchFilament(q.brand, q.name);
+  if (listed?.unverified) return { filament: listed, confidence: 'estimate', note: 'From a published list that doesn\'t say how its TD was found; a test print will tell.' };
   if (listed) return { filament: listed, confidence: 'listed' };
   const authProblem = claudeAuthProblem();
   if (authProblem) throw new Error(authProblem);
