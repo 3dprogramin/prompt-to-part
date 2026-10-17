@@ -168,7 +168,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 
 ## Claude account or API key
 
-Jig needs an Anthropic API key: set `ANTHROPIC_API_KEY` in `.env` (or the environment). An Anthropic-compatible provider works too, through `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`. Without either, Jig doesn't start Claude: the chat box says what is missing, and it never falls back to a Claude account logged in on the computer.
+Jig needs an Anthropic API key: set `ANTHROPIC_API_KEY` in `.env` (or the environment). An Anthropic-compatible provider works too, through `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`, with `ANTHROPIC_API_KEY` set but empty. For [OpenRouter](https://openrouter.ai/docs/guides/guides/claude-code-integration): `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, your OpenRouter key in `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_API_KEY=` (see `.env.sample`). Without either, Jig doesn't start Claude: the chat box says what is missing, and it never falls back to a Claude account logged in on the computer.
 
 `JIG_AUTH=subscription` makes Jig use the Claude account the `claude` CLI is logged in with (`claude` → `/login`) instead of a key. That is meant only for running Jig yourself, on your own computer, with your own account. Anthropic's terms do not allow third-party developers to offer claude.ai login, or to route requests through Free, Pro or Max plan credentials on behalf of their users, without approval. See the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview) and [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance). If you share or host Jig for other people, use API keys.
 
