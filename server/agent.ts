@@ -295,6 +295,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       } else if (msg.type === 'assistant') {
         // The finished message arrives just before content_block_stop: send the streamed tail first.
         flushBlock();
+        // A failed API call arrives as a made-up message carrying the error text: show it, but it
+        // is not a reply (so the fresh-session retry below still applies).
+        if (msg.error) {
+          for (const b of msg.message.content) if (b.type === 'text' && b.text.trim()) emit({ type: 'step', step: { kind: 'status', ok: false, text: b.text.trim() } });
+          continue;
+        }
         gotOutput = true;
         for (const b of msg.message.content) {
           if (b.type === 'text' && b.text.trim()) {
@@ -341,7 +347,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${(msg.duration_ms / 1000).toFixed(0)} s · ${msg.num_turns} turns` } });
-        emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted: state.submitted, text: finalText });
+        // An API error ends the turn with is_error; the SDK then throws, and the catch below
+        // either retries or reports it, so the reply isn't marked finished here.
+        if (!msg.is_error) emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted: state.submitted, text: finalText });
       }
     }
   };
