@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
 import { activityOf } from '../lib/activity';
 import { useEscape } from './useEscape';
+import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../shared/sources';
 
 interface Props {
   /** The open design (its chat starts scrolled to the bottom). */
@@ -280,6 +281,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
         <div className="version-row">
           <span className="version-chip">v{m.versionIndex + 1}</span>
           <span className="dim small">{clip(versions[m.versionIndex].summary, 90)}</span>
+          <SourcesChip list={versions[m.versionIndex].sources} />
           {currentVersion !== m.versionIndex && <button className="link" onClick={() => onRestore(m.versionIndex!)}><Icon name="restore" size={12} /> restore</button>}
         </div>
       )}
@@ -328,3 +330,10 @@ function besideChat(el: HTMLElement) {
 }
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
+
+/** Where the version's real-world dimensions came from, coloured by the weakest source (details in the Model tab). */
+function SourcesChip({ list }: { list?: DimensionSource[] }) {
+  const weakest = list && weakestKind(list);
+  if (!list || !weakest) return null;
+  return <span className={`src-chip ${SOURCE_KINDS[weakest].trust}`} title={`Dimension sources: ${sourcesSummary(list)} (Model tab for details)`}>{sourcesSummary(list)}</span>;
+}

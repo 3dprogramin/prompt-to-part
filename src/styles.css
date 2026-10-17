@@ -563,3 +563,14 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---------- dimension sources ---------- */
+.sources { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sources li { display: flex; gap: 8px; align-items: flex-start; }
+.src-meta { min-width: 0; overflow-wrap: anywhere; }
+.src-meta a { color: var(--text-2); }
+.src-kind, .src-chip { flex-shrink: 0; font-size: 10.5px; border-radius: 4px; padding: 1px 6px; border: 1px solid; white-space: nowrap; }
+.src-kind.high, .src-chip.high { color: var(--good); border-color: #6cc48a55; background: #6cc48a14; }
+.src-kind.medium, .src-chip.medium { color: var(--accent-2); border-color: #e0a43c55; background: #e0a43c14; }
+.src-kind.low, .src-chip.low { color: var(--bad); border-color: #e5675f66; background: #e5675f14; }
+.version-row { flex-wrap: wrap; }

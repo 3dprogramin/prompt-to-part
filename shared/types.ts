@@ -1,3 +1,4 @@
+import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
 
 export type Vec2 = [number, number];
@@ -182,6 +183,8 @@ export interface DesignVersion {
   source: 'ai' | 'manual' | 'settings';
   /** Parameter values that go with this version; restoring the version brings them back. */
   values?: ParamValues;
+  /** Claude's versions: where the real-world dimensions it designed around came from. */
+  sources?: DimensionSource[];
 }
 
 export interface Design {

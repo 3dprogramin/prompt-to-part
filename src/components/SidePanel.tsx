@@ -13,12 +13,15 @@ import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
 import { PRINTER, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
+import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
 type Tab = 'params' | 'text' | 'print' | 'info' | 'code';
 
 interface Props {
   /** The open design: unapplied code edits are kept per design. */
   designId: string;
+  /** Where the real-world dimensions of the shown version came from (Claude's report). */
+  sources?: DimensionSource[];
   result: EvalResult | null;
   lastGood: EvalResult | null;
   error: ScriptErrorInfo | null;
@@ -94,7 +97,7 @@ export function SidePanel(p: Props) {
         {tab === 'text' && (shown
           ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
           : noModel('Generate a model first, then add text to it.'))}
-        {tab === 'info' && (shown ? <InfoTab result={shown} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} /> : noModel('No model yet.'))}
+        {tab === 'info' && (shown ? <InfoTab result={shown} sources={p.sources} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} /> : noModel('No model yet.'))}
         {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />}
       </div>
       <div className="export-bar">
@@ -363,7 +366,7 @@ function NumberControl({ id, label, def, value, onChange }: { id: string; label:
   );
 }
 
-function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: EvalResult; onExport: Props['onExport']; hiddenParts: string[]; onToggleHidden: (n: string) => void }) {
+function InfoTab({ result, sources, onExport, hiddenParts, onToggleHidden }: { result: EvalResult; sources?: DimensionSource[]; onExport: Props['onExport']; hiddenParts: string[]; onToggleHidden: (n: string) => void }) {
   const vol = result.parts.reduce((s, p) => s + p.volume, 0) / 1000;
   const area = result.parts.reduce((s, p) => s + p.surfaceArea, 0) / 100;
   const tris = result.parts.reduce((s, p) => s + p.triCount, 0);
@@ -386,6 +389,7 @@ function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: Ev
           </tbody>
         </table>
       )}
+      {sources && sources.length > 0 && <Sources list={sources} />}
       <h4>Parts</h4>
       <ul className="part-list">
         {result.parts.map((p) => {
@@ -428,6 +432,37 @@ function InfoTab({ result, onExport, hiddenParts, onToggleHidden }: { result: Ev
         </>
       )}
     </div>
+  );
+}
+
+/** Where Claude got the real-world dimensions, most trustworthy first, with links to the pages. */
+function Sources({ list }: { list: DimensionSource[] }) {
+  const order = Object.keys(SOURCE_KINDS);
+  const sorted = [...list].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+  return (
+    <>
+      <h4>Dimension sources</h4>
+      <ul className="sources">
+        {sorted.map((s, i) => {
+          const kind = SOURCE_KINDS[s.kind];
+          const link = pageKey(s.url) ? s.url : undefined;
+          return (
+            <li key={i}>
+              <span className={`src-kind ${kind.trust}`} title={kind.hint}>{kind.label}</span>
+              <div className="src-meta">
+                <div>{s.dimension}: <span className="mono">{s.value}</span></div>
+                {link && (
+                  <div className="small">
+                    <a href={link} target="_blank" rel="noopener noreferrer">{new URL(link).hostname.replace(/^www\./, '')}</a>
+                    {WEB_KINDS.includes(s.kind) && !s.opened && <span className="dim" title="Claude cited this page without opening it (e.g. from a search result)"> · not opened by Claude</span>}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

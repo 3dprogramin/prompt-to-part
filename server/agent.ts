@@ -9,6 +9,7 @@ import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { DATA_DIR, USE_API_KEY } from './config';
+import { pageKey } from '../shared/sources';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -115,7 +116,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (req.code?.trim()) await writeFile(file, req.code);
   else await rm(file, { force: true });
 
-  const { server: cad, state } = cadTools(file, emit);
+  // Pages Claude actually read in this generation (WebFetch calls Jig allowed), by pageKey().
+  const opened = new Set<string>();
+  const { server: cad, state } = cadTools(file, emit, opened);
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
   const parts: string[] = [];
@@ -189,6 +192,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         permissionMode: 'default',
         canUseTool: async (name, input) => {
           const denied = await toolPolicy(ws, !!req.webSearch)(name, input);
+          if (!denied && name === 'WebFetch') { const k = pageKey(String(input.url)); if (k) opened.add(k); }
           return denied ? { behavior: 'deny', message: denied } : { behavior: 'allow', updatedInput: input };
         },
         settingSources: [],

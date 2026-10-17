@@ -25,6 +25,7 @@ import { tell } from './lib/tabs';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import { exportedParts } from './geometry/validate';
+import { pageKey } from '../shared/sources';
 import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
@@ -263,6 +264,13 @@ export default function App() {
     if (name && design.name === UNTITLED && design.code && resultCode.current === design.code) setDesign((d) => ({ ...d, name }));
   }, [result?.meta.name, design.name, design.code]);
 
+  // Sources of the dimensions the shown version was built around: those of Claude's version it is
+  // (or that a manual edit or saved settings were based on).
+  const dimensionSources = useMemo(() => {
+    for (let i = design.currentVersion; i >= 0; i--) if (design.versions[i]?.source === 'ai') return design.versions[i].sources;
+    return undefined;
+  }, [design.versions, design.currentVersion]);
+
   // Re-fit the camera only when a new script version arrives.
   const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
 
@@ -303,7 +311,10 @@ export default function App() {
         else if (ev.type === 'model') {
           update((d) => {
             const values = keepAppValues(d.values);
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values }];
+            // A page Claude opened in an earlier generation of this design counts as opened.
+            const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
+            const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
+            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources }];
             const vi = versions.length - 1;
             return {
               ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
@@ -716,6 +727,7 @@ export default function App() {
         />
         <SidePanel
           designId={design.id}
+          sources={dimensionSources}
           result={result}
           lastGood={lastGood}
           error={error}

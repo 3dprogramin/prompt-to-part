@@ -4,15 +4,24 @@ import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import type { AgentEvent } from '../shared/api';
+import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
+
+const sourcesSchema = z.array(z.object({
+  dimension: z.string().max(120).describe('What the value is, e.g. "PCB size", "Mounting holes", "USB-C port centre"'),
+  value: z.string().max(120).describe('The value you used, with units, e.g. "85 × 56 mm"'),
+  kind: z.enum(SOURCE_KIND_NAMES).describe(`Where it came from: ${SOURCE_KIND_NAMES.map((k) => `${k} = ${SOURCE_KINDS[k].hint.toLowerCase()}`).join('; ')}`),
+  url: z.string().max(1000).optional().describe('The page or document it came from (required for official, distributor, community and social)'),
+})).max(40).describe('Every real-world dimension the design depends on (a product it must fit, a standard part, a size the user gave) and where it came from; [] if it depends on none.');
 
 const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional()
   .describe('Optional parameter values to test with (defaults are used for missing keys)');
 
 /**
  * The `cad` MCP server for one generation, working on `file`. `state.submitted` tells whether
- * Claude got a model accepted.
+ * Claude got a model accepted. `opened` holds the pages Claude read (pageKey), so a source can be
+ * marked as actually opened.
  */
-export function cadTools(file: string, emit: (e: AgentEvent) => void) {
+export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set()) {
   const state = { submitted: false };
   const readModel = async () => {
     try { return await readFile(file, 'utf8'); } catch { return null; }
@@ -63,6 +72,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void) {
       }),
       tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max. Rejected if anything fails (set force=true only if a failure is truly unavoidable and harmless).', {
         summary: z.string().describe('One or two sentences describing this version (shown in version history)'),
+        sources: sourcesSchema,
         force: z.boolean().optional(),
         assembly: z.object({
           layoutParam: z.string().optional().describe('Key of the select parameter that switches the layout'),
@@ -71,9 +81,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void) {
           independentParts: z.string().optional().describe('Only if the parts are separate objects that are never assembled together: say why'),
           singlePrint: z.boolean().optional().describe('True if the parts are coloured regions of one object printed together in place (multi-colour)'),
         }).optional().describe('Required when the model has more than one part'),
-      }, async ({ summary, force, assembly }) => {
+      }, async ({ summary, sources: rawSources, force, assembly }) => {
         const code = await readModel();
         if (code == null) return noFile;
+        const problem = sourcesProblem(rawSources);
+        if (problem) return { content: [{ type: 'text', text: `Rejected – ${problem}` }], isError: true };
+        const sources: DimensionSource[] = rawSources.map(({ url, ...s }) => ({ ...s, ...(url ? { url, opened: opened.has(pageKey(url)!) } : {}) }));
         if (code !== renderedCode) {
           emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: render and inspect the current model first' } });
           return {
@@ -130,7 +143,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void) {
           }
           state.submitted = true;
           emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Stress test passed (${s.tested} cases)${s.skipped ? `, ${s.skipped} skipped for time` : ''}` } });
-          emit({ type: 'model', code, summary });
+          emit({ type: 'model', code, summary, sources });
           for (const p of pictures) emit({ type: 'step', step: { kind: 'assembly', ok: true, text: p.label, image: `data:image/png;base64,${p.png}` } });
           if (!pictures.length) return { content: [{ type: 'text', text: 'Accepted and loaded in the user\'s viewer. Now end your turn with a short message to the user.' }] };
           return {

@@ -1,6 +1,7 @@
 // Request and response shapes of the HTTP API, shared by the server and the browser app so the
 // two can't drift apart.
 import type { AgentStep, ParamValues } from './types';
+import type { DimensionSource } from './sources';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -35,7 +36,7 @@ export interface GenerateRequest {
 export type AgentEvent =
   | { type: 'session'; sessionId: string }
   | { type: 'step'; step: AgentStep }
-  | { type: 'model'; code: string; summary: string }
+  | { type: 'model'; code: string; summary: string; sources: DimensionSource[] }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
   | { type: 'error'; message: string }
   /** Transient one-line status (throttled), replaced by the next one. */
