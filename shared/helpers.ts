@@ -158,6 +158,8 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
     const st = m.status();
     if (st !== 'NoError') { if (rt.keep) m.delete(); throw new Error(`H.mesh: the stored mesh is not a valid solid (${st})`); }
     if (!rt.keep) return m;
+    // Shared with later evaluations; scripts only ever get copies of it, and it can't be changed either.
+    Object.freeze(m);
     meshCache.set(url, m);
     // Over budget: drop the least recently used meshes this evaluation doesn't use.
     let total = [...meshCache.values()].reduce((s, x) => s + (gone(x) ? 0 : x.numTri()), 0);

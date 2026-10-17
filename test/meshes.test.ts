@@ -66,7 +66,8 @@ test('the kept mesh survives evaluations, and lite and draft evaluations work', 
   const lite = evaluateScript('const params = {}; function build() { return H.mesh("pug"); }', values, 'draft', { lite: true });
   assert.equal(lite.parts[0].triCount, 0);
   assert.ok(lite.bbox!.max[2] > 45);
-  // A script deleting the kept mesh only hurts itself: the next evaluation builds it again.
+  // Scripts only get copies of the kept mesh: deleting or changing one doesn't touch it.
+  assert.throws(() => run('const m = H.mesh("pug"); m.translate = () => 1; return m.translate();'));
   assert.throws(() => run('const m = H.mesh("pug"); m.delete(); return m;'));
   assert.equal(run('return H.mesh("pug");').parts.length, 1);
 });
