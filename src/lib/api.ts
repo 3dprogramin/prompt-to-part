@@ -2,6 +2,7 @@ import type { Design, DesignSummary } from '../../shared/types';
 import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, ImageData, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
+import type { PhotoRequest, PhotoResponse } from '../../shared/photos';
 import { dataUrlToImage } from './files';
 
 export type { AgentEvent, FontEntry } from '../../shared/api';
@@ -96,6 +97,8 @@ export const api = {
   /** Slice a Bambu Studio project in the user's Bambu Studio: grams and print time. */
   slice: (project: Blob) => getJson<SliceStats>('/api/slice', { method: 'POST', body: project, headers: { 'Content-Type': 'application/octet-stream' } }),
   suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),
+  /** A product photo of the design from a render of it (the image model: 10–30 s). */
+  photo: (designId: string, r: PhotoRequest) => getJson<PhotoResponse>(`/api/designs/${designId}/photos`, { method: 'POST', body: JSON.stringify(r) }),
   /** Font files (base64) for the text tool and font previews. */
   fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };

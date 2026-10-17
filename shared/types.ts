@@ -227,6 +227,26 @@ export interface Design {
   values: ParamValues;
   /** Revision on the server, counted up by every save (missing until the first save). */
   rev?: number;
+  /** Product photos made from the model (newest last). */
+  photos?: ProductPhoto[];
+}
+
+/** A product photo: the image model's picture of the printed design in a scene. */
+export interface ProductPhoto {
+  /** The stored photo (/api/designs/:id/images/…). */
+  url: string;
+  /** The render it was made from. */
+  render?: string;
+  /** A scene preset's id, or 'custom'. */
+  scene: string;
+  /** The custom scene or the extra wishes. */
+  notes?: string;
+  aspect: string;
+  prompt: string;
+  model: string;
+  /** USD (null if OpenRouter didn't say). */
+  cost: number | null;
+  createdAt: number;
 }
 
 export interface DesignSummary {

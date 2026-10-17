@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
 import { buildGrid, buildPlate, updatePlate } from './stage';
@@ -38,6 +39,9 @@ const NEUTRAL = new THREE.Color('#b9bcc2');
 
 export interface Measurement { a: Vec3; b: Vec3 }
 
+/** How a product-photo render is framed: the viewer's camera, a 3/4 product angle, or a flat print face-on (from above). */
+export type PhotoView = 'current' | 'angle' | 'face';
+
 /** Assembly animation step with per-part start offsets resolved. */
 export interface PlaybackStep {
   label: string;
@@ -70,6 +74,7 @@ export class Viewer {
   private plateGroup = new THREE.Group();
   private issueGroup = new THREE.Group();
   private headlight = new THREE.DirectionalLight(0xffffff, 1.6);
+  private lights: THREE.Light[] = [];
   private clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
   private meshes: THREE.Mesh[] = [];
   private result: EvalResult | null = null;
@@ -114,10 +119,11 @@ export class Viewer {
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
     this.controls.zoomToCursor = true;
 
-    this.scene.add(new THREE.HemisphereLight(0xdfe6f0, 0x3a3530, 1.1));
+    const hemi = new THREE.HemisphereLight(0xdfe6f0, 0x3a3530, 1.1);
     const key = new THREE.DirectionalLight(0xffffff, 0.9);
     key.position.set(-1, -0.6, 2);
-    this.scene.add(key);
+    this.lights = [hemi, key, this.headlight];
+    this.scene.add(hemi, key);
     this.scene.add(this.headlight);
     this.scene.add(this.headlight.target);
     this.scene.add(this.gridGroup, this.plateGroup, this.issueGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup);
@@ -722,4 +728,156 @@ export class Viewer {
     }
     return out.toDataURL('image/jpeg', 0.85);
   }
+
+  // ---------------------------------------------------------------- product photos
+
+  private photoRig: { lights: THREE.Group; env: THREE.Texture } | null = null;
+
+  /**
+   * PNG of only the model for a product photo: no grid, plate, labels, edges, section, validation
+   * marks or highlight; the real part colours under soft studio light, on a plain grey that
+   * contrasts with them. `aspect` = width / height; the long side is `size` px.
+   */
+  photo(view: PhotoView, aspect: number, size = 1536): string | null {
+    const box = this.visibleBox();
+    if (!box) return null;
+    const W = Math.round(aspect >= 1 ? size : size * aspect), H = Math.round(aspect >= 1 ? size / aspect : size);
+    // A long lens, like a product photographer's: little perspective distortion.
+    const cam = new THREE.PerspectiveCamera(22, W / H, 0.1, 1e6);
+    const center = box.getCenter(new THREE.Vector3());
+    const dir = new THREE.Vector3();
+    if (view === 'current') {
+      dir.copy(this.camera.position).sub(this.controls.target).normalize();
+      cam.up.copy(this.camera.up);
+    } else if (view === 'face') {
+      // A little off-axis, so the raised details and the thickness show.
+      dir.set(0.1, -0.16, 1).normalize();
+      cam.up.set(0, 1, 0);
+    } else {
+      // Flat things from higher up, so their top shows; the rest from a little above.
+      const s = box.getSize(new THREE.Vector3());
+      dir.set(0.55, -1, s.z < 0.3 * Math.min(s.x, s.y) ? 1.05 : 0.5).normalize();
+    }
+    if (!Number.isFinite(dir.x)) dir.set(...VIEW_DIRS.iso).normalize();
+    cam.position.copy(center).addScaledVector(dir, framingDistance(box, center, dir, cam, 0.8));
+    cam.lookAt(center);
+    cam.near = cam.position.distanceTo(center) / 100;
+    cam.far = cam.position.distanceTo(center) * 10;
+    cam.updateProjectionMatrix();
+
+    // Clean scene: overlays off, true colours, no section or highlight.
+    const shown = [this.gridGroup, this.plateGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.issueGroup, this.snapMarker].map((g) => [g, g.visible] as const);
+    for (const [g] of shown) g.visible = false;
+    if (this.pendingLine) this.pendingLine.visible = false;
+    const looks: [THREE.MeshStandardMaterial, number, number][] = [];
+    for (const group of this.modelGroup.children) {
+      const [front, back] = group.children as THREE.Mesh[];
+      const fm = front.material as THREE.MeshStandardMaterial, bm = back.material as THREE.MeshBasicMaterial;
+      const perVertex = !!front.userData.perVertex;
+      fm.color.copy(front.userData.color as THREE.Color);
+      bm.color.copy(front.userData.color as THREE.Color).multiplyScalar(0.45);
+      fm.vertexColors = bm.vertexColors = perVertex;
+      fm.emissive.setScalar(0);
+      // Matte PLA (per-vertex parts are matte already).
+      if (!perVertex) { looks.push([fm, fm.roughness, fm.metalness]); fm.roughness = 0.7; fm.metalness = 0; }
+      group.traverse((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (mat) { mat.clippingPlanes = []; mat.needsUpdate = true; }
+        if (o.name === 'edges') o.visible = false;
+      });
+    }
+    const rig = this.photoLights();
+    for (const l of this.lights) l.visible = false;
+    rig.lights.visible = true;
+    // Key light from the upper left of the camera, a softer fill from the right, a rim from behind.
+    const right = new THREE.Vector3().crossVectors(dir, cam.up).normalize().negate();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    const [key, fill, rim] = rig.lights.children as THREE.DirectionalLight[];
+    key.position.copy(dir).addScaledVector(right, -1.1).addScaledVector(up, 1.3);
+    fill.position.copy(dir).addScaledVector(right, 1.2).addScaledVector(up, 0.2);
+    rim.position.copy(dir).multiplyScalar(-1).addScaledVector(up, 1.2);
+    const envBefore = this.scene.environment, envIntensity = this.scene.environmentIntensity;
+    this.scene.environment = rig.env;
+    this.scene.environmentIntensity = 0.1;
+
+    const pr = this.renderer.getPixelRatio();
+    const clear = this.renderer.getClearColor(new THREE.Color()), alpha = this.renderer.getClearAlpha();
+    try {
+      // Rendered at twice the size and scaled down: smoother edges than MSAA alone.
+      const k = Math.min(2, this.renderer.capabilities.maxTextureSize / Math.max(W, H));
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(Math.round(W * k), Math.round(H * k), false);
+      this.renderer.setClearColor(photoBackground(this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? []), 1);
+      this.renderer.render(this.scene, cam);
+      const out = document.createElement('canvas');
+      out.width = W;
+      out.height = H;
+      const ctx = out.getContext('2d')!;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(this.renderer.domElement, 0, 0, W, H);
+      return out.toDataURL('image/png');
+    } finally {
+      this.renderer.setClearColor(clear, alpha);
+      this.renderer.setPixelRatio(pr);
+      this.resize();
+      this.scene.environment = envBefore;
+      this.scene.environmentIntensity = envIntensity;
+      rig.lights.visible = false;
+      for (const l of this.lights) l.visible = true;
+      for (const [m, r, mt] of looks) { m.roughness = r; m.metalness = mt; }
+      for (const [g, v] of shown) g.visible = v;
+      if (this.pendingLine) this.pendingLine.visible = true;
+      this.applyOptions();
+    }
+  }
+
+  /** The box around the parts that are shown. */
+  private visibleBox(): THREE.Box3 | null {
+    const parts = this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? [];
+    if (!parts.length) return null;
+    const box = new THREE.Box3();
+    for (const p of parts) box.union(new THREE.Box3(new THREE.Vector3(...p.bbox.min), new THREE.Vector3(...p.bbox.max)));
+    return box.isEmpty() ? null : box;
+  }
+
+  private photoLights() {
+    if (this.photoRig) return this.photoRig;
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    const lights = new THREE.Group();
+    // Gentle: the image model takes the colours from the render, so lit faces keep the filament's own.
+    lights.add(new THREE.DirectionalLight(0xfffaf2, 2.3), new THREE.DirectionalLight(0xf2f5ff, 0.6), new THREE.DirectionalLight(0xffffff, 0.5), new THREE.HemisphereLight(0xf2f4f8, 0x4a4540, 0.9));
+    lights.visible = false;
+    this.scene.add(lights);
+    this.photoRig = { lights, env };
+    return this.photoRig;
+  }
+}
+
+/** Camera distance along `dir` at which every corner of `box` is inside `fill` of the frame. */
+function framingDistance(box: THREE.Box3, center: THREE.Vector3, dir: THREE.Vector3, cam: THREE.PerspectiveCamera, fill: number): number {
+  const tanV = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * fill, tanH = tanV * cam.aspect;
+  const right = new THREE.Vector3().crossVectors(cam.up, dir).normalize();
+  if (right.lengthSq() < 0.5) right.set(1, 0, 0);
+  const up = new THREE.Vector3().crossVectors(dir, right).normalize();
+  let d = 1;
+  for (let i = 0; i < 8; i++) {
+    const p = new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(center);
+    // Depth of the corner from a camera at distance D is D - p·dir.
+    d = Math.max(d, p.dot(dir) + Math.abs(p.dot(right)) / tanH, p.dot(dir) + Math.abs(p.dot(up)) / tanV);
+  }
+  return d;
+}
+
+/** A plain grey that the parts stand out from: mid grey behind light models, light grey otherwise. */
+function photoBackground(parts: EvalResult['parts']): THREE.Color {
+  let sum = 0, weight = 0;
+  for (const p of parts) {
+    const c = new THREE.Color(p.vertexColors ? '#808080' : p.color);
+    sum += (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * p.surfaceArea;
+    weight += p.surfaceArea;
+  }
+  const light = weight > 0 && sum / weight > 0.45;
+  return new THREE.Color(light ? '#8a8d93' : '#dcdde0');
 }
