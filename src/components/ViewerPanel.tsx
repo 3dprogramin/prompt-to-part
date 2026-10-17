@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Viewer, type Measurement, type PhotoView, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
+import type { LayerColor } from '../../shared/hueforge';
 import { Icon } from './Icon';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
 
@@ -8,6 +9,8 @@ interface Props {
   /** A cost calculation under way (slicing in Bambu Studio), shown in the status bar from any tab. */
   costStatus?: { text: string; since: number } | null | false;
   result: EvalResult | null;
+  /** A LayerTone part shown with other filaments until its rebuild arrives (Viewer.recolor). */
+  recolor?: { part: string; layers: LayerColor[] } | null;
   error: ScriptErrorInfo | null;
   busy: boolean;
   fitKey: string;
@@ -52,7 +55,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
+export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -159,6 +162,7 @@ export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, 
     if (result) lastFit.current = fitKey;
     viewer.current?.setModel(result, fit);
   }, [result, fitKey]);
+  useEffect(() => { viewer.current?.recolor(recolor?.part ?? null, recolor?.layers ?? null); }, [recolor, result]);
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
 

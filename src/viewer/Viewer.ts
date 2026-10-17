@@ -9,6 +9,7 @@ import { buildGrid, buildPlate, updatePlate } from './stage';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
 import { linearColors, usableColors } from '../geometry/vertexColors';
+import { vertexColors, type LayerColor } from '../../shared/hueforge';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -298,6 +299,28 @@ export class Viewer {
   }
 
   // ---------------------------------------------------------------- options
+
+  /**
+   * Shows a LayerTone part with other filaments right away (new colours and TDs on the layers it
+   * was built with) while the exact rebuild runs; null puts back the colours it was built with.
+   */
+  recolor(partName: string | null, layers: LayerColor[] | null) {
+    for (const group of this.modelGroup.children) {
+      const mesh = group.children[0] as THREE.Mesh | undefined;
+      const attr = mesh?.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+      if (!mesh || !attr) continue;
+      const built = mesh.userData.builtColors as Float32Array | undefined;
+      if (layers && group.name === partName) {
+        if (!built) mesh.userData.builtColors = (attr.array as Float32Array).slice();
+        const pos = mesh.geometry.getAttribute('position').array as Float32Array;
+        attr.copyArray(linearColors(vertexColors(pos, layers)));
+      } else if (built) {
+        attr.copyArray(built);
+        delete mesh.userData.builtColors;
+      } else continue;
+      attr.needsUpdate = true;
+    }
+  }
 
   setOptions(opts: ViewerOptions) {
     const orthoChanged = opts.ortho !== this.opts.ortho;

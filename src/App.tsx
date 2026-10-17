@@ -4,7 +4,8 @@ import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
-import { HF_IMAGES_KEY, HF_KEY, parseHfImages, type HfImage, type HueforgeSetup } from '../shared/hueforge';
+import { HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, type HfImage, type HueforgeSetup } from '../shared/hueforge';
+import { hueforgePart } from './components/HueforgePanel';
 import { freeMeshName, MESHES_KEY, parseMeshes, rehomeMeshes, type MeshEntry } from '../shared/meshes';
 import type { MeshUpload } from '../shared/api';
 import type { FontEntry } from './lib/api';
@@ -255,6 +256,16 @@ export default function App() {
     return { ...d, values, updatedAt: Date.now() };
   });
   // LayerTone: the filament setup (a setting, like the sliders) and the pictures (like attached drawings).
+  // Changed LayerTone filaments show in the 3D view at once, on the layers the shown model was built
+  // with, until the rebuild (whose heights can shift a little with the new filaments) replaces it.
+  const recolor = useMemo(() => {
+    const part = hueforgePart(result ?? lastGood);
+    const want = parseHueforgeSetup(design.values[HF_KEY]).filaments;
+    if (!part || !want || want.length !== part.layerColors.length) return null;
+    if (want.every((f, i) => f.color.toLowerCase() === part.layerColors[i].color.toLowerCase() && f.td === part.layerColors[i].td)) return null;
+    return { part: part.name, layers: part.layerColors.map((l, i) => ({ ...l, color: want[i].color, td: want[i].td, name: want[i].name, brand: want[i].brand })) };
+  }, [result, lastGood, design.values[HF_KEY]]);
+
   const setHueforge = (setup: HueforgeSetup | null) => setDesign((d) => {
     const values = { ...d.values };
     if (setup) values[HF_KEY] = JSON.stringify(setup); else delete values[HF_KEY];
@@ -951,6 +962,7 @@ export default function App() {
         <ViewerPanel
           costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}
           result={playback ? playback.result : result ?? lastGood}
+          recolor={playback ? null : recolor}
           error={error}
           busy={busy}
           fitKey={fitKey}
