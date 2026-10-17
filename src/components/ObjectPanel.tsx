@@ -14,8 +14,8 @@ interface Props {
   onTextFeatures: (f: TextFeature[]) => void;
   svgFeatures: SvgFeature[];
   onSvgFeatures: (f: SvgFeature[]) => void;
-  /** Open the Text or SVG tab to edit a feature. */
-  onEdit: (tab: 'text' | 'svg') => void;
+  /** Open the Text or SVG section to edit a feature. */
+  onEdit: (section: 'text' | 'svg') => void;
   /** The selected part (highlighted in the view); clicking it again clears the selection. */
   selected: string | null;
   onSelect: (name: string | null) => void;

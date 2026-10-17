@@ -15,6 +15,8 @@ export interface NumberParam {
   unit?: string;
   group?: string;
   description?: string;
+  /** The part(s) this parameter changes: greyed out while they are hidden. */
+  parts?: string[];
   /** This parameter sets the model's overall size along this axis (used when editing dimensions directly). */
   drives?: 'x' | 'y' | 'z';
 }
@@ -24,6 +26,8 @@ export interface BooleanParam {
   value: boolean;
   group?: string;
   description?: string;
+  /** The part(s) this parameter changes: greyed out while they are hidden. */
+  parts?: string[];
 }
 export interface SelectParam {
   type: 'select';
@@ -32,6 +36,8 @@ export interface SelectParam {
   value: string;
   group?: string;
   description?: string;
+  /** The part(s) this parameter changes: greyed out while they are hidden. */
+  parts?: string[];
 }
 export interface TextParam {
   type: 'text';
@@ -39,6 +45,8 @@ export interface TextParam {
   value: string;
   group?: string;
   description?: string;
+  /** The part(s) this parameter changes: greyed out while they are hidden. */
+  parts?: string[];
   /** Show a font picker next to the text box (the value of this param is a font id). */
   font?: boolean;
 }

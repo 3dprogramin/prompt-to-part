@@ -88,6 +88,27 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState<boolean>(() => load('leftOpen', true));
   const [rightOpen, setRightOpen] = useState<boolean>(() => load('rightOpen', true));
   useEffect(() => store('leftOpen', leftOpen), [leftOpen]);
+  // Sidebar widths: dragged at their inner edges, remembered; a double-click goes back to the default.
+  const narrow = window.innerWidth <= 1100;
+  const DEFAULT_W = { left: narrow ? 300 : 360, right: narrow ? 280 : 320 };
+  const [widths, setWidths] = useState<{ left: number; right: number }>(() => ({ ...DEFAULT_W, ...load<Partial<{ left: number; right: number }>>('sidebarWidths', {}) }));
+  useEffect(() => store('sidebarWidths', widths), [widths]);
+  const workspace = useRef<HTMLElement>(null);
+  const resize = (side: 'left' | 'right') => (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const box = workspace.current!.getBoundingClientRect();
+    const onMove = (ev: PointerEvent) => setWidths((w) => {
+      // Each sidebar 240–700 px, and the 3D view keeps at least 320 px.
+      const other = side === 'left' ? (rightOpen ? w.right : 0) : (leftOpen ? w.left : 0);
+      const want = side === 'left' ? ev.clientX - box.left : box.right - ev.clientX;
+      return { ...w, [side]: Math.round(Math.max(240, Math.min(700, box.width - other - 320, want))) };
+    });
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); document.body.classList.remove('resizing'); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    document.body.classList.add('resizing');
+  };
   useEffect(() => store('rightOpen', rightOpen), [rightOpen]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -777,7 +798,10 @@ export default function App() {
         isRunning={(id) => !!running[id] || remoteRunning[id] != null}
         onDelete={deleteDesign}
       />
-      <main className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}>
+      <main ref={workspace} className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
+        style={{ '--left-w': `${widths.left}px`, '--right-w': `${widths.right}px` } as React.CSSProperties}>
+        {leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setWidths((w) => ({ ...w, left: DEFAULT_W.left }))} />}
+        {rightOpen && <div className="sidebar-resize right" role="separator" aria-orientation="vertical" aria-label="Resize the parameters sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('right')} onDoubleClick={() => setWidths((w) => ({ ...w, right: DEFAULT_W.right }))} />}
         <ChatPanel
           designId={design.id}
           messages={design.messages}
