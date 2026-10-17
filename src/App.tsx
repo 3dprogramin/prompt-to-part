@@ -5,6 +5,8 @@ import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFea
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import { HF_IMAGES_KEY, HF_KEY, parseHfImages, type HfImage, type HueforgeSetup } from '../shared/hueforge';
+import { freeMeshName, MESHES_KEY, parseMeshes, rehomeMeshes, type MeshEntry } from '../shared/meshes';
+import type { MeshUpload } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError, steer } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
@@ -194,6 +196,7 @@ export default function App() {
   const chat = chatOpts[design.id] ?? chatDefaults;
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatDefaults), ...patch } }));
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
+  const [meshy, setMeshy] = useState(false);
   const [viewOpts, setViewOpts] = useState<ViewerOptions>(() => ({
     showBBox: true, showAnnotations: true, showEdges: true, ortho: false, measure: false, hiddenParts: [],
     section: { enabled: false, axis: 'z', position: 0, flip: false },
@@ -223,7 +226,7 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null); setArtworkModel(c.artwork ?? null); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -375,18 +378,36 @@ export default function App() {
   // Re-fit the camera only when a new script version arrives.
   const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
 
-  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = []) => {
+  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = [], meshUploads: MeshUpload[] = []) => {
     const now = Date.now();
-    const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, ...(scad.length ? { files: scad.map((f) => f.name) } : {}), createdAt: now };
+    // Attached mesh files join the design's meshes (H.mesh), each under a name of its own.
+    const meshes = parseMeshes(design.values[MESHES_KEY]);
+    const meshNames = meshUploads.map((u) => {
+      const same = Object.entries(meshes).find(([, m]) => m.file === u.entry.file)?.[0];
+      const name = same ?? freeMeshName(u.name, meshes);
+      meshes[name] = u.entry;
+      return name;
+    });
+    const files = [...scad.map((f) => f.name), ...meshUploads.map((u) => u.entry.original ?? u.name)];
+    const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, ...(files.length ? { files } : {}), createdAt: now };
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
     const designId = design.id;
     // For follow-ups, capture exactly what the user is looking at before the chat changes anything.
     const current = followUpContext();
     // Attached SVG drawings are kept with the design, so scripts can use them (H.svg) everywhere.
     const drawings = withDrawings(parseDrawings(design.values[DRAWINGS_KEY]), attached);
+    const sentValues: ParamValues = {
+      ...design.values,
+      ...(attached.length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
+      ...(meshNames.length ? { [MESHES_KEY]: JSON.stringify(meshes) } : {}),
+    };
     setDesign((d) => ({
       ...d, messages: [...d.messages, userMsg, asst], updatedAt: now,
-      values: attached.length ? { ...d.values, [DRAWINGS_KEY]: JSON.stringify(drawings) } : d.values,
+      values: {
+        ...d.values,
+        ...(attached.length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
+        ...(meshNames.length ? { [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), ...Object.fromEntries(meshNames.map((n) => [n, meshes[n]])) }) } : {}),
+      },
     }));
     // Updates always go to the design this generation belongs to, even if another one is open by now.
     const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
@@ -407,6 +428,8 @@ export default function App() {
         values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
         textNote: [describeText(textFeatures), describeSvg(svgFeatures)].filter(Boolean).join('; ') || undefined,
         ...current,
+        // The render Claude gets of the current model already has the newly attached meshes.
+        ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
         sessionId: design.sessionId,
         model: chat.model,
         effort: chat.effort,
@@ -414,8 +437,9 @@ export default function App() {
         imageMode: chat.imageMode,
         artwork: chat.imageMode === 'artwork',
         drawings: Object.keys(drawings).length ? drawings : undefined,
-        // The design's pictures and HueForge setup, so Claude has them even before a first version exists.
-        pictures: pictureValues(design.values),
+        // The design's pictures, meshes and HueForge setup, so Claude has them even before a first version exists.
+        pictures: pictureValues(sentValues),
+        meshes: meshNames.length ? meshNames : undefined,
         scad: scad.length ? scad : undefined,
         // In case the session can't be continued: what was said, for a fresh one.
         history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
@@ -423,6 +447,7 @@ export default function App() {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'hfImage') update((d) => withHfImage(d, ev.name, ev.image));
+        else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
         else if (ev.type === 'hfSetup') update((d) => {
           const { [HF_KEY]: _old, ...rest } = d.values;
           return { ...d, values: ev.setup ? { ...rest, [HF_KEY]: JSON.stringify(ev.setup) } : rest };
@@ -474,11 +499,11 @@ export default function App() {
   const queue = queues[design.id];
   // While Claude works, a message goes into the running reply (Claude reads it at its next step);
   // files Claude can only take with a new request, or a reply that has just ended, queue it instead.
-  const steerOrQueue = async (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => {
-    if (drawings.length || scad.length || !(await steer(design.id, text, images.map(dataUrlToImage)))) enqueue(text, images, drawings, scad);
+  const steerOrQueue = async (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => {
+    if (drawings.length || scad.length || meshes.length || !(await steer(design.id, text, images.map(dataUrlToImage)))) enqueue(text, images, drawings, scad, meshes);
   };
-  const enqueue = (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) =>
-    setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings, scad }], paused: false } }));
+  const enqueue = (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[] = []) =>
+    setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings, scad, meshes }], paused: false } }));
   const removeQueued = (i: number) => setQueues((s) => {
     const items = (s[design.id]?.items ?? []).filter((_, j) => j !== i);
     const next = { ...s };
@@ -489,7 +514,7 @@ export default function App() {
     const q = queues[design.id];
     if (!q?.items.length) return;
     setQueues((s) => { const next = { ...s }; delete next[design.id]; return next; });
-    void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings), q.items.flatMap((m) => m.scad).slice(0, MAX_SCAD_FILES));
+    void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings), q.items.flatMap((m) => m.scad).slice(0, MAX_SCAD_FILES), q.items.flatMap((m) => m.meshes));
   };
   // When the open design's reply is done (and its new model is on screen), the queue goes out.
   useEffect(() => {
@@ -745,14 +770,26 @@ export default function App() {
    * A new design from one version: its script and settings (text, SVG, print, attached drawings)
    * as v1, with an empty chat and its own Claude session. The original design is unchanged.
    */
-  const forkVersion = (vi: number) => {
+  const forkVersion = async (vi: number) => {
     const v = design.versions[vi];
     if (!v) return;
     const values: ParamValues = { ...v.values };
-    // Drawings and pictures attached later in the chat may be what this version's script uses.
+    // Drawings, pictures and meshes attached later in the chat may be what this version's script uses.
     if (!values[DRAWINGS_KEY] && design.values[DRAWINGS_KEY]) values[DRAWINGS_KEY] = design.values[DRAWINGS_KEY];
     if (!values[HF_IMAGES_KEY] && design.values[HF_IMAGES_KEY]) values[HF_IMAGES_KEY] = design.values[HF_IMAGES_KEY];
+    if (!values[MESHES_KEY] && design.values[MESHES_KEY]) values[MESHES_KEY] = design.values[MESHES_KEY];
     const d = newDesign();
+    // Mesh files live next to a design: the new one gets copies, so deleting either keeps the other whole.
+    if (values[MESHES_KEY]) {
+      try {
+        await api.copyMeshes(d.id, design.id);
+      } catch (e) {
+        setNotice({ text: `Could not copy the design's 3D models: ${(e as Error).message}`, level: 'error', details: false });
+        return;
+      }
+      const moved = rehomeMeshes(values[MESHES_KEY], d.id);
+      if (moved) values[MESHES_KEY] = moved; else delete values[MESHES_KEY];
+    }
     const forked: Design = {
       ...d,
       name: `${design.name} (from v${vi + 1})`,
@@ -852,7 +889,7 @@ export default function App() {
         design={design}
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
         onRestore={onRestore}
-        onFork={forkVersion}
+        onFork={(vi) => void forkVersion(vi)}
         unsavedSettings={unsavedSettings}
         onSaveSettings={saveSettings}
         saveError={saveErrors[design.id]}
@@ -884,7 +921,7 @@ export default function App() {
           queued={queue?.items ?? []}
           queuePaused={!!queue?.paused}
           onQueue={enqueue}
-          onSteer={(text, images, drawings, scad) => void steerOrQueue(text, images, drawings, scad)}
+          onSteer={(text, images, drawings, scad, meshes) => void steerOrQueue(text, images, drawings, scad, meshes)}
           onRemoveQueued={removeQueued}
           onSendQueued={sendQueued}
           onRestore={onRestore}
@@ -894,6 +931,7 @@ export default function App() {
           onWebSearch={(webSearch) => setChat({ webSearch })}
           imageMode={chat.imageMode}
           artworkModel={artworkModel}
+          meshy={meshy}
           onImageMode={(imageMode) => setChat({ imageMode })}
           defaultModel={chatDefaults.model}
           hasModel={!!design.code}
@@ -1029,12 +1067,16 @@ function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }
 
-/** The design with a HueForge picture added (or replaced) under HF_IMAGES_KEY. */
-/** The design's pictures and HueForge setup, for the server (undefined when there are none). */
+/** The design's pictures, meshes and HueForge setup, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [HF_IMAGES_KEY, HF_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [HF_IMAGES_KEY, HF_KEY, MESHES_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
+}
+
+/** The design with a mesh added (or replaced) under MESHES_KEY. */
+function withMesh(d: Design, name: string, entry: MeshEntry): Design {
+  return { ...d, values: { ...d.values, [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), [name]: entry }) } };
 }
 
 function withHfImage(d: Design, name: string, image: HfImage): Design {
@@ -1042,7 +1084,7 @@ function withHfImage(d: Design, name: string, image: HfImage): Design {
 }
 
 /** A message written while Claude was working, sent after its reply. */
-interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[]; scad: ScadFile[] }
+interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[]; scad: ScadFile[]; meshes: MeshUpload[] }
 
 /** `known` plus newly attached drawings; a different drawing with a name in use gets "-2", "-3"… */
 function withDrawings(known: Record<string, SvgDrawing>, attached: SvgDrawing[]): Record<string, SvgDrawing> {

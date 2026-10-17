@@ -1,6 +1,6 @@
 # Jig
 
-AI-powered parametric CAD for 3D printing. Describe an object (and/or attach photos, SVG drawings or OpenSCAD files). Jig writes a parametric model with sliders and dimension callouts, checks it, looks at renders of it, and stress-tests the sliders' extremes. You tweak it live, add text or logos, check that it prints, see what it costs to print, and export STL, a Bambu Studio project or a Blender file.
+AI-powered parametric CAD for 3D printing. Describe an object (and/or attach photos, SVG drawings, OpenSCAD files or 3D models). Jig writes a parametric model with sliders and dimension callouts, checks it, looks at renders of it, and stress-tests the sliders' extremes. You tweak it live, add text or logos, check that it prints, see what it costs to print, and export STL, a Bambu Studio project or a Blender file.
 
 Jig runs Claude through the Claude Agent SDK, with an OpenRouter key (`OPENROUTER_API_KEY`, which also powers AI artwork) or an Anthropic API key (`ANTHROPIC_API_KEY`). See [Claude account or API key](#claude-account-or-api-key).
 
@@ -12,7 +12,8 @@ npm run dev          # http://localhost:5173  (API on :8787)
 npm run dev:watch    # same, but the API server restarts on code changes (kills running generations)
 # or
 npm run build && npm start   # single server on http://127.0.0.1:8787
-npm test             # unit and API tests (about 5 s)
+npm test             # unit and API tests (about 20 s)
+npm run mock:meshy   # a stand-in for Meshy's API, for 3D figures without credits (see "3D figures with Meshy")
 npm run typecheck
 ```
 
@@ -116,8 +117,8 @@ The container runs as a non-root user with a read-only file system (only the vol
 - **Model and effort** start at Opus / High (Medium, High, X-High or Max) for every new design; a change applies to that design until you reload.
 - **Follow-ups** resume the same Claude session and send what you are looking at: a screenshot of the viewer and a four-view render with your current slider values, scale, text and SVG drawings, plus a note if you restored an older version or edited the code.
 - **System prompt**: `server/systemPrompt.ts` covers conventions (mm, Z-up, on the bed), the API reference, the helper library, printability rules, where to take real-world dimensions from and the clearances for parts that must fit purchased ones, and print-setting suggestions (with your Bambu Studio profile as the baseline).
-- **Helpers** (`shared/helpers.ts`): helical sweep (springs, corkscrews), ISO threads and threaded-hole cutters, radial surfaces (knurling), sweeps/tubes, lofts, rounded boxes, arrays, text, and SVG drawings attached in the chat (`H.svg`).
-- **Designs** are saved as JSON in `data/designs/`, with chat history, versions and slider values. Chat images (your photos, renders, assembly pictures) are stored once each in `data/designs/<id>/`.
+- **Helpers** (`shared/helpers.ts`): helical sweep (springs, corkscrews), ISO threads and threaded-hole cutters, radial surfaces (knurling), sweeps/tubes, lofts, rounded boxes, arrays, text, SVG drawings attached in the chat (`H.svg`) and imported or AI-made meshes (`H.mesh`).
+- **Designs** are saved as JSON in `data/designs/`, with chat history, versions and slider values. Chat images (your photos, renders, assembly pictures) are stored once each in `data/designs/<id>/`, imported meshes in `data/designs/<id>/meshes/`.
 
 ## Designs and versions
 
@@ -182,7 +183,7 @@ It needs `OPENROUTER_API_KEY`. The image model is good at keeping simple shapes,
 
 ## Pictures: AI artwork, HueForge and lithophanes
 
-The picture menu under the chat box (the palette button) says what Jig does with pictures for a design: *3D model* (the default: people, characters and animals become 3D objects), *AI artwork* (flat colour layers, below), *HueForge* or *Lithophane*. A design is a HueForge print or a lithophane, not both; follow-ups stay what the design is.
+The picture menu under the chat box (the palette button) says what Jig does with pictures for a design: *3D model* (the default: people, characters and animals become 3D objects), *AI artwork* (flat colour layers, below), *HueForge*, *Lithophane* or *3D figure* (an AI mesh, see [3D models](#3d-models-imported-meshes-and-ai-figures)). A design is a HueForge print or a lithophane, not both; follow-ups stay what the design is.
 
 - **HueForge (filament painting):** a picture printed flat as a thin relief (0.08 mm layers over a 0.16 mm first layer, 100 % infill), where stacked filaments swapped at set layers let the ones below show through by their TD (transmission distance), so brightness comes from height. Attach a photo, or describe one and Jig has the image model make it. Jig builds it with `H.hueforge(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments, swaps })` and picks the filaments from the picture and Jig's library: up to 4 (the A1's AMS lite holds 4), more only when really needed, each extra one a pause for a manual spool swap.
   - **HueForge panel (Print tab):** the picture next to the simulated print, the filament stack bottom → top (colour, brand, TD; reorder, add, remove), automatic or manual swap layers, the layer count and filament changes. Add filaments from the library (Bambu Lab PLA Basic, Matte and Silk+, eSUN PLA+; TDs from measured swatches and community lists, estimates marked) or as custom ones, and *Look up TD* asks Jig to find the TD of any brand and colour on the web. Your setup wins over the script's; it is saved with the design and counts as a setting you can save as a version.
@@ -191,6 +192,29 @@ The picture menu under the chat box (the palette button) says what Jig does with
 - **Lithophane (backlit photo):** a photo printed in white PLA as a panel that is thick where the picture is dark and thin where it is bright, so it shows the picture when lit from behind: night lights, frames, window panels, lamp shades. Attach a photo, or describe one and Jig has the image model make it. Jig builds it with `H.lithophane(picture, { width, minThickness, maxThickness, border, shape, angle, stand, gamma, invert })`: flat, curved (an arc of a lamp shade, `angle` degrees) or a full cylinder (its circumference is the width), with a solid frame at full thickness and an optional foot so it stands on a shelf. The thickness follows the light through PLA (Beer–Lambert, about 1/mm for white PLA), mapped so the lit panel shows the photo's tones evenly rather than with muddy mid-tones; 0.8–3 mm by default.
   - **Printing:** it stands upright as built (picture vertical), which gives the finest tones: the walls trace the thickness in X/Y instead of in whole layers. Its print settings come with it: 0.12 mm layers, 100 % infill, enough walls to fill the panel solid, a brim unless it has a foot (a cylinder puts its seam where the picture's edges meet).
   - **Preview:** the 3D view and Jig's renders show it lit from behind (thin = warm white, thick = dark and warm), and the *Lithophane* section of the Print tab shows the picture next to the lit panel (click to enlarge), *Change picture…*, its size and thicknesses, and print advice. Sizes and thicknesses are sliders under Parameters. The thickness is kept on each vertex of the mesh, so the colours survive holes and moves Jig adds.
+
+## 3D models: imported meshes and AI figures
+
+Jig can work with ready-made meshes as well as with what it models itself: a figurine, an animal or a part from a file, or a sculpted figure made by [Meshy](https://www.meshy.ai). Jig then builds the design around it: a base or name plate, a flat bottom, a hole, a mount or hook, text on it, a cut in half, a hollow inside.
+
+- **Attaching a mesh:** the paperclip (or drag and drop) takes STL (binary and ASCII), 3MF, OBJ and GLB/glTF (one file, up to 100 MB; a `.gltf` needs its buffers embedded, and compressed glTF isn't read). It is imported as soon as you attach it, and its chip shows the result (hover it for the size, triangles and repairs). Claude gets a four-view render of it and the import report, and uses it as `H.mesh(name, { height })` in the script. Typical requests: "put this on a round base with my name", "cut it in half so it prints without supports", "add a keyring loop", "make a hole for a 6 × 3 mm magnet underneath".
+- **Import and repair** (`shared/meshFormats.ts`, `shared/meshRepair.ts`), in the locked-down geometry process (files are untrusted):
+  - **Units and orientation:** STL and OBJ are taken as millimetres, 3MF as its unit says, glTF as metres. A file without usable units (AI tools make models 1–2 units across; an STL a few units across) is scaled so its longest side is 80 mm. glTF and OBJ are Y-up and are turned to Jig's Z-up. The mesh is stood on the bed and centred; Claude can turn it (`rotate`) if it lies on its side.
+  - **Repair:** duplicate vertices are welded; broken, degenerate, duplicate and back-to-back triangles are dropped; inconsistent and inside-out faces are flipped (a sealed cavity stays one); shells that only touch along an edge or at a corner are separated; holes with clean rims are capped; loose specks are dropped and overlapping shells (separately modelled eyes, horns, the boxes of a low-poly model) are fused into one solid. Whatever still isn't a closed surface is rebuilt as a watertight solid from a signed-distance grid (inside and outside decided by rays along three axes, a majority vote, so holes don't leak) with Manifold's `levelSet`, which softens details smaller than its grid (about 0.5–1 mm). A single open sheet is refused.
+  - **Simplification:** meshes over 200,000 triangles are simplified (the surface moves by a few micrometres), so sliders stay quick.
+  - **The report** lists every repair in words; Jig sees it, and it shows on the attachment.
+  - **Speed** (this machine): a 530,000-triangle STL imports in 3–4 s (with or without holes to close), a 940,000-triangle one in 7–8 s, and a grid rebuild of either takes about 10 s. Once imported, a 90,000-triangle mesh with a base and a hole evaluates in about 0.3 s per slider change (the repaired solid is kept between evaluations; scaling or moving it alone takes about 10 ms).
+- **Storage:** each mesh is stored next to the design, in `data/designs/<id>/meshes/`, as a compact binary (`<hash>.bin`: float32 positions and uint32 triangles after a small JSON header), with the original file and a picture of it. The design's values keep only an index (`$meshes`: name → file, size, triangles, source, repairs, Meshy's prompt). The browser fetches a mesh once (it never changes), and the server's geometry process gets it from the server like a font. *New design from vN* copies the meshes to the new design.
+- **Printing advice** Jig works with: a flat bottom (trim a little off the feet or sink it into a base), a base for figures that can't stand, features ≥ 1 mm and walls ≥ 1.2 mm (small figures lose fingers and ears first), tree supports for outstretched arms, chins and tails, and hollowing (or few walls and low infill) for big figures.
+
+### 3D figures with Meshy
+
+Choose *3D figure (AI mesh)* in the picture menu. Jig then has Meshy make the subject with `generate_3d({ name, prompt, from_photo })` (text to 3D, or image to 3D from the photo you attach) and builds the design around it. The steps and the activity panel show Meshy's progress (*Meshy: 42 %…*); the chat shows Meshy's preview picture with the prompt that was sent under *Details*. The model is downloaded at once, imported and repaired like an attached file, and Claude gets a four-view render and the report. Follow-ups on a design that has meshes keep the tool, so "make the fox sit" makes a new one.
+
+- **Single colour:** Jig asks for the untextured mesh: Meshy's *preview* stage (no texturing *refine*), or image to 3D with `should_texture: false`, with `meshy-7.1` at `2k` geometry and no remeshing, which is 25 credits a model (20 + 5 for the finer geometry) and about 1–3 minutes. The description gets ", on a stable circular base, solid, printable, no thin overhangs" appended (Meshy's advice for figurines). Meshy's preview picture (`thumbnail_url`) is only shown in the chat. Paint the print in Bambu Studio if you want colours.
+- **Key:** set `MESHY_API_KEY` (Meshy's API needs a Pro plan; [pricing](https://www.meshy.ai/pricing)). Without it the mode says it needs one and can't be chosen. The key stays on the server (the model never gets it). A stopped generation deletes a Meshy task that hasn't started, which refunds it.
+- **The mock:** `npm run mock:meshy` starts a stand-in for Meshy's API on port 8790 (`server/meshyMock.ts`): the same endpoints, Bearer-key check, status sequence (PENDING → IN_PROGRESS with progress → SUCCEEDED, with Retry-After), errors (400, 401, 402, 404, 409, 429) and expiring download links, serving the sample models in `test/fixtures/meshes` (a figurine, or a fox, dog, cat or fish when the prompt names one) with a grey preview. Point Jig at it with `MESHY_BASE_URL=http://127.0.0.1:8790/openapi` and `MESHY_API_KEY=msy_mock`; `MESHY_MOCK_SECONDS` sets how long a task runs (12 s). Words in the prompt trigger the error paths: `FAIL`, `MODERATION`, `RESCHEDULE` (back to PENDING once), `FLAKY` (a 503 while polling), `BROKEN` (a model with holes and flipped faces); more than 10 unfinished tasks get Meshy's `429 NoMorePendingTasks`. Switching to the real Meshy is only removing `MESHY_BASE_URL` and setting your real key.
+- **Samples:** `test/fixtures/meshes` holds small CC0 models (Kenney, Quaternius) without their textures, and broken variants made from them for the repair tests; `LICENSES.md` there says where each comes from.
 
 ## Text and SVG
 
@@ -254,6 +278,8 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_MODEL` | `opus` | The model the chat starts with: `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
 | `JIG_EFFORT` | `high` | The reasoning effort the chat starts with (`low` … `max`) |
 | `JIG_IMAGE_MODEL` | `google/gemini-nano-banana-2.1` | The OpenRouter image model for AI artwork and product photos |
+| `MESHY_API_KEY` | | Turns on 3D figures (Meshy) |
+| `MESHY_BASE_URL` | `https://api.meshy.ai/openapi` | Another Meshy endpoint, e.g. the mock (`npm run mock:meshy`): `http://127.0.0.1:8790/openapi` |
 | `JIG_IMAGE_FALLBACK` | `google/gemini-3.1-flash-image` | Used when the image model stays busy (rate-limited upstream) after two retries; empty turns it off |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with (or `CLAUDE_CODE_OAUTH_TOKEN`) instead of a key, for your own use on your own computer only (see below) |
