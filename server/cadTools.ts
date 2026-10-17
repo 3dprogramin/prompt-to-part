@@ -6,7 +6,11 @@ import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
-import { ASPECTS, generateArtwork, imageModel } from './artwork';
+import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from './artwork';
+import { HF_IMAGES_KEY, parseHfImages, toHfImage } from '../shared/hueforge';
+
+/** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
+interface AiImages { references: string[]; signal?: AbortSignal }
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
@@ -26,9 +30,11 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * The `cad` MCP server for one generation, working on `file`. `state.submitted` tells whether
  * Claude got a model accepted. `opened` holds the pages Claude read (pageKey), so a source can be
  * marked as actually opened. With `artwork`, Claude can also have artwork drawn (generate_artwork),
- * from the user's `references` photos if it likes.
+ * and with `pictures` a picture made for H.hueforge (generate_picture), from the user's
+ * `references` photos if it likes.
  */
-export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, artwork?: { references: string[]; signal?: AbortSignal }) {
+export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: { artwork?: AiImages; pictures?: AiImages } = {}) {
+  const { artwork, pictures } = extra;
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   const state = { submitted: false };
@@ -79,6 +85,39 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
+      ...(pictures ? [tool('generate_picture', `Have an image model (${imageModel()}) make a picture for a HueForge filament painting (H.hueforge): realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
+        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.hueforge, e.g. "portrait"'),
+        subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),
+        aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
+        style: z.string().max(400).optional().describe('The look, when not a realistic photo-like picture (e.g. "oil painting", "charcoal drawing")'),
+        use_attached_photos: z.boolean().optional().describe('Work from the photos the user attached to this message'),
+      }, async (a) => {
+        if (a.use_attached_photos && !pictures.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
+        emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
+        try {
+          const references = a.use_attached_photos ? pictures.references : undefined;
+          const prompt = picturePrompt({ subject: a.subject, style: a.style, references });
+          const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal);
+          const raster = decodeImage(Buffer.from(image.data, 'base64'));
+          const hf = toHfImage(a.name, raster.width, raster.height, raster.data);
+          base[HF_IMAGES_KEY] = JSON.stringify({ ...parseHfImages(base[HF_IMAGES_KEY]), [a.name]: hf });
+          emit({ type: 'hfImage', name: a.name, image: hf });
+          emit({ type: 'step', step: {
+            kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
+            text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
+            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for H.hueforge as ${hf.width}×${hf.height} pixels.`,
+          } });
+          return {
+            content: [
+              { type: 'image', data: image.data, mimeType: image.mediaType },
+              { type: 'text', text: `Picture "${a.name}" is ready for H.hueforge("${a.name}", { width, … }) (${hf.width}×${hf.height} pixels, ${(hf.width / hf.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
+            ],
+          };
+        } catch (e) {
+          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Picture: ${(e as Error).message}` } });
+          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+        }
+      })] : []),
       ...(artwork ? [tool('generate_artwork', `Have an image model (${imageModel()}) draw real artwork, traced into an SVG drawing for H.svg: people, characters, animals, portraits, scenes and illustrations on wall art, reliefs, signs, plaques and coasters – anything you can't draw convincingly with geometry. It comes back in flat colours (the filament colours you give, or shades of grey) on no background; each colour is one shape: H.svg(name, { height, colors: [colour] }). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the picture is wrong.`, {
         name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.svg, e.g. "players"'),
         subject: z.string().min(10).max(2000).describe('What to draw: subject(s), pose, expression, composition and framing – be specific'),

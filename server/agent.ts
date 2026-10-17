@@ -13,10 +13,12 @@ import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
-import { artworkAvailable } from './artwork';
+import { artworkAvailable, decodeImage } from './artwork';
+import { HF_IMAGES_KEY, HF_KEY, parseHfImages, toHfImage } from '../shared/hueforge';
 import { formatDuration } from '../shared/duration';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
+import type { ParamValues } from '../shared/types';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -32,6 +34,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__render_model: 'Rendering preview',
   mcp__cad__render_scad: 'Rendering the OpenSCAD file',
   mcp__cad__generate_artwork: 'Generating artwork',
+  mcp__cad__generate_picture: 'Generating a picture',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
   WebFetch: 'Reading a web page',
@@ -149,10 +152,38 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const opened = new Set<string>();
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
-  // AI artwork (only when turned on in the chat, and with an OpenRouter key); it may draw from the attached photos.
-  const artwork = req.artwork === true && artworkAvailable();
+  // The chat's picture mode: AI artwork (flat colours traced for H.svg) or a HueForge filament
+  // painting (H.hueforge); both only when turned on, and AI pictures need an OpenRouter key.
+  const mode = req.imageMode ?? (req.artwork ? 'artwork' : 'off');
+  const artwork = mode === 'artwork' && artworkAvailable();
+  const hueforge = mode === 'hueforge';
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
-  const { server: cad, state } = cadTools(file, emit, opened, Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}, artwork ? { references, signal: abort.signal } : undefined);
+  // HueForge pictures: the design's own, plus the photos attached now (kept with the design).
+  const hfImages = parseHfImages(req.renderValues?.[HF_IMAGES_KEY]);
+  const newPictures: string[] = [];
+  if (hueforge) {
+    for (const img of (req.images ?? []).filter((i) => i.mediaType === 'image/png' || i.mediaType === 'image/jpeg')) {
+      try {
+        const raster = decodeImage(Buffer.from(img.data, 'base64'));
+        let name = `photo-${Object.keys(hfImages).length + 1}`;
+        while (hfImages[name]) name += '-b';
+        hfImages[name] = toHfImage(name, raster.width, raster.height, raster.data);
+        newPictures.push(name);
+        emit({ type: 'hfImage', name, image: hfImages[name] });
+      } catch (e) {
+        emit({ type: 'step', step: { kind: 'tool', ok: false, text: `A photo couldn't be read for HueForge: ${(e as Error).message}` } });
+      }
+    }
+  }
+  const base: ParamValues = {
+    ...(Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
+    ...(Object.keys(hfImages).length ? { [HF_IMAGES_KEY]: JSON.stringify(hfImages) } : {}),
+    ...(typeof req.renderValues?.[HF_KEY] === 'string' ? { [HF_KEY]: req.renderValues[HF_KEY] } : {}),
+  };
+  const { server: cad, state } = cadTools(file, emit, opened, base, {
+    artwork: artwork ? { references, signal: abort.signal } : undefined,
+    pictures: hueforge && artworkAvailable() ? { references, signal: abort.signal } : undefined,
+  });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
 
@@ -218,6 +249,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (attachedScad.length) {
     parts.push('Jig runs model scripts, not OpenSCAD: build model.js so it reproduces the OpenSCAD design, then apply what the user asks. Keep its Customizer parameters as params (same names, defaults, ranges, steps, groups and captions; options become select, free text becomes text) and each color() as its own part, unless the user says otherwise. Compare your script with the original as you go: render_scad shows the OpenSCAD file at any parameter values, render_model your script.');
   }
+  if (hueforge) {
+    const names = Object.keys(hfImages);
+    parts.push(`HueForge mode is on: make this a HueForge filament painting with H.hueforge (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.hueforge: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
+  }
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {
@@ -253,7 +288,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork),
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable() } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
@@ -449,6 +484,7 @@ function describeToolInput(name: string, input: Record<string, unknown> | undefi
     return `Editing model.js – replacing ${a} line${a === 1 ? '' : 's'} with ${b}${input.replace_all ? ' (all occurrences)' : ''}`;
   }
   if (name === 'Read') return 'Reading model.js';
+  if (name === 'mcp__cad__generate_picture' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
   if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {

@@ -72,17 +72,24 @@ export function artworkPrompt(r: ArtworkRequest): string {
 
 /** Asks the image model for the artwork and traces it. */
 export async function generateArtwork(name: string, r: ArtworkRequest, signal?: AbortSignal): Promise<Artwork> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('AI artwork needs an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.');
   const prompt = artworkPrompt(r);
+  const { image, model, cost } = await requestImage(prompt, r.aspect ?? '1:1', r.references, signal);
+  const traced = traceArtwork(decodeImage(Buffer.from(image.data, 'base64')), r.colors?.length ? r.colors : undefined, r.tones ?? 4, name);
+  return { prompt, model, cost, image, ...traced };
+}
+
+/** A picture from the image model for `prompt` (with the reference photos, if any). */
+export async function requestImage(prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('AI pictures need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.');
   const model = imageModel();
-  const content = r.references?.length
-    ? [{ type: 'text', text: prompt }, ...r.references.map((url) => ({ type: 'image_url', image_url: { url } }))]
+  const content = references?.length
+    ? [{ type: 'text', text: prompt }, ...references.map((url) => ({ type: 'image_url', image_url: { url } }))]
     : prompt;
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'Jig' },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], image_config: { aspect_ratio: r.aspect ?? '1:1' } }),
+    body: JSON.stringify({ model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], image_config: { aspect_ratio: aspect } }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
   });
   const body = (await res.json().catch(() => ({}))) as {
@@ -98,8 +105,21 @@ export async function generateArtwork(name: string, r: ArtworkRequest, signal?: 
     const why = [msg?.refusal, msg?.content, body.choices?.[0]?.native_finish_reason ?? body.choices?.[0]?.finish_reason].filter(Boolean).join(' – ');
     throw new Error(`The image model returned no picture${why ? ` (${why.slice(0, 300)})` : ''}. It may refuse named real people or brands: describe how they look instead of naming them.`);
   }
-  const traced = traceArtwork(decodeImage(Buffer.from(m[2], 'base64')), r.colors?.length ? r.colors : undefined, r.tones ?? 4, name);
-  return { prompt, model, cost: typeof body.usage?.cost === 'number' ? body.usage.cost : null, image: { data: m[2], mediaType: m[1] }, ...traced };
+  return { image: { data: m[2], mediaType: m[1] }, model, cost: typeof body.usage?.cost === 'number' ? body.usage.cost : null };
+}
+
+/** The prompt for a HueForge picture: a photo-like image with a full range of tones, no print rules about flat colours. */
+export function picturePrompt(r: { subject: string; style?: string; references?: string[] }): string {
+  return [
+    'A picture to be printed as a HueForge-style filament painting: a thin relief where brightness becomes height, printed in a few stacked filaments, so the picture is judged by its light and dark values.',
+    `Subject: ${r.subject.trim()}`,
+    r.references?.length ? 'Work from the attached photo(s): keep the subject\'s real likeness, features and proportions.' : '',
+    `Look: ${r.style?.trim() || 'realistic, detailed and sharp, like a high-quality photo or a fine painting, with strong lighting and clear contrast'}.`,
+    'Rules:',
+    '- a full range of tones from deep shadows to bright highlights, with the subject clearly separated from the background by light',
+    '- a simple, uncluttered background that is clearly lighter or darker than the subject',
+    '- no frame, border, text, signature or watermark',
+  ].filter(Boolean).join('\n');
 }
 
 interface Raster { width: number; height: number; data: Uint8Array | Uint8ClampedArray }

@@ -7,7 +7,7 @@ function describeBase(b: Required<PrintSettings>): string {
   return `layer ${b.layerHeight.toFixed(2)} mm, ${b.walls} walls, ${b.topLayers} top / ${b.bottomLayers} bottom layers, ${b.infill} % ${d('infillPattern')} infill, supports ${d('supports')}${b.supportsOnPlate ? ' (from the build plate only)' : ''}, brim ${d('brim')}, ironing ${d('ironing')}, seam ${d('seam')}, ${SETTING_LABELS.wallOrder.toLowerCase()} ${d('wallOrder')}, fuzzy skin ${d('fuzzySkin')}`;
 }
 
-export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false): string {
+export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, hueforge?: { pictures: boolean }): string {
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${PRINTER.name} (FDM bed-slinger, ${PRINTER.nozzle} mm nozzle, PLA/PETG, build volume ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
@@ -36,6 +36,7 @@ export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, pri
 # Dimensions of real products
 ${webSearch ? WEB_ON : WEB_OFF}
 ${artwork ? ARTWORK_ON : ''}
+${hueforge ? hueforgePrompt(hueforge.pictures) : ''}
 
 When the design must fit a real product or standard part (dev board, phone, camera, battery, connector, display, fastener…), take its fit-critical dimensions from the most authoritative source available, in this order:
 1. **official** – the manufacturer's mechanical drawing, datasheet or spec page (e.g. datasheets.raspberrypi.com for a Raspberry Pi).
@@ -211,5 +212,16 @@ const ARTWORK_ON = `AI artwork is ON (generate_artwork). When a design needs rea
 - Pick the colours: the user's filament colours if they said, else 3–4 that print well together (e.g. black, a mid grey, white, plus one accent), or shades of grey for a classic look.
 - Describe the subject precisely (who/what, pose, expression, framing, the mood); the print rules (flat colours, no background) are added for you. Leave style empty: the default is realistic artwork (true proportions, faces, light and shadow, posterized like a screen print), which is what users want; set a style only when the user asks for one (cartoon, minimal…). Describe real people by their look rather than by name (image models often refuse names). Use the user's attached photos (use_attached_photos) when the artwork should look like them.
 - Not for geometric or mechanical parts, plain shapes or lettering (use primitives and H.text), or when the user attached an SVG to use.`;
+
+function hueforgePrompt(pictures: boolean) {
+  return `HueForge mode is ON: the user wants a HueForge-style filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
+- Build it with H.hueforge(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
+    const params = { width: { label: 'Picture width', value: 150, min: 40, max: 250, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
+    function build(p) { return { name: 'Picture', ...H.hueforge('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
+- The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
+- Filaments (bottom → top, { name, brand, color: '#rrggbb', td } with TD in mm): by default the user's loaded Bambu Lab PLA Basic Black (TD 0.6) and White (TD 3), which give a classic black-and-white print. Add colours (up to 4 for the A1's AMS lite) only when the user asks, darkest at the bottom usually. The user can change filaments, TDs and swap heights in the HueForge panel (Print tab); their choice wins over the script's.
+- Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.hueforge part.
+- Check it with render_model (it shows the simulated colours) and describe in your final message the size, the filaments and that colour swaps are set automatically (adjustable in the Print tab).`;
+}
 
 const WEB_OFF = `You have no web access in this design. For real products whose exact size matters, use what you know (kind memory) or estimate, say in your final message which dimensions may be off by a few mm, and mention that the user can turn on web search (the globe button under the chat box) so you can look them up.`;
