@@ -4,6 +4,8 @@ import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
+import { HF_IMAGES_KEY, HF_KEY, type HfImage, type HueforgeSetup } from '../shared/hueforge';
+import { parseHfImages } from './lib/hfImage';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
@@ -11,7 +13,7 @@ import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
 import { GeometryClient } from './geometry/client';
-import { ChatPanel } from './components/ChatPanel';
+import { ChatPanel, type ImageMode } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
@@ -33,8 +35,8 @@ import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRI
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
-interface ChatOptions { model: string; effort: string; webSearch: boolean; artwork: boolean }
-const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, artwork: false };
+interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode }
+const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, imageMode: 'off' };
 
 function newDesign(): Design {
   const now = Date.now();
@@ -222,6 +224,12 @@ export default function App() {
     if (list.length) values[SVG_KEY] = JSON.stringify(list); else delete values[SVG_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
+  // HueForge: the filament setup (a setting, like the sliders) and the pictures (like attached drawings).
+  const setHueforge = (setup: HueforgeSetup | null) => setDesign((d) => {
+    const values = { ...d.values };
+    if (setup) values[HF_KEY] = JSON.stringify(setup); else delete values[HF_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
@@ -381,7 +389,8 @@ export default function App() {
         model: chat.model,
         effort: chat.effort,
         webSearch: chat.webSearch,
-        artwork: chat.artwork,
+        imageMode: chat.imageMode,
+        artwork: chat.imageMode === 'artwork',
         drawings: Object.keys(drawings).length ? drawings : undefined,
         scad: scad.length ? scad : undefined,
         // In case the session can't be continued: what was said, for a fresh one.
@@ -389,6 +398,7 @@ export default function App() {
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
+        else if (ev.type === 'hfImage') update((d) => withHfImage(d, ev.name, ev.image));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
@@ -706,8 +716,9 @@ export default function App() {
     const v = design.versions[vi];
     if (!v) return;
     const values: ParamValues = { ...v.values };
-    // Drawings attached later in the chat may be what this version's script uses.
+    // Drawings and pictures attached later in the chat may be what this version's script uses.
     if (!values[DRAWINGS_KEY] && design.values[DRAWINGS_KEY]) values[DRAWINGS_KEY] = design.values[DRAWINGS_KEY];
+    if (!values[HF_IMAGES_KEY] && design.values[HF_IMAGES_KEY]) values[HF_IMAGES_KEY] = design.values[HF_IMAGES_KEY];
     const d = newDesign();
     const forked: Design = {
       ...d,
@@ -847,9 +858,9 @@ export default function App() {
           effort={chat.effort} onEffort={(effort) => setChat({ effort })}
           webSearch={chat.webSearch}
           onWebSearch={(webSearch) => setChat({ webSearch })}
-          artwork={chat.artwork}
+          imageMode={chat.imageMode}
           artworkModel={artworkModel}
-          onArtwork={(artwork) => setChat({ artwork })}
+          onImageMode={(imageMode) => setChat({ imageMode })}
           defaultModel={chatDefaults.model}
           hasModel={!!design.code}
           dictation={dictation}
@@ -904,6 +915,9 @@ export default function App() {
           code={design.code}
           onValue={onValue}
           onResetValues={() => setDesign((d) => ({ ...d, values: keepAppValues(d.values) }))}
+          values={design.values}
+          onHueforge={setHueforge}
+          onHfImage={(name, image) => setDesign((d) => ({ ...withHfImage(d, name, image), updatedAt: Date.now() }))}
           onEditDimension={onEditDimension}
           textFeatures={textFeatures}
           onTextFeatures={setTextFeatures}
@@ -954,6 +968,11 @@ export default function App() {
 /** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */
 function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
+}
+
+/** The design with a HueForge picture added (or replaced) under HF_IMAGES_KEY. */
+function withHfImage(d: Design, name: string, image: HfImage): Design {
+  return { ...d, values: { ...d.values, [HF_IMAGES_KEY]: JSON.stringify({ ...parseHfImages(d.values[HF_IMAGES_KEY]), [name]: image }) } };
 }
 
 /** A message written while Claude was working, sent after its reply. */

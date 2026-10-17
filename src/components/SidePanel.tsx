@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
+import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ParamValues, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { load, store } from '../lib/storage';
 import { TextPanel } from './TextPanel';
@@ -7,6 +7,8 @@ import { PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
 import { ObjectPanel } from './ObjectPanel';
 import { SvgPanel } from './SvgPanel';
+import { HueforgePanel, hueforgePart } from './HueforgePanel';
+import type { HfImage, HueforgeSetup } from '../../shared/hueforge';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
 import type { PrintProfile, PrintSettings } from '../../shared/print';
@@ -40,6 +42,10 @@ interface Props {
   code: string;
   onValue: (key: string, v: ParamValue) => void;
   onResetValues: () => void;
+  /** The design's values (the HueForge setup and pictures). */
+  values: ParamValues;
+  onHueforge: (s: HueforgeSetup | null) => void;
+  onHfImage: (name: string, image: HfImage) => void;
   onApplyCode: (code: string) => void;
   onExport: (format: ExportFormat, partName?: string) => void;
   exporting: boolean;
@@ -99,7 +105,9 @@ export function SidePanel(p: Props) {
     : <div className="empty-note">{what}</div>);
   const hiddenCount = shown ? shown.parts.filter((x) => p.hiddenParts.includes(x.name)).length : 0;
   const decorations = p.textFeatures.length + p.svgFeatures.length;
-  // Four tabs, each with two sections one under the other.
+  const hfPart = hueforgePart(shown);
+  // Four tabs, each with two sections one under the other (a HueForge print adds its own on top of
+  // the Print tab).
   const tabs: [Tab, React.ReactNode][] = [
     ['object', <><Icon name="cube" size={14} /> Object{hiddenCount ? <span className="count" aria-label={`${hiddenCount} parts hidden`}>{shown!.parts.length - hiddenCount}/{shown!.parts.length}</span> : null}</>],
     ['decorate', <><Icon name="shapes" size={14} /> Text &amp; SVG{decorations ? <span className="count" aria-label={`${decorations} texts and drawings`}>{decorations}</span> : null}</>],
@@ -147,6 +155,7 @@ export function SidePanel(p: Props) {
             : noModel('SVG drawings can be added once a model is generated.')))}
         </>}
         {tab === 'print' && <>
+          {shown && hfPart && section('hueforge', 'HueForge', () => <HueforgePanel result={shown} part={hfPart} values={p.values} onSetup={p.onHueforge} onImage={p.onHfImage} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
             : noModel('Print settings appear once a model is generated.')))}
