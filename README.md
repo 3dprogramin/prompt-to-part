@@ -16,7 +16,7 @@ npm test             # unit and API tests (about 5 s)
 npm run typecheck
 ```
 
-Requires Node 20.19+ or 22.12+ and a logged-in `claude` CLI (`claude` → `/login`). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
+Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`) and a logged-in `claude` CLI (`claude` → `/login`). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
 
 Optional:
 - **Bambu Studio** (2.x) for Bambu project 3MF export.
