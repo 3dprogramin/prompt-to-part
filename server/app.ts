@@ -19,6 +19,12 @@ import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
+import { geometry } from './geometry';
+import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
+import { freeMeshName, MAX_MESHES, MESH_NAME } from '../shared/meshes';
+import { meshFormat } from '../shared/meshFormats';
+import { meshyAvailable } from './meshy';
+import type { MeshUpload } from '../shared/api';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
 const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
@@ -233,9 +239,50 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     });
   });
 
+  // Mesh files (STL, OBJ, GLB/glTF, 3MF) attached in the chat: parsed, repaired and made a solid in
+  // the locked-down geometry worker, then stored with the design for H.mesh (server/meshes.ts).
+  app.post('/api/designs/:id/meshes', express.raw({ type: 'application/octet-stream', limit: MAX_MESH_BYTES }), async (req, res) => {
+    const { id } = req.params;
+    const filename = String(req.query.name ?? '').replace(/[/\\]/g, '_').slice(0, 200);
+    if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
+    if (!meshFormat(filename)) return void res.status(400).json({ error: 'Send an STL, OBJ, GLB/glTF or 3MF file (?name= its file name)' });
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return void res.status(400).json({ error: 'Send the file as the body (application/octet-stream)' });
+    if (deleted.has(id)) return void res.status(410).json({ error: 'This design was deleted' });
+    const bytes = new Uint8Array(req.body);
+    let imported;
+    try {
+      imported = await geometry.importMesh(bytes, filename);
+    } catch (e) {
+      return void res.status(422).json({ error: `${filename}: ${(e as Error).message}` });
+    }
+    // The import takes seconds; only the writes wait in the design's queue (saves go on meanwhile).
+    const entry = await storeMesh(id, imported, { bytes, filename }, { source: 'upload' }, (fn) => serially(id, async () => (deleted.has(id) ? null : fn())));
+    if (!entry) return void res.status(410).json({ error: 'This design was deleted' });
+    res.json({ name: freeMeshName(filename, {}), entry, report: imported.report } satisfies MeshUpload);
+  });
+
+  app.get('/api/designs/:id/meshes/:name', (req, res) => {
+    const { id, name } = req.params;
+    if (!ID_RE.test(id) || !MESH_FILE.test(name)) return void res.status(400).json({ error: 'bad mesh file' });
+    // Named by content, like the images.
+    res.sendFile(path.join(meshDir(id), name), { headers: { 'Cache-Control': 'max-age=31536000, immutable', ...(name.endsWith('.bin') ? { 'Content-Type': 'application/octet-stream' } : {}) } }, (e) => {
+      if (e && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'not found' });
+    });
+  });
+
+  // A design started from a version of another one gets copies of that design's mesh files.
+  app.post('/api/designs/:id/meshes/copy', json('1kb'), async (req, res) => {
+    const { id } = req.params;
+    const from = String((req.body as { from?: unknown })?.from ?? '');
+    if (!ID_RE.test(id) || !ID_RE.test(from) || id === from) return void res.status(400).json({ error: 'bad id' });
+    const copied = await serially(id, async () => (deleted.has(id) ? null : copyMeshes(from, id)));
+    if (copied == null) return void res.status(410).json({ error: 'This design was deleted' });
+    res.json({ copied });
+  });
+
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, model: defaultModel(), effort: defaultEffort() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort() } satisfies Capabilities);
   });
 
   // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream
@@ -354,7 +401,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     if (!body || !ID_RE.test(body.designId ?? '')) return void res.status(400).json({ error: 'designId required' });
     const problem = generateProblem(body);
     if (problem) return void res.status(400).json({ error: problem });
-    if (!body.prompt?.trim() && !body.images?.length && !body.scad?.length) return void res.status(400).json({ error: 'prompt, images or files required' });
+    if (!body.prompt?.trim() && !body.images?.length && !body.scad?.length && !body.meshes?.length) return void res.status(400).json({ error: 'prompt, images or files required' });
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     if (generatingDesigns.has(body.designId)) {
@@ -413,6 +460,8 @@ function generateProblem(b: GenerateRequest): string | null {
   if (b.sessionId != null && !/^[\w-]{1,100}$/.test(b.sessionId)) return 'bad sessionId';
   for (const v of [b.values, b.renderValues, b.pictures]) if (v != null && (typeof v !== 'object' || Array.isArray(v))) return 'bad values';
   if (b.drawings != null && (typeof b.drawings !== 'object' || Array.isArray(b.drawings))) return 'bad drawings';
+  if (b.meshes != null && (!Array.isArray(b.meshes) || b.meshes.length > MAX_MESHES || !b.meshes.every((n) => typeof n === 'string' && MESH_NAME.test(n)))) return 'bad meshes';
+  if (b.imageMode != null && !['off', 'artwork', 'hueforge', 'lithophane', 'figure'].includes(b.imageMode)) return 'bad imageMode';
   if (!parseScadFiles(b.scad)) return `up to ${MAX_SCAD_FILES} .scad files of up to ${MAX_SCAD_CHARS.toLocaleString('en')} characters`;
   if (b.history != null && (!Array.isArray(b.history) || b.history.length > 40 || !b.history.every((h) => h && typeof h.text === 'string' && (h.role === 'user' || h.role === 'assistant')))) return 'bad history';
   return null;

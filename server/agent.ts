@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { readFileSync } from 'node:fs';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
@@ -22,6 +22,9 @@ import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
 import type { ParamValues } from '../shared/types';
+import { MESHES_KEY, parseMeshes } from '../shared/meshes';
+import { describeImport, meshDir } from './meshes';
+import { meshyClient } from './meshy';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -39,6 +42,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__generate_artwork: 'Generating artwork',
   mcp__cad__generate_picture: 'Generating a picture',
   mcp__cad__set_hueforge: 'Changing the HueForge filaments',
+  mcp__cad__generate_3d: 'Making a 3D model with Meshy',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
   WebFetch: 'Reading a web page',
@@ -57,6 +61,7 @@ export function claudeEnv(): Record<string, string | undefined> {
   // Claude has no use for other services' keys.
   delete env.ELEVENLABS_API_KEY;
   delete env.OPENROUTER_API_KEY;
+  delete env.MESHY_API_KEY;
   return env;
 }
 
@@ -186,7 +191,15 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       }
     }
   }
+  // Meshes kept with the design (attached files and Meshy models), for H.mesh.
+  const meshes = parseMeshes(pictureValues[MESHES_KEY]);
+  const attachedMeshes = (req.meshes ?? []).filter((n) => meshes[n]);
+  const figure = mode === 'figure';
+  const meshy = meshyClient();
+  // generate_3d: in 3D figure mode, and in follow-ups on designs that have meshes.
+  const meshTools = !!meshy && (figure || Object.keys(meshes).length > 0);
   const base: ParamValues = {
+    ...(Object.keys(meshes).length ? { [MESHES_KEY]: JSON.stringify(meshes) } : {}),
     ...(Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
     ...(Object.keys(hfImages).length ? { [HF_IMAGES_KEY]: JSON.stringify(hfImages) } : {}),
     ...(typeof pictureValues[HF_KEY] === 'string' ? { [HF_KEY]: pictureValues[HF_KEY] } : {}),
@@ -196,6 +209,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     pictures: (hueforge || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
     hueforge,
     lithophane,
+    meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal } : undefined,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -272,6 +286,23 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const names = Object.keys(hfImages);
     parts.push(`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }
+  // Mesh files attached now: a picture of each as imported, and what the import did.
+  for (const name of attachedMeshes) {
+    const entry = meshes[name];
+    const pic = entry.preview && /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/meshes\/([0-9a-f]{32}\.png)$/.exec(entry.preview);
+    const png = pic ? await readFile(path.join(meshDir(pic[1]), pic[2])).catch(() => null) : null;
+    if (png) {
+      content.push({ type: 'text', text: `MESH FILE ${entry.original ?? name} attached by the user – as imported (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP):` });
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: png.toString('base64') } });
+      emit({ type: 'step', step: { kind: 'render', verbose: true, text: `Sent Claude a render of ${entry.original ?? name}`, image: `data:image/png;base64,${png.toString('base64')}`, detail: describeImport(name, entry) } });
+    }
+    parts.push(`The user attached a mesh file. ${describeImport(name, entry)}`);
+  }
+  if (Object.keys(meshes).length && !attachedMeshes.length) {
+    parts.push(`Meshes in this design (H.mesh): ${Object.entries(meshes).map(([n, m]) => `"${n}" (${m.source === 'meshy' ? `made with generate_3d${m.prompt ? `: ${m.prompt.slice(0, 120)}` : ''}` : `from ${m.original ?? 'a file'}`}; ${m.size.map((x) => x.toFixed(0)).join(' × ')} mm as stored, ${m.triangles.toLocaleString('en')} triangles)`).join(', ')}.`);
+  }
+  if (figure && !meshy) parts.push('3D figure mode is on, but Jig has no Meshy key (MESHY_API_KEY), so generate_3d is not available.');
+  else if (figure) parts.push(`3D figure mode is on: make the subject with generate_3d${references.length ? ' (from_photo: true builds it from the attached photo)' : ''} and build the design around it with H.mesh.`);
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {
@@ -286,7 +317,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
   if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
   if (Object.keys(drawings).length) parts.push(`SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
-  parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : '(no text – work from the reference images)')}`);
+  parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : attachedMeshes.length ? '(no text – show the attached mesh as a printable model)' : '(no text – work from the reference images)')}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 
   const env = claudeEnv();
@@ -313,7 +344,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable() } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined),
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable() } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
+          figure || Object.keys(meshes).length ? { figure, meshy: meshTools } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
@@ -594,6 +626,7 @@ function describeToolInput(name: string, input: Record<string, unknown> | undefi
   }
   if (name === 'Read') return 'Reading model.js';
   if (name === 'mcp__cad__generate_picture' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
+  if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_photo ? 'from the attached photo' : String(input.prompt ?? '').slice(0, 200)}`;
   if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
   if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {

@@ -9,9 +9,10 @@ import { evaluateScript, formatScriptError, initRuntime, instantiateWith, runtim
 import { solveDimension } from '../../shared/solver';
 import { probeParamOwners } from '../../shared/paramOwners';
 import { withFonts } from '../../shared/text';
+import { decodeMesh, withMeshes, type MeshData } from '../../shared/meshes';
 import { validateResult, type ValidateOptions } from './validate';
 import { linearColors, usableColors } from './vertexColors';
-import { api, HttpError } from '../lib/api';
+import { api, HttpError, request } from '../lib/api';
 import type { DimTarget, ParamValues, PartDisplay, PartMesh, Quality } from '../../shared/types';
 
 async function loadFont(id: string): Promise<ArrayBuffer[]> {
@@ -25,6 +26,19 @@ async function loadFont(id: string): Promise<ArrayBuffer[]> {
     throw e;
   }
 }
+
+/** A design's mesh (H.mesh), fetched once: the files never change, and the runtime keeps a few loaded. */
+async function loadMesh(url: string): Promise<MeshData> {
+  try {
+    return decodeMesh(new Uint8Array(await (await request(url)).arrayBuffer()));
+  } catch (e) {
+    // A missing file stays missing; anything else (the server restarting) is tried again next time.
+    if (!(e instanceof HttpError && e.status === 404)) Object.assign(e as Error, { transient: true });
+    throw e;
+  }
+}
+/** Runs fn with every font and mesh it needs loaded. */
+const withAssets = <T>(fn: () => T): Promise<T> => withMeshes(() => withFonts(fn, loadFont), loadMesh);
 
 let startFailed!: (e: unknown) => void;
 const ready = Promise.race([
@@ -88,17 +102,17 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
   try {
     if (req.kind === 'owners') {
       // Draft builds, one per parameter: which parts each one changes.
-      const base = await withFonts(() => evaluateScript(req.code, req.values, 'draft'), loadFont);
+      const base = await withAssets(() => evaluateScript(req.code, req.values, 'draft'));
       post({ id: req.id, owners: probeParamOwners(base, req.values, (v) => evaluateScript(req.code, v, 'draft')) });
       return;
     }
     if (req.kind === 'solve') {
       // Evaluate once first so every font the model needs is loaded before solving.
-      await withFonts(() => evaluateScript(req.code, req.values, req.quality, { lite: true }), loadFont).catch(() => null);
+      await withAssets(() => evaluateScript(req.code, req.values, req.quality, { lite: true })).catch(() => null);
       post({ id: req.id, solve: solveDimension(req.code, req.values, req.target, req.goal, req.quality) });
       return;
     }
-    const result = await withFonts(() => evaluateScript(req.code, req.values, req.quality), loadFont);
+    const result = await withAssets(() => evaluateScript(req.code, req.values, req.quality));
     // The script is done: preparing the viewer mesh below takes time of its own, which must not
     // count against the script's time limit.
     if (req.display) post({ id: req.id, built: true });
