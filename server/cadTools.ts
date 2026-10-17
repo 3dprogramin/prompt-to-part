@@ -85,7 +85,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-      ...(hueforge ? [tool('set_hueforge', 'Change the HueForge setup – the same one the user edits in the HueForge panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Check the result with render_model (the report lists the stack used).', {
+      ...(hueforge ? [tool('set_hueforge', 'Change the HueForge setup – the same one the user edits in the HueForge panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Applies at once (no submit_model needed); to change filaments after the first version use this, not the script. Check the result with render_model (the report lists the stack used).', {
         filaments: z.array(z.object({
           name: z.string().max(120).describe('e.g. "PLA Basic Black"'),
           brand: z.string().max(60).optional().describe('e.g. "Bambu Lab", "eSUN"'),
@@ -104,6 +104,10 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         // New filaments without new swaps: the old swaps no longer fit, so they go automatic.
         else if (a.filaments && setup.swaps && setup.swaps.length !== setup.filaments!.length - 1) delete setup.swaps;
         const count = setup.filaments?.length;
+        // Swaps only mean something against a known filament list (the script's may change without notice).
+        if (setup.swaps && count == null) {
+          return { content: [{ type: 'text', text: 'Pass the full filament list (bottom → top) together with the swaps.' }], isError: true };
+        }
         if (setup.swaps && count != null && !checkSwaps(setup.swaps, count)) {
           return { content: [{ type: 'text', text: `swaps must be ${count - 1} ascending whole layer numbers, each ≥ 1 (one per filament after the first).` }], isError: true };
         }

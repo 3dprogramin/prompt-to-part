@@ -236,7 +236,7 @@ function hueforgePrompt(pictures: boolean) {
   - More than 4 only when really needed: each extra filament means a pause and a manual spool swap. If you go above 4, say so in your final message and why.
   - Black at the bottom and white on top is the most common choice, not a rule: pick colours that suit the subject (skin tones, sky, a brown or grey mid-tone, a team colour…), dark at the bottom to light at the top unless the picture calls for something else.
   - Prefer filaments from Jig's library below (their TDs are known); colours marked * have an estimated TD – mention those. Use the library's exact name, brand, colour and TD.
-  - First version: pass them to H.hueforge({ …, filaments: [...] }). Later messages: change them with set_hueforge.
+  - First version: pass them to H.hueforge({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_hueforge, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.
 - Jig's filament library (brand line: colour #hex TD; * = estimated TD):
 ${FILAMENT_LINES}
 - Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
