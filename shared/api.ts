@@ -28,6 +28,8 @@ export interface GenerateRequest {
   currentView?: ImageData;
   /** Follow-ups: full values to render the current state exactly ($scale, $text included). */
   renderValues?: ParamValues;
+  /** The design's pictures ($images) and HueForge setup ($hueforge), with every request (renderValues comes only with follow-ups on a finished version). */
+  pictures?: ParamValues;
   /** Uniform scale the user applied in the app (1 = none). */
   scale?: number;
   /** Restored-version / manual-edit note. */

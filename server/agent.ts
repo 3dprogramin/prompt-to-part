@@ -161,13 +161,16 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const artwork = mode === 'artwork' && artworkAvailable();
   // A HueForge or lithophane design stays one in follow-ups, whatever the menu says now (unless it
   // asks for the other): Claude keeps its picture tools. A design is one or the other.
+  // The design's pictures and HueForge setup (sent with every request; the follow-up values win).
+  const pictureValues: ParamValues = { ...req.pictures, ...req.renderValues };
   const lithophane = mode === 'lithophane' || (mode !== 'hueforge' && isLithophane(req.code));
-  const hueforge = !lithophane && (mode === 'hueforge' || Object.keys(parseHfImages(req.renderValues?.[HF_IMAGES_KEY])).length > 0);
+  const hueforge = !lithophane && (mode === 'hueforge' || /\bH\.hueforge\s*\(/.test(req.code ?? '') || Object.keys(parseHfImages(pictureValues[HF_IMAGES_KEY])).length > 0);
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   // Pictures: the design's own, plus the photos attached now (kept with the design).
-  const hfImages = parseHfImages(req.renderValues?.[HF_IMAGES_KEY]);
+  const hfImages = parseHfImages(pictureValues[HF_IMAGES_KEY]);
   const newPictures: string[] = [];
-  if (mode === 'hueforge' || lithophane) {
+  // In a HueForge or lithophane design (whatever the menu says now) attached photos become pictures.
+  if (hueforge || lithophane) {
     for (const img of (req.images ?? []).filter((i) => i.mediaType === 'image/png' || i.mediaType === 'image/jpeg')) {
       try {
         const raster = decodeImage(Buffer.from(img.data, 'base64'));
@@ -184,7 +187,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const base: ParamValues = {
     ...(Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
     ...(Object.keys(hfImages).length ? { [HF_IMAGES_KEY]: JSON.stringify(hfImages) } : {}),
-    ...(typeof req.renderValues?.[HF_KEY] === 'string' ? { [HF_KEY]: req.renderValues[HF_KEY] } : {}),
+    ...(typeof pictureValues[HF_KEY] === 'string' ? { [HF_KEY]: pictureValues[HF_KEY] } : {}),
   };
   const { server: cad, state } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
@@ -259,7 +262,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
   if (hueforge) {
     const names = Object.keys(hfImages);
-    const setup = typeof req.renderValues?.[HF_KEY] === 'string' ? req.renderValues[HF_KEY] : null;
+    const setup = typeof pictureValues[HF_KEY] === 'string' ? pictureValues[HF_KEY] : null;
     if (isFollowUp) parts.push(setup ? `The HueForge setup (the user's panel; set_hueforge changes it, and it wins over the script): ${setup}` : 'The HueForge setup is empty: the script\'s filaments and automatic swaps apply (set_hueforge changes that).');
     parts.push(`HueForge mode is on: make this a HueForge filament painting with H.hueforge (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.hueforge: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }

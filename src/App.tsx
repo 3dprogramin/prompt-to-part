@@ -407,6 +407,8 @@ export default function App() {
         imageMode: chat.imageMode,
         artwork: chat.imageMode === 'artwork',
         drawings: Object.keys(drawings).length ? drawings : undefined,
+        // The design's pictures and HueForge setup, so Claude has them even before a first version exists.
+        pictures: pictureValues(design.values),
         scad: scad.length ? scad : undefined,
         // In case the session can't be continued: what was said, for a fresh one.
         history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
@@ -996,6 +998,13 @@ function keepAppValues(values: ParamValues): ParamValues {
 }
 
 /** The design with a HueForge picture added (or replaced) under HF_IMAGES_KEY. */
+/** The design's pictures and HueForge setup, for the server (undefined when there are none). */
+function pictureValues(values: ParamValues): ParamValues | undefined {
+  const out: ParamValues = {};
+  for (const k of [HF_IMAGES_KEY, HF_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  return Object.keys(out).length ? out : undefined;
+}
+
 function withHfImage(d: Design, name: string, image: HfImage): Design {
   return { ...d, values: { ...d.values, [HF_IMAGES_KEY]: JSON.stringify({ ...parseHfImages(d.values[HF_IMAGES_KEY]), [name]: image }) } };
 }
