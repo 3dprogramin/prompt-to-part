@@ -11,8 +11,8 @@ import { useReleaseSlider } from './useReleaseSlider';
 /** Filaments the A1's AMS lite holds; more need changing by hand during the print. */
 const AMS_SLOTS = 4;
 
-/** What the runtime may tell about a HueForge part beyond its layer colours (see hfPartInfo). */
-type HfPart = PartMesh & { layerColors: LayerColor[]; hueforge?: { image?: string; options?: HueforgeOptions } };
+/** A HueForge part: its stack, and (from the runtime) the picture and options it was built with. */
+type HfPart = PartMesh & { layerColors: LayerColor[] };
 
 /** The first part of the model that is a HueForge print (H.hueforge), if any. */
 export function hueforgePart(result: EvalResult | null): HfPart | undefined {
