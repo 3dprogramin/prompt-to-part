@@ -97,10 +97,14 @@ export interface ThreeMfOptions {
 
 export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
   if (format === '3mf') {
-    if (!threeMf.print) return to3mf(parts, title, threeMf.colours);
-    const tpl = await api.bambuTemplate();
+    // A HueForge print's filament changes and layer heights only exist in a Bambu project: without
+    // print settings it still gets one with the script's (when Bambu Studio is there to build it).
+    const hueforge = threeMf.colours && parts.some((p) => p.layerColors?.length);
+    if (!threeMf.print && !hueforge) return to3mf(parts, title, threeMf.colours);
+    const tpl = threeMf.print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
+    if (!tpl) return to3mf(parts, title, threeMf.colours);
     threeMf.onTemplate?.(tpl);
-    return toBambuProject(parts, title, tpl, { colours: threeMf.colours, print: threeMf.print });
+    return toBambuProject(parts, title, tpl, { colours: threeMf.colours, print: threeMf.print ?? { ai: result.print, user: {} } });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
   return toBinaryStl(parts, title);
