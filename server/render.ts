@@ -96,6 +96,9 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
     parts.forEach((part, partIdx) => {
       const base = hexToRgb(part.color);
       const P = part.positions, I = part.indices;
+      // HueForge parts: each vertex's simulated print colour (sRGB 0–1), blended across the triangle.
+      const VC = part.vertexColors?.length === P.length ? part.vertexColors : undefined;
+      const vc = (v: number, shade: number): Vec3 => [VC![v * 3] * 255 * shade, VC![v * 3 + 1] * 255 * shade, VC![v * 3 + 2] * 255 * shade];
       for (let t = 0; t < I.length; t += 3) {
         const a: Vec3 = [P[I[t] * 3], P[I[t] * 3 + 1], P[I[t] * 3 + 2]];
         const b: Vec3 = [P[I[t + 1] * 3], P[I[t + 1] * 3 + 1], P[I[t + 1] * 3 + 2]];
@@ -105,6 +108,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
         const lam = Math.max(0, dot(n, light1)) * 0.6 + Math.max(0, facing) * 0.3 + 0.18;
         const shade = facing < 0 ? 0.35 : Math.min(1.1, lam);
         const r = Math.min(255, base[0] * shade), g = Math.min(255, base[1] * shade), bl = Math.min(255, base[2] * shade);
+        const ca = VC && vc(I[t], shade), cb = VC && vc(I[t + 1], shade), cc = VC && vc(I[t + 2], shade);
         const A = toScreen(a), B = toScreen(b), Cc = toScreen(c);
         const minX = Math.max(0, Math.floor(Math.min(A[0], B[0], Cc[0])));
         const maxX = Math.min(VIEW - 1, Math.ceil(Math.max(A[0], B[0], Cc[0])));
@@ -123,7 +127,11 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
             const idx = y * VIEW + x;
             if (z < depth[idx]) {
               depth[idx] = z;
-              col[idx * 3] = r; col[idx * 3 + 1] = g; col[idx * 3 + 2] = bl;
+              if (ca && cb && cc) {
+                for (let k = 0; k < 3; k++) col[idx * 3 + k] = Math.min(255, w0 * ca[k] + w1 * cb[k] + w2 * cc[k]);
+              } else {
+                col[idx * 3] = r; col[idx * 3 + 1] = g; col[idx * 3 + 2] = bl;
+              }
               nbuf[idx * 3] = n[0]; nbuf[idx * 3 + 1] = n[1]; nbuf[idx * 3 + 2] = n[2];
               pid[idx] = partIdx;
             }
