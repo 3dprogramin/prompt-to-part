@@ -9,6 +9,8 @@ interface Props {
   design: Design;
   onRename: (name: string) => void;
   onRestore: (versionIndex: number) => void;
+  /** New design from a version. */
+  onFork: (versionIndex: number) => void;
   /** Slider/scale/text/print changes not saved in any version yet. */
   unsavedSettings: boolean;
   onSaveSettings: () => void;
@@ -45,7 +47,7 @@ export function TopBar(p: Props) {
           version menu sits right after it. */}
       <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)}
         style={{ '--name-chars': p.design.name.length } as React.CSSProperties} />
-      {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} />}
+      {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} onFork={p.onFork} />}
       {p.unsavedSettings && (
         <button className="btn save-settings" onClick={p.onSaveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
           <Icon name="save" size={13} /> Save as v{p.design.versions.length + 1}

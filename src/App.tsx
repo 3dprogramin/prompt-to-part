@@ -610,6 +610,30 @@ export default function App() {
 
   const createNew = () => switchTo(newDesign());
 
+  /**
+   * A new design from one version: its script and settings (text, SVG, print, attached drawings)
+   * as v1, with an empty chat and its own Claude session. The original design is unchanged.
+   */
+  const forkVersion = (vi: number) => {
+    const v = design.versions[vi];
+    if (!v) return;
+    const values: ParamValues = { ...v.values };
+    // Drawings attached later in the chat may be what this version's script uses.
+    if (!values[DRAWINGS_KEY] && design.values[DRAWINGS_KEY]) values[DRAWINGS_KEY] = design.values[DRAWINGS_KEY];
+    const d = newDesign();
+    const forked: Design = {
+      ...d,
+      name: `${design.name} (from v${vi + 1})`,
+      code: v.code,
+      values,
+      versions: [{ ...v, values, summary: `From "${design.name}" v${vi + 1}: ${v.summary}`, createdAt: d.createdAt }],
+      currentVersion: 0,
+    };
+    switchTo(forked);
+    // Opened designs count as saved (switchTo); this one is new, so save it now.
+    saveSoon(forked);
+  };
+
   // The open design always has a tab (an empty new one only until another is opened).
   const designTabs: DesignTab[] = [...tabIds, ...(tabIds.includes(design.id) ? [] : [design.id])].flatMap((id) => {
     const name = id === design.id ? design.name : background.current.get(id)?.name ?? designs.find((d) => d.id === id)?.name;
@@ -693,6 +717,7 @@ export default function App() {
         design={design}
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
         onRestore={onRestore}
+        onFork={forkVersion}
         unsavedSettings={unsavedSettings}
         onSaveSettings={saveSettings}
         saveError={saveErrors[design.id]}
