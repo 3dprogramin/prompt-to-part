@@ -1,6 +1,7 @@
 // A selling price suggested by Claude for a printed design, from what it costs to print and what it is.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
+import { claudeAuthProblem } from './config';
 import { CURRENCY, duration, money } from '../shared/cost';
 import type { PriceRequest, PriceSuggestion } from '../shared/api';
 
@@ -34,6 +35,8 @@ export function parseSuggestion(text: string): PriceSuggestion {
 }
 
 export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
+  const authProblem = claudeAuthProblem();
+  if (authProblem) throw new Error(authProblem);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 90_000);
   try {

@@ -8,7 +8,7 @@ import { geometry, formatReport } from './geometry';
 import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
-import { DATA_DIR, USE_API_KEY } from './config';
+import { authMode, claudeAuthProblem, DATA_DIR } from './config';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { cachedPrintDefaults } from './bambu';
@@ -32,8 +32,10 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 /** The environment for the Claude Code process the Agent SDK starts. */
 export function claudeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
-  // Use the Claude plan the `claude` CLI is logged in with, unless JIG_USE_API_KEY=1 asks for API billing.
-  if (!USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
+  // Subscription mode uses the `claude` CLI's login, so no key may override it; in the default
+  // API-key mode the key (or token and base URL) is passed on, and without one nothing runs at all
+  // (claudeAuthProblem), so the CLI's login is never used silently.
+  if (authMode() === 'subscription') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_BASE_URL; }
   // Claude has no use for other services' keys.
   delete env.ELEVENLABS_API_KEY;
   return env;
@@ -122,6 +124,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     else if (e.type === 'block' && e.op === 'start') e.at = Date.now() - t0;
     rawEmit(e);
   };
+  const authProblem = claudeAuthProblem();
+  if (authProblem) { emit({ type: 'error', message: authProblem }); return; }
   emit({ type: 'live', text: 'Starting Claude…' });
   const ws = workspaceDir(req.designId);
   const file = path.join(ws, MODEL_FILE);

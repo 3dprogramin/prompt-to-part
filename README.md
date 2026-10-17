@@ -2,7 +2,7 @@
 
 AI-powered parametric CAD for 3D printing. Describe an object (and/or attach photos or SVG drawings). Claude writes a parametric model with sliders and dimension callouts, checks it, looks at renders of it, and stress-tests the sliders' extremes. You tweak it live, add text or logos, check that it prints, see what it costs to print, and export STL, a Bambu Studio project or a Blender file.
 
-Jig runs Claude through the Claude Agent SDK. By default it uses the Claude account the `claude` CLI is logged in with (your Claude plan); set `JIG_USE_API_KEY=1` to use `ANTHROPIC_API_KEY` instead. See [Claude account or API key](#claude-account-or-api-key) before sharing Jig with anyone.
+Jig runs Claude through the Claude Agent SDK with an Anthropic API key (`ANTHROPIC_API_KEY`). See [Claude account or API key](#claude-account-or-api-key).
 
 ## Run
 
@@ -16,7 +16,7 @@ npm test             # unit and API tests (about 5 s)
 npm run typecheck
 ```
 
-Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`) and a logged-in `claude` CLI (`claude` → `/login`). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
+Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`) and an Anthropic API key in `ANTHROPIC_API_KEY` (copy `.env.sample` to `.env` and fill it in). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
 
 Optional:
 - **Bambu Studio** (2.x) for Bambu project 3MF export.
@@ -148,7 +148,9 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `ELEVENLABS_SECONDARY_LANGUAGES` | | Other languages you may speak, comma-separated (e.g. `ro`) |
 | `API_PORT` | `8787` | Where the Vite dev server proxies `/api` (set it with `PORT`) |
 | `JIG_DATA` | `data/` in the Jig folder | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings |
-| `JIG_USE_API_KEY` | off | `1` to use `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) instead of the `claude` CLI's login; otherwise both are removed from Claude's environment |
+| `ANTHROPIC_API_KEY` | | Your Anthropic API key: needed for Claude (generations, price suggestions) |
+| `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
+| `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with instead of a key, for your own use on your own computer only (see below) |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |
 | `BLENDER_PATH` | found on `PATH` or in the default install folder | Blender executable |
@@ -157,7 +159,9 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 
 ## Claude account or API key
 
-By default Jig runs on the Claude account you are logged in with in the `claude` CLI. That is meant for your own use on your own computer. Anthropic's terms do not allow third-party developers to offer claude.ai login, or to route requests through Free, Pro or Max plan credentials on behalf of their users, without approval. See the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview) and [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance). If you share or host Jig for other people, run it with `JIG_USE_API_KEY=1` and an API key.
+Jig needs an Anthropic API key: set `ANTHROPIC_API_KEY` in `.env` (or the environment). An Anthropic-compatible provider works too, through `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`. Without either, Jig doesn't start Claude: the chat box says what is missing, and it never falls back to a Claude account logged in on the computer.
+
+`JIG_AUTH=subscription` makes Jig use the Claude account the `claude` CLI is logged in with (`claude` → `/login`) instead of a key. That is meant only for running Jig yourself, on your own computer, with your own account. Anthropic's terms do not allow third-party developers to offer claude.ai login, or to route requests through Free, Pro or Max plan credentials on behalf of their users, without approval. See the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview) and [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance). If you share or host Jig for other people, use API keys.
 
 ## License
 

@@ -6,7 +6,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { runGeneration, workspaceDir } from './agent';
 import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechToken, PriceRequest } from '../shared/api';
-import { DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
+import { claudeAuthProblem, DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
@@ -184,7 +184,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
 
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem() } satisfies Capabilities);
   });
 
   // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream
@@ -235,6 +235,8 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     }
   });
   app.post('/api/price', json('20kb'), async (req, res) => {
+    const authProblem = claudeAuthProblem();
+    if (authProblem) return void res.status(503).json({ error: authProblem });
     const r = req.body as PriceRequest;
     if (!r || typeof r.name !== 'string' || !Number.isFinite(r.grams) || !Number.isFinite(r.seconds)) return void res.status(400).json({ error: 'bad price request' });
     try {
@@ -275,6 +277,8 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     const problem = generateProblem(body);
     if (problem) return void res.status(400).json({ error: problem });
     if (!body.prompt?.trim() && !body.images?.length) return void res.status(400).json({ error: 'prompt or images required' });
+    const authProblem = claudeAuthProblem();
+    if (authProblem) return void res.status(503).json({ error: authProblem });
     if (generatingDesigns.has(body.designId)) {
       return void res.status(409).json({ error: 'Claude is already working on this design (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
     }

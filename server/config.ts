@@ -13,5 +13,19 @@ export const PORT = Number(process.env.PORT ?? 8787);
 export const DATA_DIR = process.env.JIG_DATA ? path.resolve(process.env.JIG_DATA) : path.join(ROOT, 'data');
 /** Serve the built app from dist/ as well as the API (`npm start`). */
 export const PRODUCTION = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
-/** Bill generations to ANTHROPIC_API_KEY instead of the Claude plan the `claude` CLI is logged in with. */
-export const USE_API_KEY = process.env.JIG_USE_API_KEY === '1';
+/**
+ * How Jig signs in to Claude (read when it is needed, so a changed environment counts):
+ * - 'api-key' (the default): ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN with an Anthropic-compatible
+ *   ANTHROPIC_BASE_URL;
+ * - 'subscription' (JIG_AUTH=subscription): the Claude account the `claude` CLI is logged in with,
+ *   only for your own use on your own computer (see the README).
+ */
+export function authMode(): 'api-key' | 'subscription' {
+  return process.env.JIG_AUTH === 'subscription' ? 'subscription' : 'api-key';
+}
+
+/** Why Jig can't run Claude as configured, or null. Without a key it never falls back to the CLI's login. */
+export function claudeAuthProblem(): string | null {
+  if (authMode() === 'subscription' || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return null;
+  return 'Jig has no Claude API key: set ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude account or API key" in the README.';
+}

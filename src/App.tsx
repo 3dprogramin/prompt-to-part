@@ -145,9 +145,11 @@ export default function App() {
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
   const [dictation, setDictation] = useState(false);
+  // Why Claude can't run (no API key and no subscription mode), from the server.
+  const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -781,6 +783,7 @@ export default function App() {
           onWebSearch={(webSearch) => setChat({ webSearch })}
           hasModel={!!design.code}
           dictation={dictation}
+          claudeProblem={claudeProblem}
         />
         <ViewerPanel
           costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}

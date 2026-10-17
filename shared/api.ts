@@ -72,6 +72,8 @@ export interface Capabilities {
   speech: boolean;
   /** Baseline print settings from the user's Bambu Studio template (null: none built yet). */
   printDefaults: Required<PrintSettings> | null;
+  /** Why Claude can't run as configured (no API key), or null. */
+  claude: string | null;
 }
 
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */

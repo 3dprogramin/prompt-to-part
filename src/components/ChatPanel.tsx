@@ -39,6 +39,8 @@ interface Props {
   hasModel: boolean;
   /** Dictation is set up on the server (ElevenLabs key). */
   dictation: boolean;
+  /** Why Claude can't run (no API key), shown instead of sending. */
+  claudeProblem: string | null;
   /** Claude may search the web for this design (off for every design until turned on). */
   webSearch: boolean;
   onWebSearch: (on: boolean) => void;
@@ -114,7 +116,7 @@ export function ChatPanel(p: Props) {
   };
 
   const send = (message = text) => {
-    if (p.busyElsewhere || (!message.trim() && !images.length)) return;
+    if (p.busyElsewhere || p.claudeProblem || (!message.trim() && !images.length)) return;
     // While Claude works, the message waits for the end of its reply.
     (p.generating ? p.onQueue : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])));
     setSvgShapes({});
@@ -310,13 +312,14 @@ export function ChatPanel(p: Props) {
           </button>
           {p.generating && <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>}
           {(!p.generating || text.trim() || images.length > 0) && (
-            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || listening === 'starting' || (!text.trim() && !images.length)}
+            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || listening === 'starting' || (!text.trim() && !images.length)}
               title={p.generating ? 'Send when Claude has finished this reply' : p.hasModel ? 'Update' : 'Design'}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
           )}
         </div>
         {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Claude is working on this design in another tab</span></div>}
+        {p.claudeProblem && <div className="composer-opts"><span className="bad-note" role="alert">{p.claudeProblem}</span></div>}
         {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}
         {dictationError && listening === 'off' && <div className="composer-opts"><span className="bad-note" role="alert">{dictationError}</span> <button className="link" onClick={() => setDictationError(null)}>Dismiss</button></div>}
       </div>

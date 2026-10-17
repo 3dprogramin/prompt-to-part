@@ -8,6 +8,8 @@ import path from 'node:path';
 // The API on a free port with its own data folder, and a stand-in for Claude.
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-api-test-'));
 process.env.JIG_DATA = dataDir;
+// The stand-in for Claude needs no credentials, but the API checks them first.
+process.env.JIG_AUTH = 'subscription';
 // Listening first and attaching the app after: the app needs the port for its Host check.
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
@@ -122,5 +124,22 @@ test('cost settings are stored, slicing needs a project, price suggestions go th
   const price = await fetch(`${A}/api/price`, { method: 'POST', headers: W, body: JSON.stringify({ name: 'Hook', size: '10 × 10 × 10 mm', parts: 1, colours: 1, grams: 42, seconds: 600, filamentCost: 4.6, electricityCost: null }) });
   assert.deepEqual(await price.json(), { price: 42, low: 1, high: 99, reasoning: 'for Hook', currency: 'RON' });
   assert.equal((await fetch(`${A}/api/price`, { method: 'POST', headers: W, body: '{}' })).status, 400);
+});
+
+test('without an API key (and not in subscription mode) Claude is never started', async () => {
+  const saved = { auth: process.env.JIG_AUTH, key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN };
+  delete process.env.JIG_AUTH; delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN;
+  try {
+    assert.match((await (await fetch(`${A}/api/capabilities`)).json()).claude, /ANTHROPIC_API_KEY/);
+    const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000007', prompt: 'a cube' }) });
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error, /ANTHROPIC_API_KEY/);
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).claude, null);
+  } finally {
+    for (const [k, v] of [['JIG_AUTH', saved.auth], ['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });
 
