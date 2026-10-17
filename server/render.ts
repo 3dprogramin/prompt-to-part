@@ -90,6 +90,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
     const nbuf = new Float32Array(VIEW * VIEW * 3);
     const col = new Uint8Array(VIEW * VIEW * 3);
     const pid = new Int16Array(VIEW * VIEW).fill(-1);
+    const flatParts = new Set<number>();
     const light1 = norm([-view.dir[0] + view.up[0] * 0.6 - view.right[0] * 0.4, -view.dir[1] + view.up[1] * 0.6 - view.right[1] * 0.4, -view.dir[2] + view.up[2] * 0.6 - view.right[2] * 0.4]);
     const viewer: Vec3 = [-view.dir[0], -view.dir[1], -view.dir[2]];
 
@@ -98,7 +99,9 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
       const P = part.positions, I = part.indices;
       // HueForge parts: each vertex's simulated print colour (sRGB 0–1), blended across the triangle.
       const VC = part.vertexColors?.length === P.length ? part.vertexColors : undefined;
-      const vc = (v: number, shade: number): Vec3 => [VC![v * 3] * 255 * shade, VC![v * 3 + 1] * 255 * shade, VC![v * 3 + 2] * 255 * shade];
+      // Mostly the colour itself (it is what the print looks like), with a little shading for the relief.
+      const vc = (v: number, shade: number): Vec3 => { const s = 0.8 + 0.2 * Math.min(1, shade); return [VC![v * 3] * 255 * s, VC![v * 3 + 1] * 255 * s, VC![v * 3 + 2] * 255 * s]; };
+      if (VC) flatParts.add(partIdx);
       for (let t = 0; t < I.length; t += 3) {
         const a: Vec3 = [P[I[t] * 3], P[I[t] * 3 + 1], P[I[t] * 3 + 2]];
         const b: Vec3 = [P[I[t + 1] * 3], P[I[t + 1] * 3 + 1], P[I[t + 1] * 3 + 2]];
@@ -166,8 +169,9 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
             const j = ny * VIEW + nx;
             if (pid[j] !== pid[idx]) { edge = true; break; }
             if (Math.abs(depth[j] - depth[idx]) * k > 2.5) { edge = true; break; }
+            // (no crease lines on HueForge parts: every layer step would draw one)
             const d = nbuf[idx * 3] * nbuf[j * 3] + nbuf[idx * 3 + 1] * nbuf[j * 3 + 1] + nbuf[idx * 3 + 2] * nbuf[j * 3 + 2];
-            if (d < 0.82) { edge = true; break; }
+            if (d < 0.82 && !flatParts.has(pid[idx])) { edge = true; break; }
           }
           if (edge) out = [out[0] * 0.35, out[1] * 0.35, out[2] * 0.35];
         }

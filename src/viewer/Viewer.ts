@@ -226,11 +226,25 @@ export class Viewer {
         }
         // A part coloured per vertex (HueForge) shows those colours (times white) instead of its own.
         const perVertex = !!geom.getAttribute('color');
+        // No feature lines on them either: every layer step of the relief would draw one.
+        if (perVertex) { edgeGeom.dispose(); edgeGeom = new THREE.BufferGeometry(); }
         const color = perVertex ? new THREE.Color(0xffffff) : new THREE.Color(part.color);
         const front = new THREE.MeshStandardMaterial({
           color, roughness: 0.55, metalness: 0.05, side: THREE.FrontSide, vertexColors: perVertex,
           polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
+        // Per-vertex colours are what the print will look like: mostly shown as they are (emissive),
+        // with a little lighting so the relief still reads.
+        if (perVertex) {
+          color.setScalar(0.35);
+          // Matte: a glossy highlight would turn the black areas grey.
+          front.roughness = 1;
+          front.metalness = 0;
+          front.envMapIntensity = 0;
+          front.onBeforeCompile = (s) => {
+            s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\n\ttotalEmissiveRadiance += vColor.rgb * 0.7;\n#endif');
+          };
+        }
         const back = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(0.45), side: THREE.BackSide, vertexColors: perVertex });
         const group = new THREE.Group();
         group.name = part.name;
