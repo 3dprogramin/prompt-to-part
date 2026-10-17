@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
+import { ObjectPanel } from './ObjectPanel';
 import { SvgPanel } from './SvgPanel';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
@@ -19,7 +20,7 @@ import { PRINTER, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
-type Tab = 'params' | 'text' | 'svg' | 'print' | 'cost' | 'info' | 'code';
+type Tab = 'object' | 'params' | 'text' | 'svg' | 'print' | 'cost' | 'info' | 'code';
 
 interface Props {
   /** The open design: unapplied code edits are kept per design. */
@@ -58,6 +59,8 @@ interface Props {
   onExport3mf: () => void;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
+  /** Set which parts are hidden (Object tab: show all, show only one). */
+  onHiddenParts: (names: string[]) => void;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   scale: number;
   onScale: (factor: number) => void;
@@ -87,7 +90,9 @@ export function SidePanel(p: Props) {
   const noModel = (what: string) => (p.error
     ? <div className="empty-note">The script has an error, so there is no model. <button className="link" onClick={() => setTab('code')}>See the Code tab</button>, or restore an earlier version from the version menu.</div>
     : <div className="empty-note">{what}</div>);
+  // Two rows of four: designing the object, then making it.
   const tabs: [Tab, React.ReactNode][] = [
+    ['object', <><Icon name="cube" size={14} /> Object{shown && p.hiddenParts.some((n) => shown.parts.some((x) => x.name === n)) ? <span className="count" aria-label="some parts hidden">{shown.parts.filter((x) => !p.hiddenParts.includes(x.name)).length}/{shown.parts.length}</span> : null}</>],
     ['params', <><Icon name="sliders" size={14} /> Params</>],
     ['text', <><span className="tab-glyph" aria-hidden>T</span> Text{p.textFeatures.length ? <span className="count" aria-label={`${p.textFeatures.length} texts`}>{p.textFeatures.length}</span> : null}</>],
     ['svg', <><Icon name="shapes" size={14} /> SVG{p.svgFeatures.length ? <span className="count" aria-label={`${p.svgFeatures.length} drawings`}>{p.svgFeatures.length}</span> : null}</>],
@@ -98,12 +103,16 @@ export function SidePanel(p: Props) {
   ];
   return (
     <div className="side-panel">
-      <div className="tabs" role="tablist">
+      <div className="tabs two-rows" role="tablist">
         {tabs.map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>
         ))}
       </div>
       <div className="tab-body" role="tabpanel">
+        {tab === 'object' && (shown
+          ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport}
+            textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={setTab} />
+          : noModel('The parts appear here once a model is generated.'))}
         {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
         {tab === 'params' && (shown ? <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /> : noModel('Parameters appear here once a model is generated.'))}
         {tab === 'print' && (shown

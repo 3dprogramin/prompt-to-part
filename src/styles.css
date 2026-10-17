@@ -484,8 +484,9 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .export-main { min-width: 0; overflow: hidden; }
 .side-panel { overflow: hidden; }
 /* Narrow side panel: tab labels only, so five tabs and a count badge fit. */
-/* Seven tabs in the 320 px panel: names only (their counts and spinners stay). */
-.tabs button svg, .tabs .tab-glyph { display: none; }
+/* Eight tabs in two rows of four: designing the object, then making it. */
+.tabs.two-rows { display: grid; grid-template-columns: repeat(4, 1fr); padding: 2px 6px 0; }
+.tabs.two-rows button { padding: 7px 2px 6px; font-size: 12.5px; gap: 5px; }
 .export-menu.threemf .btn { flex-direction: row; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; }
 
 /* design tabs in the top bar */
@@ -619,3 +620,19 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .queued-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-3); }
 .queued-item { display: flex; align-items: center; gap: 6px; }
 .queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- object tree ---------- */
+.object-panel { display: flex; flex-direction: column; gap: 8px; }
+.object-head { display: flex; align-items: center; gap: 8px; }
+.object-tree, .object-tree ul { list-style: none; margin: 0; padding: 0; }
+.object-tree ul { margin-left: 26px; border-left: 1px solid var(--line); padding-left: 6px; }
+.object-row { display: flex; align-items: center; gap: 6px; padding: 3px 2px; border-radius: 6px; }
+.object-row:hover { background: #ffffff08; }
+.object-tree li.off > .object-row .object-meta, .object-row.child.off .object-child-name { opacity: 0.45; }
+.tree-chev { width: 20px; flex-shrink: 0; display: inline-grid; place-items: center; }
+.object-meta { flex: 1; min-width: 0; }
+.object-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.object-child-name { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.object-child-name:hover { color: var(--text); text-decoration: underline; }
+.object-row .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.object-meta .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -859,6 +859,7 @@ export default function App() {
           blender={blender}
           hiddenParts={viewOpts.hiddenParts}
           onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}
+          onHiddenParts={(hiddenParts) => setViewOpts((o) => ({ ...o, hiddenParts }))}
         />
       </main>
       {pendingRestore != null && (
