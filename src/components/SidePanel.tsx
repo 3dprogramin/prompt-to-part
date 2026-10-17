@@ -1,9 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
+import { load, store } from '../lib/storage';
 import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
+import { ObjectPanel } from './ObjectPanel';
 import { SvgPanel } from './SvgPanel';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
@@ -19,7 +21,7 @@ import { PRINTER, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
-type Tab = 'params' | 'text' | 'svg' | 'print' | 'cost' | 'info' | 'code';
+type Tab = 'object' | 'decorate' | 'print' | 'code';
 
 interface Props {
   /** The open design: unapplied code edits are kept per design. */
@@ -58,6 +60,13 @@ interface Props {
   onExport3mf: () => void;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
+  /** Which parts each parameter changes (measured; undefined until known). */
+  paramOwners?: Record<string, string[]>;
+  /** Set which parts are hidden (Object tab: show all, show only one). */
+  onHiddenParts: (names: string[]) => void;
+  /** The part selected in the Object tab (highlighted in the view). */
+  selectedPart: string | null;
+  onSelectPart: (name: string | null) => void;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   scale: number;
   onScale: (factor: number) => void;
@@ -73,7 +82,7 @@ interface Props {
 const PLA_DENSITY = 1.24; // g/cm³
 
 export function SidePanel(p: Props) {
-  const [tab, setTab] = useState<Tab>('params');
+  const [tab, setTab] = useState<Tab>('object');
   // Code edits not applied yet, per design, kept while other tabs or designs are open.
   const [drafts, setDrafts] = useState<Record<string, CodeDraft>>({});
   const draft = drafts[p.designId];
@@ -87,15 +96,30 @@ export function SidePanel(p: Props) {
   const noModel = (what: string) => (p.error
     ? <div className="empty-note">The script has an error, so there is no model. <button className="link" onClick={() => setTab('code')}>See the Code tab</button>, or restore an earlier version from the version menu.</div>
     : <div className="empty-note">{what}</div>);
+  const hiddenCount = shown ? shown.parts.filter((x) => p.hiddenParts.includes(x.name)).length : 0;
+  const decorations = p.textFeatures.length + p.svgFeatures.length;
+  // Four tabs, each with two sections one under the other.
   const tabs: [Tab, React.ReactNode][] = [
-    ['params', <><Icon name="sliders" size={14} /> Params</>],
-    ['text', <><span className="tab-glyph" aria-hidden>T</span> Text{p.textFeatures.length ? <span className="count" aria-label={`${p.textFeatures.length} texts`}>{p.textFeatures.length}</span> : null}</>],
-    ['svg', <><Icon name="shapes" size={14} /> SVG{p.svgFeatures.length ? <span className="count" aria-label={`${p.svgFeatures.length} drawings`}>{p.svgFeatures.length}</span> : null}</>],
-    ['print', <><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count" aria-label={`${p.printChanges} changed settings`}>{p.printChanges}</span> : null}</>],
-    ['cost', <><Icon name="coin" size={14} /> Cost{p.cost.running ? <span className="spinner tab-spinner" aria-label="calculating" /> : null}</>],
-    ['info', <><Icon name="info" size={14} /> Model</>],
+    ['object', <><Icon name="cube" size={14} /> Object{hiddenCount ? <span className="count" aria-label={`${hiddenCount} parts hidden`}>{shown!.parts.length - hiddenCount}/{shown!.parts.length}</span> : null}</>],
+    ['decorate', <><Icon name="shapes" size={14} /> Text &amp; SVG{decorations ? <span className="count" aria-label={`${decorations} texts and drawings`}>{decorations}</span> : null}</>],
+    ['print', <><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count" aria-label={`${p.printChanges} changed settings`}>{p.printChanges}</span> : null}{p.cost.running ? <span className="spinner tab-spinner" aria-label="calculating the cost" /> : null}</>],
     ['code', <><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" aria-label="script error" /> : draft ? <span className="draft-dot" aria-label="unapplied edits" title="Unapplied code edits" /> : null}</>],
   ];
+  // Collapsed sections, remembered across reloads.
+  const [folded, setFolded] = useState<string[]>(() => load('sideFolded', []));
+  useEffect(() => store('sideFolded', folded), [folded]);
+  const section = (id: string, title: string, body: () => React.ReactNode, extra?: React.ReactNode) => {
+    const open = !folded.includes(id);
+    return (
+      <section className={`side-section ${open ? '' : 'folded'}`} key={id}>
+        <button className="side-section-head" aria-expanded={open} onClick={() => setFolded((f) => (open ? [...f, id] : f.filter((x) => x !== id)))}>
+          <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={11} /></span> {title}{extra}
+        </button>
+        {open && <div className="side-section-body">{body()}</div>}
+      </section>
+    );
+  };
+  const openSection = (t: Tab, id: string) => { setTab(t); setFolded((f) => f.filter((x) => x !== id)); };
   return (
     <div className="side-panel">
       <div className="tabs" role="tablist">
@@ -104,23 +128,36 @@ export function SidePanel(p: Props) {
         ))}
       </div>
       <div className="tab-body" role="tabpanel">
-        {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
-        {tab === 'params' && (shown ? <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /> : noModel('Parameters appear here once a model is generated.'))}
-        {tab === 'print' && (shown
-          ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
-          : noModel('Print settings appear once a model is generated.'))}
-        {tab === 'text' && (shown
-          ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
-          : noModel('Generate a model first, then add text to it.'))}
-        {tab === 'svg' && (shown
-          ? <SvgPanel result={shown} features={p.svgFeatures} onChange={p.onSvgFeatures} picking={p.picking} onPick={p.onPick} />
-          : noModel('SVG drawings can be added once a model is generated.'))}
-        {tab === 'cost' && (shown
-          ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
-            result={p.cost.result} upToDate={p.cost.upToDate} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />
-          : noModel('Costs appear once a model is generated.'))}
-        {tab === 'info' && (shown ? <InfoTab result={shown} sources={p.sources} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} /> : noModel('No model yet.'))}
-        {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />}
+        {tab === 'object' && <>
+          {section('parts', 'Parts', () => (shown
+            ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport} selected={p.selectedPart} onSelect={p.onSelectPart}
+              textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={(t) => openSection('decorate', t)} />
+            : noModel('The parts appear here once a model is generated.')))}
+          {section('params', 'Parameters', () => (shown
+            ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
+            : noModel('Parameters appear here once a model is generated.')))}
+        </>}
+        {tab === 'decorate' && <>
+          {section('text', 'Text', () => (shown
+            ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
+            : noModel('Generate a model first, then add text to it.')))}
+          {section('svg', 'SVG', () => (shown
+            ? <SvgPanel result={shown} features={p.svgFeatures} onChange={p.onSvgFeatures} picking={p.picking} onPick={p.onPick} />
+            : noModel('SVG drawings can be added once a model is generated.')))}
+        </>}
+        {tab === 'print' && <>
+          {section('print', 'Print settings', () => (shown
+            ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
+            : noModel('Print settings appear once a model is generated.')))}
+          {section('cost', 'Cost', () => (shown
+            ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
+              result={p.cost.result} upToDate={p.cost.upToDate} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />
+            : noModel('Costs appear once a model is generated.')))}
+        </>}
+        {tab === 'code' && <>
+          {section('info', 'Model', () => (shown ? <InfoTab result={shown} sources={p.sources} /> : noModel('No model yet.')))}
+          {section('code', 'Code', () => <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />)}
+        </>}
       </div>
       <div className="export-bar">
         {shown?.bbox && (
@@ -235,7 +272,23 @@ function CommitInput({ value, decimals, onCommit, suffix }: { value: number; dec
   );
 }
 
-function ParamsTab({ result, onValue, onReset, fonts }: { result: EvalResult; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
+function ParamsTab({ result, hiddenParts, owners, onValue, onReset, fonts }: { result: EvalResult; hiddenParts: string[]; owners?: Record<string, string[]>; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
+  // A parameter is greyed out while every part it changes is hidden: the parts measured to change
+  // with it plus those the script names; before the measurement, a group named after a part. With
+  // every part hidden, all of them are.
+  const names = result.parts.map((x) => x.name);
+  const allHidden = names.length > 0 && names.every((n) => hiddenParts.includes(n));
+  const ownersOf = (k: string, d: ParamDef) => {
+    const known = [...new Set([...(d.parts ?? []), ...(owners?.[k] ?? [])])].filter((n) => names.includes(n));
+    if (known.length || owners) return known;
+    const byGroup = d.group && names.find((n) => n.toLowerCase() === d.group!.toLowerCase());
+    return byGroup ? [byGroup] : [];
+  };
+  const hiddenOwners = (k: string, d: ParamDef) => {
+    if (allHidden) return names;
+    const o = ownersOf(k, d);
+    return o.length && o.every((n) => hiddenParts.includes(n)) ? o : null;
+  };
   const entries = Object.entries(result.params);
   if (!entries.length) return <div className="empty-note">This model has no parameters.</div>;
   const groups = new Map<string, [string, ParamDef][]>();
@@ -256,7 +309,19 @@ function ParamsTab({ result, onValue, onReset, fonts }: { result: EvalResult; on
       {[...groups].map(([g, items]) => (
         <section key={g} className="param-group">
           <h4>{g}</h4>
-          {items.map(([k, d]) => <ParamRow key={k} k={k} def={d} value={result.values[k]} onValue={onValue} fonts={fonts} />)}
+          {(() => {
+            // Said once per group: which hidden parts its greyed-out parameters belong to.
+            const off = [...new Set(items.flatMap(([k, d]) => hiddenOwners(k, d) ?? []))];
+            return off.length ? <div className="hint-line param-hidden-note">{off.join(', ')} {off.length > 1 ? 'are' : 'is'} hidden: show {off.length > 1 ? 'them' : 'it'} in Parts to change {items.every(([k, d]) => hiddenOwners(k, d)) ? 'these' : 'the greyed-out ones'}.</div> : null;
+          })()}
+          {items.map(([k, d]) => {
+            const off = hiddenOwners(k, d);
+            return (
+              <fieldset key={k} className="param-fieldset" disabled={!!off} title={off ? `${off.join(', ')} ${off.length > 1 ? 'are' : 'is'} hidden` : undefined}>
+                <ParamRow k={k} def={d} value={result.values[k]} onValue={onValue} fonts={fonts} />
+              </fieldset>
+            );
+          })}
         </section>
       ))}
       <button className="btn ghost wide" disabled={!modified} onClick={onReset}><Icon name="restore" size={14} /> Reset to AI defaults</button>
@@ -388,7 +453,7 @@ function NumberControl({ id, label, def, value, onChange }: { id: string; label:
   );
 }
 
-function InfoTab({ result, sources, onExport, hiddenParts, onToggleHidden }: { result: EvalResult; sources?: DimensionSource[]; onExport: Props['onExport']; hiddenParts: string[]; onToggleHidden: (n: string) => void }) {
+function InfoTab({ result, sources }: { result: EvalResult; sources?: DimensionSource[] }) {
   const vol = result.parts.reduce((s, p) => s + p.volume, 0) / 1000;
   const area = result.parts.reduce((s, p) => s + p.surfaceArea, 0) / 100;
   const tris = result.parts.reduce((s, p) => s + p.triCount, 0);
@@ -415,16 +480,13 @@ function InfoTab({ result, sources, onExport, hiddenParts, onToggleHidden }: { r
       <h4>Parts</h4>
       <ul className="part-list">
         {result.parts.map((p) => {
-          const hidden = hiddenParts.includes(p.name);
           return (
             <li key={p.name}>
-              <button className="icon-btn" onClick={() => onToggleHidden(p.name)} title={hidden ? 'Show' : 'Hide'} aria-label={`${hidden ? 'Show' : 'Hide'} ${p.name}`} aria-pressed={hidden}><Icon name={hidden ? 'eyeOff' : 'eye'} size={14} /></button>
               <span className="swatch" style={{ background: p.color }} />
               <div className="part-meta">
                 <div>{p.name}</div>
                 <div className="mono dim small">{(p.bbox.max[0] - p.bbox.min[0]).toFixed(1)} × {(p.bbox.max[1] - p.bbox.min[1]).toFixed(1)} × {(p.bbox.max[2] - p.bbox.min[2]).toFixed(1)} mm · {(p.volume / 1000).toFixed(2)} cm³</div>
               </div>
-              <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${p.name} as STL`} onClick={() => onExport('stl', p.name)}><Icon name="download" size={14} /></button>
             </li>
           );
         })}

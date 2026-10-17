@@ -97,6 +97,7 @@ function build(p) {
 
 # Parameters
 - Expose 4–15 meaningful parameters: overall size(s), key functional dimensions (diameters, wall thickness, clearances/tolerances, counts, pitch, angles), and on/off features. Group them with \`group\`.
+- When a parameter changes only one part (or a few) of a multi-part design, say so with part: 'Lid' (or parts: ['Lid', 'Hinge']), using the part names build() returns, so the app can grey it out while those parts are hidden.
 - Defaults are YOUR best judgement of a realistic, well-proportioned, printable design (or the user's stated dimensions).
 - Ranges must be sensible for the object AND produce valid geometry over the entire range, in every combination. Compute dependent dimensions inside build() and clamp them (e.g. inner radius ≤ outer radius − min wall). The stress test enforces this.
 - Users can type the overall Width/Depth/Height directly. Mark the parameter that primarily sets the overall size along each axis with \`drives: 'x' | 'y' | 'z'\` (axes of the printed orientation) so that edit adjusts the right parameter.

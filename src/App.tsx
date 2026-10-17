@@ -6,7 +6,7 @@ import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, t
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
-import { describeSettings, settingsChanged } from './lib/settings';
+import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
 import { GeometryClient } from './geometry/client';
@@ -88,6 +88,27 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState<boolean>(() => load('leftOpen', true));
   const [rightOpen, setRightOpen] = useState<boolean>(() => load('rightOpen', true));
   useEffect(() => store('leftOpen', leftOpen), [leftOpen]);
+  // Sidebar widths: dragged at their inner edges, remembered; a double-click goes back to the default.
+  const narrow = window.innerWidth <= 1100;
+  const DEFAULT_W = { left: narrow ? 300 : 360, right: narrow ? 280 : 320 };
+  const [widths, setWidths] = useState<{ left: number; right: number }>(() => ({ ...DEFAULT_W, ...load<Partial<{ left: number; right: number }>>('sidebarWidths', {}) }));
+  useEffect(() => store('sidebarWidths', widths), [widths]);
+  const workspace = useRef<HTMLElement>(null);
+  const resize = (side: 'left' | 'right') => (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const box = workspace.current!.getBoundingClientRect();
+    const onMove = (ev: PointerEvent) => setWidths((w) => {
+      // Each sidebar 240–700 px, and the 3D view keeps at least 320 px.
+      const other = side === 'left' ? (rightOpen ? w.right : 0) : (leftOpen ? w.left : 0);
+      const want = side === 'left' ? ev.clientX - box.left : box.right - ev.clientX;
+      return { ...w, [side]: Math.round(Math.max(240, Math.min(700, box.width - other - 320, want))) };
+    });
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); document.body.classList.remove('resizing'); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    document.body.classList.add('resizing');
+  };
   useEffect(() => store('rightOpen', rightOpen), [rightOpen]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,6 +139,36 @@ export default function App() {
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
   // Model, effort and web search per design, in memory only: every new design (and every reload)
   // starts with Opus, High effort and web search on.
+  // Hidden parts are saved with the design (they stay hidden after a reload or a new version).
+  const hiddenParts = useMemo<string[]>(() => {
+    try {
+      const a = JSON.parse(String(design.values[HIDDEN_KEY] ?? '[]'));
+      return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
+    } catch { return []; }
+  }, [design.values]);
+  const setHiddenParts = (list: string[]) => setDesign((d) => {
+    const values = { ...d.values };
+    if (list.length) values[HIDDEN_KEY] = JSON.stringify([...new Set(list)]); else delete values[HIDDEN_KEY];
+    return { ...d, values };
+  });
+  const toggleHidden = (n: string) => setHiddenParts(hiddenParts.includes(n) ? hiddenParts.filter((x) => x !== n) : [...hiddenParts, n]);
+  // Which parts each parameter changes, measured while parts are hidden (to grey out the
+  // parameters of hidden parts); kept for the code and values it was measured with.
+  const [paramOwners, setParamOwners] = useState<{ key: string; owners: Record<string, string[]> } | null>(null);
+  const ownersKey = JSON.stringify([design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))]);
+  useEffect(() => {
+    if (!hiddenParts.length || !design.code || paramOwners?.key === ownersKey) return;
+    let stale = false;
+    // After the preview has settled, so the measuring builds don't hold it up.
+    const t = setTimeout(() => {
+      geo.owners(design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))).then((owners) => {
+        if (!stale && owners) setParamOwners({ key: ownersKey, owners });
+      });
+    }, 600);
+    return () => { stale = true; clearTimeout(t); };
+  }, [hiddenParts.length > 0, ownersKey]);
+  // The part selected in the Object tab, highlighted in the view.
+  const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
   const chat = chatOpts[design.id] ?? DEFAULT_CHAT;
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? DEFAULT_CHAT), ...patch } }));
@@ -225,7 +276,8 @@ export default function App() {
       lastLoaded.current = live ?? next;
       return live ?? next;
     });
-    setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false }));
+    setViewOpts((o) => ({ ...o, measure: false }));
+    setSelectedPart(null);
   }, []);
 
   // Open the last design on startup (guarded: hot reload re-runs effects).
@@ -344,7 +396,6 @@ export default function App() {
               messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
             };
           });
-          if (currentId.current === designId) setViewOpts((o) => ({ ...o, hiddenParts: [] }));
         } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
         else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
       }, abort.signal);
@@ -461,7 +512,7 @@ export default function App() {
   const cost = useCost(geo, {
     design,
     values: printLayout && layoutKey ? { ...design.values, [layoutKey]: printLayout } : design.values,
-    hiddenParts: viewOpts.hiddenParts,
+    hiddenParts,
     userPrint,
     onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
   });
@@ -490,7 +541,7 @@ export default function App() {
     if (!design.code || !shown) return;
     setValidating(true);
     try {
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: viewOpts.hiddenParts, ...printHints() } });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: hiddenParts, ...printHints() } });
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
       setValidation({ report: o.report, label: 'Validation' });
       setValidationOpen(true);
@@ -586,7 +637,7 @@ export default function App() {
       // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
       // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
       // or may be from other settings, and the file would not be what the user expects.
-      const choice = { exclude: viewOpts.hiddenParts, only: partName };
+      const choice = { exclude: hiddenParts, only: partName };
       const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
       if (!o.result) {
         setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
@@ -739,6 +790,9 @@ export default function App() {
     refreshList();
   }
 
+  // The viewer shows the design's hidden parts and the Object tab's selection.
+  const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart };
+
   return (
     <div className="app">
       <TopBar
@@ -761,7 +815,10 @@ export default function App() {
         isRunning={(id) => !!running[id] || remoteRunning[id] != null}
         onDelete={deleteDesign}
       />
-      <main className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}>
+      <main ref={workspace} className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
+        style={{ '--left-w': `${widths.left}px`, '--right-w': `${widths.right}px` } as React.CSSProperties}>
+        {leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setWidths((w) => ({ ...w, left: DEFAULT_W.left }))} />}
+        {rightOpen && <div className="sidebar-resize right" role="separator" aria-orientation="vertical" aria-label="Resize the parameters sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('right')} onDoubleClick={() => setWidths((w) => ({ ...w, right: DEFAULT_W.right }))} />}
         <ChatPanel
           designId={design.id}
           messages={design.messages}
@@ -791,8 +848,8 @@ export default function App() {
           error={error}
           busy={busy}
           fitKey={fitKey}
-          options={picking ? { ...viewOpts, pickText: true, measure: false } : viewOpts}
-          onOptions={setViewOpts}
+          options={picking ? { ...viewerOptions, pickText: true, measure: false } : viewerOptions}
+          onOptions={(o) => { if (o.hiddenParts !== viewerOptions.hiddenParts) setHiddenParts(o.hiddenParts); setViewOpts(o); }}
           quality={quality}
           onQuality={setQuality}
           onEditDimension={onEditDimension}
@@ -860,8 +917,12 @@ export default function App() {
           onThreeMf={setThreeMf}
           onExport3mf={() => onExport('3mf')}
           blender={blender}
-          hiddenParts={viewOpts.hiddenParts}
-          onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}
+          hiddenParts={hiddenParts}
+          paramOwners={paramOwners?.key === ownersKey ? paramOwners.owners : undefined}
+          onToggleHidden={toggleHidden}
+          onHiddenParts={setHiddenParts}
+          selectedPart={selectedPart}
+          onSelectPart={setSelectedPart}
         />
       </main>
       {pendingRestore != null && (

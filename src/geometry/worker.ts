@@ -7,6 +7,7 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 import { MeshBVH } from 'three-mesh-bvh';
 import { evaluateScript, formatScriptError, initRuntime, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../../shared/runtime';
 import { solveDimension } from '../../shared/solver';
+import { probeParamOwners } from '../../shared/paramOwners';
 import { withFonts } from '../../shared/text';
 import { validateResult, type ValidateOptions } from './validate';
 import { api, HttpError } from '../lib/api';
@@ -62,7 +63,8 @@ function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transfer
 
 type Req =
   | { id: number; kind: 'eval'; code: string; values: ParamValues; quality: Quality; validate?: ValidateOptions; display?: boolean }
-  | { id: number; kind: 'solve'; code: string; values: ParamValues; quality: Quality; target: DimTarget; goal: number };
+  | { id: number; kind: 'solve'; code: string; values: ParamValues; quality: Quality; target: DimTarget; goal: number }
+  | { id: number; kind: 'owners'; code: string; values: ParamValues };
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
   const req = ev.data;
@@ -77,6 +79,12 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     return;
   }
   try {
+    if (req.kind === 'owners') {
+      // Draft builds, one per parameter: which parts each one changes.
+      const base = await withFonts(() => evaluateScript(req.code, req.values, 'draft'), loadFont);
+      post({ id: req.id, owners: probeParamOwners(base, req.values, (v) => evaluateScript(req.code, v, 'draft')) });
+      return;
+    }
     if (req.kind === 'solve') {
       // Evaluate once first so every font the model needs is loaded before solving.
       await withFonts(() => evaluateScript(req.code, req.values, req.quality, { lite: true }), loadFont).catch(() => null);

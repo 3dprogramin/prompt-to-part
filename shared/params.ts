@@ -27,7 +27,8 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
     if (!key || key.length > 80 || !p || typeof p !== 'object') continue;
     const label = text(p.label, 120) ?? key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ').replace(/^./, (c) => c.toUpperCase());
     const value = p.value ?? p.default;
-    const common = { label, group: text(p.group, 60), description: text(p.description, 500) };
+    const owners = (Array.isArray(p.parts) ? p.parts : typeof p.part === 'string' ? [p.part] : []).filter((x: unknown) => typeof x === 'string').slice(0, 20).map((x: string) => x.slice(0, 120));
+    const common = { label, group: text(p.group, 60), description: text(p.description, 500), ...(owners.length ? { parts: owners } : {}) };
     let type = p.type;
     // The script's own objects are read, never written: they may be frozen.
     const font = type === 'font' || !!p.font;
