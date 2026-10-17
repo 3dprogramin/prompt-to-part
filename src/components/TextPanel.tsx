@@ -1,11 +1,11 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import type { EvalResult } from '../../shared/types';
-import { newTextFeature, type TextFace, type TextFeature } from '../../shared/textFeatures';
+import { newTextFeature, type TextFeature } from '../../shared/textFeatures';
 import type { FontEntry } from '../lib/api';
 import { uid } from '../lib/files';
 import { FontPicker } from './FontPicker';
 import { Icon } from './Icon';
-import { useReleaseSlider } from './useReleaseSlider';
+import { Placement, Row, Seg, Slider } from './PlacementControls';
 
 interface Props {
   result: EvalResult | null;
@@ -15,8 +15,6 @@ interface Props {
   picking: string | null;
   onPick: (featureId: string | null) => void;
 }
-
-const FACES: [TextFace, string][] = [['top', 'Top'], ['front', 'Front'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'], ['bottom', 'Bottom']];
 
 export function TextPanel({ result, features, onChange, fonts, picking, onPick }: Props) {
   const [selected, setSelected] = useState<string | null>(features[0]?.id ?? null);
@@ -68,24 +66,7 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
           <Slider label="Letter height" unit="mm" min={1} max={60} step={0.5} value={sel.size} onChange={(size) => update(sel.id, { size })} />
           <Slider label={sel.mode === 'emboss' ? 'Raise height' : 'Engrave depth'} unit="mm" min={0.2} max={10} step={0.1} value={sel.depth} onChange={(depth) => update(sel.id, { depth })} />
 
-          <h4>Placement</h4>
-          {parts.length > 1 && (
-            <Row label="Part">
-              <select aria-label="Part" value={sel.part ?? parts[0]} onChange={(e) => update(sel.id, { part: e.target.value })}>{parts.map((p) => <option key={p}>{p}</option>)}</select>
-            </Row>
-          )}
-          <div className="face-grid">
-            {FACES.map(([face, label]) => (
-              <button key={face} className={`chip ${sel.face === face ? 'on' : ''}`} aria-pressed={sel.face === face} onClick={() => update(sel.id, { face, offset: [0, 0] })}>{label}</button>
-            ))}
-            <button className={`chip ${picking === sel.id ? 'on pulse' : sel.face === 'pick' ? 'on' : ''}`} aria-pressed={sel.face === 'pick'} onClick={() => onPick(picking === sel.id ? null : sel.id)}>
-              {picking === sel.id ? 'Click the model…' : 'Pick on model'}
-            </button>
-          </div>
-          <div className="hint-line">{faceHint(sel)}</div>
-          <Slider label="Move right / left" unit="mm" min={-150} max={150} step={0.5} value={sel.offset[0]} onChange={(v) => update(sel.id, { offset: [v, sel.offset[1]] })} />
-          <Slider label="Move up / down" unit="mm" min={-150} max={150} step={0.5} value={sel.offset[1]} onChange={(v) => update(sel.id, { offset: [sel.offset[0], v] })} />
-          <Slider label="Rotation" unit="°" min={-180} max={180} step={1} value={sel.rotation} onChange={(rotation) => update(sel.id, { rotation })} />
+          <Placement f={sel} parts={parts} picking={picking} onPick={onPick} onChange={(patch) => update(sel.id, patch)} />
 
           <h4>Shape</h4>
           <Row label="Curve">
@@ -104,40 +85,6 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
         </div>
       )}
       <p className="dim small text-tip">For text the tool can't do (twisted, stacked, cut through, following a path…) just ask Claude in the chat.</p>
-    </div>
-  );
-}
-
-function faceHint(f: TextFeature) {
-  if (f.face === 'pick') return 'Placed where you clicked; it stays on the surface when sliders change.';
-  if (f.curve === 'wrap' && (f.face === 'top' || f.face === 'bottom')) return 'Wrap only works on side faces (front/back/left/right).';
-  return f.face === 'top' || f.face === 'bottom' ? 'Lying flat (width × depth).' : 'Standing up on a side (width × height).';
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="t-row"><span className="t-label">{label}</span><div className="t-ctrl">{children}</div></div>;
-}
-
-function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
-  return <div className="seg">{options.map(([v, l]) => <button key={v} className={value === v ? 'on' : ''} aria-pressed={value === v} onClick={() => onChange(v)}>{l}</button>)}</div>;
-}
-
-function Slider({ label, unit, min, max, step, value, onChange }: { label: string; unit: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = () => { if (draft != null) { const v = Number(draft.replace(',', '.')); if (Number.isFinite(v)) onChange(v); setDraft(null); } };
-  const slider = useReleaseSlider(Math.min(max, Math.max(min, value)), onChange);
-  const shown = slider.dragging ? slider.shown : value;
-  const id = useId();
-  return (
-    <div className="param">
-      <div className="param-head"><label htmlFor={id}>{label}</label></div>
-      <div className="num-control">
-        <input type="range" id={id} min={min} max={max} step={step} {...slider.inputProps} />
-        <div className="num-box">
-          <input aria-label={`${label} (${unit})`} className="mono" value={draft ?? String(+shown.toFixed(2))} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
-          <span className="unit">{unit}</span>
-        </div>
-      </div>
     </div>
   );
 }

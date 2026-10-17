@@ -8,13 +8,10 @@ export const TEXT_KEY = '$text';
 
 export type TextFace = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right' | 'pick';
 
-export interface TextFeature {
+/** Where and how a flat shape goes onto a part's surface: shared by text and SVG features. */
+export interface SurfacePlacement {
   id: string;
   enabled: boolean;
-  text: string;
-  font: string;
-  /** Capital-letter height, mm */
-  size: number;
   /** Raise height or engrave depth, mm */
   depth: number;
   mode: 'emboss' | 'engrave';
@@ -29,11 +26,19 @@ export interface TextFeature {
   offset: [number, number];
   /** In-plane rotation, degrees */
   rotation: number;
+  /** 'arc' is for text only (it bends the line of letters); 'wrap' follows a vertical cylinder. */
   curve: 'none' | 'arc' | 'wrap';
-  /** Arc radius (mm); negative curves the other way */
-  arcRadius: number;
   /** Cylinder radius for wrap; 0 = measure from the surface */
   wrapRadius: number;
+}
+
+export interface TextFeature extends SurfacePlacement {
+  text: string;
+  font: string;
+  /** Capital-letter height, mm */
+  size: number;
+  /** Arc radius (mm); negative curves the other way */
+  arcRadius: number;
   letterSpacing: number;
   lineHeight: number;
   halign: 'left' | 'center' | 'right';
@@ -70,78 +75,79 @@ const FACE_DIRS: Record<Exclude<TextFace, 'pick'>, { anchor: Vec3; normal: Vec3 
 const SINK = 0.4; // emboss overlaps into the surface so it fuses
 const CLEAR = 0.6; // engrave cutter rises above the surface
 
-/** Applies the text features to `shape` (one part). Returns the modified shape. */
-export function applyTextFeatures(
-  shape: Manifold,
-  features: TextFeature[],
-  C: typeof CrossSection,
-): Manifold {
+/** Applies the text features to `shape` (one part); `base` is the part's box before any text or SVG. */
+export function applyTextFeatures(shape: Manifold, features: TextFeature[], C: typeof CrossSection, base = shape.boundingBox()): Manifold {
   let out = shape;
-  // A picked point was measured against the part without any text (PartMesh.textBase), so it
-  // stays where it was clicked however much text is added.
-  const base = shape.boundingBox();
   for (const f of features) {
     if (!f.enabled || !f.text.trim() || !(f.size > 0) || !(f.depth > 0)) continue;
-    const bb = out.boundingBox();
-    const size: Vec3 = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
-    const preset = f.face === 'pick' ? { anchor: f.anchor, normal: f.normal } : FACE_DIRS[f.face];
-    const n = norm(preset.normal);
-    const box = f.face === 'pick' ? base : bb;
-    const a0: Vec3 = [0, 1, 2].map((k) => box.min[k] + preset.anchor[k] * (box.max[k] - box.min[k])) as Vec3;
-    // Snap the anchor onto the actual surface by casting a ray inwards along -normal.
-    const diag = Math.hypot(...size) + 10;
-    const origin: Vec3 = [a0[0] + n[0] * diag, a0[1] + n[1] * diag, a0[2] + n[2] * diag];
-    const end: Vec3 = [a0[0] - n[0] * diag, a0[1] - n[1] * diag, a0[2] - n[2] * diag];
-    let P = a0;
-    try {
-      const hits = out.rayCast(origin, end);
-      if (hits.length) P = [...hits.reduce((h, x) => (x.distance < h.distance ? x : h)).position] as Vec3;
-    } catch { /* keep bbox point */ }
-
-    // Text frame: right/up span the surface plane, w points out of the surface.
-    const upHint: Vec3 = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [0, 1, 0];
-    let right = norm(cross(upHint, n));
-    let up = norm(cross(n, right));
-    const rot = (f.rotation * Math.PI) / 180;
-    if (rot) {
-      const c = Math.cos(rot), s = Math.sin(rot);
-      const r2: Vec3 = [right[0] * c + up[0] * s, right[1] * c + up[1] * s, right[2] * c + up[2] * s];
-      const u2: Vec3 = [up[0] * c - right[0] * s, up[1] * c - right[1] * s, up[2] * c - right[2] * s];
-      right = r2; up = u2;
-    }
-    P = [P[0] + right[0] * f.offset[0] + up[0] * f.offset[1], P[1] + right[1] * f.offset[0] + up[1] * f.offset[1], P[2] + right[2] * f.offset[0] + up[2] * f.offset[1]];
-
     const contours = layoutText(f.text, {
       size: f.size, font: f.font, letterSpacing: f.letterSpacing, lineHeight: f.lineHeight, halign: f.halign, valign: 'center',
       arcRadius: f.curve === 'arc' ? f.arcRadius : undefined,
     });
     if (!contours.length) continue;
-    const cs = new C(contours, 'NonZero');
-    const z0 = f.mode === 'emboss' ? -SINK : -f.depth;
-    const h = f.mode === 'emboss' ? f.depth + SINK : f.depth + CLEAR;
-    let solid: Manifold = cs.extrude(h).translate([0, 0, z0]);
-
-    if (f.curve === 'wrap' && Math.abs(n[2]) < 0.9) {
-      // Wrap around a vertical cylinder whose axis passes through the part's bbox centre.
-      const cx = (bb.min[0] + bb.max[0]) / 2, cy = (bb.min[1] + bb.max[1]) / 2;
-      const R = f.wrapRadius > 0 ? f.wrapRadius : Math.max(1, Math.hypot(P[0] - cx, P[1] - cy));
-      const theta0 = Math.atan2(P[1] - cy, P[0] - cx);
-      // In-plane rotation for wrapped text is applied in 2D before bending.
-      const c = Math.cos(rot), s = Math.sin(rot);
-      solid = solid.refineToLength(Math.max(0.4, R / 50)).warp((v) => {
-        const x = v[0] * c - v[1] * s, y = v[0] * s + v[1] * c, w = v[2];
-        const th = theta0 + x / R;
-        const r = R + w;
-        v[0] = cx + r * Math.cos(th);
-        v[1] = cy + r * Math.sin(th);
-        v[2] = P[2] + y;
-      });
-      // warp above keeps orientation: x→tangent, y→Z, w→outward forms a right-handed frame
-    } else {
-      const m: number[] = [right[0], right[1], right[2], 0, up[0], up[1], up[2], 0, n[0], n[1], n[2], 0, P[0], P[1], P[2], 1];
-      solid = solid.transform(m as Parameters<Manifold['transform']>[0]);
-    }
-    out = f.mode === 'emboss' ? out.add(solid) : out.subtract(solid);
+    out = placeOnSurface(out, base, f, new C(contours, 'NonZero'));
   }
   return out;
+}
+
+/**
+ * Raises (or engraves) a 2D shape, centred on (0, 0) with y up, onto the surface `f` describes. A
+ * picked point is measured against `base`, the part without any text or SVG, so it stays where it
+ * was clicked however much is added.
+ */
+export function placeOnSurface(out: Manifold, base: { min: ArrayLike<number>; max: ArrayLike<number> }, f: SurfacePlacement, cs: CrossSection): Manifold {
+  const bb = out.boundingBox();
+  const size: Vec3 = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
+  const preset = f.face === 'pick' ? { anchor: f.anchor, normal: f.normal } : FACE_DIRS[f.face];
+  const n = norm(preset.normal);
+  const box = f.face === 'pick' ? base : bb;
+  const a0: Vec3 = [0, 1, 2].map((k) => box.min[k] + preset.anchor[k] * (box.max[k] - box.min[k])) as Vec3;
+  // Snap the anchor onto the actual surface by casting a ray inwards along -normal.
+  const diag = Math.hypot(...size) + 10;
+  const origin: Vec3 = [a0[0] + n[0] * diag, a0[1] + n[1] * diag, a0[2] + n[2] * diag];
+  const end: Vec3 = [a0[0] - n[0] * diag, a0[1] - n[1] * diag, a0[2] - n[2] * diag];
+  let P = a0;
+  try {
+    const hits = out.rayCast(origin, end);
+    if (hits.length) P = [...hits.reduce((h, x) => (x.distance < h.distance ? x : h)).position] as Vec3;
+  } catch { /* keep bbox point */ }
+
+  // Frame: right/up span the surface plane, w points out of the surface.
+  const upHint: Vec3 = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [0, 1, 0];
+  let right = norm(cross(upHint, n));
+  let up = norm(cross(n, right));
+  const rot = (f.rotation * Math.PI) / 180;
+  if (rot) {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    const r2: Vec3 = [right[0] * c + up[0] * s, right[1] * c + up[1] * s, right[2] * c + up[2] * s];
+    const u2: Vec3 = [up[0] * c - right[0] * s, up[1] * c - right[1] * s, up[2] * c - right[2] * s];
+    right = r2; up = u2;
+  }
+  P = [P[0] + right[0] * f.offset[0] + up[0] * f.offset[1], P[1] + right[1] * f.offset[0] + up[1] * f.offset[1], P[2] + right[2] * f.offset[0] + up[2] * f.offset[1]];
+
+  const z0 = f.mode === 'emboss' ? -SINK : -f.depth;
+  const h = f.mode === 'emboss' ? f.depth + SINK : f.depth + CLEAR;
+  let solid: Manifold = cs.extrude(h).translate([0, 0, z0]);
+
+  if (f.curve === 'wrap' && Math.abs(n[2]) < 0.9) {
+    // Wrap around a vertical cylinder whose axis passes through the part's bbox centre.
+    const cx = (bb.min[0] + bb.max[0]) / 2, cy = (bb.min[1] + bb.max[1]) / 2;
+    const R = f.wrapRadius > 0 ? f.wrapRadius : Math.max(1, Math.hypot(P[0] - cx, P[1] - cy));
+    const theta0 = Math.atan2(P[1] - cy, P[0] - cx);
+    // In-plane rotation for wrapped shapes is applied in 2D before bending.
+    const c = Math.cos(rot), s = Math.sin(rot);
+    solid = solid.refineToLength(Math.max(0.4, R / 50)).warp((v) => {
+      const x = v[0] * c - v[1] * s, y = v[0] * s + v[1] * c, w = v[2];
+      const th = theta0 + x / R;
+      const r = R + w;
+      v[0] = cx + r * Math.cos(th);
+      v[1] = cy + r * Math.sin(th);
+      v[2] = P[2] + y;
+    });
+    // warp above keeps orientation: x→tangent, y→Z, w→outward forms a right-handed frame
+  } else {
+    const m: number[] = [right[0], right[1], right[2], 0, up[0], up[1], up[2], 0, n[0], n[1], n[2], 0, P[0], P[1], P[2], 1];
+    solid = solid.transform(m as Parameters<Manifold['transform']>[0]);
+  }
+  return f.mode === 'emboss' ? out.add(solid) : out.subtract(solid);
 }
