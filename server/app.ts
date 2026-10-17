@@ -5,11 +5,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { runGeneration, workspaceDir } from './agent';
-import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechToken } from '../shared/api';
+import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechToken, PriceRequest } from '../shared/api';
 import { DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
+import { sliceProject } from './slicer';
+import { suggestPrice } from './pricing';
+import { cleanCostSettings } from '../shared/cost';
 import type { Design, DesignSummary } from '../shared/types';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -53,9 +56,11 @@ export interface AppOptions {
   port?: number;
   /** Runs a generation (tests pass a stand-in instead of Claude). */
   generate?: typeof runGeneration;
+  /** Suggests a selling price (tests pass a stand-in instead of Claude). */
+  suggest?: typeof suggestPrice;
 }
 
-export function createApp({ port = PORT, generate = runGeneration }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice }: AppOptions = {}): express.Express {
   const app = express();
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
@@ -207,6 +212,35 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
       res.json(await bambuTemplate());
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // ---- cost: the user's prices, slicing for grams and time, and Claude's price suggestion
+  const COST_SETTINGS = path.join(DATA_DIR, 'cost.json');
+  app.get('/api/cost/settings', async (_req, res) => {
+    res.json(cleanCostSettings(await readFile(COST_SETTINGS, 'utf8').then((t) => JSON.parse(t), () => ({}))));
+  });
+  app.put('/api/cost/settings', json('10kb'), async (req, res) => {
+    const s = cleanCostSettings(req.body);
+    await mkdir(DATA_DIR, { recursive: true });
+    await writeAtomically(COST_SETTINGS, JSON.stringify(s));
+    res.json(s);
+  });
+  app.post('/api/slice', express.raw({ type: 'application/octet-stream', limit: '300mb' }), async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return void res.status(400).json({ error: 'Send the Bambu Studio project (.3mf) as the body' });
+    try {
+      res.json(await sliceProject(req.body));
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+  app.post('/api/price', json('20kb'), async (req, res) => {
+    const r = req.body as PriceRequest;
+    if (!r || typeof r.name !== 'string' || !Number.isFinite(r.grams) || !Number.isFinite(r.seconds)) return void res.status(400).json({ error: 'bad price request' });
+    try {
+      res.json(await suggest({ ...r, name: r.name.slice(0, 200), description: typeof r.description === 'string' ? r.description.slice(0, 1000) : undefined, size: String(r.size).slice(0, 100) }));
+    } catch (e) {
+      res.status(502).json({ error: (e as Error).message });
     }
   });
 

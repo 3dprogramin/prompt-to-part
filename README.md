@@ -111,6 +111,18 @@ The 256 × 256 mm Bambu Lab A1 plate is drawn. The printer is defined in `shared
 
   Supports and brim from the print settings are taken into account.
 
+## Cost
+
+The *Cost* tab works out what a print costs, from Bambu Studio's own numbers:
+
+- **Print time and filament:** the visible parts are built at export resolution, made into the same Bambu Studio project as the 3MF export (your print settings included) and sliced by your installed Bambu Studio (`server/slicer.ts`, with its own data folder in `data/bambu/slicer-data`, so your Bambu Studio settings are untouched). The time is Bambu Studio's estimate; the grams include supports, the prime tower and purge, per filament for multi-colour prints.
+- **When:** opening the tab slices whatever is missing or out of date; later changes only mark the numbers as out of date until you press *Recalculate*. Each stage (building the model, preparing the project, slicing) is shown with its elapsed time, in the tab and in the viewer's status bar. Small models slice in a second or two; the first project needs the Bambu Studio template, which takes longer.
+- **Filament cost:** grams × your price per 1 kg roll (RON).
+- **Electricity:** only from your printer's **measured** average power (a plug-in meter: the kWh a print used ÷ its hours × 1000) and your price per kWh. The A1's 1300 W rating is its peak while the bed heats, so it is never used; without a measurement electricity is left out rather than guessed.
+- **Selling price:** *Ask Claude* sends the costs, print time, size, parts and what the item is to Claude (Sonnet, one reply, no tools), which suggests a price, a range and its reasoning. It is shown as Claude's suggestion, not a calculation.
+
+Your prices are kept in `data/cost.json`.
+
 ## Export
 
 Exports contain the visible parts only; hide a part to leave it out, or export a single part as STL from the Model tab. Every export rebuilds the model at high resolution and validates exactly that mesh. Problems are reported, not blocking. If the high-resolution build fails, nothing is exported and the error is shown.

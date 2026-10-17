@@ -15,6 +15,7 @@ let releaseGeneration = () => {};
 const { createApp } = await import('../server/app');
 server.on('request', createApp({
   port,
+  suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
   generate: (_req, send, abort) => new Promise((resolve) => {
     send({ type: 'live', text: 'working' });
     releaseGeneration = () => resolve();
@@ -112,3 +113,14 @@ test('dictation tokens need the ElevenLabs key, and only Jig may ask', { skip: !
   assert.match((await r.json()).error, /ELEVENLABS_API_KEY/);
   assert.equal((await fetch(`${A}/api/speech/token`, { method: 'POST' })).status, 403);
 });
+
+test('cost settings are stored, slicing needs a project, price suggestions go through', async () => {
+  const put = await fetch(`${A}/api/cost/settings`, { method: 'PUT', headers: W, body: JSON.stringify({ filamentPerKg: 110, averageWatts: -5 }) });
+  assert.deepEqual(await put.json(), { filamentPerKg: 110 });
+  assert.deepEqual(await (await fetch(`${A}/api/cost/settings`)).json(), { filamentPerKg: 110 });
+  assert.equal((await fetch(`${A}/api/slice`, { method: 'POST', headers: { ...W, 'Content-Type': 'application/octet-stream' }, body: new Uint8Array(0) })).status, 400);
+  const price = await fetch(`${A}/api/price`, { method: 'POST', headers: W, body: JSON.stringify({ name: 'Hook', size: '10 × 10 × 10 mm', parts: 1, colours: 1, grams: 42, seconds: 600, filamentCost: 4.6, electricityCost: null }) });
+  assert.deepEqual(await price.json(), { price: 42, low: 1, high: 99, reasoning: 'for Hook', currency: 'RON' });
+  assert.equal((await fetch(`${A}/api/price`, { method: 'POST', headers: W, body: '{}' })).status, 400);
+});
+

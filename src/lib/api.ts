@@ -1,5 +1,6 @@
 import type { Design, DesignSummary } from '../../shared/types';
-import type { AgentEvent, Capabilities, FontEntry, GenerateRequest } from '../../shared/api';
+import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { CostSettings, SliceStats } from '../../shared/cost';
 import { dataUrlToImage } from './files';
 
 export type { AgentEvent, FontEntry } from '../../shared/api';
@@ -87,6 +88,13 @@ export const api = {
     await request(`/api/designs/${id}`, { method: 'DELETE' });
   },
   capabilities: () => getJson<Capabilities>('/api/capabilities'),
+  /** The Bambu Studio project template (built from the user's Bambu Studio the first time: minutes). */
+  bambuTemplate: () => getJson<BambuTemplate>('/api/bambu/template', { method: 'POST' }),
+  costSettings: () => getJson<CostSettings>('/api/cost/settings'),
+  saveCostSettings: (s: CostSettings) => getJson<CostSettings>('/api/cost/settings', { method: 'PUT', body: JSON.stringify(s) }),
+  /** Slice a Bambu Studio project in the user's Bambu Studio: grams and print time. */
+  slice: (project: Blob) => getJson<SliceStats>('/api/slice', { method: 'POST', body: project, headers: { 'Content-Type': 'application/octet-stream' } }),
+  suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),
   /** Font files (base64) for the text tool and font previews. */
   fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };

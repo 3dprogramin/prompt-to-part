@@ -583,3 +583,23 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .listening-note { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
 .rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); }
 .bad-note { color: var(--bad); }
+
+/* ---------- cost ---------- */
+.cost-panel { display: flex; flex-direction: column; gap: 16px; }
+.cost-panel section { display: flex; flex-direction: column; gap: 6px; }
+.cost-panel h4 { margin: 0; }
+.cost-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.small-btn { padding: 3px 8px; font-size: 12px; }
+.cost-inputs { display: flex; flex-direction: column; gap: 8px; }
+.cost-input { display: flex; flex-direction: column; gap: 3px; color: var(--text-2); font-size: 12.5px; }
+.cost-input input { background: var(--bg); border: 1px solid var(--input-line); border-radius: 6px; padding: 5px 8px; text-align: right; }
+.cost-progress { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12.5px; line-height: 1.35; }
+.cost-progress .spinner { flex-shrink: 0; }
+.cost-stale { color: var(--accent-2); }
+.cost-sub th { padding-left: 12px; display: flex; align-items: center; gap: 6px; }
+.cost-total th, .cost-total td { font-weight: 600; color: var(--text); }
+.cost-price b { font-size: 18px; color: var(--text); }
+.cost-price p { margin: 6px 0; color: var(--text-2); }
+.cost-status { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-2); font-size: 12px; margin-right: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.tab-spinner { width: 9px; height: 9px; margin-left: 3px; }
+.cost-panel td.mono { white-space: nowrap; }

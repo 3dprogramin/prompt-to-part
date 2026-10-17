@@ -3,6 +3,8 @@ import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptEr
 import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
+import { CostPanel } from './CostPanel';
+import type { useCost } from '../hooks/useCost';
 import type { PrintProfile, PrintSettings } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
 import { usePopover } from './usePopover';
@@ -15,11 +17,16 @@ import { PRINTER, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
-type Tab = 'params' | 'text' | 'print' | 'info' | 'code';
+type Tab = 'params' | 'text' | 'print' | 'cost' | 'info' | 'code';
 
 interface Props {
   /** The open design: unapplied code edits are kept per design. */
   designId: string;
+  designName: string;
+  /** Claude's summary of the shown version. */
+  summary?: string;
+  /** Cost of printing it (useCost). */
+  cost: ReturnType<typeof useCost>;
   /** Where the real-world dimensions of the shown version came from (Claude's report). */
   sources?: DimensionSource[];
   result: EvalResult | null;
@@ -80,6 +87,7 @@ export function SidePanel(p: Props) {
     ['params', <><Icon name="sliders" size={14} /> Params</>],
     ['text', <><span className="tab-glyph" aria-hidden>T</span> Text{p.textFeatures.length ? <span className="count" aria-label={`${p.textFeatures.length} texts`}>{p.textFeatures.length}</span> : null}</>],
     ['print', <><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count" aria-label={`${p.printChanges} changed settings`}>{p.printChanges}</span> : null}</>],
+    ['cost', <><Icon name="coin" size={14} /> Cost{p.cost.running ? <span className="spinner tab-spinner" aria-label="calculating" /> : null}</>],
     ['info', <><Icon name="info" size={14} /> Model</>],
     ['code', <><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" aria-label="script error" /> : draft ? <span className="draft-dot" aria-label="unapplied edits" title="Unapplied code edits" /> : null}</>],
   ];
@@ -99,6 +107,10 @@ export function SidePanel(p: Props) {
         {tab === 'text' && (shown
           ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
           : noModel('Generate a model first, then add text to it.'))}
+        {tab === 'cost' && (shown
+          ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
+            result={p.cost.result} upToDate={p.cost.upToDate} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />
+          : noModel('Costs appear once a model is generated.'))}
         {tab === 'info' && (shown ? <InfoTab result={shown} sources={p.sources} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} /> : noModel('No model yet.'))}
         {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />}
       </div>

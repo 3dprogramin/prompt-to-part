@@ -5,7 +5,7 @@ import { toBambuProject } from './bambu3mf';
 import type { PrintProfile } from '../../shared/print';
 import { bedShift } from '../../shared/printer';
 import type { BambuTemplate, BlendRequest } from '../../shared/api';
-import { request } from './api';
+import { api, request } from './api';
 import { CONTENT_TYPES, colourSlots, esc, num } from './threeMf';
 import { boxDimensions } from './dimensions';
 
@@ -98,7 +98,7 @@ export interface ThreeMfOptions {
 export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
   if (format === '3mf') {
     if (!threeMf.print) return to3mf(parts, title, threeMf.colours);
-    const tpl = (await (await request('/api/bambu/template', { method: 'POST' })).json()) as BambuTemplate;
+    const tpl = await api.bambuTemplate();
     threeMf.onTemplate?.(tpl);
     return toBambuProject(parts, title, tpl, { colours: threeMf.colours, print: threeMf.print });
   }

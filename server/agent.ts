@@ -28,6 +28,16 @@ const TOOL_LABELS: Record<string, string> = {
 };
 const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
+/** The environment for the Claude Code process the Agent SDK starts. */
+export function claudeEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
+  // Use the Claude plan the `claude` CLI is logged in with, unless JIG_USE_API_KEY=1 asks for API billing.
+  if (!USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
+  // Claude has no use for other services' keys.
+  delete env.ELEVENLABS_API_KEY;
+  return env;
+}
+
 export function workspaceDir(designId: string) {
   return path.join(DATA_DIR, 'workspaces', designId);
 }
@@ -171,11 +181,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
-  // Use the Claude plan the `claude` CLI is logged in with, unless JIG_USE_API_KEY=1 asks for API billing.
-  if (!USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
-  // Claude has no use for other services' keys.
-  delete env.ELEVENLABS_API_KEY;
+  const env = claudeEnv();
 
   // Whether Claude has answered at all: then a failure is not a missing session, and starting over
   // in a new one would repeat the work (and could produce a second version).

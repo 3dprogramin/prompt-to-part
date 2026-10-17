@@ -91,3 +91,28 @@ export interface BlendRequest {
   parts: { name: string; color: string; positions: string; indices: string }[]; // base64 float32 / uint32
   dimensions?: { label: string; from: number[]; to: number[]; offset?: number[]; color?: string }[];
 }
+
+/** POST /api/price: what Claude needs to suggest a selling price. */
+export interface PriceRequest {
+  name: string;
+  /** Claude's summary of the version (what the item is). */
+  description?: string;
+  /** "85 × 56 × 30 mm" */
+  size: string;
+  parts: number;
+  colours: number;
+  grams: number;
+  seconds: number;
+  filamentCost: number | null;
+  electricityCost: number | null;
+}
+
+/** Claude's suggested selling price (an opinion, not a calculation). */
+export interface PriceSuggestion {
+  price: number;
+  low: number;
+  high: number;
+  reasoning: string;
+  currency: string;
+}
+

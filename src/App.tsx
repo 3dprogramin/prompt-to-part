@@ -20,6 +20,7 @@ import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
 import { useLiveModel } from './hooks/useLiveModel';
+import { STAGE_TEXT, useCost } from './hooks/useCost';
 import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
@@ -407,6 +408,21 @@ export default function App() {
   };
   const layoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
   const canAssemble = !!layoutKey && !!shown?.assembly.length;
+  // The layout option that lays the parts out for printing ('print', or the first that isn't a view).
+  const layoutDef = layoutKey ? shown?.params[layoutKey] : undefined;
+  const printLayout = layoutDef?.type === 'select'
+    ? (layoutDef.options.find((o) => o.value === 'print') ?? layoutDef.options.find((o) => o.value !== 'assembled' && o.value !== 'exploded'))?.value
+    : undefined;
+
+  // ---- cost: slice the exported parts in Bambu Studio (the print layout, not an assembled view)
+  const cost = useCost(geo, {
+    design,
+    values: printLayout && layoutKey ? { ...design.values, [layoutKey]: printLayout } : design.values,
+    hiddenParts: viewOpts.hiddenParts,
+    userPrint,
+    onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
+  });
+
   // Any change to the model ends the animation and makes validation results stale.
   useEffect(() => {
     if (design === adopted.current) { adopted.current = null; return; }
@@ -696,6 +712,7 @@ export default function App() {
           dictation={dictation}
         />
         <ViewerPanel
+          costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}
           result={playback ? playback.result : result ?? lastGood}
           error={error}
           busy={busy}
@@ -733,6 +750,9 @@ export default function App() {
         />
         <SidePanel
           designId={design.id}
+          designName={design.name}
+          summary={design.versions[design.currentVersion]?.summary}
+          cost={cost}
           sources={dimensionSources}
           result={result}
           lastGood={lastGood}

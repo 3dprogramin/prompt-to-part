@@ -5,6 +5,8 @@ import { Icon } from './Icon';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
 
 interface Props {
+  /** A cost calculation under way (slicing in Bambu Studio), shown in the status bar from any tab. */
+  costStatus?: { text: string; since: number } | null | false;
   result: EvalResult | null;
   error: ScriptErrorInfo | null;
   busy: boolean;
@@ -46,7 +48,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose }: Props) {
+export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -379,6 +381,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           </span>
         )}
         <span className="spacer" />
+        {costStatus && <CostStatus {...costStatus} />}
         <span className="busy-dot" role="status">{(busy || solving) && (solving ? 'finding size…' : 'evaluating…')}</span>
         {result && <span className="mono dim tri-count">{Math.round(result.timeMs)} ms · {result.parts.reduce((s, p) => s + p.triCount, 0).toLocaleString()} tris</span>}
       </div>
@@ -389,3 +392,12 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
 function Toggle({ on, onClick, icon, title }: { on: boolean; onClick: () => void; icon: string; title: string }) {
   return <button className={`tb-btn ${on ? 'on' : ''}`} title={title} aria-label={title.split(/[(:.]/)[0].trim()} aria-pressed={on} onClick={onClick}><Icon name={icon} /></button>;
 }
+
+/** "Bambu Studio is slicing the model… 12 s" while the Cost tab calculates. */
+function CostStatus({ text, since }: { text: string; since: number }) {
+  const [now, setNow] = useState(performance.now());
+  useEffect(() => { const t = setInterval(() => setNow(performance.now()), 500); return () => clearInterval(t); }, []);
+  // The status bar is one line: the stage's first clause only.
+  return <span className="cost-status" role="status" title={text}><span className="spinner" /> Cost: {text.split(' (')[0]}… {Math.round((now - since) / 1000)} s</span>;
+}
+

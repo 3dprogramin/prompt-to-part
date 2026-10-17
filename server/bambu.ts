@@ -17,7 +17,7 @@ const run = promisify(execFile);
 const CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
 const PRESETS = PRINTER.bambu;
 
-async function findBinary(): Promise<string | null> {
+export async function findBambuBinary(): Promise<string | null> {
   return findExecutable([
     process.env.BAMBU_STUDIO_PATH, 'bambustudio', 'bambu-studio', 'BambuStudio',
     ...installDirs(['Bambu Studio/bambu-studio.exe'], ['/Applications/BambuStudio.app/Contents/MacOS/BambuStudio']),
@@ -27,7 +27,7 @@ async function findBinary(): Promise<string | null> {
 let versionCache: string | null | undefined;
 export async function bambuVersion(): Promise<string | null> {
   if (versionCache !== undefined) return versionCache;
-  const bin = await findBinary();
+  const bin = await findBambuBinary();
   if (!bin) return (versionCache = null);
   try {
     // Bambu Studio writes a result.json into its working directory – keep that out of the project.
@@ -109,7 +109,7 @@ export async function bambuTemplate(): Promise<BambuTemplate> {
     if (cached.version === (await bambuVersion())) return cached;
   }
   pending ??= (async () => {
-    const bin = await findBinary();
+    const bin = await findBambuBinary();
     if (!bin) throw new Error('Bambu Studio was not found on this computer');
     const work = await mkdtemp(path.join(os.tmpdir(), 'jig-bambu-'));
     try {
