@@ -26,7 +26,7 @@ import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import { exportedParts } from './geometry/validate';
 import { pageKey } from '../shared/sources';
-import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
+import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -143,7 +143,9 @@ export default function App() {
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
   const [dictation, setDictation] = useState(false);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); }).catch(() => {}); }, []);
+  // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
+  const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -374,19 +376,19 @@ export default function App() {
     return { ...d, values, updatedAt: Date.now() };
   });
   const partNames = (result ?? lastGood)?.parts.map((p) => p.name) ?? [];
-  // Number of print settings (as shown in the Print tab) that differ from the A1 profile on any part.
+  // Number of print settings (as shown in the Print tab) that differ from the profile on any part.
   const printChanges = useMemo(() => {
     const changed = new Set<string>();
     for (const name of partNames.length ? partNames : [undefined]) {
-      const eff = effectiveSettings(aiPrint, userPrint, name);
-      for (const k of Object.keys(A1_DEFAULTS) as (keyof typeof A1_DEFAULTS)[]) if (eff[k] !== A1_DEFAULTS[k]) changed.add(k);
+      const eff = effectiveSettings(aiPrint, userPrint, name, printBase);
+      for (const k of Object.keys(printBase) as (keyof typeof printBase)[]) if (eff[k] !== printBase[k]) changed.add(k);
     }
     return changed.size;
-  }, [aiPrint, userPrint, partNames.join('\u0000')]);
+  }, [aiPrint, userPrint, printBase, partNames.join('\u0000')]);
   /** Which parts will print with supports / an explicit brim (validation takes these into account). */
   const printHints = () => ({
-    supportParts: partNames.filter((n) => effectiveSettings(aiPrint, userPrint, n).supports !== 'off'),
-    brimParts: partNames.filter((n) => typeof effectiveSettings(aiPrint, userPrint, n).brim === 'number'),
+    supportParts: partNames.filter((n) => effectiveSettings(aiPrint, userPrint, n, printBase).supports !== 'off'),
+    brimParts: partNames.filter((n) => typeof effectiveSettings(aiPrint, userPrint, n, printBase).brim === 'number'),
   });
 
   // ---- assembly animation ----
@@ -542,6 +544,8 @@ export default function App() {
       const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
         colours: threeMf.colours,
         print: threeMf.print && bambu ? { ai: r.print, user: userPrint } : null,
+        // The template's profile becomes the baseline shown in the Print tab.
+        onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
       });
       download(blob, file); // always export – problems are reported, not blocking
       if (o.report) {
@@ -752,6 +756,7 @@ export default function App() {
           validating={validating}
           aiPrint={aiPrint}
           userPrint={userPrint}
+          printBase={printBase}
           onUserPrint={setUserPrint}
           bambu={bambu}
           printChanges={printChanges}

@@ -10,6 +10,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { DATA_DIR } from './config';
 import { PRINTER } from '../shared/printer';
 import type { BambuTemplate } from '../shared/api';
+import { defaultsFromTemplate, type PrintSettings } from '../shared/print';
 import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
@@ -86,6 +87,18 @@ async function projectSettings(bin: string, work: string, filaments: number): Pr
     path.join(work, 'cube.stl'), '--export-3mf', 'p.3mf', '--outputdir', outDir], { cwd: work, timeout: 300000, maxBuffer: 64 * 1024 * 1024 });
   const zip = unzipSync(new Uint8Array(await readFile(path.join(outDir, 'p.3mf'))));
   return JSON.parse(strFromU8(zip['Metadata/project_settings.config'])) as Record<string, unknown>;
+}
+
+/**
+ * The baseline print settings of the template already built from the user's Bambu Studio, or null
+ * if there is none yet (building one runs Bambu Studio for minutes, so it is never started here).
+ */
+export async function cachedPrintDefaults(): Promise<Required<PrintSettings> | null> {
+  try {
+    return defaultsFromTemplate((JSON.parse(await readFile(CACHE, 'utf8')) as BambuTemplate).settings);
+  } catch {
+    return null;
+  }
 }
 
 let pending: Promise<BambuTemplate> | null = null;

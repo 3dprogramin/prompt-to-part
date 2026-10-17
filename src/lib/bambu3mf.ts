@@ -1,7 +1,7 @@
 // Bambu Studio project 3MF: A1 + PLA template from the user's Bambu Studio, per-object print-setting
 // overrides, and one filament per colour. Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
-import { A1_DEFAULTS, bambuOverrides, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
+import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { bedShift } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
@@ -19,7 +19,7 @@ function bambuAppVersion(v: string): string {
 }
 
 /** Settings Bambu Studio keeps per object only: a part (volume) can't have its own. */
-const OBJECT_ONLY = new Set(['layer_height', 'enable_support', 'support_type', 'brim_type', 'brim_width']);
+const OBJECT_ONLY = new Set(['layer_height', 'enable_support', 'support_type', 'support_on_build_plate_only', 'brim_type', 'brim_width']);
 
 /**
  * Settings of an object made of several parts: the main part's, with supports on if any part needs
@@ -67,8 +67,10 @@ export function toBambuProject(
   const slot = parts.map((_, i) => (opts.colours ? slots.slot[i] + 1 : 1));
 
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
-  const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user) : A1_DEFAULTS;
-  const globalChanges = bambuOverrides(globalSettings);
+  // The template's own profile is the baseline: only real changes from it are written.
+  const base = defaultsFromTemplate(tpl.settings);
+  const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user, undefined, base) : base;
+  const globalChanges = bambuOverrides(globalSettings, base);
 
   // Whole model moved as one onto the plate (same placement as the viewer).
   const shift = bedShift(parts.map((p) => p.bbox));
@@ -93,7 +95,7 @@ export function toBambuProject(
     items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
     // Objects only carry what differs from the model-wide settings (which live in the project), and
     // each part what differs from its object.
-    const own = group.map((i) => (opts.print ? effectiveSettings(opts.print.ai, opts.print.user, parts[i].name) : globalSettings));
+    const own = group.map((i) => (opts.print ? effectiveSettings(opts.print.ai, opts.print.user, parts[i].name, base) : globalSettings));
     const objSettings = objectSettings(own[group.indexOf(main)], own);
     const overrides = opts.print ? bambuOverrides(objSettings, globalSettings) : {};
     const name = group.length > 1 ? `${parts[main].name} (+${group.length - 1})` : parts[main].name;

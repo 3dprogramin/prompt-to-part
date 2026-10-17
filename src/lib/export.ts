@@ -91,12 +91,15 @@ export interface ThreeMfOptions {
   colours: boolean;
   /** Print settings to embed (Bambu project format); null = plain 3MF. */
   print: { ai: PrintProfile; user: PrintProfile } | null;
+  /** Gets the Bambu template the project was built on (it may have just been built). */
+  onTemplate?: (tpl: BambuTemplate) => void;
 }
 
 export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
   if (format === '3mf') {
     if (!threeMf.print) return to3mf(parts, title, threeMf.colours);
     const tpl = (await (await request('/api/bambu/template', { method: 'POST' })).json()) as BambuTemplate;
+    threeMf.onTemplate?.(tpl);
     return toBambuProject(parts, title, tpl, { colours: threeMf.colours, print: threeMf.print });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);

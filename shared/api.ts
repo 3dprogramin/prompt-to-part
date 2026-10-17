@@ -2,6 +2,7 @@
 // two can't drift apart.
 import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
+import type { PrintSettings } from './print';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -66,6 +67,8 @@ export interface Capabilities {
   bambu: string | null;
   /** Dictation is set up (ELEVENLABS_API_KEY). */
   speech: boolean;
+  /** Baseline print settings from the user's Bambu Studio template (null: none built yet). */
+  printDefaults: Required<PrintSettings> | null;
 }
 
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */

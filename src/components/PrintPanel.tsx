@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import {
-  A1_DEFAULTS, bambuOverrides, describeSetting, effectiveSettings, INFILL_PATTERNS, LAYER_HEIGHTS, SETTING_LABELS,
+  bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, LAYER_HEIGHTS, SEAMS, SETTING_LABELS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
 import { Icon } from './Icon';
 import { useReleaseSlider } from './useReleaseSlider';
 
 type Key = keyof PrintSettings;
-const KEYS: Key[] = ['layerHeight', 'walls', 'topLayers', 'bottomLayers', 'infill', 'infillPattern', 'supports', 'brim'];
+const KEYS: Key[] = ['layerHeight', 'walls', 'topLayers', 'bottomLayers', 'infill', 'infillPattern', 'supports', 'supportsOnPlate', 'brim', 'wallOrder', 'seam', 'ironing', 'fuzzySkin'];
 
 interface Props {
   parts: string[];
   ai: PrintProfile;
   user: PrintProfile;
+  /** The profile's own settings (from the user's Bambu Studio template). */
+  base: Required<PrintSettings>;
   onChange: (user: PrintProfile) => void;
   bambu: string | null;
 }
@@ -25,10 +27,10 @@ function source(ai: PrintProfile, user: PrintProfile, key: Key, part: string | n
   return 'default';
 }
 
-export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
+export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
   const [scope, setScope] = useState<string | null>(null); // null = whole model
   const part = scope && parts.includes(scope) ? scope : null;
-  const eff = effectiveSettings(ai, user, part ?? undefined);
+  const eff = effectiveSettings(ai, user, part ?? undefined, base);
 
   const own = (p: PrintProfile): PrintSettings => (part ? (p.parts?.[part] ?? {}) : p);
   const setValue = (key: Key, value: PrintSettings[Key] | undefined) => {
@@ -45,8 +47,8 @@ export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
     onChange(next);
   };
 
-  // What will differ from the A1 profile, per part.
-  const changes = parts.map((name) => ({ name, keys: bambuOverrides(effectiveSettings(ai, user, name)) })).filter((c) => Object.keys(c.keys).length);
+  // What will differ from the profile, per part.
+  const changes = parts.map((name) => ({ name, keys: bambuOverrides(effectiveSettings(ai, user, name, base), base) })).filter((c) => Object.keys(c.keys).length);
   const aiHasAny = Object.keys(ai).length > 0;
 
   return (
@@ -66,14 +68,14 @@ export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
         </div>
       )}
 
-      {KEYS.filter((k) => !(part && k === 'layerHeight')).map((key) => {
+      {KEYS.filter((k) => !(part && k === 'layerHeight') && !(k === 'supportsOnPlate' && eff.supports === 'off')).map((key) => {
         const src = source(ai, user, key, part);
         const ownUser = (own(user) as PrintSettings)[key] !== undefined;
         return (
           <div className="pp-row" key={key}>
             <div className="pp-label">
               <span>{SETTING_LABELS[key]}</span>
-              <span className={`pp-src ${src}`} title={src === 'default' ? `A1 default: ${describeSetting(key, A1_DEFAULTS[key])}` : undefined}>
+              <span className={`pp-src ${src}`} title={src === 'default' ? `Profile default: ${describeSetting(key, base[key])}` : undefined}>
                 {src === 'you' ? 'You' : src === 'ai' ? 'AI' : 'Default'}
               </span>
               {ownUser && <button className="icon-btn pp-reset" title="Reset" aria-label={`Reset ${SETTING_LABELS[key]}`} onClick={() => setValue(key, undefined)}><Icon name="restore" size={12} /></button>}
@@ -114,6 +116,16 @@ function Control({ k, label, value, onChange }: { k: Key; label: string; value: 
           <button key={s} className={value === s ? 'on' : ''} aria-pressed={value === s} onClick={() => onChange(s)}>{describeSetting('supports', s)}</button>))}
         </div>
       );
+    case 'supportsOnPlate':
+      return (
+        <div className="seg">{[false, true].map((on) => (
+          <button key={String(on)} className={value === on ? 'on' : ''} aria-pressed={value === on} onClick={() => onChange(on)}>{on ? 'Plate only' : 'Everywhere'}</button>))}
+        </div>
+      );
+    case 'ironing': case 'seam': case 'wallOrder': case 'fuzzySkin': {
+      const options: readonly string[] = k === 'ironing' ? IRONING_TYPES : k === 'seam' ? SEAMS : k === 'wallOrder' ? WALL_ORDERS : FUZZY_SKIN;
+      return <select aria-label={label} value={String(value)} onChange={(e) => onChange(e.target.value as PrintSettings[Key])}>{options.map((o) => <option key={o} value={o}>{describeSetting(k, o as PrintSettings[Key])}</option>)}</select>;
+    }
     case 'brim': {
       const b = value as Brim;
       const width = typeof b === 'number';

@@ -99,7 +99,7 @@ The 256 × 256 mm Bambu Lab A1 plate is drawn. The printer is defined in `shared
 
 ## Print settings and validation
 
-- **Print tab:** layer height, walls, top/bottom layers, infill % and pattern, supports and brim, for the whole model or per part. The baseline is Bambu Lab A1, PLA, 0.20 mm Standard. Claude suggests changes where the design needs them (e.g. more walls for a hook, supports for an overhang), and your overrides win.
+- **Print tab:** layer height, walls, top/bottom layers, infill % and pattern, supports (and whether they may only stand on the plate), brim, wall order, seam, ironing and fuzzy skin, for the whole model or per part. The baseline is Bambu Lab A1, PLA, 0.20 mm Standard as your Bambu Studio defines it: once the 3MF template has been built from your install, the Print tab, Claude and the export all read their defaults from it (until then, the Bambu Studio 2.8 values). Claude suggests changes where the design needs them (e.g. more walls for a hook, supports for an overhang), and your overrides win.
 - **Validate** (and automatically on every export) checks the high-resolution mesh of the parts being exported. It checks:
   - fit in the printer and contact with the plate
   - holes, non-manifold edges, flipped or inside-out faces

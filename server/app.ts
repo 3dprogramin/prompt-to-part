@@ -9,7 +9,7 @@ import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechTok
 import { DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
-import { bambuTemplate, bambuVersion } from './bambu';
+import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
 import type { Design, DesignSummary } from '../shared/types';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -179,7 +179,7 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
 
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults() } satisfies Capabilities);
   });
 
   // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream

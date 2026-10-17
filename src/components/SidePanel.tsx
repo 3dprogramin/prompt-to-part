@@ -3,7 +3,7 @@ import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptEr
 import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
-import type { PrintProfile } from '../../shared/print';
+import type { PrintProfile, PrintSettings } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
 import { usePopover } from './usePopover';
 import { FontPicker } from './FontPicker';
@@ -38,6 +38,8 @@ interface Props {
   validating: boolean;
   aiPrint: PrintProfile;
   userPrint: PrintProfile;
+  /** The profile's own settings (from the user's Bambu Studio template). */
+  printBase: Required<PrintSettings>;
   onUserPrint: (p: PrintProfile) => void;
   bambu: string | null;
   /** Number of print-setting changes that would be written to a 3MF. */
@@ -92,7 +94,7 @@ export function SidePanel(p: Props) {
         {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
         {tab === 'params' && (shown ? <ParamsTab result={shown} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /> : noModel('Parameters appear here once a model is generated.'))}
         {tab === 'print' && (shown
-          ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} onChange={p.onUserPrint} bambu={p.bambu} />
+          ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
           : noModel('Print settings appear once a model is generated.'))}
         {tab === 'text' && (shown
           ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />

@@ -10,6 +10,8 @@ import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { DATA_DIR, USE_API_KEY } from './config';
 import { pageKey } from '../shared/sources';
+import { cachedPrintDefaults } from './bambu';
+import { A1_DEFAULTS } from '../shared/print';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -119,6 +121,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Pages Claude actually read in this generation (WebFetch calls Jig allowed), by pageKey().
   const opened = new Set<string>();
   const { server: cad, state } = cadTools(file, emit, opened);
+  // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
+  const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
   const parts: string[] = [];
@@ -184,7 +188,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch),
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },

@@ -1,6 +1,13 @@
 import { PRINTER } from '../shared/printer';
+import { A1_DEFAULTS, describeSetting, SETTING_LABELS, type PrintSettings } from '../shared/print';
 
-export function buildSystemPrompt(workspaceFile: string, webSearch: boolean): string {
+/** "layer 0.20 mm, 2 walls, …" for the baseline profile. */
+function describeBase(b: Required<PrintSettings>): string {
+  const d = <K extends keyof PrintSettings>(k: K) => describeSetting(k, b[k]).toLowerCase();
+  return `layer ${b.layerHeight.toFixed(2)} mm, ${b.walls} walls, ${b.topLayers} top / ${b.bottomLayers} bottom layers, ${b.infill} % ${d('infillPattern')} infill, supports ${d('supports')}${b.supportsOnPlate ? ' (from the build plate only)' : ''}, brim ${d('brim')}, ironing ${d('ironing')}, seam ${d('seam')}, ${SETTING_LABELS.wallOrder.toLowerCase()} ${d('wallOrder')}, fuzzy skin ${d('fuzzySkin')}`;
+}
+
+export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS): string {
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${PRINTER.name} (FDM bed-slinger, ${PRINTER.nozzle} mm nozzle, PLA/PETG, build volume ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
@@ -97,14 +104,19 @@ function build(p) {
 - When you submit, the app resets every slider to your new defaults. So when modifying an existing design, set each default to the user's current slider value (given in the request) unless the request asks to change it, and keep existing parameter keys stable.
 
 # Print settings (optional, return them from build())
-The user prints in PLA on the ${PRINTER.name} with the "0.20mm Standard @BBL A1" profile: layer 0.20 mm, 2 walls, 5 top / 3 bottom layers, 15 % grid infill, supports off, auto brim. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
+The user prints in PLA on the ${PRINTER.name} with the "${PRINTER.bambu.process}" profile from their Bambu Studio: ${describeBase(printBase)}. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
 \`\`\`js
 print: {
   infill: 30, infillPattern: 'gyroid',            // model-wide
   parts: { 'Lead screw': { walls: 4, infill: 100 }, 'Cradle': { supports: 'tree', brim: 5 } },
 }
 \`\`\`
-- Keys: layerHeight (mm, model-wide only: 0.08/0.12/0.16/0.20/0.24/0.28), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm).
+- Keys: layerHeight (mm, model-wide only: 0.08/0.12/0.16/0.20/0.24/0.28), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm), ironing ('off' | 'top' | 'topmost' | 'solid'), seam ('aligned' | 'nearest' | 'back' | 'random'), supportsOnPlate (true | false; per object), wallOrder ('inner-outer' | 'outer-inner' | 'inner-outer-inner'), fuzzySkin ('none' | 'external' | 'all').
+- ironing 'top' (or 'topmost' for only the very top) on parts with large flat top faces that are seen or touched (lids, plaques, signs, nameplates); it is slow and does nothing for curved tops.
+- seam 'back' to hide the seam on the back of visible round parts (figurines, vases, knobs); keep 'aligned' on functional parts; avoid 'random' where surfaces must fit.
+- supportsOnPlate true when supports are needed but must not stand on the model itself (they would scar a visible or mating surface, or fill a thread or a hole).
+- wallOrder 'outer-inner' when outside dimensions must be exact (press fits, snap fits, parts that slide into something); keep the default where overhangs matter more.
+- fuzzySkin 'external' for grip surfaces (handles, knobs, tool grips) only: it adds about 0.3 mm, so never on mating or sliding surfaces; prefer a separate part or no fuzzy skin when only some faces should be rough.
 - Keep layerHeight at 0.20 unless there is a clear reason (fine detail on small figurines → 0.12–0.16, big chunky functional parts → 0.24–0.28) and say why.
 - Typical reasons: load-bearing / thin functional parts (screws, pins, hooks, clips) → 3–4 walls and 40–100 % infill; overhangs that cannot be designed away → supports 'tree' on that part; tall/narrow or small-footprint parts → a 5–8 mm brim; decorative parts → leave the defaults.
 - Do not return print settings just to restate the defaults. The user can turn them off when exporting.

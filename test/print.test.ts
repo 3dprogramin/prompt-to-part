@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { A1_DEFAULTS, bambuOverrides, cleanProfile, cleanSettings, effectiveSettings, parseProfile } from '../shared/print';
+import { A1_DEFAULTS, bambuOverrides, cleanProfile, cleanSettings, defaultsFromTemplate, effectiveSettings, parseProfile } from '../shared/print';
 import { bedShift, fitProblem, PRINTER } from '../shared/printer';
 
 test('cleanSettings: clamps, rounds and maps values', () => {
@@ -40,3 +40,28 @@ test('fitProblem and bedShift follow PRINTER', () => {
   assert.match(fitProblem({ min: [0, 0, 0], max: [w + 0.5, 10, 10] })!, /X/);
   assert.deepEqual(bedShift([{ min: [-10, -10, 2], max: [10, 10, 12] }]), [w / 2, d / 2, -2]);
 });
+
+test('the new settings: cleaned, written as Bambu values, compared with the baseline', () => {
+  assert.deepEqual(cleanSettings({ ironing: 'top', seam: 'back', supportsOnPlate: true, wallOrder: 'outer-inner', fuzzySkin: 'external' }),
+    { ironing: 'top', seam: 'back', supportsOnPlate: true, wallOrder: 'outer-inner', fuzzySkin: 'external' });
+  assert.deepEqual(cleanSettings({ ironing: 'everywhere', seam: 'left', supportsOnPlate: 'yes', wallOrder: 'x', fuzzySkin: true }), { fuzzySkin: 'external' });
+  assert.deepEqual(bambuOverrides({ ...A1_DEFAULTS, ironing: 'topmost', wallOrder: 'inner-outer-inner', supportsOnPlate: true }),
+    { ironing_type: 'topmost', wall_sequence: 'inner-outer-inner wall', support_on_build_plate_only: '1' });
+});
+
+test('the baseline comes from the Bambu template', () => {
+  const tpl = {
+    layer_height: '0.2', wall_loops: '3', top_shell_layers: '5', bottom_shell_layers: '3', sparse_infill_density: '20%', sparse_infill_pattern: 'gyroid',
+    enable_support: '0', support_type: 'tree(auto)', brim_type: 'auto_brim', brim_width: '5', ironing_type: 'no ironing', seam_position: 'aligned',
+    support_on_build_plate_only: '0', wall_sequence: 'inner wall/outer wall', fuzzy_skin: 'none',
+  };
+  const base = defaultsFromTemplate(tpl);
+  assert.deepEqual(base, { ...A1_DEFAULTS, walls: 3, infill: 20, infillPattern: 'gyroid' });
+  // A setting equal to the template's is not a change, even if it differs from the fallback.
+  assert.deepEqual(bambuOverrides(effectiveSettings({ walls: 3 }, {}, undefined, base), base), {});
+  assert.deepEqual(bambuOverrides(effectiveSettings({ walls: 2 }, {}, undefined, base), base), { wall_loops: '2' });
+  // Missing or unknown values fall back.
+  assert.deepEqual(defaultsFromTemplate({}), A1_DEFAULTS);
+  assert.equal(defaultsFromTemplate({ ...tpl, brim_type: 'outer_only', brim_width: '7', enable_support: '1', support_type: 'normal(auto)' }).brim, 7);
+});
+
