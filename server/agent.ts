@@ -20,6 +20,7 @@ import { isLithophane } from '../shared/lithophane';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
+import { readMyFilaments } from './myFilaments';
 import { A1_DEFAULTS } from '../shared/print';
 import type { ParamValues } from '../shared/types';
 import { MESHES_KEY, parseMeshes } from '../shared/meshes';
@@ -208,6 +209,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(hfImages).length ? { [HF_IMAGES_KEY]: JSON.stringify(hfImages) } : {}),
     ...(typeof pictureValues[HF_KEY] === 'string' ? { [HF_KEY]: pictureValues[HF_KEY] } : {}),
   };
+  // The user's own filaments, for Claude to prefer in a HueForge print (a small file, read per request).
+  const myFilaments = hueforge ? await readMyFilaments() : [];
   const { server: cad, state } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
     pictures: (hueforge || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
@@ -348,7 +351,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable() } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable(), mine: myFilaments } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
           figure || Object.keys(meshes).length ? { figure, meshy: meshTools } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,

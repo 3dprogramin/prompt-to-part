@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -164,4 +164,45 @@ test('without Claude, only library filaments can be looked up', async () => {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }
+});
+
+const mineUrl = () => `http://127.0.0.1:${port}/api/filaments/mine`;
+const putMine = (body: unknown) => fetch(mineUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(body) });
+
+test('my filaments: checked, saved in the data folder, read back', async () => {
+  assert.deepEqual(await (await fetch(mineUrl())).json(), { filaments: [] });
+  const ok = { name: 'PolyTerra Teal', brand: 'Polymaker', color: '#33AA77', td: 2.5 };
+  for (const body of [{}, { filaments: 'x' }, { filaments: [{ ...ok, name: '' }] }, { filaments: [{ ...ok, name: 'x'.repeat(121) }] }, { filaments: [{ ...ok, brand: 'x'.repeat(61) }] },
+    { filaments: [{ ...ok, brand: 3 }] }, { filaments: [{ ...ok, color: 'teal' }] }, { filaments: [{ ...ok, color: '#33aa7' }] }, { filaments: [{ ...ok, td: 0.01 }] }, { filaments: [{ ...ok, td: 21 }] },
+    { filaments: [{ ...ok, td: '2' }] }, { filaments: Array.from({ length: 101 }, (_, i) => ({ ...ok, name: `F${i}` })) }]) {
+    const r = await putMine(body);
+    assert.equal(r.status, 400, JSON.stringify(body).slice(0, 120));
+    assert.ok((await r.json()).error);
+  }
+  assert.equal((await fetch(mineUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filaments: [ok] }) })).status, 403);
+  // Trimmed, colour in lower case, one per brand and name (the last wins), no brand allowed.
+  const r = await putMine({ filaments: [{ ...ok, name: ' PolyTerra Teal ' }, { name: 'Leftover grey', color: '#808080', td: 0.05 }, { ...ok, name: 'polyterra teal', td: 3 }] });
+  assert.equal(r.status, 200);
+  const want = [{ name: 'Leftover grey', color: '#808080', td: 0.05 }, { name: 'polyterra teal', brand: 'Polymaker', color: '#33aa77', td: 3 }];
+  assert.deepEqual((await r.json()).filaments, want);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dataDir, 'filaments.json'), 'utf8')), { filaments: want });
+  assert.deepEqual((await (await fetch(mineUrl())).json()).filaments, want);
+  const { readMyFilaments } = await import('../server/myFilaments');
+  assert.deepEqual(await readMyFilaments(), want);
+  // A broken file reads as none.
+  writeFileSync(path.join(dataDir, 'filaments.json'), '{not json');
+  assert.deepEqual(await readMyFilaments(), []);
+  assert.equal((await putMine({ filaments: [] })).status, 200);
+});
+
+test('my filaments go into the HueForge prompt, marked as the user\'s own', async () => {
+  const { buildSystemPrompt } = await import('../server/systemPrompt');
+  const mine = [{ name: 'PolyTerra Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5 }, { name: 'Leftover grey', color: '#808080', td: 1 }];
+  const p = buildSystemPrompt('/w/model.js', false, undefined, false, { pictures: false, mine });
+  assert.match(p, /The user's own filaments[^\n]*prefer them/);
+  assert.match(p, /PolyTerra Teal \(Polymaker\) #33aa77 2\.5/);
+  assert.match(p, /Leftover grey #808080 1\n/);
+  const none = buildSystemPrompt('/w/model.js', false, undefined, false, { pictures: false });
+  assert.doesNotMatch(none, /The user's own filaments/);
+  assert.doesNotMatch(buildSystemPrompt('/w/model.js', false), /The user's own filaments/);
 });

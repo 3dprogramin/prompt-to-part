@@ -2,6 +2,7 @@ import type { Design, DesignSummary } from '../../shared/types';
 import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
+import type { HfFilament } from '../../shared/hueforge';
 import type { PhotoRequest, PhotoResponse } from '../../shared/photos';
 import { dataUrlToImage } from './files';
 
@@ -94,6 +95,9 @@ export const api = {
   bambuTemplate: () => getJson<BambuTemplate>('/api/bambu/template', { method: 'POST' }),
   costSettings: () => getJson<CostSettings>('/api/cost/settings'),
   saveCostSettings: (s: CostSettings) => getJson<CostSettings>('/api/cost/settings', { method: 'PUT', body: JSON.stringify(s) }),
+  /** The user's own HueForge filaments (data/filaments.json). */
+  myFilaments: () => getJson<{ filaments: HfFilament[] }>('/api/filaments/mine').then((r) => r.filaments),
+  saveMyFilaments: (filaments: HfFilament[]) => getJson<{ filaments: HfFilament[] }>('/api/filaments/mine', { method: 'PUT', body: JSON.stringify({ filaments }) }).then((r) => r.filaments),
   /** Slice a Bambu Studio project in the user's Bambu Studio: grams and print time. */
   slice: (project: Blob) => getJson<SliceStats>('/api/slice', { method: 'POST', body: project, headers: { 'Content-Type': 'application/octet-stream' } }),
   suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),
