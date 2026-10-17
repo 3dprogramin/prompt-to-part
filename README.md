@@ -56,7 +56,7 @@ Both are found on `PATH` and in their default install folders on macOS (`/Applic
 
 ## Designs and versions
 
-- **Tabs:** designs you open appear as tabs in the top bar, so parallel generations are one click apart. A spinner marks designs Claude is working on, and a dot marks ones that finished while you were looking at another. Every saved design is in *Designs*. Right-click the logo to start a new design in a new browser tab.
+- **Tabs:** designs you open appear as tabs in the top bar, so parallel generations are one click apart. A spinner marks designs Claude is working on, and a dot marks ones that finished while you were looking at another. *Close all* closes every tab except designs Claude is working on (nothing is deleted). Every saved design is in *Designs*. Right-click the logo to start a new design in a new browser tab.
 - **Versions:** click *v2 of 5* in the top bar to jump to any version. Gold versions are Claude's or your own code edits, blue ones are settings you saved.
 - **Code tab:** edit `model.js` by hand and *Apply* it (Ctrl+S) to make a new version. Edits you haven't applied stay there while you look at other tabs or designs.
 - **Saved settings:** when your sliders, scale, text or print overrides differ from the current version, *Save as vN* appears next to it and stores them as a new version. Restoring a version brings its settings back; switching versions with unsaved changes asks whether to save them, discard them or cancel.
