@@ -62,7 +62,6 @@ export function ObjectPanel(p: Props) {
                   <div className="object-name">{part.name}</div>
                   <div className="mono dim small">{(b.max[0] - b.min[0]).toFixed(1)} × {(b.max[1] - b.min[1]).toFixed(1)} × {(b.max[2] - b.min[2]).toFixed(1)} mm</div>
                 </button>
-                {names.length > 1 && <button className="icon-btn" title="Show only this part" aria-label={`Show only ${part.name}`} onClick={() => p.onHiddenParts(names.filter((n) => n !== part.name))}><Icon name="fit" size={14} /></button>}
                 <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${part.name} as STL`} onClick={() => p.onExport('stl', part.name)}><Icon name="download" size={14} /></button>
               </div>
               {open && (
