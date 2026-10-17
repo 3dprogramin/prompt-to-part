@@ -148,8 +148,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const opened = new Set<string>();
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
-  // AI artwork (on unless turned off in the chat, and only with an OpenRouter key); it may draw from the attached photos.
-  const artwork = req.artwork !== false && artworkAvailable();
+  // AI artwork (only when turned on in the chat, and with an OpenRouter key); it may draw from the attached photos.
+  const artwork = req.artwork === true && artworkAvailable();
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   const { server: cad, state } = cadTools(file, emit, opened, Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}, artwork ? { references, signal: abort.signal } : undefined);
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.

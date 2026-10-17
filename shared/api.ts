@@ -37,7 +37,7 @@ export interface GenerateRequest {
   drawings?: Record<string, SvgDrawing>;
   /** OpenSCAD files attached in the chat: Claude rebuilds them as Jig scripts. */
   scad?: ScadFile[];
-  /** Let Claude have artwork drawn by an image model (on by default; needs OPENROUTER_API_KEY). */
+  /** Let Claude have artwork drawn by an image model (off unless turned on; needs OPENROUTER_API_KEY). */
   artwork?: boolean;
   /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */
   history?: { role: 'user' | 'assistant'; text: string }[];

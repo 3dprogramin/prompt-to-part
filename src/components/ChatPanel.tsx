@@ -334,7 +334,7 @@ export function ChatPanel(p: Props) {
               aria-label="AI artwork"
               aria-pressed={p.artwork}
               onClick={() => p.onArtwork(!p.artwork)}
-              title={p.artwork ? `AI artwork is on: for people, characters, animals and scenes Claude has ${p.artworkModel} draw the artwork, then builds the design from it (click to turn it off for this design)` : `AI artwork is off for this design: click to let Claude have ${p.artworkModel} draw artwork for people, characters, animals and scenes`}
+              title={p.artwork ? `AI artwork is on: for people, characters, animals and scenes Claude has ${p.artworkModel} draw the artwork, then builds the design from it (click to turn it off, so Claude models them as 3D objects)` : `AI artwork is off: Claude models people, characters and animals as 3D objects. Click to have ${p.artworkModel} draw them as flat artwork for wall art, reliefs and signs (this design, until you reload)`}
             >
               <Icon name="palette" size={14} />
             </button>
