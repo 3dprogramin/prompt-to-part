@@ -17,6 +17,7 @@ import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
 import type { LayerColor } from '../shared/hueforge';
+import type { LithophaneSource } from '../shared/lithophane';
 
 // Refuse to run model scripts without the process lock.
 if (!process.permission || process.permission.has('child') || process.permission.has('fs.write')) {
@@ -89,7 +90,7 @@ export interface EvalSummary {
   dimensions: EvalResult['dimensions'];
   assembly: EvalResult['assembly'];
   print: EvalResult['print'];
-  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[] }[];
+  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; lithophane?: LithophaneSource }[];
 }
 export interface EvalFailure { ok: false; error: ReturnType<typeof formatScriptError> }
 
@@ -97,7 +98,7 @@ function summarize(r: EvalResult): EvalSummary {
   return {
     ok: true, meta: r.meta, params: r.params, values: r.values, bbox: r.bbox, timeMs: r.timeMs,
     warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly, print: r.print,
-    parts: r.parts.map(({ name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors }) => ({ name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}) })),
+    parts: r.parts.map(({ name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, lithophane }) => ({ name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(lithophane ? { lithophane } : {}) })),
   };
 }
 

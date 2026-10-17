@@ -30,11 +30,13 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * The `cad` MCP server for one generation, working on `file`. `state.submitted` tells whether
  * Claude got a model accepted. `opened` holds the pages Claude read (pageKey), so a source can be
  * marked as actually opened. With `artwork`, Claude can also have artwork drawn (generate_artwork),
- * and with `pictures` a picture made for H.hueforge (generate_picture), from the user's
- * `references` photos if it likes.
+ * and with `pictures` a picture made for H.hueforge, or with `lithophane` for H.lithophane
+ * (generate_picture), from the user's `references` photos if it likes.
  */
-export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: { artwork?: AiImages; pictures?: AiImages; hueforge?: boolean } = {}) {
-  const { artwork, pictures, hueforge } = extra;
+export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: { artwork?: AiImages; pictures?: AiImages; hueforge?: boolean; lithophane?: boolean } = {}) {
+  const { artwork, pictures, hueforge, lithophane } = extra;
+  // What generate_picture's pictures are for.
+  const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.hueforge', what: 'a HueForge filament painting (H.hueforge)' };
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   const state = { submitted: false };
@@ -120,8 +122,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
         return { content: [{ type: 'text', text: `${text} The user sees it in the HueForge panel. Call render_model to check the print.` }] };
       })] : []),
-      ...(pictures ? [tool('generate_picture', `Have an image model (${imageModel()}) make a picture for a HueForge filament painting (H.hueforge): realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
-        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.hueforge, e.g. "portrait"'),
+      ...(pictures ? [tool('generate_picture', `Have an image model (${imageModel()}) make a picture for ${use.what}: realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
+        name: z.string().regex(/^[\w-]{1,40}$/).describe(`Name to use with ${use.helper}, e.g. "portrait"`),
         subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),
         aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
         style: z.string().max(400).optional().describe('The look, when not a realistic photo-like picture (e.g. "oil painting", "charcoal drawing")'),
@@ -131,7 +133,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
         try {
           const references = a.use_attached_photos ? pictures.references : undefined;
-          const prompt = picturePrompt({ subject: a.subject, style: a.style, references });
+          const prompt = picturePrompt({ subject: a.subject, style: a.style, references, use: lithophane ? 'lithophane' : 'hueforge' });
           const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal);
           const raster = decodeImage(Buffer.from(image.data, 'base64'));
           const hf = toHfImage(a.name, raster.width, raster.height, raster.data);
@@ -140,12 +142,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           emit({ type: 'step', step: {
             kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
             text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for H.hueforge as ${hf.width}×${hf.height} pixels.`,
+            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for ${use.helper} as ${hf.width}×${hf.height} pixels.`,
           } });
           return {
             content: [
               { type: 'image', data: image.data, mimeType: image.mediaType },
-              { type: 'text', text: `Picture "${a.name}" is ready for H.hueforge("${a.name}", { width, … }) (${hf.width}×${hf.height} pixels, ${(hf.width / hf.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
+              { type: 'text', text: `Picture "${a.name}" is ready for ${use.helper}("${a.name}", { width, … }) (${hf.width}×${hf.height} pixels, ${(hf.width / hf.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
             ],
           };
         } catch (e) {

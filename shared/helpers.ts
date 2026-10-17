@@ -5,6 +5,7 @@ import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
 import { hueforgeLayers, hueforgeMesh, resolveHfOptions, type HfImage, type HueforgeOptions, type HueforgePart, type HueforgeSetup } from './hueforge';
+import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
 
 const DEG = Math.PI / 180;
 
@@ -455,6 +456,29 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
         shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' },
         hueforge: { image: imageName, options },
       };
+    },
+
+    /**
+     * A lithophane of a picture the user attached: a white-PLA panel `width` mm wide, thick where
+     * the picture is dark and thin where it is bright, that shows it lit from behind. Flat (standing
+     * on z = 0, the picture facing −Y), curved (an arc of `angle` degrees around the Z axis) or a
+     * full cylinder, with an optional foot (`stand`). Return it as a part,
+     * `{ name: 'Lithophane', ...H.lithophane(...) }`: its print settings (0.12 mm layers, 100 %
+     * infill, walls that fill it) go with it, and `lithophane` (picture and options) lets the
+     * viewer and the side panel show it lit.
+     */
+    lithophane(imageName: string, opts: LithophaneOptions): LithophanePart {
+      const image = hf.images[imageName];
+      if (!image) throw new Error(`H.lithophane: no picture named "${imageName}" (pictures: ${Object.keys(hf.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
+      const r = resolveLithoOptions(opts, quality);
+      const { vertProperties, triVerts } = lithophaneMesh(image, r);
+      // The fourth property is the thickness, which colours the panel lit from behind; Manifold
+      // keeps it through moves and booleans.
+      const shape = new M(new wasm.Mesh({ numProp: 4, vertProperties, triVerts })) as Manifold;
+      const st = shape.status();
+      if (st !== 'NoError') throw new Error(`H.lithophane: the panel mesh is invalid (${st})`);
+      const { print, note } = lithoPrint(r);
+      return { shape, print, lithophane: { image: imageName, options: r }, note };
     },
 
     clamp(v: number, lo: number, hi: number): number { return Math.min(hi, Math.max(lo, v)); },

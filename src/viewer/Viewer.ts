@@ -234,16 +234,20 @@ export class Viewer {
           polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
         // Per-vertex colours are what the print will look like: mostly shown as they are (emissive),
-        // with a little lighting so the relief still reads.
+        // with a little lighting so the relief still reads. A lithophane is lit from behind, so it
+        // glows almost entirely by its own colours.
         if (perVertex) {
-          color.setScalar(0.35);
+          const glow = part.lithophane ? '0.95' : '0.7';
+          color.setScalar(part.lithophane ? 0.12 : 0.35);
           // Matte: a glossy highlight would turn the black areas grey.
           front.roughness = 1;
           front.metalness = 0;
           front.envMapIntensity = 0;
           front.onBeforeCompile = (s) => {
-            s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\n\ttotalEmissiveRadiance += vColor.rgb * 0.7;\n#endif');
+            s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n#ifdef USE_COLOR\n\ttotalEmissiveRadiance += vColor.rgb * ${glow};\n#endif`);
           };
+          // The shader differs by the glow, so each needs its own compiled program.
+          front.customProgramCacheKey = () => glow;
         }
         const back = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(0.45), side: THREE.BackSide, vertexColors: perVertex });
         const group = new THREE.Group();

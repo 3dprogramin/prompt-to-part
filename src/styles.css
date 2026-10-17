@@ -714,6 +714,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 .hf-stats { color: var(--text-2); }
 .hf-warn { display: flex; gap: 6px; align-items: flex-start; color: #f2c66d; }
 .hf-warn svg { flex-shrink: 0; margin-top: 2px; }
+.litho-advice { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; color: var(--text-2); }
+.litho-advice b { color: var(--text); font-weight: 600; }
 .hf-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 4px; }
 .hf-head h4 { margin: 0; }
 .h4-hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }

@@ -402,8 +402,8 @@ export function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(m[1], 16);
   return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
-const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const toSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+export const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+export const toSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
 /** Rec. 709 luma of sRGB 0–1 values (as toHfImage measures the picture). */
 export const luma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
@@ -542,6 +542,41 @@ export function autoSwaps(image: HfImage, filaments: HfFilament[], o: HueforgeOp
   return swaps;
 }
 
+/**
+ * The picture's brightness (0–255) at pixel coordinates (px, py), for a grid whose cells are
+ * `cellPx` pixels wide: averaged over the cell (box filter, from a summed-area table) when it spans
+ * several pixels, bilinear otherwise.
+ */
+export function pictureSampler(image: HfImage, cellPx: number): (px: number, py: number) => number {
+  const lum = hfLuma(image);
+  const iw = image.width, ih = image.height;
+  let sat: Float64Array | null = null;
+  if (cellPx >= 1.5) {
+    sat = new Float64Array((iw + 1) * (ih + 1));
+    for (let y = 0; y < ih; y++) {
+      let row = 0;
+      for (let x = 0; x < iw; x++) { row += lum[y * iw + x]; sat[(y + 1) * (iw + 1) + x + 1] = sat[y * (iw + 1) + x + 1] + row; }
+    }
+  }
+  return (px, py) => {
+    if (sat) {
+      const half = cellPx / 2;
+      let x0 = Math.max(0, Math.round(px - half)), x1 = Math.min(iw, Math.round(px + half));
+      let y0 = Math.max(0, Math.round(py - half)), y1 = Math.min(ih, Math.round(py + half));
+      if (x1 <= x0) { x0 = Math.min(x0, iw - 1); x1 = x0 + 1; }
+      if (y1 <= y0) { y0 = Math.min(y0, ih - 1); y1 = y0 + 1; }
+      const S = iw + 1;
+      return (sat[y1 * S + x1] - sat[y0 * S + x1] - sat[y1 * S + x0] + sat[y0 * S + x0]) / ((x1 - x0) * (y1 - y0));
+    }
+    const fx = Math.max(0, Math.min(iw - 1, px - 0.5)), fy = Math.max(0, Math.min(ih - 1, py - 0.5));
+    const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(iw - 1, x0 + 1), y1 = Math.min(ih - 1, y0 + 1);
+    const tx = fx - x0, ty = fy - y0;
+    const a = lum[y0 * iw + x0] + (lum[y0 * iw + x1] - lum[y0 * iw + x0]) * tx;
+    const b = lum[y1 * iw + x0] + (lum[y1 * iw + x1] - lum[y1 * iw + x0]) * tx;
+    return a + (b - a) * ty;
+  };
+}
+
 /** The most grid points in one relief (the resolution is coarsened past it). */
 export const MAX_HF_POINTS = 1_500_000;
 
@@ -550,7 +585,6 @@ export const MAX_HF_POINTS = 1_500_000;
  * vertices shared, outward-facing: ready for a Manifold Mesh.
  */
 export function hueforgeMesh(image: HfImage, layers: LayerColor[], r: HfResolved): { vertProperties: Float32Array; triVerts: Uint32Array } {
-  const lum = hfLuma(image);
   const { counts } = heightTable(layers, r);
   const W = r.width, Hh = (W * image.height) / image.width, B = r.border;
   const iw = image.width, ih = image.height;
@@ -569,33 +603,7 @@ export function hueforgeMesh(image: HfImage, layers: LayerColor[], r: HfResolved
   const xs = axis(W, nx), ys = axis(Hh, ny);
   const NX = xs.length, NY = ys.length, NT = NX * NY;
 
-  // Box filter (summed-area table) when a grid cell spans several pixels, bilinear otherwise.
-  const cellPx = (res * iw) / W;
-  let sat: Float64Array | null = null;
-  if (cellPx >= 1.5) {
-    sat = new Float64Array((iw + 1) * (ih + 1));
-    for (let y = 0; y < ih; y++) {
-      let row = 0;
-      for (let x = 0; x < iw; x++) { row += lum[y * iw + x]; sat[(y + 1) * (iw + 1) + x + 1] = sat[y * (iw + 1) + x + 1] + row; }
-    }
-  }
-  const sample = (px: number, py: number): number => {
-    if (sat) {
-      const half = cellPx / 2;
-      let x0 = Math.max(0, Math.round(px - half)), x1 = Math.min(iw, Math.round(px + half));
-      let y0 = Math.max(0, Math.round(py - half)), y1 = Math.min(ih, Math.round(py + half));
-      if (x1 <= x0) { x0 = Math.min(x0, iw - 1); x1 = x0 + 1; }
-      if (y1 <= y0) { y0 = Math.min(y0, ih - 1); y1 = y0 + 1; }
-      const S = iw + 1;
-      return (sat[y1 * S + x1] - sat[y0 * S + x1] - sat[y1 * S + x0] + sat[y0 * S + x0]) / ((x1 - x0) * (y1 - y0));
-    }
-    const fx = Math.max(0, Math.min(iw - 1, px - 0.5)), fy = Math.max(0, Math.min(ih - 1, py - 0.5));
-    const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(iw - 1, x0 + 1), y1 = Math.min(ih - 1, y0 + 1);
-    const tx = fx - x0, ty = fy - y0;
-    const a = lum[y0 * iw + x0] + (lum[y0 * iw + x1] - lum[y0 * iw + x0]) * tx;
-    const b = lum[y1 * iw + x0] + (lum[y1 * iw + x1] - lum[y1 * iw + x0]) * tx;
-    return a + (b - a) * ty;
-  };
+  const sample = pictureSampler(image, (res * iw) / W);
 
   const tops = Float32Array.from({ length: r.nMax + 1 }, (_, n) => layerTop(n, r));
   const verts = new Float32Array((NT + 2 * (NX + NY) - 3) * 3);

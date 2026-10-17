@@ -189,7 +189,6 @@ function NumBox({ value, min, max, label, onCommit }: { value: number; min: numb
 function Pictures({ part, grid, images, onImage }: { part: HfPart; grid: Grid; images: Record<string, HfImage>; onImage: Props['onImage'] }) {
   const name = part.hueforge?.image && images[part.hueforge.image] ? part.hueforge.image : Object.keys(images)[0];
   const image = name ? images[name] : undefined;
-  const source = useMemo(() => (image ? hfImageToDataUrl(image) : null), [image]);
   const options: HueforgeOptions = part.hueforge?.options ?? { width: part.bbox.max[0] - part.bbox.min[0], maxHeight: grid.top, layerHeight: grid.lh, firstLayerHeight: grid.first };
   const optionsKey = JSON.stringify(options);
   // The engine may not be able to simulate (yet): the picture is shown without the preview.
@@ -202,6 +201,21 @@ function Pictures({ part, grid, images, onImage }: { part: HfPart; grid: Grid; i
       return null;
     }
   }, [image, part.layerColors, optionsKey]);
+  return <PicturePair name={name} image={image} preview={simulated} previewLabel="Simulated print" previewAlt="How the print will look" onImage={onImage}
+    empty="No picture is stored with this design: attach a photo in the chat with HueForge chosen in the palette menu." />;
+}
+
+/**
+ * A stored picture next to a preview made from it (click to enlarge both), with a button to
+ * replace the picture. Shared by the HueForge and Lithophane sections.
+ */
+export function PicturePair({ name, image, preview, previewLabel, previewAlt, empty, onImage }: {
+  name: string | undefined; image: HfImage | undefined; preview: string | null; previewLabel: string; previewAlt: string;
+  /** Shown when there is no picture. */
+  empty: string;
+  onImage: (name: string, image: HfImage) => void;
+}) {
+  const source = useMemo(() => (image ? hfImageToDataUrl(image) : null), [image]);
   const [big, setBig] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
   const open = () => { opener.current = document.activeElement as HTMLElement | null; setBig(true); };
@@ -219,19 +233,19 @@ function Pictures({ part, grid, images, onImage }: { part: HfPart; grid: Grid; i
     }
   };
 
-  if (!image || !source) return <div className="hf-nopic dim small">No picture is stored with this design: attach a photo in the chat with HueForge chosen in the palette menu.</div>;
+  if (!image || !source) return <div className="hf-nopic dim small">{empty}</div>;
   const pics = (
     <>
       <span className="hf-fig"><img src={source} alt={`The picture (${image.width} × ${image.height}, brightness)`} /><span className="hf-cap">Picture</span></span>
       <span className="hf-fig">
-        {simulated ? <img src={simulated} alt="How the print will look" /> : <span className="hf-nosim small">Preview not available</span>}
-        <span className="hf-cap">Simulated print</span>
+        {preview ? <img src={preview} alt={previewAlt} /> : <span className="hf-nosim small">Preview not available</span>}
+        <span className="hf-cap">{previewLabel}</span>
       </span>
     </>
   );
   return (
     <div className="hf-pictures">
-      <button className="hf-pics" onClick={open} aria-label="Enlarge the picture and the simulated print" title="Enlarge">{pics}</button>
+      <button className="hf-pics" onClick={open} aria-label={`Enlarge the picture and the ${previewLabel.toLowerCase()}`} title="Enlarge">{pics}</button>
       <div className="hf-pic-actions">
         <span className="dim small" title={name}>{image.width} × {image.height} px</span>
         <button className="link" onClick={() => file.current?.click()}>Change picture…</button>
@@ -239,7 +253,7 @@ function Pictures({ part, grid, images, onImage }: { part: HfPart; grid: Grid; i
       </div>
       {error && <div className="bad-note small" role="alert">{error}</div>}
       {big && (
-        <div className="lightbox hf-lightbox" role="dialog" aria-modal="true" aria-label="Picture and simulated print" onClick={close}
+        <div className="lightbox hf-lightbox" role="dialog" aria-modal="true" aria-label={`Picture and ${previewLabel.toLowerCase()}`} onClick={close}
           onKeyDown={(e) => { if (e.key === 'Tab') e.preventDefault(); }}>
           <div className="hf-big">{pics}</div>
           <button className="lightbox-close" autoFocus onClick={close} aria-label="Close (Esc)"><Icon name="x" size={16} /></button>

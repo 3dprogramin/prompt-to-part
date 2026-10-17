@@ -8,6 +8,7 @@ import { CostPanel } from './CostPanel';
 import { ObjectPanel } from './ObjectPanel';
 import { SvgPanel } from './SvgPanel';
 import { HueforgePanel, hueforgePart } from './HueforgePanel';
+import { LithophanePanel, lithophanePart } from './LithophanePanel';
 import type { HfImage, HueforgeSetup } from '../../shared/hueforge';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
@@ -106,8 +107,9 @@ export function SidePanel(p: Props) {
   const hiddenCount = shown ? shown.parts.filter((x) => p.hiddenParts.includes(x.name)).length : 0;
   const decorations = p.textFeatures.length + p.svgFeatures.length;
   const hfPart = hueforgePart(shown);
-  // Four tabs, each with two sections one under the other (a HueForge print adds its own on top of
-  // the Print tab).
+  const lithoPart = lithophanePart(shown);
+  // Four tabs, each with two sections one under the other (a HueForge print or a lithophane adds
+  // its own on top of the Print tab).
   const tabs: [Tab, React.ReactNode][] = [
     ['object', <><Icon name="cube" size={14} /> Object{hiddenCount ? <span className="count" aria-label={`${hiddenCount} parts hidden`}>{shown!.parts.length - hiddenCount}/{shown!.parts.length}</span> : null}</>],
     ['decorate', <><Icon name="shapes" size={14} /> Text &amp; SVG{decorations ? <span className="count" aria-label={`${decorations} texts and drawings`}>{decorations}</span> : null}</>],
@@ -156,6 +158,7 @@ export function SidePanel(p: Props) {
         </>}
         {tab === 'print' && <>
           {shown && hfPart && section('hueforge', 'HueForge', () => <HueforgePanel result={shown} part={hfPart} values={p.values} onSetup={p.onHueforge} onImage={p.onHfImage} />)}
+          {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onHfImage} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
             : noModel('Print settings appear once a model is generated.')))}

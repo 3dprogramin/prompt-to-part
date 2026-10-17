@@ -43,9 +43,10 @@ export interface GenerateRequest {
   /**
    * The chat's picture mode (the palette menu): 'artwork' = flat AI artwork traced into colour
    * shapes (H.svg); 'hueforge' = a HueForge-style filament painting (H.hueforge) from the attached
-   * photo or an AI picture; 'off' (default) = Claude models subjects as 3D objects.
+   * photo or an AI picture; 'lithophane' = a backlit white-PLA panel (H.lithophane) from one;
+   * 'off' (default) = Claude models subjects as 3D objects.
    */
-  imageMode?: 'off' | 'artwork' | 'hueforge';
+  imageMode?: 'off' | 'artwork' | 'hueforge' | 'lithophane';
   /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */
   history?: { role: 'user' | 'assistant'; text: string }[];
 }
@@ -59,7 +60,7 @@ export type AgentEvent =
   | { type: 'error'; message: string }
   /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
-  /** A picture for H.hueforge (an attached photo or one the image model drew), kept with the design under HF_IMAGES_KEY. */
+  /** A picture for H.hueforge or H.lithophane (an attached photo or one the image model drew), kept with the design under HF_IMAGES_KEY. */
   | { type: 'hfImage'; name: string; image: HfImage }
   /** Claude changed the HueForge setup (set_hueforge): the design's HF_KEY value, or null to clear it. */
   | { type: 'hfSetup'; setup: HueforgeSetup | null }

@@ -21,6 +21,7 @@ const PATHS: Record<string, string> = {
   printer: 'M7 9V4h10v5M6 18H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-2M7 14h10v6H7z',
   palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.3-1.7-.4-1 .3-2.1 1.4-2.1H17a4 4 0 0 0 4-4c0-5.6-4-10.2-9-10.2zM7.5 12.5h.01M9 8h.01M13.5 7h.01M17 10.5h.01',
   layers: 'M12 4 3 8.5l9 4.5 9-4.5zM3 12.5l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5',
+  lamp: 'M8 3h8l3 9H5zM12 12v8M8 20h8',
   assemble: 'M4 14h7v6H4zM13 4h7v6h-7zM16.5 10v4h-5M8 14v-3h3',
   play: 'M8 5v14l11-7z',
   pause: 'M8 5h3v14H8zM13 5h3v14h-3z',

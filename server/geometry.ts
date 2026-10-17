@@ -186,6 +186,11 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
     if (p.layerColors?.length) {
       lines.push(`    HueForge stack, bottom → top: ${p.layerColors.map((l, i) => `${l.brand ? `${l.brand} ` : ''}${l.name ?? l.color} (${l.color}, TD ${l.td}) ${i ? `from layer ${l.layer} (z ${f(l.z)} mm)` : 'from the bed'}`).join('; ')}`);
     }
+    if (p.lithophane) {
+      const o = p.lithophane.options;
+      const form = o.shape === 'cylinder' ? `a cylinder ${f(o.width / Math.PI, 1)} mm across` : o.shape === 'curved' ? `curved over ${f(o.angle, 0)}°` : o.upright ? 'flat, standing up' : 'flat, lying down';
+      lines.push(`    Lithophane of picture "${p.lithophane.image}": ${f(o.width, 1)} mm wide, ${form}, ${f(o.minThickness, 2)}–${f(o.maxThickness, 2)} mm thick (bright → dark)${o.border ? `, ${f(o.border, 1)} mm frame` : ''}${o.stand ? `, foot ${f(o.stand, 1)} mm deep, ${f(o.standHeight, 1)} mm high` : ''}${o.invert ? ', inverted' : ''}${o.gamma !== 1 ? `, gamma ${f(o.gamma, 2)}` : ''}`);
+    }
   }
   if (r.dimensions.length) {
     lines.push('Dimension callouts:');

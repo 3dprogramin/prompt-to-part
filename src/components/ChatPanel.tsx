@@ -387,6 +387,7 @@ const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: strin
   { mode: 'off', label: '3D model (no picture)', icon: 'cube', hint: () => 'Claude models people, characters and animals as 3D objects.' },
   { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes ${m ?? 'an image model'} draws flat artwork, which Claude turns into colour layers for wall art, reliefs and signs.` },
   { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Claude has one made' : ''}; set the filaments in the Print tab.` },
+  { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Claude has it made' : ''}.` },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */

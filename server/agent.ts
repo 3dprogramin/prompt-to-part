@@ -15,6 +15,7 @@ import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
 import { HF_IMAGES_KEY, HF_KEY, parseHfImages, toHfImage } from '../shared/hueforge';
+import { isLithophane } from '../shared/lithophane';
 import { formatDuration } from '../shared/duration';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
@@ -153,18 +154,20 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const opened = new Set<string>();
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
-  // The chat's picture mode: AI artwork (flat colours traced for H.svg) or a HueForge filament
-  // painting (H.hueforge); both only when turned on, and AI pictures need an OpenRouter key.
+  // The chat's picture mode: AI artwork (flat colours traced for H.svg), a HueForge filament
+  // painting (H.hueforge) or a lithophane (H.lithophane); all only when turned on, and AI pictures
+  // need an OpenRouter key.
   const mode = req.imageMode ?? (req.artwork ? 'artwork' : 'off');
   const artwork = mode === 'artwork' && artworkAvailable();
-  // A HueForge design stays one in follow-ups, whatever the menu says now: Claude keeps its HueForge tools.
-  const hueforge = mode === 'hueforge' || Object.keys(parseHfImages(req.renderValues?.[HF_IMAGES_KEY])).length > 0;
-  const newHueforge = mode === 'hueforge';
+  // A HueForge or lithophane design stays one in follow-ups, whatever the menu says now (unless it
+  // asks for the other): Claude keeps its picture tools. A design is one or the other.
+  const lithophane = mode === 'lithophane' || (mode !== 'hueforge' && isLithophane(req.code));
+  const hueforge = !lithophane && (mode === 'hueforge' || Object.keys(parseHfImages(req.renderValues?.[HF_IMAGES_KEY])).length > 0);
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
-  // HueForge pictures: the design's own, plus the photos attached now (kept with the design).
+  // Pictures: the design's own, plus the photos attached now (kept with the design).
   const hfImages = parseHfImages(req.renderValues?.[HF_IMAGES_KEY]);
   const newPictures: string[] = [];
-  if (newHueforge) {
+  if (mode === 'hueforge' || lithophane) {
     for (const img of (req.images ?? []).filter((i) => i.mediaType === 'image/png' || i.mediaType === 'image/jpeg')) {
       try {
         const raster = decodeImage(Buffer.from(img.data, 'base64'));
@@ -174,7 +177,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         newPictures.push(name);
         emit({ type: 'hfImage', name, image: hfImages[name] });
       } catch (e) {
-        emit({ type: 'step', step: { kind: 'tool', ok: false, text: `A photo couldn't be read for HueForge: ${(e as Error).message}` } });
+        emit({ type: 'step', step: { kind: 'tool', ok: false, text: `A photo couldn't be read for ${lithophane ? 'the lithophane' : 'HueForge'}: ${(e as Error).message}` } });
       }
     }
   }
@@ -185,8 +188,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   };
   const { server: cad, state } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
-    pictures: hueforge && artworkAvailable() ? { references, signal: abort.signal } : undefined,
+    pictures: (hueforge || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
     hueforge,
+    lithophane,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -259,6 +263,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     if (isFollowUp) parts.push(setup ? `The HueForge setup (the user's panel; set_hueforge changes it, and it wins over the script): ${setup}` : 'The HueForge setup is empty: the script\'s filaments and automatic swaps apply (set_hueforge changes that).');
     parts.push(`HueForge mode is on: make this a HueForge filament painting with H.hueforge (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.hueforge: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }
+  if (lithophane) {
+    const names = Object.keys(hfImages);
+    parts.push(`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
+  }
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {
@@ -294,7 +302,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable() } : undefined),
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, hueforge ? { pictures: artworkAvailable() } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
