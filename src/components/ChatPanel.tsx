@@ -32,6 +32,8 @@ interface Props {
   /** The reply was stopped or failed: the queue waits for "Send now". */
   queuePaused: boolean;
   onQueue: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
+  /** While Claude works: into the running reply (Claude reads it at its next step). */
+  onSteer: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
   onRemoveQueued: (index: number) => void;
   onSendQueued: () => void;
   onStop: () => void;
@@ -135,10 +137,11 @@ export function ChatPanel(p: Props) {
     setSvgShapes((prev) => ({ ...prev, ...Object.fromEntries(ok.filter((a) => a.drawing).map((a) => [a.url, a.drawing!])) }));
   };
 
-  const send = (message = text) => {
+  const hasDraft = !!text.trim() || images.length > 0 || scad.length > 0;
+  const send = (message = text, later = false) => {
     if (p.busyElsewhere || p.claudeProblem || (!message.trim() && !images.length && !scad.length)) return;
-    // While Claude works, the message waits for the end of its reply.
-    (p.generating ? p.onQueue : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])), scad);
+    // While Claude works the message goes into the reply now, or waits for its end ("Later").
+    (p.generating ? (later ? p.onQueue : p.onSteer) : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])), scad);
     setSvgShapes({});
     setScad([]);
     setText('');
@@ -150,6 +153,7 @@ export function ChatPanel(p: Props) {
   const [dictationError, setDictationError] = useState<string | null>(null);
   const dictation = useRef<Dictation | null>(null);
   const spoken = useRef(''); // the box's text including the latest words
+  const sendWhenStopped = useRef(false);
   const stopListening = async (): Promise<string> => {
     const d = dictation.current;
     if (d) {
@@ -158,9 +162,12 @@ export function ChatPanel(p: Props) {
       await d.stop();
     }
     setListening('off');
+    if (sendWhenStopped.current) { sendWhenStopped.current = false; send(spoken.current); }
     return spoken.current;
   };
   const startListening = async () => {
+    // Enter then goes to the text box (stop, then send), not to the microphone button.
+    textarea.current?.focus();
     const before = text.trimEnd();
     const prefix = before ? `${before} ` : '';
     spoken.current = text;
@@ -218,7 +225,7 @@ export function ChatPanel(p: Props) {
   };
 
   /** Update while listening: stop, then send everything that was said. */
-  const sendNow = async () => { send(listening === 'off' ? text : await stopListening()); };
+  const sendNow = async (later = false) => { send(listening === 'off' ? text : await stopListening(), later); };
 
   return (
     <div
@@ -301,7 +308,10 @@ export function ChatPanel(p: Props) {
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
             e.preventDefault();
-            if (listening !== 'off') void stopListening(); else send();
+            // The first Enter stops listening; one pressed while the last words come in sends them once they are in.
+            if (listening === 'on' || listening === 'starting') void stopListening();
+            else if (listening === 'stopping') sendWhenStopped.current = true;
+            else send();
           }}
           readOnly={listening === 'on' || listening === 'stopping'}
           onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); addFiles(files); } }}
@@ -344,10 +354,18 @@ export function ChatPanel(p: Props) {
           >
             <Icon name="mic" />
           </button>
-          {p.generating && <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>}
-          {(!p.generating || text.trim() || images.length > 0 || scad.length > 0) && (
+          {/* While Claude works with something typed: Stop and Later as icons, so Send keeps its room. */}
+          {p.generating && (hasDraft
+            ? <button className="icon-btn danger" onClick={p.onStop} title="Stop" aria-label="Stop"><Icon name="stop" /></button>
+            : <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>)}
+          {p.generating && hasDraft && (
+            <button className="icon-btn" onClick={() => void sendNow(true)} disabled={listening === 'starting'} title="Later: send when Claude has finished this reply" aria-label="Send later, when Claude has finished">
+              <Icon name="clock" />
+            </button>
+          )}
+          {(!p.generating || hasDraft) && (
             <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || listening === 'starting' || (!text.trim() && !images.length && !scad.length)}
-              title={p.generating ? 'Send when Claude has finished this reply' : p.hasModel ? 'Update' : 'Design'}>
+              title={p.generating ? 'Send now: Claude reads it at its next step, while it works' : p.hasModel ? 'Update' : 'Design'}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
           )}
@@ -577,7 +595,7 @@ function Step({ s, onImage }: { s: AgentStep; onImage: (src: string) => void }) 
   return (
     <li className={`step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
       {s.at != null && <span className="step-time">{fmtElapsed(s.at)}</span>}
-      <span className="step-text" onClick={() => long && setExpanded(!expanded)}>{expanded || !long ? s.text : clip(s.text, 160)}</span>
+      <span className="step-text" onClick={() => long && setExpanded(!expanded)}>{s.kind === 'user' && <b>You: </b>}{expanded || !long ? s.text : clip(s.text, 160)}</span>
       {s.image && <ImageButton src={s.image} alt="Render" onOpen={onImage} />}
     </li>
   );

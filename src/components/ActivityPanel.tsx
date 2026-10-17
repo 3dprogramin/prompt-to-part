@@ -126,7 +126,7 @@ const Item = memo(function Item({ it, streaming, onImage }: { it: ActivityItem; 
       <div className={`act-step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
         <span className="act-time">{s.at != null ? fmtTime(s.at) : ''}</span>
         <div className="act-step-body">
-          <span>{s.text}</span>
+          <span>{s.kind === 'user' && <b>You (while Claude worked): </b>}{s.text}</span>
           {s.image && <button className="img-btn" onClick={() => onImage(s.image!)} aria-label="Render – enlarge"><img src={s.image} alt="Render" /></button>}
           {s.detail && (
             <details className="act-detail" open={s.detailOpen}>
