@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { CUSTOM_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, sceneById, suggestScene, type PhotoAspect, type PhotoRequest } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, sceneById, suggestScene, type PhotoAspect, type PhotoRequest } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { api } from '../lib/api';
 import { dataUrlToImage, download, slug, uid } from '../lib/files';
@@ -82,7 +82,9 @@ export function PhotosPanel(p: Props) {
     return [0, 1, 2].map((k) => +(max[k] - min[k]).toFixed(1)) as Vec3;
   }, [parts]);
   const about = [p.designName, p.result?.meta.name, p.result?.meta.description, p.summary].filter(Boolean).join('. ');
-  const suggested = useMemo(() => suggestScene(about, size ?? undefined), [about, size]);
+  // A lithophane is best shown glowing.
+  const lithophane = !!p.result?.parts.some((x) => x.lithophane);
+  const suggested = useMemo(() => (lithophane ? BACKLIT_SCENE : suggestScene(about, size ?? undefined)), [about, size, lithophane]);
   const choice = scenes[p.designId] ?? { scene: suggested, notes: '' };
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
   const custom = choice.scene === CUSTOM_SCENE;
@@ -113,7 +115,7 @@ export function PhotosPanel(p: Props) {
       aspect,
       notes: choice.notes.trim() || undefined,
       product: {
-        name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn,
+        name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn, lithophane,
         // Per-vertex (HueForge) parts are many colours: the render shows them.
         colors: [...new Set(parts.filter((x) => !x.vertexColors).map((x) => x.color.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
       },

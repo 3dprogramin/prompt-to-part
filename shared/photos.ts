@@ -16,6 +16,9 @@ export interface PhotoScene {
   wall?: boolean;
 }
 
+/** The scene for lithophanes: lit from behind, so the picture shows. */
+export const BACKLIT_SCENE = 'backlit';
+
 export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'table', label: 'Wooden table', icon: 'table', scene: 'on a warm oak wooden table in a bright, cosy home interior, softly blurred background, natural window light from the side' },
   { id: 'wall', label: 'Living-room wall', icon: 'frame', wall: true, scene: 'hanging on a light painted wall in a calm, modern living room, mounted flat against the wall at eye level, with a plant, a lamp or a picture frame softly blurred nearby, soft daylight' },
@@ -24,6 +27,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'shelf', label: 'Shelf with plants', icon: 'plant', scene: 'on a wooden wall shelf styled with small potted green plants and a couple of books, Scandinavian look, soft natural light' },
   { id: 'studio', label: 'Plain studio', icon: 'studio', scene: 'on a seamless pure white studio sweep, a clean e-commerce product shot with soft, even studio light and a soft natural shadow under it' },
   { id: 'garden', label: 'Outdoor / garden', icon: 'tree', scene: 'outdoors in a garden, on a weathered wooden garden table or a flat stone, green plants and sunlight blurred behind it, late-afternoon light' },
+  { id: BACKLIT_SCENE, label: 'Backlit at night', icon: 'lamp', scene: 'standing on a bedside table or a windowsill in a dim, cosy room in the evening, with a warm LED light right behind it so the panel glows; the rest of the room in soft darkness with a few warm, blurred highlights' },
   { id: 'hand', label: 'Hand holding it', icon: 'hand', scene: 'held in a person\'s hand (only the hand and wrist in view, natural skin, relaxed grip that does not cover the important details), so its real size is obvious, plain softly blurred indoor background' },
 ];
 export const CUSTOM_SCENE = 'custom';
@@ -65,6 +69,8 @@ export interface PhotoRequest {
     size: Vec3;
     /** The render shows a flat print face-on (it hangs on the wall). */
     faceOn?: boolean;
+    /** A lithophane (H.lithophane): a white panel whose picture shows when light shines through it. */
+    lithophane?: boolean;
     /** The filament colours of the parts shown (#rrggbb). */
     colors?: string[];
   };
@@ -93,6 +99,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (!p || typeof p.name !== 'string' || p.name.length > 200) return 'product.name: text up to 200 characters';
   if (p.description != null && (typeof p.description !== 'string' || p.description.length > 2000)) return 'product.description: text up to 2,000 characters';
   if (!Array.isArray(p.size) || p.size.length !== 3 || !p.size.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 10000)) return 'product.size: [x, y, z] in mm';
+  if (p.lithophane != null && typeof p.lithophane !== 'boolean') return 'product.lithophane: true or false';
   if (p.colors != null && (!Array.isArray(p.colors) || p.colors.length > 16 || !p.colors.every((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)))) return 'product.colors: up to 16 #rrggbb colours';
   return null;
 }
@@ -126,7 +133,9 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
     `Real size: ${size} (${familiar(Math.max(x, y, faceOn ? 0 : z))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide), and frame the photo around it so it is not lost in the room.`,
-    b.product.colors?.length
+    b.product.lithophane
+      ? 'It is a LITHOPHANE: one panel of white PLA whose thickness varies, so its picture appears only when light shines through it – thin areas glow bright warm white, thick areas stay dark. The render shows it lit from behind: in the photo it must glow from a warm light behind it, the picture showing through exactly as in the render, with the panel\'s frame and stand as they are.'
+      : b.product.colors?.length
       ? `It is printed in matte PLA plastic, in the exact colours of the render: filament ${b.product.colors.length > 1 ? 'colours' : 'colour'} ${b.product.colors.join(', ')} (keep each as it is, light ones light, dark ones dark).`
       : 'It is printed in matte PLA plastic, in the exact colours of the render.',
     '',
@@ -143,7 +152,7 @@ export function photoPrompt(b: PhotoRequest): string {
     'MAKE IT LOOK LIKE A REAL PRINT, NOT A 3D RENDER:',
     '- a matte to satin PLA surface with a soft, slightly diffuse sheen, realistic light falloff and subtle ambient occlusion in the corners',
     '- very fine, regular horizontal layer lines (0.2 mm) faintly visible on its side walls up close; crisp but not razor-sharp edges; flat top faces smooth',
-    '- solid, opaque filament colours (no gloss, glass, metal or painted look)',
+    b.product.lithophane ? '- translucent white PLA lit from behind: a soft, even glow with the picture inside it, no printed or painted image on its surface' : '- solid, opaque filament colours (no gloss, glass, metal or painted look)',
     '',
     `SCENE: ${preset ? preset.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
