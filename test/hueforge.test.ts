@@ -19,7 +19,7 @@ function picture(w: number, h: number, grey: (x: number, y: number) => number, a
 }
 
 const FOUR: HfFilament[] = [
-  { name: 'Black', color: '#161616', td: 0.6 }, { name: 'Blue', color: '#0a5fb4', td: 1.2 },
+  { name: 'Black', color: DEFAULT_FILAMENTS[0].color, td: 0.6 }, { name: 'Blue', color: '#0a5fb4', td: 1.2 },
   { name: 'Yellow', color: '#f4d03f', td: 2.2 }, { name: 'White', color: '#ffffff', td: 3 },
 ];
 
@@ -55,17 +55,17 @@ const stack = (filaments: HfFilament[], swaps: number[]): LayerColor[] =>
 
 test('simulateColor: the base shows alone, then the light filament takes over steadily', () => {
   const layers = stack(DEFAULT_FILAMENTS, [6]);
-  assert.equal(simulateColor(0.3, layers), '#161616');
-  assert.equal(simulateColor(layers[1].z, layers), '#161616');
+  assert.equal(simulateColor(0.3, layers), DEFAULT_FILAMENTS[0].color);
+  assert.equal(simulateColor(layers[1].z, layers), DEFAULT_FILAMENTS[0].color);
   let prev = -1;
-  for (let z = layers[1].z; z < 12; z += 0.08) {
+  for (let z = layers[1].z; z < layers[1].z + 2 * DEFAULT_FILAMENTS[1].td; z += 0.08) {
     const l = luma(hexToRgb(simulateColor(z, layers)));
     assert.ok(l >= prev - 1e-9, `brightness never drops (z = ${z.toFixed(2)})`);
     prev = l;
   }
   // One layer already lightens a lot (light mixes in linear light); past the TD it is nearly white.
   assert.ok(luma(hexToRgb(simulateColor(layers[1].z + 0.08, layers))) > 0.2);
-  assert.ok(luma(hexToRgb(simulateColor(layers[1].z + 3, layers))) > 0.97);
+  assert.ok(luma(hexToRgb(simulateColor(layers[1].z + DEFAULT_FILAMENTS[1].td, layers))) > 0.95);
   // A lower TD (more opaque) covers faster.
   const opaque = stack([DEFAULT_FILAMENTS[0], { ...DEFAULT_FILAMENTS[1], td: 1 }], [6]);
   assert.ok(luma(hexToRgb(simulateColor(1, opaque))) > luma(hexToRgb(simulateColor(1, layers))));
@@ -121,7 +121,7 @@ test('H.hueforge: a watertight relief of the picture, heights on layer boundarie
   assert.ok(p.volume > 100 * 50 * 0.48 && p.volume < 100 * 50 * 1.6, String(p.volume));
   // The filament stack: black from the bed, white from a later layer.
   assert.equal(p.layerColors?.length, 2);
-  assert.deepEqual(p.layerColors![0], { z: 0, layer: 0, color: '#161616', td: 0.6, name: 'PLA Basic Black', brand: 'Bambu Lab' });
+  assert.deepEqual(p.layerColors![0], { z: 0, layer: 0, ...DEFAULT_FILAMENTS[0] });
   assert.ok(near(p.layerColors![1].z, 0.16 + (p.layerColors![1].layer - 1) * 0.08));
   // Print settings come with the part.
   assert.deepEqual(r.print, { layerHeight: 0.08, firstLayerHeight: 0.16, infill: 100, infillPattern: 'zig-zag' });

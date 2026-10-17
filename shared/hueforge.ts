@@ -102,9 +102,10 @@ export interface HueforgeSource {
   options: Required<Omit<HueforgeOptions, 'filaments'>>;
 }
 
+/** The user's loaded black and white, as in the filament library (shared/filaments.ts). */
 export const DEFAULT_FILAMENTS: HfFilament[] = [
-  { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#161616', td: 0.6 },
-  { name: 'PLA Basic White', brand: 'Bambu Lab', color: '#ffffff', td: 3.0 },
+  { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.2 },
+  { name: 'PLA Basic Jade White', brand: 'Bambu Lab', color: '#ffffff', td: 5.9 },
 ];
 
 // ---------------------------------------------------------------------------

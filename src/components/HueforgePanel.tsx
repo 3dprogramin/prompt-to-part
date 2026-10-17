@@ -2,7 +2,7 @@ import { useId, useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
 import { checkSwaps, HF_IMAGES_KEY, HF_KEY, layerTop, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, simulateImage, type HfFilament, type HfImage, type HueforgeOptions, type HueforgeSetup, type LayerColor } from '../../shared/hueforge';
 import { FILAMENT_LIBRARY, searchFilaments, type FilamentLookup, type LibraryFilament } from '../../shared/filaments';
-import { request } from '../lib/api';
+import { lookupFilament } from '../lib/api';
 import { hfImageToDataUrl, loadHfImage, rgbaToDataUrl } from '../lib/hfImage';
 import { Icon } from './Icon';
 import { useEscape } from './useEscape';
@@ -340,9 +340,4 @@ function LookupNote({ r }: { r: FilamentLookup }) {
       {r.note && <span className="dim">{r.note}</span>}
     </div>
   );
-}
-
-/** TODO(integration): temporary; use lookupFilament from src/lib/api.ts once the filaments branch is merged. */
-async function lookupFilament(brand: string, name: string): Promise<FilamentLookup> {
-  return (await request('/api/filaments/lookup', { method: 'POST', body: JSON.stringify({ brand, name }) })).json() as Promise<FilamentLookup>;
 }
