@@ -352,7 +352,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         shape = o.shape ?? o.manifold;
         name = typeof o.name === 'string' ? o.name : '';
         color = typeof o.color === 'string' ? o.color : '';
-        // A HueForge part (H.hueforge): its filament stack, scaled with the part.
+        // A LayerTone part (H.hueforge): its filament stack, scaled with the part.
         layerColors = cleanLayerColors(o.layerColors, scale);
         hueforge = layerColors && cleanHueforgeSource(o.hueforge, scale);
         // A lithophane part (H.lithophane): what it was made from, scaled with the part. A design is

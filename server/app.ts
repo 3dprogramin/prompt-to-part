@@ -346,7 +346,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     }
   });
 
-  // ---- HueForge filaments: the library, or Claude on the web for one it doesn't have
+  // ---- LayerTone filaments: the library, or Claude on the web for one it doesn't have
   app.post('/api/filaments/lookup', json('2kb'), async (req, res) => {
     const { brand, name } = (req.body ?? {}) as { brand?: unknown; name?: unknown };
     if (typeof brand !== 'string' || typeof name !== 'string' || !brand.trim() || !name.trim()) return void res.status(400).json({ error: 'Send the filament\'s brand and name' });
@@ -361,7 +361,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     }
   });
 
-  // The user's own filaments, for every design's HueForge panel and for Claude.
+  // The user's own filaments, for every design's LayerTone panel and for Claude.
   app.get('/api/filaments/mine', async (_req, res) => {
     res.json({ filaments: await readMyFilaments() });
   });

@@ -1,4 +1,4 @@
-// Builds 3MF files off the page's main thread: a big model (a 250 mm HueForge print has millions of
+// Builds 3MF files off the page's main thread: a big model (a 250 mm LayerTone print has millions of
 // vertices) is written out as XML and zipped, which would freeze the page for seconds.
 import { toBambuProject } from './bambu3mf';
 import { to3mf } from './export';

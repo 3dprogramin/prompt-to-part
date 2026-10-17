@@ -42,7 +42,7 @@ test('wall scenes hang a flat print face-on; custom scenes and extra wishes go i
 
 test('the suggested scene follows what the design is', () => {
   assert.equal(suggestScene('Home sweet home wall plaque'), 'wall');
-  assert.equal(suggestScene('HueForge portrait of a dog'), 'wall');
+  assert.equal(suggestScene('LayerTone portrait of a dog'), 'wall');
   assert.equal(suggestScene('Café coaster. Round drinks coaster'), 'table');
   assert.equal(suggestScene('Pen holder for the desk'), 'office');
   assert.equal(suggestScene('Ribbed bud vase'), 'shelf');

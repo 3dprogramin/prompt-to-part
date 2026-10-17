@@ -143,12 +143,12 @@ async function requestOnce(key: string, model: string, prompt: string, aspect: s
   return { image: { data: m[2], mediaType: m[1] }, model, cost: typeof body.usage?.cost === 'number' ? body.usage.cost : null };
 }
 
-/** The prompt for a HueForge picture: a photo-like image with a full range of tones, no print rules about flat colours. */
+/** The prompt for a LayerTone picture: a photo-like image with a full range of tones, no print rules about flat colours. */
 export function picturePrompt(r: { subject: string; style?: string; references?: string[]; use?: 'hueforge' | 'lithophane' }): string {
   return [
     r.use === 'lithophane'
       ? 'A picture to be printed as a lithophane: a white panel whose thickness follows the picture, lit from behind so it glows in shades of warm light, so the picture is judged by its light and dark values alone (no colour).'
-      : 'A picture to be printed as a HueForge-style filament painting: a thin relief where brightness becomes height, printed in a few stacked filaments, so the picture is judged by its light and dark values.',
+      : 'A picture to be printed as a LayerTone filament painting: a thin relief where brightness becomes height, printed in a few stacked filaments, so the picture is judged by its light and dark values.',
     `Subject: ${r.subject.trim()}`,
     r.references?.length ? 'Work from the attached photo(s): keep the subject\'s real likeness, features and proportions.' : '',
     `Look: ${r.style?.trim() || 'realistic, detailed and sharp, like a high-quality photo or a fine painting, with strong lighting and clear contrast'}.`,

@@ -42,7 +42,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__render_scad: 'Rendering the OpenSCAD file',
   mcp__cad__generate_artwork: 'Generating artwork',
   mcp__cad__generate_picture: 'Generating a picture',
-  mcp__cad__set_hueforge: 'Changing the HueForge filaments',
+  mcp__cad__set_hueforge: 'Changing the LayerTone filaments',
   mcp__cad__generate_3d: 'Making a 3D model with Meshy',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
@@ -166,14 +166,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const opened = new Set<string>();
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
-  // The chat's picture mode: AI artwork (flat colours traced for H.svg), a HueForge filament
+  // The chat's picture mode: AI artwork (flat colours traced for H.svg), a LayerTone filament
   // painting (H.hueforge) or a lithophane (H.lithophane); all only when turned on, and AI pictures
   // need an OpenRouter key.
   const mode = req.imageMode ?? (req.artwork ? 'artwork' : 'off');
   const artwork = mode === 'artwork' && artworkAvailable();
-  // A HueForge or lithophane design stays one in follow-ups, whatever the menu says now (unless it
+  // A LayerTone or lithophane design stays one in follow-ups, whatever the menu says now (unless it
   // asks for the other): Claude keeps its picture tools. A design is one or the other.
-  // The design's pictures and HueForge setup (sent with every request; the follow-up values win).
+  // The design's pictures and LayerTone setup (sent with every request; the follow-up values win).
   const pictureValues: ParamValues = { ...req.pictures, ...req.renderValues };
   const lithophane = mode === 'lithophane' || (mode !== 'hueforge' && isLithophane(req.code));
   const hueforge = !lithophane && (mode === 'hueforge' || /\bH\.hueforge\s*\(/.test(req.code ?? '') || Object.keys(parseHfImages(pictureValues[HF_IMAGES_KEY])).length > 0);
@@ -181,7 +181,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Pictures: the design's own, plus the photos attached now (kept with the design).
   const hfImages = parseHfImages(pictureValues[HF_IMAGES_KEY]);
   const newPictures: string[] = [];
-  // In a HueForge or lithophane design (whatever the menu says now) attached photos become pictures.
+  // In a LayerTone or lithophane design (whatever the menu says now) attached photos become pictures.
   if (hueforge || lithophane) {
     for (const img of (req.images ?? []).filter((i) => i.mediaType === 'image/png' || i.mediaType === 'image/jpeg')) {
       try {
@@ -192,7 +192,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         newPictures.push(name);
         emit({ type: 'hfImage', name, image: hfImages[name] });
       } catch (e) {
-        emit({ type: 'step', step: { kind: 'tool', ok: false, text: `A photo couldn't be read for ${lithophane ? 'the lithophane' : 'HueForge'}: ${(e as Error).message}` } });
+        emit({ type: 'step', step: { kind: 'tool', ok: false, text: `A photo couldn't be read for ${lithophane ? 'the lithophane' : 'LayerTone'}: ${(e as Error).message}` } });
       }
     }
   }
@@ -209,7 +209,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(hfImages).length ? { [HF_IMAGES_KEY]: JSON.stringify(hfImages) } : {}),
     ...(typeof pictureValues[HF_KEY] === 'string' ? { [HF_KEY]: pictureValues[HF_KEY] } : {}),
   };
-  // The user's own filaments, for Claude to prefer in a HueForge print (a small file, read per request).
+  // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
   const myFilaments = hueforge ? await readMyFilaments() : [];
   const { server: cad, state } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
@@ -286,8 +286,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (hueforge) {
     const names = Object.keys(hfImages);
     const setup = typeof pictureValues[HF_KEY] === 'string' ? pictureValues[HF_KEY] : null;
-    if (isFollowUp) parts.push(setup ? `The HueForge setup (the user's panel; set_hueforge changes it, and it wins over the script): ${setup}` : 'The HueForge setup is empty: the script\'s filaments and automatic swaps apply (set_hueforge changes that).');
-    parts.push(`HueForge mode is on: make this a HueForge filament painting with H.hueforge (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.hueforge: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
+    if (isFollowUp) parts.push(setup ? `The LayerTone setup (the user's panel; set_hueforge changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_hueforge changes that).');
+    parts.push(`LayerTone mode is on: make this a LayerTone filament painting with H.hueforge (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.hueforge: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }
   if (lithophane) {
     const names = Object.keys(hfImages);

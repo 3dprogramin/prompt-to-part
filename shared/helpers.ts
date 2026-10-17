@@ -61,7 +61,7 @@ function checkPoints(pts: unknown, what: string, min = 3): Vec2[] {
   return pts as Vec2[];
 }
 
-/** HueForge input from the design's values: its pictures and the user's filament setup. */
+/** LayerTone input from the design's values: its pictures and the user's filament setup. */
 export interface HueforgeInput {
   images: Record<string, HfImage>;
   setup: HueforgeSetup;
@@ -495,7 +495,7 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
     },
 
     /**
-     * A HueForge-style filament painting of a picture the user attached: a flat relief `width` mm
+     * A LayerTone filament painting of a picture the user attached: a flat relief `width` mm
      * wide (bottom at z = 0, centred), whose height at each point sets how much light filament
      * covers the dark ones below. Filaments and swap layers come from the user's side panel, else
      * `opts.filaments` (default black and white) with automatic swaps. Return it as a part,

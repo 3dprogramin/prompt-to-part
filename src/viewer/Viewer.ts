@@ -230,7 +230,7 @@ export class Viewer {
           geom.computeBoundsTree();
           edgeGeom = new THREE.EdgesGeometry(geom, 30);
         }
-        // A part coloured per vertex (HueForge) shows those colours (times white) instead of its own.
+        // A part coloured per vertex (LayerTone) shows those colours (times white) instead of its own.
         const perVertex = !!geom.getAttribute('color');
         // No feature lines on them either: every layer step of the relief would draw one.
         if (perVertex) { edgeGeom.dispose(); edgeGeom = new THREE.BufferGeometry(); }

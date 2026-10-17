@@ -43,7 +43,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
 } = {}) {
   const { artwork, pictures, hueforge, lithophane, meshy } = extra;
   // What generate_picture's pictures are for.
-  const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.hueforge', what: 'a HueForge filament painting (H.hueforge)' };
+  const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.hueforge', what: 'a LayerTone filament painting (H.hueforge)' };
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   const state = { submitted: false };
@@ -94,7 +94,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-      ...(hueforge ? [tool('set_hueforge', 'Change the HueForge setup – the same one the user edits in the HueForge panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Applies at once (no submit_model needed); to change filaments after the first version use this, not the script. Check the result with render_model (the report lists the stack used).', {
+      ...(hueforge ? [tool('set_hueforge', 'Change the LayerTone setup – the same one the user edits in the LayerTone panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Applies at once (no submit_model needed); to change filaments after the first version use this, not the script. Check the result with render_model (the report lists the stack used).', {
         filaments: z.array(z.object({
           name: z.string().max(120).describe('e.g. "PLA Basic Black"'),
           brand: z.string().max(60).optional().describe('e.g. "Bambu Lab", "eSUN"'),
@@ -124,10 +124,10 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         if (!Object.keys(setup).length) setup = {};
         if (Object.keys(setup).length) base[HF_KEY] = JSON.stringify(setup); else delete base[HF_KEY];
         emit({ type: 'hfSetup', setup: Object.keys(setup).length ? setup : null });
-        const text = !Object.keys(setup).length ? 'The HueForge setup is cleared: the script\'s filaments and automatic swaps apply.'
-          : `HueForge setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}.`;
+        const text = !Object.keys(setup).length ? 'The LayerTone setup is cleared: the script\'s filaments and automatic swaps apply.'
+          : `LayerTone setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}.`;
         emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
-        return { content: [{ type: 'text', text: `${text} The user sees it in the HueForge panel. Call render_model to check the print.` }] };
+        return { content: [{ type: 'text', text: `${text} The user sees it in the LayerTone panel. Call render_model to check the print.` }] };
       })] : []),
       ...(pictures ? [tool('generate_picture', `Have an image model (${imageModel()}) make a picture for ${use.what}: realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
         name: z.string().regex(/^[\w-]{1,40}$/).describe(`Name to use with ${use.helper}, e.g. "portrait"`),

@@ -14,7 +14,7 @@ type Params = EvalResult['params'];
 function effective(values: ParamValues, params: Params): ParamValues {
   const out: ParamValues = {};
   for (const [k, v] of Object.entries(values)) {
-    // Attached drawings and HueForge pictures come with chat messages and visibility is a view
+    // Attached drawings and LayerTone pictures come with chat messages and visibility is a view
     // choice: none of them is a setting to save as a version.
     if (k === DRAWINGS_KEY || k === HF_IMAGES_KEY || k === HIDDEN_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
     out[k] = v;
@@ -41,7 +41,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === SVG_KEY) return 'SVG';
     if (k === DRAWINGS_KEY) return 'attached drawings';
     if (k === PRINT_KEY) return 'print settings';
-    if (k === HF_KEY) return 'HueForge filaments';
+    if (k === HF_KEY) return 'LayerTone filaments';
     const d = params[k];
     return `${d?.label ?? k} ${fmt(v, d)}`;
   });

@@ -195,7 +195,7 @@ test('my filaments: checked, saved in the data folder, read back', async () => {
   assert.equal((await putMine({ filaments: [] })).status, 200);
 });
 
-test('my filaments go into the HueForge prompt, marked as the user\'s own', async () => {
+test('my filaments go into the LayerTone prompt, marked as the user\'s own', async () => {
   const { buildSystemPrompt } = await import('../server/systemPrompt');
   const mine = [{ name: 'PolyTerra Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5 }, { name: 'Leftover grey', color: '#808080', td: 1 }];
   const p = buildSystemPrompt('/w/model.js', false, undefined, false, { pictures: false, mine });

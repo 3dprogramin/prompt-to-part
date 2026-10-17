@@ -43,7 +43,7 @@ interface Props {
   code: string;
   onValue: (key: string, v: ParamValue) => void;
   onResetValues: () => void;
-  /** The design's values (the HueForge setup and pictures). */
+  /** The design's values (the LayerTone setup and pictures). */
   values: ParamValues;
   onHueforge: (s: HueforgeSetup | null) => void;
   onHfImage: (name: string, image: HfImage) => void;
@@ -108,7 +108,7 @@ export function SidePanel(p: Props) {
   const decorations = p.textFeatures.length + p.svgFeatures.length;
   const hfPart = hueforgePart(shown);
   const lithoPart = lithophanePart(shown);
-  // Four tabs, each with two sections one under the other (a HueForge print or a lithophane adds
+  // Four tabs, each with two sections one under the other (a LayerTone print or a lithophane adds
   // its own on top of the Print tab).
   const tabs: [Tab, React.ReactNode][] = [
     ['object', <><Icon name="cube" size={14} /> Object{hiddenCount ? <span className="count" aria-label={`${hiddenCount} parts hidden`}>{shown!.parts.length - hiddenCount}/{shown!.parts.length}</span> : null}</>],
@@ -157,7 +157,7 @@ export function SidePanel(p: Props) {
             : noModel('SVG drawings can be added once a model is generated.')))}
         </>}
         {tab === 'print' && <>
-          {shown && hfPart && section('hueforge', 'HueForge', () => <HueforgePanel result={shown} part={hfPart} values={p.values} onSetup={p.onHueforge} onImage={p.onHfImage} />)}
+          {shown && hfPart && section('hueforge', 'LayerTone', () => <HueforgePanel result={shown} part={hfPart} values={p.values} onSetup={p.onHueforge} onImage={p.onHfImage} />)}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onHfImage} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />

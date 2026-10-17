@@ -19,7 +19,7 @@ let chain: Promise<unknown> = Promise.resolve();
 
 /**
  * Slice plate 1 of a Bambu Studio project (.3mf); rejects with Bambu Studio's reason if it can't.
- * Filament changes in the project (HueForge prints) are sliced too, so each filament's grams are its own.
+ * Filament changes in the project (LayerTone prints) are sliced too, so each filament's grams are its own.
  */
 export async function sliceProject(project: Uint8Array): Promise<SliceStats> {
   const info = (await slicedProject(project))['Metadata/slice_info.config'];

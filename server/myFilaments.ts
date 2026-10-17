@@ -1,4 +1,4 @@
-// The user's own HueForge filaments (name, brand, colour, TD), saved from the HueForge panel. They
+// The user's own LayerTone filaments (name, brand, colour, TD), saved from the LayerTone panel. They
 // live in the data folder, so they outlast the browser and a new Docker container.
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

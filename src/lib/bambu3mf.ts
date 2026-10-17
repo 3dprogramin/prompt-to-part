@@ -1,5 +1,5 @@
 // Bambu Studio project 3MF: A1 + PLA template from the user's Bambu Studio, per-object print-setting
-// overrides, one filament per colour, and the filament changes of HueForge parts. Structure verified
+// overrides, one filament per colour, and the filament changes of LayerTone parts. Structure verified
 // by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
 import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
@@ -34,7 +34,7 @@ function objectSettings(main: Required<PrintSettings>, all: Required<PrintSettin
   return out;
 }
 
-/** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine); a HueForge part is always its own. */
+/** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine); a LayerTone part is always its own. */
 function clusters(parts: PartMesh[]): number[][] {
   const n = parts.length, parent = parts.map((_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
@@ -55,7 +55,7 @@ const hex = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c.toUpperCase() : FALLBA
 /** Filament slots in the A1's AMS lite. */
 export const AMS_SLOTS = 4;
 
-/** Where a HueForge part changes to another filament. */
+/** Where a LayerTone part changes to another filament. */
 export interface FilamentChange {
   /** The project filament it changes to (1-based). */
   filament: number;
@@ -71,9 +71,9 @@ export interface FilamentChange {
 }
 
 export interface FilamentPlan {
-  /** The project's filaments: one per distinct part colour and per HueForge filament (the same colour and name share one). */
+  /** The project's filaments: one per distinct part colour and per LayerTone filament (the same colour and name share one). */
   filaments: { colour: string; name?: string }[];
-  /** Each part's filament (1-based); a HueForge part's is its first (bottom) one. */
+  /** Each part's filament (1-based); a LayerTone part's is its first (bottom) one. */
   slot: number[];
   /** Each part's filament changes, bottom → top (none for a normal part). */
   changes: FilamentChange[][];
@@ -84,7 +84,7 @@ export interface FilamentPlan {
 }
 
 /**
- * The project's filaments and the HueForge filament changes, on the print's layers. A change at
+ * The project's filaments and the LayerTone filament changes, on the print's layers. A change at
  * height z starts with the layer whose bottom is nearest to z: z rather than LayerColor.layer, as z
  * follows the part (scaled with $scale, like the relief and the viewer's colours) and the layer
  * index only fits the heights the part was made with. At the part's own layer heights the two
@@ -161,11 +161,11 @@ export function toBambuProject(
   const base = defaultsFromTemplate(tpl.settings);
   const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user, undefined, base) : base;
   const globalChanges = bambuOverrides(globalSettings, base);
-  // A HueForge print changes filament once per layer, for the whole layer: no prime tower is needed,
+  // A LayerTone print changes filament once per layer, for the whole layer: no prime tower is needed,
   // and on the A1's bed it collides with a big picture ("G-code conflicts"). Purging goes to the chute.
   if (parts.some((p) => p.layerColors?.length)) globalChanges.enable_prime_tower = '0';
 
-  // Filament slots (1-based): one per distinct colour and HueForge filament, or a single filament.
+  // Filament slots (1-based): one per distinct colour and LayerTone filament, or a single filament.
   const plan = filamentPlan(parts, globalSettings);
   const colours = opts.colours ? plan.filaments.map((f) => f.colour) : [String((tpl.settings.filament_colour as string[] | undefined)?.[0] ?? '#00AE42')];
   const slot = parts.map((_, i) => (opts.colours ? plan.slot[i] : 1));
@@ -247,11 +247,11 @@ export function toBambuProject(
 }
 
 /**
- * The HueForge filament changes, as Bambu Studio stores them. One HueForge print on its own (or
+ * The LayerTone filament changes, as Bambu Studio stores them. One LayerTone print on its own (or
  * several with the same changes) gets Bambu Studio's "change filament" marks on the layer slider
  * (Metadata/custom_gcode_per_layer.xml: a tool change at the top of the first layer in the new
  * filament). Those only apply when every object prints with a single filament, so next to other
- * objects each HueForge object gets height ranges printed in its filaments instead
+ * objects each LayerTone object gets height ranges printed in its filaments instead
  * (Metadata/layer_config_ranges.xml; objects by their 1-based order, and the slicer crashes on a
  * range without a layer height). Pauses for AMS slot swaps are slider marks either way; on the
  * same layer as a tool change the pause comes first.

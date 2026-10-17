@@ -1,4 +1,4 @@
-// HueForge-style filament painting: a picture printed flat as a thin relief, where the brightness
+// LayerTone filament painting: a picture printed flat as a thin relief, where the brightness
 // of each point comes from how much light filament lies over darker filament. Filaments are
 // stacked bottom → top and swapped at set layer heights; thin layers let the ones below show
 // through, by each filament's TD (transmission distance: the thickness at which it hides what is
@@ -11,10 +11,10 @@ import type { Quality } from './types';
 
 /** Values key: the pictures for H.hueforge, as JSON Record<name, HfImage>. */
 export const HF_IMAGES_KEY = '$images';
-/** Values key: the user's HueForge setup (filaments, swaps), as JSON HueforgeSetup. Edited in the side panel. */
+/** Values key: the user's LayerTone setup (filaments, swaps), as JSON HueforgeSetup. Edited in the side panel. */
 export const HF_KEY = '$hueforge';
 
-/** Most filaments in one HueForge print (4 load in the A1's AMS lite; more need manual swaps). */
+/** Most filaments in one LayerTone print (4 load in the A1's AMS lite; more need manual swaps). */
 export const MAX_HF_FILAMENTS = 8;
 /** Longest side of a stored picture, pixels. */
 export const MAX_HF_IMAGE_SIDE = 800;
@@ -26,7 +26,7 @@ export interface HfFilament {
   brand?: string;
   /** #rrggbb */
   color: string;
-  /** Transmission distance, mm (HueForge's TD). */
+  /** Transmission distance, mm (TD). */
   td: number;
 }
 
@@ -92,13 +92,13 @@ export interface LayerColor {
 export interface HueforgePart {
   shape: unknown; // Manifold
   layerColors: LayerColor[];
-  /** Print settings a HueForge print needs (layer heights, 100 % infill…). */
+  /** Print settings a LayerTone print needs (layer heights, 100 % infill…). */
   print: { layerHeight: number; firstLayerHeight: number; infill: number; infillPattern?: string; walls?: number; topLayers?: number; bottomLayers?: number };
   /** What the relief was made from, for the side panel's preview (PartMesh.hueforge). */
   hueforge: HueforgeSource;
 }
 
-/** The picture (key in HF_IMAGES_KEY) and the options a HueForge part was built with, defaults filled in. */
+/** The picture (key in HF_IMAGES_KEY) and the options a LayerTone part was built with, defaults filled in. */
 export interface HueforgeSource {
   image: string;
   options: Required<Omit<HueforgeOptions, 'filaments' | 'swaps'>>;
@@ -371,7 +371,7 @@ export function cleanLayerColors(raw: unknown, scale = 1): LayerColor[] | undefi
   return out.length ? out : undefined;
 }
 
-/** A part's HueForge source returned by a script, checked and scaled by the runtime's uniform scale; undefined if unusable. */
+/** A part's LayerTone source returned by a script, checked and scaled by the runtime's uniform scale; undefined if unusable. */
 export function cleanHueforgeSource(raw: unknown, scale = 1): HueforgeSource | undefined {
   const o = raw as HueforgeSource | null;
   if (!o || typeof o !== 'object' || typeof o.image !== 'string' || !o.options || typeof o.options !== 'object') return undefined;
@@ -390,8 +390,8 @@ export function cleanHueforgeSource(raw: unknown, scale = 1): HueforgeSource | u
 // ---------------------------------------------------------------------------
 //
 // Each filament is a filter over what lies below it. Light through it falls off exponentially with
-// thickness (Beer–Lambert), so its coverage of the colour beneath is 1 - e^(-k·t/TD). HueForge's
-// TD is the thickness beyond which more filament no longer visibly changes the colour (not where
+// thickness (Beer–Lambert), so its coverage of the colour beneath is 1 - e^(-k·t/TD). The
+// published TD of a filament is the thickness beyond which more filament no longer visibly changes the colour (not where
 // light stops entirely), taken here as letting 5 % through: k = 3. Exponential coverage composes
 // exactly (two 0.1 mm layers look like one 0.2 mm layer), unlike a linear min(1, t/TD), and gives
 // the strong change of the first layers and the slow saturation seen on real prints. Colours mix

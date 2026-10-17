@@ -95,7 +95,7 @@ export const api = {
   bambuTemplate: () => getJson<BambuTemplate>('/api/bambu/template', { method: 'POST' }),
   costSettings: () => getJson<CostSettings>('/api/cost/settings'),
   saveCostSettings: (s: CostSettings) => getJson<CostSettings>('/api/cost/settings', { method: 'PUT', body: JSON.stringify(s) }),
-  /** The user's own HueForge filaments (data/filaments.json). */
+  /** The user's own LayerTone filaments (data/filaments.json). */
   myFilaments: () => getJson<{ filaments: HfFilament[] }>('/api/filaments/mine').then((r) => r.filaments),
   saveMyFilaments: (filaments: HfFilament[]) => getJson<{ filaments: HfFilament[] }>('/api/filaments/mine', { method: 'PUT', body: JSON.stringify({ filaments }) }).then((r) => r.filaments),
   /** Slice a Bambu Studio project in the user's Bambu Studio: grams and print time. */

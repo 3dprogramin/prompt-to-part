@@ -103,11 +103,11 @@ export interface PartMesh {
   triCount: number;
   genus: number;
   components: number;
-  /** HueForge part (H.hueforge): the filament stack by height, for the viewer's colours and the 3MF's filament swaps. */
+  /** LayerTone part (H.hueforge): the filament stack by height, for the viewer's colours and the 3MF's filament swaps. */
   layerColors?: LayerColor[];
-  /** RGB 0–1 per vertex (HueForge parts: the simulated print colour; lithophanes: lit from behind); the viewer uses it instead of `color`. */
+  /** RGB 0–1 per vertex (LayerTone parts: the simulated print colour; lithophanes: lit from behind); the viewer uses it instead of `color`. */
   vertexColors?: Float32Array;
-  /** HueForge part: the picture and options it was built with (lengths scaled with the part), for simulateImage. */
+  /** LayerTone part: the picture and options it was built with (lengths scaled with the part), for simulateImage. */
   hueforge?: HueforgeSource;
   /** Lithophane part (H.lithophane): the picture and options it was built with (lengths scaled with the part), for simulateLithophane. */
   lithophane?: LithophaneSource;

@@ -17,8 +17,8 @@ test('summary names the changes', () => {
   assert.match(describeSettings({}, { w: 40, $scale: 1.2 }, params), /^Settings: W 40 mm, Scale 120 %/);
 });
 
-test('HueForge filaments count as a setting, its pictures do not', () => {
+test('LayerTone filaments count as a setting, its pictures do not', () => {
   assert.equal(settingsChanged({}, { $images: '{"photo":{}}' }, params), false);
   assert.equal(settingsChanged({}, { $hueforge: '{"swaps":[3]}' }, params), true);
-  assert.match(describeSettings({}, { $hueforge: '{"swaps":[3]}' }, params), /HueForge filaments/);
+  assert.match(describeSettings({}, { $hueforge: '{"swaps":[3]}' }, params), /LayerTone filaments/);
 });

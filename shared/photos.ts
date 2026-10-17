@@ -40,7 +40,7 @@ export const sceneById = (id: string) => PHOTO_SCENES.find((s) => s.id === id);
 export function suggestScene(text: string, size?: Vec3): string {
   const t = text.toLowerCase();
   const has = (...words: string[]) => words.some((w) => new RegExp(`\\b${w}(e?s)?\\b`).test(t));
-  if (has('wall', 'plaque', 'frame', 'poster', 'painting', 'hueforge', 'lithophane', 'portrait', 'sign', 'clock', 'hook', 'hanger', 'mount')) return 'wall';
+  if (has('wall', 'plaque', 'frame', 'poster', 'painting', 'layertone', 'hueforge', 'lithophane', 'portrait', 'sign', 'clock', 'hook', 'hanger', 'mount')) return 'wall';
   if (has('kitchen', 'spice', 'utensil', 'cutlery', 'egg', 'bottle', 'jar', 'lid', 'cookie', 'bag clip', 'sponge', 'knife')) return 'kitchen';
   if (has('desk', 'pen', 'pencil', 'organi[sz]er', 'cable', 'headphone', 'monitor', 'laptop', 'keyboard', 'phone stand', 'card holder', 'business card', 'office')) return 'office';
   if (has('plant', 'pot', 'planter', 'vase', 'succulent', 'book', 'figurine', 'statue', 'bust', 'ornament', 'sculpture')) return 'shelf';

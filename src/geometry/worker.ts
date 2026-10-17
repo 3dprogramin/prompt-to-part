@@ -56,7 +56,7 @@ const ready = Promise.race([
 /**
  * What the viewer draws, computed here rather than on the main thread (where it froze the page for
  * a second or more on big models): creased normals, feature edges, the raycasting BVH and, for parts
- * coloured per vertex (HueForge), their colours on the same unshared vertices as the positions.
+ * coloured per vertex (LayerTone), their colours on the same unshared vertices as the positions.
  */
 function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transferable[] } {
   const g = new THREE.BufferGeometry();

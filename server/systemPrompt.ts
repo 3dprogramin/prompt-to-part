@@ -229,7 +229,7 @@ const ARTWORK_ON = `AI artwork is ON (generate_artwork). When a design needs rea
 - Describe the subject precisely (who/what, pose, expression, framing, the mood); the print rules (flat colours, no background) are added for you. Leave style empty: the default is realistic artwork (true proportions, faces, light and shadow, posterized like a screen print), which is what users want; set a style only when the user asks for one (cartoon, minimal…). Describe real people by their look rather than by name (image models often refuse names). Use the user's attached photos (use_attached_photos) when the artwork should look like them.
 - Not for geometric or mechanical parts, plain shapes or lettering (use primitives and H.text), or when the user attached an SVG to use.`;
 
-/** The filament library, one line per brand and line, for Claude to pick HueForge filaments from. */
+/** The filament library, one line per brand and line, for Claude to pick LayerTone filaments from. */
 const FILAMENT_LINES = (() => {
   const groups = new Map<string, string[]>();
   for (const f of FILAMENT_LIBRARY) {
@@ -240,11 +240,12 @@ const FILAMENT_LINES = (() => {
   return [...groups].map(([k, v]) => `  ${k}: ${v.join(', ')}`).join('\n');
 })();
 
-/** The user's own filaments (saved in the HueForge panel), one per line. */
+/** The user's own filaments (saved in the LayerTone panel), one per line. */
 const myFilamentLines = (mine: HfFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
 
 function hueforgePrompt(pictures: boolean, mine: HfFilament[] = []) {
-  return `HueForge mode is ON: the user wants a HueForge-style filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
+  return `LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
+- Call this feature LayerTone in your replies (that is its name in Jig; never use another product's name for it).
 - Build it with H.hueforge(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
     const params = { width: { label: 'Picture width', value: 250, min: 40, max: 250, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
     function build(p) { return { name: 'Picture', ...H.hueforge('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
@@ -261,9 +262,9 @@ ${FILAMENT_LINES}
 ${mine.length ? `- The user's own filaments, saved in Jig (name (brand) #hex TD). The user has these: prefer them over the library when they fit the picture, and use their exact name, brand, colour and TD:
 ${myFilamentLines(mine)}
 ` : ''}- Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
-- Filaments, their order, TDs and swap layers live in the HueForge setup: the user edits it in the HueForge panel, you edit it with set_hueforge – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_hueforge (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.hueforge as its own default.
+- Filaments, their order, TDs and swap layers live in the LayerTone setup: the user edits it in the LayerTone panel, you edit it with set_hueforge – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_hueforge (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.hueforge as its own default.
 - Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.hueforge part.
-- Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the HueForge panel (Print tab) or ask you to.`;
+- Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the LayerTone panel (Print tab) or ask you to.`;
 }
 
 function lithophanePrompt(pictures: boolean) {
@@ -281,7 +282,7 @@ function lithophanePrompt(pictures: boolean) {
   - Lamp panel: curved, angle 90–150°, width 100–150 mm, stand 20.
 - It stands upright (picture vertical, facing −Y; FRONT view reads it) because that prints the finest tones: the walls trace the thickness in X/Y instead of in whole layers. Keep it upright and on the bed; don't scale it. upright: false (lying flat, relief up) only when the user asks.
 - It must fit the A1 (256 × 256 × 256 mm): the height is the width × the picture's height / width, plus the frame and foot.
-- Don't use H.hueforge in this design: a design is a lithophane or a HueForge print, not both.
+- Don't use H.hueforge in this design: a design is a lithophane or a LayerTone print, not both.
 - Check it with render_model: it shows the panel lit from behind (thin = warm white, thick = dark), and the report gives its size and thicknesses. In your final message give the size (width × height × depth), the thinnest/thickest values and the print advice: white PLA (e.g. Bambu PLA Basic White or Jade White), standing up as built, 0.12 mm layers, 100 % infill, the walls from the print settings, a brim unless it has a foot, and an LED light behind it (not a hot bulb: PLA softens at about 60 °C). The user sees the picture and the lit preview in the Lithophane section of the Print tab.`;
 }
 

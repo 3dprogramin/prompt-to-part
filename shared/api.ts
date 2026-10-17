@@ -30,7 +30,7 @@ export interface GenerateRequest {
   currentView?: ImageData;
   /** Follow-ups: full values to render the current state exactly ($scale, $text included). */
   renderValues?: ParamValues;
-  /** The design's pictures ($images), meshes ($meshes) and HueForge setup ($hueforge), with every request (renderValues comes only with follow-ups on a finished version). */
+  /** The design's pictures ($images), meshes ($meshes) and LayerTone setup ($hueforge), with every request (renderValues comes only with follow-ups on a finished version). */
   pictures?: ParamValues;
   /** Uniform scale the user applied in the app (1 = none). */
   scale?: number;
@@ -46,7 +46,7 @@ export interface GenerateRequest {
   artwork?: boolean;
   /**
    * The chat's picture mode (the palette menu): 'artwork' = flat AI artwork traced into colour
-   * shapes (H.svg); 'hueforge' = a HueForge-style filament painting (H.hueforge) from the attached
+   * shapes (H.svg); 'hueforge' = a LayerTone filament painting (H.hueforge) from the attached
    * photo or an AI picture; 'lithophane' = a backlit white-PLA panel (H.lithophane) from one;
    * 'figure' = a 3D figure: an AI mesh from Meshy (generate_3d, H.mesh) from a description or the
    * attached photo; 'off' (default) = Claude models subjects as 3D objects.
@@ -71,7 +71,7 @@ export type AgentEvent =
   | { type: 'hfImage'; name: string; image: HfImage }
   /** A mesh Claude had made (generate_3d), kept in the design's MESHES_KEY index for H.mesh. */
   | { type: 'mesh'; name: string; entry: MeshEntry }
-  /** Claude changed the HueForge setup (set_hueforge): the design's HF_KEY value, or null to clear it. */
+  /** Claude changed the LayerTone setup (set_hueforge): the design's HF_KEY value, or null to clear it. */
   | { type: 'hfSetup'; setup: HueforgeSetup | null }
   /** Transient one-line status (throttled), replaced by the next one. */
   | { type: 'live'; text: string }

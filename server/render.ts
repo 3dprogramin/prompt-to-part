@@ -97,7 +97,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
     parts.forEach((part, partIdx) => {
       const base = hexToRgb(part.color);
       const P = part.positions, I = part.indices;
-      // HueForge parts: each vertex's simulated print colour (sRGB 0–1), blended across the triangle.
+      // LayerTone parts: each vertex's simulated print colour (sRGB 0–1), blended across the triangle.
       const VC = part.vertexColors?.length === P.length ? part.vertexColors : undefined;
       // Mostly the colour itself (it is what the print looks like), with a little shading for the relief.
       const vc = (v: number, shade: number): Vec3 => { const s = 0.8 + 0.2 * Math.min(1, shade); return [VC![v * 3] * 255 * s, VC![v * 3 + 1] * 255 * s, VC![v * 3 + 2] * 255 * s]; };
@@ -169,7 +169,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
             const j = ny * VIEW + nx;
             if (pid[j] !== pid[idx]) { edge = true; break; }
             if (Math.abs(depth[j] - depth[idx]) * k > 2.5) { edge = true; break; }
-            // (no crease lines on HueForge parts: every layer step would draw one)
+            // (no crease lines on LayerTone parts: every layer step would draw one)
             const d = nbuf[idx * 3] * nbuf[j * 3] + nbuf[idx * 3 + 1] * nbuf[j * 3 + 1] + nbuf[idx * 3 + 2] * nbuf[j * 3 + 2];
             if (d < 0.82 && !flatParts.has(pid[idx])) { edge = true; break; }
           }

@@ -254,7 +254,7 @@ export default function App() {
     if (list.length) values[SVG_KEY] = JSON.stringify(list); else delete values[SVG_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
-  // HueForge: the filament setup (a setting, like the sliders) and the pictures (like attached drawings).
+  // LayerTone: the filament setup (a setting, like the sliders) and the pictures (like attached drawings).
   const setHueforge = (setup: HueforgeSetup | null) => setDesign((d) => {
     const values = { ...d.values };
     if (setup) values[HF_KEY] = JSON.stringify(setup); else delete values[HF_KEY];
@@ -447,7 +447,7 @@ export default function App() {
         imageMode: chat.imageMode,
         artwork: chat.imageMode === 'artwork',
         drawings: Object.keys(drawings).length ? drawings : undefined,
-        // The design's pictures, meshes and HueForge setup, so Claude has them even before a first version exists.
+        // The design's pictures, meshes and LayerTone setup, so Claude has them even before a first version exists.
         pictures: pictureValues(sentValues),
         meshes: meshNames.length ? meshNames : undefined,
         scad: scad.length ? scad : undefined,
@@ -1077,7 +1077,7 @@ function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }
 
-/** The design's pictures, meshes and HueForge setup, for the server (undefined when there are none). */
+/** The design's pictures, meshes and LayerTone setup, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
   for (const k of [HF_IMAGES_KEY, HF_KEY, MESHES_KEY]) if (typeof values[k] === 'string') out[k] = values[k];

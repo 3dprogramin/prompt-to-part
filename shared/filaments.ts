@@ -1,4 +1,4 @@
-// Filament library for HueForge prints: brands, colours and TD (transmission distance) values.
+// Filament library for LayerTone prints: brands, colours and TD (transmission distance) values.
 //
 // CONTRACT (feat/hueforge): the side panel uses FILAMENT_LIBRARY and searchFilaments; the server
 // answers POST /api/filaments/lookup { brand, name } with FilamentLookup (TD found on the web),
@@ -79,7 +79,7 @@ export const myFilamentKey = (f: { brand?: string; name: string }) => `${normali
 // a starting point a test print corrects.
 const COMMUNITY_BAMBU = 'https://github.com/penleychan/hueforge-td/blob/main/public/data/filaments/bambu-lab.json';
 const COMMUNITY_ESUN = 'https://github.com/penleychan/hueforge-td/blob/main/public/data/filaments/esun.json';
-// Its TDs come from its author's HueForge library by fuzzy name matching, with no measurement
+// Its TDs come from its author's own TD library by fuzzy name matching, with no measurement
 // method, and follow colour families rather than products (every blue 4, every white 6.1, Silk+
 // the same as PLA Basic): unverified.
 const COLOR_TOOLS = 'https://github.com/dterracino/color_tools/blob/main/color_tools/data/filaments.json';
@@ -165,7 +165,7 @@ export const FILAMENT_LIBRARY: LibraryFilament[] = [
   { brand: 'eSUN', line: 'PLA+', name: 'PLA+ Gold', color: '#f4c93f', td: 5.3, source: COMMUNITY_ESUN },
   { brand: 'eSUN', line: 'PLA+', name: 'PLA+ Green', color: '#005e59', td: 1.6, source: COMMUNITY_ESUN },
   { brand: 'eSUN', line: 'PLA+', name: 'PLA+ Grey', color: '#949494', td: 0.7, source: COMMUNITY_ESUN },
-  // A HueForge model's description gives TD 1 for it (printables.com/model/624618).
+  // A filament-painting model's description gives TD 1 for it (printables.com/model/624618).
   { brand: 'eSUN', line: 'PLA+', name: 'PLA+ Light Blue', color: '#0cc1f5', td: 3.4, source: COMMUNITY_ESUN },
   { brand: 'eSUN', line: 'PLA+', name: 'PLA+ Light Brown', color: '#c17a00', td: 1.5, source: COMMUNITY_ESUN },
   { brand: 'eSUN', line: 'PLA+', name: 'PLA+ Magenta', color: '#f20666', td: 3.1, source: COMMUNITY_ESUN },
@@ -305,7 +305,7 @@ export function filamentLines(library = FILAMENT_LIBRARY): FilamentLine[] {
 }
 
 /**
- * The colours most HueForge prints use, one click away: black, white and greys for the values,
+ * The colours most LayerTone prints use, one click away: black, white and greys for the values,
  * beige and brown for skin and wood, and the primaries. Bambu Lab PLA Basic (what the AMS holds)
  * where it has them.
  */

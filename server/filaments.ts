@@ -1,4 +1,4 @@
-// A filament's colour and TD for HueForge prints: from the library, or found on the web by Claude.
+// A filament's colour and TD for LayerTone prints: from the library, or found on the web by Claude.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv, publicPage, publicUrl } from './agent';
 import { claudeAuthProblem } from './config';
@@ -9,7 +9,7 @@ export interface FilamentQuery {
   name: string;
 }
 
-const PROMPT = `You find a 3D-printing filament's HueForge TD (transmission distance, in mm: the thickness at which the filament hides what is under it) and its colour.
+const PROMPT = `You find a 3D-printing filament's TD (transmission distance, in mm: the thickness at which the filament hides what is under it) and its colour.
 Search the web for a published TD for exactly this filament: HueForge's filament library and posts, 3dfilamentprofiles.com, filamentcolors.xyz, community TD lists. Use only TD values you actually read on a page. If there is none for this exact filament, use the published TD of the closest filament (same brand and line in a similar colour, or the same colour from a similar brand) and say which. Only if nothing close is published, estimate from published values of similar colours and say so.
 The colour is the filament's hex colour as the maker publishes it or as measured on a swatch.
 Answer with ONLY a JSON object, no other text:

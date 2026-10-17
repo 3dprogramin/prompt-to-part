@@ -1,6 +1,6 @@
 import { MAX_HF_IMAGE_SIDE, toHfImage, type HfImage } from '../../shared/hueforge';
 
-// HueForge pictures in the browser: a file or data URL → HfImage (via a canvas), and back to
+// LayerTone pictures in the browser: a file or data URL → HfImage (via a canvas), and back to
 // pictures the side panel can show.
 
 /** A picture file or data URL as an HfImage, at most MAX_HF_IMAGE_SIDE pixels on its long side. */

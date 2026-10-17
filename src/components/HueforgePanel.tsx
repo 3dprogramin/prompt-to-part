@@ -12,10 +12,10 @@ import { useReleaseSlider } from './useReleaseSlider';
 /** Filaments the A1's AMS lite holds; more need changing by hand during the print. */
 const AMS_SLOTS = 4;
 
-/** A HueForge part: its stack, and (from the runtime) the picture and options it was built with. */
+/** A LayerTone part: its stack, and (from the runtime) the picture and options it was built with. */
 type HfPart = PartMesh & { layerColors: LayerColor[] };
 
-/** The first part of the model that is a HueForge print (H.hueforge), if any. */
+/** The first part of the model that is a LayerTone print (H.hueforge), if any. */
 export function hueforgePart(result: EvalResult | null): HfPart | undefined {
   return result?.parts.find((p): p is HfPart => !!p.layerColors?.length);
 }
@@ -32,7 +32,7 @@ interface Props {
 }
 
 /**
- * Print tab, HueForge section: the picture and how it will print, the filament stack and where the
+ * Print tab, LayerTone section: the picture and how it will print, the filament stack and where the
  * filaments change. Everything is saved under HF_KEY, so the model rebuilds as it is edited.
  */
 export function HueforgePanel({ result, part, values, onSetup, onImage }: Props) {
@@ -202,12 +202,12 @@ function Pictures({ part, layers, grid, images, onImage }: { part: HfPart; layer
     }
   }, [image, layers, optionsKey]);
   return <PicturePair name={name} image={image} preview={simulated} previewLabel="Simulated print" previewAlt="How the print will look" onImage={onImage}
-    empty="No picture is stored with this design: attach a photo in the chat with HueForge chosen in the palette menu." />;
+    empty="No picture is stored with this design: attach a photo in the chat with LayerTone chosen in the palette menu." />;
 }
 
 /**
  * A stored picture next to a preview made from it (click to enlarge both), with a button to
- * replace the picture. Shared by the HueForge and Lithophane sections.
+ * replace the picture. Shared by the LayerTone and Lithophane sections.
  */
 export function PicturePair({ name, image, preview, previewLabel, previewAlt, empty, onImage }: {
   name: string | undefined; image: HfImage | undefined; preview: string | null; previewLabel: string; previewAlt: string;

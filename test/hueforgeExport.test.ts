@@ -15,7 +15,7 @@ import { HF_IMAGES_KEY, HF_KEY, toHfImage, type LayerColor } from '../shared/hue
 import type { BambuTemplate } from '../shared/api';
 import type { PartMesh } from '../shared/types';
 
-// HueForge layers: 0.16 mm first layer, then 0.08 mm; layer i (≥ 1) starts at 0.16 + (i - 1) × 0.08.
+// LayerTone layers: 0.16 mm first layer, then 0.08 mm; layer i (≥ 1) starts at 0.16 + (i - 1) × 0.08.
 const HF_PRINT = { ai: { layerHeight: 0.08, firstLayerHeight: 0.16, parts: { Relief: { infill: 100 } } }, user: {} };
 const lc = (layer: number, color: string, name: string): LayerColor => ({ z: layer ? +(0.16 + (layer - 1) * 0.08).toFixed(2) : 0, layer, color, td: 1, name });
 const FOUR = [lc(0, '#161616', 'Black'), lc(5, '#808080', 'Grey'), lc(9, '#ff0000', 'Red'), lc(13, '#ffffff', 'White')];
@@ -53,7 +53,7 @@ test('filament plan: a change starts on the layer at its height; the same colour
   const again = filamentPlan([box('Relief', 0, 40, 1.6, '#161616', [lc(0, '#161616', 'Black'), lc(5, '#ffffff', 'White'), lc(9, '#161616', 'Black'), lc(13, '#161616', 'Other black')])], LAYERS);
   assert.equal(again.filaments.length, 3);
   assert.deepEqual(again.changes[0].map((c) => c.filament), [2, 1, 3]);
-  // A part in a HueForge filament's colour prints with it.
+  // A part in a LayerTone filament's colour prints with it.
   assert.deepEqual(filamentPlan([box('Relief', 0, 40, 1.6, '#161616', FOUR), box('Frame', 50, 5, 2, '#ff0000')], LAYERS).slot, [1, 3]);
 });
 
@@ -73,10 +73,10 @@ test('filament plan: beyond 4 filaments, a pause and the AMS slot of a filament 
   const plan = filamentPlan([box('Relief', 0, 40, 1.6, '#161616', SIX)], LAYERS);
   assert.deepEqual(plan.ams, [1, 2, 3, 4, 1, 2]);
   assert.deepEqual(plan.changes[0].map((c) => c.pause ?? null), [null, null, null, { slot: 1, replaces: 1 }, { slot: 2, replaces: 2 }]);
-  // A normal part keeps its slot for the whole print, so the HueForge filaments share the other three.
+  // A normal part keeps its slot for the whole print, so the LayerTone filaments share the other three.
   const mixed = filamentPlan([box('Relief', 0, 40, 1.6, '#161616', SIX), box('Block', 50, 10, 5, '#00ff00')], LAYERS);
   assert.deepEqual(mixed.ams, [1, 3, 4, 1, 3, 4, 2]);
-  // Four colours used all the way up leave no slot for the HueForge print's changes.
+  // Four colours used all the way up leave no slot for the LayerTone print's changes.
   const full = filamentPlan([box('Relief', 0, 40, 1.6, '#161616', FOUR), ...['#00ff00', '#00ffff', '#ff00ff', '#ffaa00'].map((c, k) => box(`B${k}`, 50 + 15 * k, 10, 5, c))], LAYERS);
   assert.match(full.problem ?? '', /More than 4 filaments/);
 });
@@ -108,7 +108,7 @@ const tpl: BambuTemplate = {
 };
 const unzip = async (b: Blob) => unzipSync(new Uint8Array(await b.arrayBuffer()));
 
-test('Bambu project: a HueForge print alone gets "change filament" marks on the layer slider', async () => {
+test('Bambu project: a LayerTone print alone gets "change filament" marks on the layer slider', async () => {
   const files = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', SIX)], 't', tpl, { colours: true, print: HF_PRINT }));
   const xml = strFromU8(files['Metadata/custom_gcode_per_layer.xml']);
   const marks = [...xml.matchAll(/<layer top_z="([^"]+)" type="(\d)" extruder="(\d+)" color="([^"]*)" extra="([^"]*)"/g)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3]), m[4], m[5]]);
@@ -141,7 +141,7 @@ test('Bambu project: a HueForge print alone gets "change filament" marks on the 
   assert.ok(!plain['Metadata/custom_gcode_per_layer.xml'] && !plain['Metadata/layer_config_ranges.xml']);
 });
 
-test('Bambu project: next to other objects, a HueForge print gets height ranges in its filaments', async () => {
+test('Bambu project: next to other objects, a LayerTone print gets height ranges in its filaments', async () => {
   // The block touches the relief but stays its own object, after it.
   const files = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { colours: true, print: HF_PRINT }));
   const ranges = strFromU8(files['Metadata/layer_config_ranges.xml']);
@@ -196,7 +196,7 @@ test('Bambu Studio slices the filament changes on the intended layers', { skip: 
   assert.match(strFromU8(picture['Metadata/slice_info.config']), /<filament id="4"[^>]*color="#FFFFFF"/);
 
   const relief = { ...(await steps([0.48, 0.8, 1.12, 1.6])), layerColors: SIX };
-  const project = async (parts: PartMesh[]) => new Uint8Array(await toBambuProject(parts, 'HueForge test', realTpl, { colours: true, print: HF_PRINT }).arrayBuffer());
+  const project = async (parts: PartMesh[]) => new Uint8Array(await toBambuProject(parts, 'LayerTone test', realTpl, { colours: true, print: HF_PRINT }).arrayBuffer());
 
   // Alone: slider marks. Each change happens at the start of the layer whose top is topZ; the pauses just before.
   const alone = await slicedProject(await project([relief]));
