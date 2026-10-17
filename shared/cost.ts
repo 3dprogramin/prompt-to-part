@@ -26,6 +26,9 @@ export interface CostSettings {
   averageWatts?: number;
 }
 
+/** The user's own prices and printer, used until other values are saved (RON). */
+export const DEFAULT_COST_SETTINGS: CostSettings = { filamentPerKg: 140, electricityPerKwh: 1.45, averageWatts: 200 };
+
 export interface CostBreakdown {
   /** null: no filament price set. */
   filament: number | null;

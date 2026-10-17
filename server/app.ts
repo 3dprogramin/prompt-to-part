@@ -14,7 +14,7 @@ import { sliceProject } from './slicer';
 import { suggestPrice } from './pricing';
 import { lookupFilament } from './filaments';
 import { matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS } from '../shared/filaments';
-import { cleanCostSettings } from '../shared/cost';
+import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
@@ -269,7 +269,8 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   // ---- cost: the user's prices, slicing for grams and time, and Claude's price suggestion
   const COST_SETTINGS = path.join(DATA_DIR, 'cost.json');
   app.get('/api/cost/settings', async (_req, res) => {
-    res.json(cleanCostSettings(await readFile(COST_SETTINGS, 'utf8').then((t) => JSON.parse(t), () => ({}))));
+    // Nothing saved yet (a new install or data volume): the defaults.
+    res.json(cleanCostSettings(await readFile(COST_SETTINGS, 'utf8').then((t) => JSON.parse(t), () => DEFAULT_COST_SETTINGS)));
   });
   app.put('/api/cost/settings', json('10kb'), async (req, res) => {
     const s = cleanCostSettings(req.body);

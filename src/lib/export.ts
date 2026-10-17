@@ -1,7 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
+import { buildProject } from './projects';
 import type { Box3, DimensionAnnotation, EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import { toBinaryStl } from './files';
-import { toBambuProject } from './bambu3mf';
 import type { PrintProfile } from '../../shared/print';
 import { bedShift } from '../../shared/printer';
 import type { BambuTemplate, BlendRequest } from '../../shared/api';
@@ -100,11 +100,11 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
     // A HueForge print's filament changes and layer heights only exist in a Bambu project: without
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
     const hueforge = threeMf.colours && parts.some((p) => p.layerColors?.length);
-    if (!threeMf.print && !hueforge) return to3mf(parts, title, threeMf.colours);
+    if (!threeMf.print && !hueforge) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
     const tpl = threeMf.print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
-    if (!tpl) return to3mf(parts, title, threeMf.colours);
+    if (!tpl) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
     threeMf.onTemplate?.(tpl);
-    return toBambuProject(parts, title, tpl, { colours: threeMf.colours, print: threeMf.print ?? { ai: result.print, user: {} } });
+    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { colours: threeMf.colours, print: threeMf.print ?? { ai: result.print, user: {} } } });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
   return toBinaryStl(parts, title);
