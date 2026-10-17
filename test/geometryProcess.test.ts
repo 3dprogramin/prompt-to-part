@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { formatReport, geometry } from '../server/geometry';
 
 // The locked-down geometry process the agent's tools use (server/geometry.ts).
-after(() => process.exit(0)); // the worker process keeps the event loop alive
+after(() => geometry.stop()); // the worker process would keep the event loop alive
 
 test('evaluate reports sizes to Claude', async () => {
   const r = await geometry.evaluate('function build() { return Manifold.cube([20, 10, 5]); }');

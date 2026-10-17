@@ -1,7 +1,7 @@
 import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateScript, normalizeParams, resolveValues, ScriptError } from '../shared/runtime';
+import { evaluateScript, normalizeParams, resolveValues, runtimeHeapBytes, ScriptError } from '../shared/runtime';
 
 const CUBE = 'const params = { w: { value: 20, min: 5, max: 60 }, n: { type: "int", value: 3 } };\nfunction build(p) { return Manifold.cube([p.w, 10, 5]); }';
 
@@ -78,11 +78,14 @@ test('assembly steps naming unknown parts are dropped with a warning', () => {
 });
 
 test('many builds free their wasm objects (no growth)', () => {
+  // The wasm heap only grows when the objects of earlier builds are still alive (it grew by
+  // ~80 MB over these 40 builds with nothing deleted).
   const code = 'function build() { return Manifold.union(Array.from({ length: 20 }, (_, i) => Manifold.sphere(5, 24).translate([i * 3, 0, 0]))); }';
   for (let i = 0; i < 5; i++) evaluateScript(code, {}, 'draft');
-  const before = process.memoryUsage().rss;
+  const before = runtimeHeapBytes();
+  assert.ok(before > 0);
   for (let i = 0; i < 40; i++) evaluateScript(code, {}, 'draft');
-  assert.ok(process.memoryUsage().rss - before < 100 * 2 ** 20, 'RSS grew by more than 100 MB');
+  assert.ok(runtimeHeapBytes() - before <= 4 * 2 ** 20, `wasm heap grew by ${((runtimeHeapBytes() - before) / 2 ** 20).toFixed(1)} MB`);
 });
 
 test('callouts, warnings and parameter text are capped', () => {

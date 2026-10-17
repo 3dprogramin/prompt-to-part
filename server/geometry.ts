@@ -148,6 +148,8 @@ export const geometry = {
   /** One large iso picture (used for assembled / exploded views). */
   iso: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'iso', code, values }, 45000),
   warmup: () => { getWorker(); },
+  /** Stop the worker process (tests: it would keep the event loop alive). */
+  stop: () => { if (worker) dropWorker(worker); },
 };
 
 const f = (n: number, d = 2) => (Math.abs(n) < 1e-9 ? 0 : n).toFixed(d);

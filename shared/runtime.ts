@@ -52,6 +52,8 @@ let memory: WebAssembly.Memory | null = null;
 // The heap never shrinks: an earlier large model must not make every later trap look like this one.
 let heapAtStart = 0;
 const heapSize = () => memory?.buffer.byteLength ?? 0;
+/** Size of the wasm heap in bytes (0 if the runtime wasn't started with instantiateWith). */
+export function runtimeHeapBytes(): number { return heapSize(); }
 /** True if the last trap came from running out of wasm memory during the current evaluation. */
 export function runtimeOutOfMemory(): boolean { return trapped && heapSize() >= OUT_OF_MEMORY_BYTES && heapSize() > heapAtStart; }
 
