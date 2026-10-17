@@ -81,6 +81,10 @@ Four tabs, each with two sections one under the other (click a section's title t
 - **Print:** print settings and the cost.
 - **Code:** the model's measurements, dimension sources and console, and the script editor.
 
+## Messages while Claude works
+
+While Claude works, *Send* puts your message into the running reply: Claude reads it at its next step (after the current tool call or thinking) and takes it into account in the same reply; it shows in the steps as "You: …", and the activity panel notes when Claude read it. A message that arrives just as the reply ends gets its own answer before the reply finishes. The clock button next to it (*Later*) queues the message for after the reply instead, as do SVG and OpenSCAD attachments, which Claude only takes with a new request.
+
 ## Watching Claude work
 
 The chat shows every step with its time while Claude works, and follows new output only while you are scrolled to the bottom. Hover the working line, click it to pin, or click *activity* on any reply to open the activity panel beside the chat. It shows:
