@@ -926,6 +926,7 @@ export default function App() {
                 onStart={(r) => photoJobs.start(design.id, r)}
                 onDismiss={photoJobs.dismiss}
                 imageModel={artworkModel}
+                notAssembled={!!layoutKey && layoutValue !== 'assembled' && !playback}
               />
             ),
           }}

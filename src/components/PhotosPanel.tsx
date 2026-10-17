@@ -52,6 +52,8 @@ interface Props {
   onDismiss: (jobId: string) => void;
   /** The image model (OPENROUTER_API_KEY set), or null. */
   imageModel: string | null;
+  /** A multi-part design shown in another layout than assembled. */
+  notAssembled?: boolean;
 }
 
 /** Product photos: a scene, a format and a camera; the image model turns a clean render into a photo of the print. */
@@ -167,6 +169,7 @@ export function PhotosPanel(p: Props) {
         <Icon name="camera" size={14} /> Generate photo
       </button>
       <div className="dim small ph-note">{p.imageModel ?? 'Image model'} · about $0.04 and 10–30 s each · the photo is made from a clean render of the model as shown (hidden parts stay hidden).</div>
+      {p.notAssembled && <div className="dim small">Tip: the photo shows the parts as laid out in the view – choose <b>Assembled</b> below the view for the finished object.</div>}
       {error && <div className="bad-note small" role="alert">{error}</div>}
 
       {(jobs.length > 0 || photos.length > 0) && <div className="ph-label ph-gallery-head">Photos{photos.length ? ` (${photos.length})` : ''}</div>}
