@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
 import { activityOf } from '../lib/activity';
 import { useEscape } from './useEscape';
+import { startDictation, type Dictation } from '../lib/dictation';
 import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../shared/sources';
 
 interface Props {
@@ -25,6 +26,8 @@ interface Props {
   effort: string;
   onEffort: (e: string) => void;
   hasModel: boolean;
+  /** Dictation is set up on the server (ElevenLabs key). */
+  dictation: boolean;
   /** Claude may search the web for this design (off for every design until turned on). */
   webSearch: boolean;
   onWebSearch: (on: boolean) => void;
@@ -82,12 +85,57 @@ export function ChatPanel(p: Props) {
     setImages((prev) => [...prev, ...urls.filter((u): u is string => !!u)].slice(0, 8));
   };
 
-  const send = () => {
-    if (p.generating || p.busyElsewhere || (!text.trim() && !images.length)) return;
-    p.onSend(text.trim(), images);
+  const send = (message = text) => {
+    if (p.generating || p.busyElsewhere || (!message.trim() && !images.length)) return;
+    p.onSend(message.trim(), images);
     setText('');
     setImages([]);
   };
+
+  // ---- dictation: what is said goes into the box as it is spoken (after what was typed)
+  const [listening, setListening] = useState<'off' | 'starting' | 'on' | 'stopping'>('off');
+  const [dictationError, setDictationError] = useState<string | null>(null);
+  const dictation = useRef<Dictation | null>(null);
+  const spoken = useRef(''); // the box's text including the latest words
+  const stopListening = async (): Promise<string> => {
+    const d = dictation.current;
+    if (d) {
+      dictation.current = null;
+      setListening('stopping');
+      await d.stop();
+    }
+    setListening('off');
+    return spoken.current;
+  };
+  const startListening = async () => {
+    const before = text.trimEnd();
+    const prefix = before ? `${before} ` : '';
+    spoken.current = text;
+    setDictationError(null);
+    setListening('starting');
+    try {
+      const d = await startDictation(
+        (words) => { spoken.current = prefix + words; setText(spoken.current); },
+        (message) => { setDictationError(message); void stopListening(); },
+      );
+      // Stopped (or the design changed) while the microphone was starting.
+      if (listeningRef.current !== 'starting') { void d.stop(); return; }
+      dictation.current = d;
+      setListening('on');
+    } catch (e) {
+      setDictationError((e as Error).message);
+      setListening('off');
+    }
+  };
+  const listeningRef = useRef(listening);
+  listeningRef.current = listening;
+  const toggleListening = () => { if (listening === 'off') void startListening(); else void stopListening(); };
+  // Escape stops listening and keeps the text; so does opening another design.
+  useEscape(listening !== 'off', () => { void stopListening(); });
+  useEffect(() => () => { void dictation.current?.stop(); }, []);
+  useEffect(() => { if (listeningRef.current !== 'off') void stopListening(); }, [p.designId]);
+  /** Update while listening: stop, then send everything that was said. */
+  const sendNow = async () => { send(listening === 'off' ? text : await stopListening()); };
 
   return (
     <div
@@ -136,7 +184,13 @@ export function ChatPanel(p: Props) {
           onChange={(e) => setText(e.target.value)}
           aria-label={p.hasModel ? 'Ask Claude for changes' : 'Describe the object'}
           // Enter that confirms an input-method (IME) candidate is not a send.
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); } }}
+          // Enter while listening only stops it (the text stays to be checked); the next Enter sends.
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+            e.preventDefault();
+            if (listening !== 'off') void stopListening(); else send();
+          }}
+          readOnly={listening === 'on' || listening === 'stopping'}
           onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); addFiles(files); } }}
           rows={3}
         />
@@ -164,11 +218,24 @@ export function ChatPanel(p: Props) {
             <Icon name="globe" size={14} />
           </button>
           <span className="spacer" />
+          <button
+            className={`icon-btn mic ${listening}`}
+            aria-label={listening === 'off' ? 'Dictate' : 'Stop dictating'}
+            aria-pressed={listening !== 'off'}
+            disabled={!p.dictation || listening === 'stopping'}
+            title={!p.dictation ? 'Dictation needs an ElevenLabs API key: set ELEVENLABS_API_KEY in .env and restart Jig'
+              : listening === 'off' ? 'Dictate (English or Romanian)' : 'Stop dictating (Enter or Esc); the text stays'}
+            onClick={toggleListening}
+          >
+            <Icon name="mic" />
+          </button>
           {p.generating
             ? <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>
-            : <button className="btn primary" onClick={send} disabled={p.busyElsewhere || (!text.trim() && !images.length)} title={p.hasModel ? 'Update' : 'Design'}><Icon name="send" /> <span className="btn-label">{p.hasModel ? 'Update' : 'Design'}</span></button>}
+            : <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || listening === 'starting' || (!text.trim() && !images.length)} title={p.hasModel ? 'Update' : 'Design'}><Icon name="send" /> <span className="btn-label">{p.hasModel ? 'Update' : 'Design'}</span></button>}
         </div>
         {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Claude is working on this design in another tab</span></div>}
+        {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}
+        {dictationError && listening === 'off' && <div className="composer-opts"><span className="bad-note" role="alert">{dictationError}</span> <button className="link" onClick={() => setDictationError(null)}>Dismiss</button></div>}
       </div>
       {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
       {lightbox && (

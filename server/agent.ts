@@ -170,6 +170,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
   // Use the Claude plan the `claude` CLI is logged in with, unless JIG_USE_API_KEY=1 asks for API billing.
   if (!USE_API_KEY) { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
+  // Claude has no use for other services' keys.
+  delete env.ELEVENLABS_API_KEY;
 
   // Whether Claude has answered at all: then a failure is not a missing session, and starting over
   // in a new one would repeat the work (and could produce a second version).

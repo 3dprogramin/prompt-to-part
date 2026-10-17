@@ -104,3 +104,11 @@ test('one generation per design; a running design can\'t be deleted', async () =
   await first.text();
   assert.equal((await fetch(`${A}/api/designs/test-api-00000003`, { method: 'DELETE', headers: W })).status, 200);
 });
+
+test('dictation tokens need the ElevenLabs key, and only Jig may ask', { skip: !!process.env.ELEVENLABS_API_KEY && 'ELEVENLABS_API_KEY is set' }, async () => {
+  assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).speech, false);
+  const r = await fetch(`${A}/api/speech/token`, { method: 'POST', headers: W });
+  assert.equal(r.status, 503);
+  assert.match((await r.json()).error, /ELEVENLABS_API_KEY/);
+  assert.equal((await fetch(`${A}/api/speech/token`, { method: 'POST' })).status, 403);
+});

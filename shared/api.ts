@@ -55,6 +55,8 @@ export interface Capabilities {
   /** Why .blend export can't use the installed Blender (too old), or null. */
   blenderProblem: string | null;
   bambu: string | null;
+  /** Dictation is set up (ELEVENLABS_API_KEY). */
+  speech: boolean;
 }
 
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */

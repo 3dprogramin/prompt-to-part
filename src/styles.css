@@ -574,3 +574,12 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .src-kind.medium, .src-chip.medium { color: var(--accent-2); border-color: #e0a43c55; background: #e0a43c14; }
 .src-kind.low, .src-chip.low { color: var(--bad); border-color: #e5675f66; background: #e5675f14; }
 .version-row { flex-wrap: wrap; }
+
+/* ---------- dictation ---------- */
+.mic.on, .mic.starting { color: var(--bad); }
+.mic.on { animation: mic-pulse 1.4s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { background: #e5675f22; } }
+@media (prefers-reduced-motion: reduce) { .mic.on { animation: none; background: #e5675f22; } }
+.listening-note { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); }
+.bad-note { color: var(--bad); }

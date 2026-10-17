@@ -167,7 +167,25 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
 
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY } satisfies Capabilities);
+  });
+
+  // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream
+  // the microphone there without ever seeing the API key.
+  app.post('/api/speech/token', async (_req, res) => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) return void res.status(503).json({ error: 'Dictation needs an ElevenLabs API key: set ELEVENLABS_API_KEY (e.g. in .env) and restart Jig.' });
+    try {
+      const r = await fetch('https://api.elevenlabs.io/v1/single-use-token/realtime_scribe', { method: 'POST', headers: { 'xi-api-key': key }, signal: AbortSignal.timeout(10000) });
+      const body = (await r.json().catch(() => ({}))) as { token?: string; detail?: { message?: string } | string };
+      if (!r.ok || !body.token) {
+        const why = typeof body.detail === 'string' ? body.detail : body.detail?.message;
+        return void res.status(502).json({ error: `ElevenLabs refused the token request (HTTP ${r.status}${why ? `: ${why}` : ''})` });
+      }
+      res.json({ token: body.token });
+    } catch (e) {
+      res.status(502).json({ error: `Couldn't reach ElevenLabs: ${(e as Error).message}` });
+    }
   });
 
   // A POST, because the first call runs Bambu Studio for minutes: a GET could be triggered by any

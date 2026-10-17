@@ -142,7 +142,8 @@ export default function App() {
   const [threeMf, setThreeMf] = useState<{ colours: boolean; print: boolean }>(() => load('threeMf', { colours: true, print: true }));
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); }).catch(() => {}); }, []);
+  const [dictation, setDictation] = useState(false);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -688,6 +689,7 @@ export default function App() {
           webSearch={chat.webSearch}
           onWebSearch={(webSearch) => setChat({ webSearch })}
           hasModel={!!design.code}
+          dictation={dictation}
         />
         <ViewerPanel
           result={playback ? playback.result : result ?? lastGood}
