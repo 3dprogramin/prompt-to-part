@@ -7,6 +7,7 @@ import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../sha
 import { buildGrid, buildPlate, updatePlate } from './stage';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
+import { linearColors, usableColors } from '../geometry/vertexColors';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -208,29 +209,49 @@ export class Viewer {
           geom = new THREE.BufferGeometry();
           geom.setAttribute('position', new THREE.BufferAttribute(part.display.positions, 3));
           geom.setAttribute('normal', new THREE.BufferAttribute(part.display.normals, 3));
+          if (part.display.colors) geom.setAttribute('color', new THREE.BufferAttribute(part.display.colors, 3));
           geom.boundsTree = MeshBVH.deserialize(part.display.bvh as SerializedBVH, geom, { setIndex: true });
           edgeGeom = new THREE.BufferGeometry();
           edgeGeom.setAttribute('position', new THREE.BufferAttribute(part.display.edges, 3));
         } else {
           const g = new THREE.BufferGeometry();
           g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+          const colors = usableColors(part.vertexColors, part.positions);
+          if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
           g.setIndex(new THREE.BufferAttribute(part.indices, 1));
           geom = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
           g.dispose();
           geom.computeBoundsTree();
           edgeGeom = new THREE.EdgesGeometry(geom, 30);
         }
-        const color = new THREE.Color(part.color);
+        // A part coloured per vertex (HueForge) shows those colours (times white) instead of its own.
+        const perVertex = !!geom.getAttribute('color');
+        // No feature lines on them either: every layer step of the relief would draw one.
+        if (perVertex) { edgeGeom.dispose(); edgeGeom = new THREE.BufferGeometry(); }
+        const color = perVertex ? new THREE.Color(0xffffff) : new THREE.Color(part.color);
         const front = new THREE.MeshStandardMaterial({
-          color, roughness: 0.55, metalness: 0.05, side: THREE.FrontSide,
+          color, roughness: 0.55, metalness: 0.05, side: THREE.FrontSide, vertexColors: perVertex,
           polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
-        const back = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(0.45), side: THREE.BackSide });
+        // Per-vertex colours are what the print will look like: mostly shown as they are (emissive),
+        // with a little lighting so the relief still reads.
+        if (perVertex) {
+          color.setScalar(0.35);
+          // Matte: a glossy highlight would turn the black areas grey.
+          front.roughness = 1;
+          front.metalness = 0;
+          front.envMapIntensity = 0;
+          front.onBeforeCompile = (s) => {
+            s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\n\ttotalEmissiveRadiance += vColor.rgb * 0.7;\n#endif');
+          };
+        }
+        const back = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(0.45), side: THREE.BackSide, vertexColors: perVertex });
         const group = new THREE.Group();
         group.name = part.name;
         const mesh = new THREE.Mesh(geom, front);
         mesh.userData.part = part.name;
         mesh.userData.color = color;
+        mesh.userData.perVertex = perVertex;
         const backMesh = new THREE.Mesh(geom, back);
         backMesh.raycast = () => {};
         const edges = new THREE.LineSegments(
@@ -292,6 +313,10 @@ export class Viewer {
       // Part colours, or one neutral colour to judge the bare shape.
       const [front, back] = group.children as THREE.Mesh[];
       const base = (front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
+      if (front.userData.perVertex) {
+        (front.material as THREE.MeshStandardMaterial).vertexColors = colors;
+        (back.material as THREE.MeshBasicMaterial).vertexColors = colors;
+      }
       (front.material as THREE.MeshStandardMaterial).color.copy(colors ? base : NEUTRAL);
       (front.material as THREE.MeshStandardMaterial).emissive.copy(group.name === this.opts.selectedPart ? SELECTED_GLOW : new THREE.Color(0));
       (back.material as THREE.MeshBasicMaterial).color.copy(colors ? base : NEUTRAL).multiplyScalar(0.45);

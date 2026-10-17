@@ -20,6 +20,8 @@ export const WALL_ORDERS = Object.keys(WALL_ORDER) as WallOrder[];
 
 export interface PrintSettings {
   layerHeight?: number;
+  /** Height of the first layer, mm (model-wide only, like layerHeight). */
+  firstLayerHeight?: number;
   walls?: number;
   topLayers?: number;
   bottomLayers?: number;
@@ -38,9 +40,12 @@ export interface PrintSettings {
   fuzzySkin?: FuzzySkin;
 }
 
-/** Model-wide settings plus optional per-part overrides (layer height is model-wide only). */
+/** Settings Bambu Studio only has for the whole print. */
+export type ModelWideKey = 'layerHeight' | 'firstLayerHeight';
+
+/** Model-wide settings plus optional per-part overrides (layer heights are model-wide only). */
 export interface PrintProfile extends PrintSettings {
-  parts?: Record<string, Omit<PrintSettings, 'layerHeight'>>;
+  parts?: Record<string, Omit<PrintSettings, ModelWideKey>>;
 }
 
 export const PRINT_KEY = '$print';
@@ -51,7 +56,7 @@ export const PRINT_KEY = '$print';
  * once it has been built, so a Bambu Studio update that changes the profile changes it too.
  */
 export const A1_DEFAULTS: Required<PrintSettings> = {
-  layerHeight: 0.2, walls: 2, topLayers: 5, bottomLayers: 3, infill: 15, infillPattern: 'grid', supports: 'off', brim: 'auto',
+  layerHeight: 0.2, firstLayerHeight: 0.2, walls: 2, topLayers: 5, bottomLayers: 3, infill: 15, infillPattern: 'grid', supports: 'off', brim: 'auto',
   ironing: 'off', seam: 'aligned', supportsOnPlate: false, wallOrder: 'inner-outer', fuzzySkin: 'none',
 };
 
@@ -74,7 +79,7 @@ export const INFILL_PATTERNS: { id: string; label: string }[] = [
 ];
 
 export const SETTING_LABELS: Record<keyof PrintSettings, string> = {
-  layerHeight: 'Layer height', walls: 'Walls', topLayers: 'Top layers', bottomLayers: 'Bottom layers',
+  layerHeight: 'Layer height', firstLayerHeight: 'First layer height', walls: 'Walls', topLayers: 'Top layers', bottomLayers: 'Bottom layers',
   infill: 'Infill', infillPattern: 'Infill pattern', supports: 'Supports', brim: 'Brim',
   ironing: 'Ironing', seam: 'Seam', supportsOnPlate: 'Supports from plate only', wallOrder: 'Wall order', fuzzySkin: 'Fuzzy skin',
 };
@@ -90,10 +95,10 @@ const clampInt = (v: unknown, lo: number, hi: number) => { const n = num(v); ret
 export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const out: PrintSettings = {};
-  const lh = num(o.layerHeight);
-  if (allowLayer && lh != null) {
-    out.layerHeight = LAYER_HEIGHTS.reduce((a, b) => (Math.abs(b - lh) < Math.abs(a - lh) ? b : a));
-  }
+  const nearest = (h: number) => LAYER_HEIGHTS.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+  const lh = num(o.layerHeight), flh = num(o.firstLayerHeight);
+  if (allowLayer && lh != null) out.layerHeight = nearest(lh);
+  if (allowLayer && flh != null) out.firstLayerHeight = nearest(flh);
   const walls = clampInt(o.walls, 1, 10); if (walls != null) out.walls = walls;
   const top = clampInt(o.topLayers, 0, 30); if (top != null) out.topLayers = top;
   const bottom = clampInt(o.bottomLayers, 0, 30); if (bottom != null) out.bottomLayers = bottom;
@@ -126,7 +131,7 @@ export function defaultsFromTemplate(t: Record<string, unknown>): Required<Print
   return {
     ...A1_DEFAULTS,
     ...cleanSettings({
-      layerHeight: str('layer_height'), walls: str('wall_loops'), topLayers: str('top_shell_layers'), bottomLayers: str('bottom_shell_layers'),
+      layerHeight: str('layer_height'), firstLayerHeight: str('initial_layer_print_height'), walls: str('wall_loops'), topLayers: str('top_shell_layers'), bottomLayers: str('bottom_shell_layers'),
       infill: str('sparse_infill_density')?.replace('%', ''), infillPattern: str('sparse_infill_pattern'),
       supports: str('enable_support') === '1' ? (str('support_type')?.startsWith('normal') ? 'normal' : 'tree') : 'off',
       brim: brimType === 'no_brim' ? 'none' : brimType === 'auto_brim' ? 'auto' : str('brim_width'),
@@ -172,6 +177,7 @@ export function bambuValues(s: Required<PrintSettings>): Record<string, string> 
   const density = `${s.infill}%`;
   return {
     layer_height: String(s.layerHeight),
+    initial_layer_print_height: String(s.firstLayerHeight),
     wall_loops: String(s.walls),
     top_shell_layers: String(s.topLayers),
     bottom_shell_layers: String(s.bottomLayers),
@@ -199,7 +205,7 @@ export function bambuOverrides(s: Required<PrintSettings>, base: Required<PrintS
 
 export function describeSetting(key: keyof PrintSettings, v: PrintSettings[keyof PrintSettings]): string {
   switch (key) {
-    case 'layerHeight': return `${v} mm`;
+    case 'layerHeight': case 'firstLayerHeight': return `${v} mm`;
     case 'infill': return `${v} %`;
     case 'infillPattern': return INFILL_PATTERNS.find((p) => p.id === v)?.label ?? String(v);
     case 'supports': return v === 'off' ? 'Off' : v === 'tree' ? 'Tree' : 'Normal';

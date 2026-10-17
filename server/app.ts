@@ -12,6 +12,8 @@ import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
 import { sliceProject } from './slicer';
 import { suggestPrice } from './pricing';
+import { lookupFilament } from './filaments';
+import { matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS } from '../shared/filaments';
 import { cleanCostSettings } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel } from './artwork';
@@ -60,9 +62,11 @@ export interface AppOptions {
   generate?: typeof runGeneration;
   /** Suggests a selling price (tests pass a stand-in instead of Claude). */
   suggest?: typeof suggestPrice;
+  /** Finds a filament's colour and TD (tests pass one with a stand-in for Claude). */
+  lookup?: typeof lookupFilament;
 }
 
-export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament }: AppOptions = {}): express.Express {
   const app = express();
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
@@ -243,6 +247,21 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     if (!r || typeof r.name !== 'string' || !Number.isFinite(r.grams) || !Number.isFinite(r.seconds)) return void res.status(400).json({ error: 'bad price request' });
     try {
       res.json(await suggest({ ...r, name: r.name.slice(0, 200), description: typeof r.description === 'string' ? r.description.slice(0, 1000) : undefined, size: String(r.size).slice(0, 100) }));
+    } catch (e) {
+      res.status(502).json({ error: (e as Error).message });
+    }
+  });
+
+  // ---- HueForge filaments: the library, or Claude on the web for one it doesn't have
+  app.post('/api/filaments/lookup', json('2kb'), async (req, res) => {
+    const { brand, name } = (req.body ?? {}) as { brand?: unknown; name?: unknown };
+    if (typeof brand !== 'string' || typeof name !== 'string' || !brand.trim() || !name.trim()) return void res.status(400).json({ error: 'Send the filament\'s brand and name' });
+    if (brand.length > MAX_BRAND_CHARS || name.length > MAX_FILAMENT_NAME_CHARS) return void res.status(400).json({ error: 'Brand or filament name too long' });
+    const q = { brand: brand.trim(), name: name.trim() };
+    const authProblem = matchFilament(q.brand, q.name) ? null : claudeAuthProblem();
+    if (authProblem) return void res.status(503).json({ error: `This filament isn't in Jig's library, and looking it up needs Claude. ${authProblem}` });
+    try {
+      res.json(await lookup(q));
     } catch (e) {
       res.status(502).json({ error: (e as Error).message });
     }

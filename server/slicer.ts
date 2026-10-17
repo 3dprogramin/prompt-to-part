@@ -17,14 +17,24 @@ const TIMEOUT_MS = 5 * 60_000;
 
 let chain: Promise<unknown> = Promise.resolve();
 
-/** Slice plate 1 of a Bambu Studio project (.3mf); rejects with Bambu Studio's reason if it can't. */
-export function sliceProject(project: Uint8Array): Promise<SliceStats> {
+/**
+ * Slice plate 1 of a Bambu Studio project (.3mf); rejects with Bambu Studio's reason if it can't.
+ * Filament changes in the project (HueForge prints) are sliced too, so each filament's grams are its own.
+ */
+export async function sliceProject(project: Uint8Array): Promise<SliceStats> {
+  const info = (await slicedProject(project))['Metadata/slice_info.config'];
+  if (!info) throw new Error('Bambu Studio sliced it but reported no print time or filament');
+  return parseSliceInfo(strFromU8(info));
+}
+
+/** The files of the sliced project (Metadata/plate_1.gcode, Metadata/slice_info.config…); one slice at a time. */
+export function slicedProject(project: Uint8Array): Promise<Record<string, Uint8Array>> {
   const job = chain.then(() => slice(project));
   chain = job.catch(() => undefined);
   return job;
 }
 
-async function slice(project: Uint8Array): Promise<SliceStats> {
+async function slice(project: Uint8Array): Promise<Record<string, Uint8Array>> {
   const bin = await findBambuBinary();
   if (!bin) throw new Error('Bambu Studio was not found on this computer');
   const work = await mkdtemp(path.join(os.tmpdir(), 'jig-slice-'));
@@ -41,9 +51,7 @@ async function slice(project: Uint8Array): Promise<SliceStats> {
     if (result && result.return_code !== 0) throw new Error(`Bambu Studio couldn't slice it: ${result.error_string ?? `code ${result.return_code}`}`);
     const sliced = await readFile(path.join(out, 'sliced.3mf')).catch(() => null);
     if (!sliced) throw new Error(`Bambu Studio didn't slice it${failed ? `: ${failed.message.split('\n')[0]}` : ''}`);
-    const info = unzipSync(new Uint8Array(sliced))['Metadata/slice_info.config'];
-    if (!info) throw new Error('Bambu Studio sliced it but reported no print time or filament');
-    return parseSliceInfo(strFromU8(info));
+    return unzipSync(new Uint8Array(sliced));
   } finally {
     await rm(work, { recursive: true, force: true });
   }

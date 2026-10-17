@@ -1,6 +1,7 @@
 import type { Design, DesignSummary } from '../../shared/types';
 import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
+import type { FilamentLookup } from '../../shared/filaments';
 import { dataUrlToImage } from './files';
 
 export type { AgentEvent, FontEntry } from '../../shared/api';
@@ -98,6 +99,10 @@ export const api = {
   /** Font files (base64) for the text tool and font previews. */
   fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };
+
+/** A filament's colour and TD: from Jig's library, or found on the web by Claude (can take a minute). */
+export const lookupFilament = (brand: string, name: string): Promise<FilamentLookup> =>
+  getJson<FilamentLookup>('/api/filaments/lookup', { method: 'POST', body: JSON.stringify({ brand, name }) });
 
 export async function generate(body: GenerateRequest, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
   const res = await request('/api/generate', { method: 'POST', body: JSON.stringify(body), signal });

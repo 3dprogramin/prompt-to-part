@@ -7,6 +7,7 @@ import { makeHelpers } from './helpers';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
+import { cleanHueforgeSource, cleanLayerColors, HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, vertexColors, type HueforgeSource, type LayerColor } from './hueforge';
 import { cleanProfile } from './print';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
@@ -276,7 +277,9 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   takeFontSubstitutions();
   heapAtStart = heapSize();
   try {
-    const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]));
+    const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
+      images: parseHfImages(inputValues?.[HF_IMAGES_KEY]), setup: parseHueforgeSetup(inputValues?.[HF_KEY]),
+    });
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
@@ -327,12 +330,16 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     });
     rawParts.forEach((rp, i) => {
       let shape: any, name = '', color = '';
+      let layerColors: LayerColor[] | undefined, hueforge: HueforgeSource | undefined;
       if (rp instanceof M) shape = rp;
       else if (rp && typeof rp === 'object') {
         const o = rp as Record<string, unknown>;
         shape = o.shape ?? o.manifold;
         name = typeof o.name === 'string' ? o.name : '';
         color = typeof o.color === 'string' ? o.color : '';
+        // A HueForge part (H.hueforge): its filament stack, scaled with the part.
+        layerColors = cleanLayerColors(o.layerColors, scale);
+        hueforge = layerColors && cleanHueforgeSource(o.hueforge, scale);
       }
       if (!(shape instanceof M)) throw new ScriptError({ message: `Part ${i + 1} is not a Manifold (got ${shape instanceof C ? 'CrossSection' : typeof shape})`, stage: 'output' });
       if (scale !== 1) shape = shape.scale(scale);
@@ -363,7 +370,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }
       if (opts.lite) {
         const bb = shape.boundingBox();
-        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1 });
+        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(hueforge ? { hueforge } : {}) });
         return;
       }
       const mesh = shape.getMesh();
@@ -379,6 +386,8 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         volume: shape.volume(), surfaceArea: shape.surfaceArea(), triCount: shape.numTri(), genus: shape.genus(),
         // A sealed cavity is a component with negative volume: it is not a separate piece.
         components: shape.decompose().filter((c: Manifold) => c.volume() > 0).length,
+        ...(layerColors ? { layerColors, vertexColors: vertexColors(positions, layerColors) } : {}),
+        ...(hueforge ? { hueforge } : {}),
       });
     });
 
