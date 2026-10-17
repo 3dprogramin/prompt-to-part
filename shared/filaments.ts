@@ -3,7 +3,7 @@
 // CONTRACT (feat/hueforge): the side panel uses FILAMENT_LIBRARY and searchFilaments; the server
 // answers POST /api/filaments/lookup { brand, name } with FilamentLookup (TD found on the web),
 // which the page calls through lookupFilament() in src/lib/api.ts.
-import type { HfFilament } from './hueforge';
+import { hexToRgb, type HfFilament } from './hueforge';
 
 export interface LibraryFilament extends HfFilament {
   brand: string;
@@ -158,8 +158,9 @@ const colourWords = (f: LibraryFilament) => { const line = words(f.line); return
 const finishWords = (f: LibraryFilament) => words(f.line).filter((w) => !['pla', 'pla+', 'basic'].includes(w));
 
 /** How well the filament matches the query words, 0 = not at all. */
-function score(f: LibraryFilament, query: string[]): number {
+function score(f: LibraryFilament, query: string[], families: boolean): number {
   const fields: [string[], number][] = [[colourWords(f), 3], [words(`${f.line ?? ''} ${f.name}`), 2], [words(f.brand), 2]];
+  if (families) fields.push([colourFamilies(f.color), 1]);
   let total = 0;
   for (const q of query) {
     let best = 0;
@@ -172,12 +173,16 @@ function score(f: LibraryFilament, query: string[]): number {
   return total;
 }
 
-/** Library filaments matching a free-text query ("bambu black", "esun pla+ red"), best first. */
-export function searchFilaments(query: string, limit = 20): LibraryFilament[] {
+/**
+ * Library filaments matching a free-text query ("bambu black", "esun pla+ red"), best first. With
+ * `families`, a colour word also finds the filaments of that colour whatever their name, after the
+ * ones it names ("matte black" finds PLA Matte Charcoal).
+ */
+export function searchFilaments(query: string, limit = 20, { families = false } = {}): LibraryFilament[] {
   const q = words(query);
   if (!q.length) return FILAMENT_LIBRARY.slice(0, limit);
   return FILAMENT_LIBRARY
-    .map((f, i) => ({ f, i, s: score(f, q), finish: finishWords(f).length, extra: colourWords(f).length }))
+    .map((f, i) => ({ f, i, s: score(f, q, families), finish: finishWords(f).length, extra: colourWords(f).length }))
     .filter((m) => m.s > 0)
     // Equal scores: plain filaments before special finishes ("white" finds Jade White before Silk+
     // White), fewer other colour words ("red" finds Red before Maroon Red), then library order.
@@ -207,4 +212,82 @@ export function matchFilament(brand: string, name: string): LibraryFilament | un
     if (extra < bestExtra) { best = f; bestExtra = extra; }
   }
   return best;
+}
+
+/**
+ * The plain colour words a #rrggbb looks like ("black", "gray", "beige", "blue", …), for searching
+ * by colour: a rough sort by hue, lightness and saturation, not a colour science.
+ */
+export function colourFamilies(hex: string): string[] {
+  const [r, g, b] = hexToRgb(hex);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, c = max - min;
+  if (max < 0.16) return ['black'];
+  if (c < 0.09) return [l > 0.85 ? 'white' : 'gray'];
+  const h = (max === r ? ((g - b) / c + 6) % 6 : max === g ? (b - r) / c + 2 : (r - g) / c + 4) * 60;
+  if (l > 0.7 && h >= 10 && h < 60) return c < 0.25 ? ['beige', 'skin', 'white'] : ['beige', 'skin'];
+  if (h < 12 || h >= 350) return l > 0.7 ? ['pink'] : l < 0.35 ? ['red', 'brown'] : ['red'];
+  if (h < 45) return l < 0.45 || (c < 0.45 && l < 0.6) ? ['brown'] : c < 0.3 ? ['brown', 'beige'] : ['orange'];
+  if (h < 70) return l < 0.4 ? ['brown', 'green'] : ['yellow'];
+  if (h < 165) return ['green'];
+  if (h < 195) return ['green', 'blue'];
+  if (h < 245) return ['blue'];
+  if (h < 290) return ['purple'];
+  return ['pink', 'purple'];
+}
+
+// ---------------------------------------------------------------- picker
+
+/** A product line of the library (e.g. Bambu Lab PLA Matte), its filaments in library order. */
+export interface FilamentLine {
+  /** "Bambu Lab PLA Matte" */
+  key: string;
+  brand: string;
+  line: string;
+  filaments: LibraryFilament[];
+}
+
+export const lineKey = (f: { brand?: string; line?: string }) => [f.brand, f.line].filter(Boolean).join(' ');
+
+/** The library's product lines, in library order. */
+export function filamentLines(library = FILAMENT_LIBRARY): FilamentLine[] {
+  const lines = new Map<string, FilamentLine>();
+  for (const f of library) {
+    const key = lineKey(f);
+    let l = lines.get(key);
+    if (!l) lines.set(key, (l = { key, brand: f.brand, line: f.line ?? '', filaments: [] }));
+    l.filaments.push(f);
+  }
+  return [...lines.values()];
+}
+
+/**
+ * The colours most HueForge prints use, one click away: black, white and greys for the values,
+ * beige and brown for skin and wood, and the primaries. Bambu Lab PLA Basic (what the AMS holds)
+ * where it has them.
+ */
+export const COMMON_FILAMENTS: LibraryFilament[] = [
+  'Bambu Lab PLA Basic Black', 'Bambu Lab PLA Basic Jade White', 'Bambu Lab PLA Basic Light Gray', 'Bambu Lab PLA Basic Gray',
+  'Bambu Lab PLA Matte Ash Gray', 'Bambu Lab PLA Basic Beige', 'Bambu Lab PLA Basic Brown',
+  'Bambu Lab PLA Basic Red', 'Bambu Lab PLA Basic Blue', 'Bambu Lab PLA Basic Yellow', 'Bambu Lab PLA Basic Bambu Green',
+].flatMap((id) => FILAMENT_LIBRARY.filter((f) => `${f.brand} ${f.name}` === id));
+
+/**
+ * The library filament a stack filament is: the same brand and name (any case and spelling), else
+ * the one its brand and name mean (matchFilament). Undefined for custom filaments.
+ */
+export function libraryFilament(f: { brand?: string; name: string }): LibraryFilament | undefined {
+  if (!f.brand) return undefined;
+  const b = normalizeFilamentText(f.brand), n = normalizeFilamentText(f.name);
+  return FILAMENT_LIBRARY.find((l) => normalizeFilamentText(l.brand) === b && normalizeFilamentText(l.name) === n) ?? matchFilament(f.brand, f.name);
+}
+
+/** The filament's TD is the library's estimate (unverified), not a published or the user's own value. */
+export function estimatedTd(f: HfFilament): boolean {
+  const l = libraryFilament(f);
+  return !!l?.unverified && Math.abs(l.td - f.td) < 1e-6;
+}
+
+/** The picker's filaments: those matching the query (colour words included), of one line (its key) or all. */
+export function pickerFilaments(query: string, line?: string): LibraryFilament[] {
+  return searchFilaments(query, Infinity, { families: true }).filter((f) => !line || lineKey(f) === line);
 }

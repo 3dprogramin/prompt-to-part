@@ -1,10 +1,11 @@
-import { useId, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
-import { checkSwaps, HF_IMAGES_KEY, HF_KEY, layerTop, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, simulateImage, type HfFilament, type HfImage, type HueforgeOptions, type HueforgeSetup, type LayerColor } from '../../shared/hueforge';
-import { FILAMENT_LIBRARY, searchFilaments, type FilamentLookup, type LibraryFilament } from '../../shared/filaments';
-import { lookupFilament } from '../lib/api';
+import { checkSwaps, HF_IMAGES_KEY, HF_KEY, layerTop, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, replaceFilament, simulateImage, stackFilament, type HfFilament, type HfImage, type HueforgeOptions, type HueforgeSetup, type LayerColor } from '../../shared/hueforge';
+import { estimatedTd } from '../../shared/filaments';
 import { hfImageToDataUrl, loadHfImage, rgbaToDataUrl } from '../lib/hfImage';
+import { FilamentPicker } from './FilamentPicker';
 import { Icon } from './Icon';
+import { NumBox } from './NumBox';
 import { useEscape } from './useEscape';
 import { useReleaseSlider } from './useReleaseSlider';
 
@@ -61,8 +62,7 @@ export function HueforgePanel({ result, part, values, onSetup, onImage }: Props)
   const add = (f: HfFilament) => {
     // On top, starting halfway between the last change and the top of the print.
     const last = swaps.at(-1) ?? 0;
-    change([...filaments, { name: f.name, brand: f.brand, color: f.color, td: f.td }], manual ? [...swaps, Math.round((last + grid.total) / 2)] : undefined);
-    setAdding(false);
+    change([...filaments, stackFilament(f)], manual ? [...swaps, Math.round((last + grid.total) / 2)] : undefined);
   };
   const setManual = (on: boolean) => save({ ...(setup.filaments ? { filaments: setup.filaments } : {}), ...(on ? { filaments, swaps: sanitizeSwaps(swaps, grid.total) } : {}) });
   const setSwap = (i: number, layer: number) => {
@@ -70,7 +70,16 @@ export function HueforgePanel({ result, part, values, onSetup, onImage }: Props)
     save({ filaments, swaps: swaps.map((s, j) => (j === i ? Math.min(hi, Math.max(lo, Math.round(layer))) : s)) });
   };
 
-  const [adding, setAdding] = useState(false);
+  // The filament picker: open on a stack row (its index) or to add one; `trigger` is the control that opened it.
+  const [picking, setPicking] = useState<number | 'add' | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const openPicker = (at: number | 'add', button: HTMLButtonElement) => { trigger.current = button; setPicking(picking === at ? null : at); };
+  const picked = (f: HfFilament) => {
+    if (picking === 'add') add(f);
+    else if (picking != null) change(replaceFilament(filaments, picking, f));
+    setPicking(null);
+    trigger.current?.focus();
+  };
   const changes = Math.max(0, filaments.length - 1);
   return (
     <div className="hf-panel">
@@ -100,10 +109,10 @@ export function HueforgePanel({ result, part, values, onSetup, onImage }: Props)
         {filaments.map((f, i) => ({ f, i })).reverse().map(({ f, i }) => (
           <li key={i} className="hf-filament">
             <div className="hf-row">
-              <label className="hf-swatch" style={{ background: f.color }} title={`Colour ${f.color}`}>
-                <input type="color" value={f.color} aria-label={`Colour of ${f.name}`} onChange={(e) => edit(i, { color: e.target.value })} />
-              </label>
-              <div className="hf-title" title={f.name}>{f.name}</div>
+              <button className="hf-pick" onClick={(e) => openPicker(i, e.currentTarget)} aria-haspopup="dialog" aria-expanded={picking === i} aria-label={`${f.name}: change the filament`} title="Change the filament">
+                <span className="hf-swatch" style={{ background: f.color }} />
+                <span className="hf-title">{f.name}</span>
+              </button>
               <button className="icon-btn hf-move up" disabled={i === filaments.length - 1} onClick={() => move(i, i + 1)} aria-label={`Move ${f.name} up (printed later)`} title="Move up (printed later)"><Icon name="chevron" size={13} /></button>
               <button className="icon-btn hf-move down" disabled={i === 0} onClick={() => move(i, i - 1)} aria-label={`Move ${f.name} down (printed earlier)`} title="Move down (printed earlier)"><Icon name="chevron" size={13} /></button>
               <button className="icon-btn" disabled={filaments.length < 2} onClick={() => remove(i)} aria-label={`Remove ${f.name}`} title="Remove"><Icon name="x" size={13} /></button>
@@ -115,16 +124,20 @@ export function HueforgePanel({ result, part, values, onSetup, onImage }: Props)
               </span>
               <label className="hf-td" title="Transmission distance: the thickness at which this filament hides what is under it">
                 <span className="dim small">TD</span>
-                <NumBox value={f.td} min={0.05} max={50} label={`TD of ${f.name}`} onCommit={(td) => edit(i, { td })} />
+                {estimatedTd(f) && <span className="hf-est" title="Estimated TD: no measured value is published for this filament; a test print corrects it">~</span>}
+                <NumBox value={f.td} min={0.05} max={50} label={`TD of ${f.name}${estimatedTd(f) ? ' (estimated)' : ''}`} onCommit={(td) => edit(i, { td })} />
               </label>
             </div>
+            {picking === i && <FilamentPicker current={f} trigger={trigger} onPick={picked} onClose={() => setPicking(null)} />}
             {i > 0 && manual && <SwapSlider name={f.name} layer={swaps[i - 1]} min={(swaps[i - 2] ?? 0) + 1} max={(swaps[i] ?? grid.total) - 1} grid={grid} onCommit={(l) => setSwap(i - 1, l)} />}
           </li>
         ))}
       </ol>
-      {adding
-        ? <AddFilament onAdd={add} onCancel={() => setAdding(false)} />
-        : <button className="btn ghost wide" disabled={filaments.length >= MAX_HF_FILAMENTS} onClick={() => setAdding(true)} title={filaments.length >= MAX_HF_FILAMENTS ? `At most ${MAX_HF_FILAMENTS} filaments` : undefined}><Icon name="plus" size={14} /> Add filament</button>}
+      <div className="hf-add-wrap">
+        <button className="btn ghost wide" disabled={filaments.length >= MAX_HF_FILAMENTS} onClick={(e) => openPicker('add', e.currentTarget)} aria-haspopup="dialog" aria-expanded={picking === 'add'}
+          title={filaments.length >= MAX_HF_FILAMENTS ? `At most ${MAX_HF_FILAMENTS} filaments` : undefined}><Icon name="plus" size={14} /> Add filament</button>
+        {picking === 'add' && filaments.length < MAX_HF_FILAMENTS && <FilamentPicker trigger={trigger} onPick={picked} onClose={() => setPicking(null)} />}
+      </div>
     </div>
   );
 }
@@ -163,23 +176,6 @@ function SwapSlider({ name, layer, min, max, grid, onCommit }: { name: string; l
     <div className="hf-slider">
       <input type="range" min={min} max={Math.max(min, max)} step={1} aria-label={`Layer where ${name} starts`} aria-valuetext={`${zOf(slider.shown, grid).toFixed(2)} mm, layer ${slider.shown + 1}`} {...slider.inputProps} />
       <span className="mono small">{zOf(slider.shown, grid).toFixed(2)} mm</span>
-    </div>
-  );
-}
-
-function NumBox({ value, min, max, label, onCommit }: { value: number; min: number; max: number; label: string; onCommit: (v: number) => void }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = () => {
-    if (draft == null) return;
-    const v = Number(draft.replace(',', '.'));
-    setDraft(null);
-    if (Number.isFinite(v) && v !== value) onCommit(Math.min(max, Math.max(min, v)));
-  };
-  return (
-    <div className="num-box">
-      <input className="mono" aria-label={`${label} (mm)`} value={draft ?? String(+value.toFixed(2))} onChange={(e) => setDraft(e.target.value)} onFocus={(e) => e.target.select()} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { e.preventDefault(); setDraft(null); (e.target as HTMLInputElement).blur(); } }} />
-      <span className="unit">mm</span>
     </div>
   );
 }
@@ -259,99 +255,6 @@ export function PicturePair({ name, image, preview, previewLabel, previewAlt, em
           <button className="lightbox-close" autoFocus onClick={close} aria-label="Close (Esc)"><Icon name="x" size={16} /></button>
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- adding filaments
-
-const CONFIDENCE: Record<FilamentLookup['confidence'], [string, 'high' | 'medium' | 'low']> = {
-  listed: ['Published TD', 'high'],
-  similar: ['From a similar filament', 'medium'],
-  estimate: ['Estimate', 'low'],
-};
-
-function AddFilament({ onAdd, onCancel }: { onAdd: (f: HfFilament) => void; onCancel: () => void }) {
-  const [query, setQuery] = useState('');
-  const found = useMemo(() => (query.trim() ? searchFilaments(query, 8) : []), [query]);
-  const [custom, setCustom] = useState<HfFilament | null>(null);
-  const [lookup, setLookup] = useState<{ busy: boolean; result?: FilamentLookup; error?: string } | null>(null);
-  const id = useId();
-  useEscape(true, onCancel);
-  const look = async () => {
-    if (!custom) return;
-    setLookup({ busy: true });
-    try {
-      const r = await lookupFilament(custom.brand ?? '', custom.name);
-      setLookup({ busy: false, result: r });
-      setCustom((c) => c && { ...c, td: r.filament.td, color: r.filament.color });
-    } catch (e) {
-      setLookup({ busy: false, error: (e as Error).message });
-    }
-  };
-  return (
-    <div className="hf-add">
-      {!custom && <>
-        <input className="text-param" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder='Search, e.g. "bambu black", "esun pla+ red"' aria-label="Search the filament library" aria-describedby={`${id}-note`} />
-        {found.length > 0 && (
-          <ul className="hf-results" aria-label="Library filaments">
-            {found.map((f, i) => (
-              <li key={i}>
-                <button onClick={() => onAdd(f)}>
-                  <span className="swatch" style={{ background: f.color }} />
-                  <span className="hf-name"><span className="hf-title">{f.name}</span><span className="dim small">{f.brand}</span></span>
-                  <span className="mono small">TD {f.td}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="dim small" id={`${id}-note`}>
-          {!FILAMENT_LIBRARY.length ? 'The filament library is empty: add a custom filament.' : query.trim() && !found.length ? 'No filament in the library matches.' : ''}
-        </div>
-        <div className="hf-add-actions">
-          <button className="btn ghost" onClick={() => setCustom({ name: query.trim(), brand: '', color: '#808080', td: 1 })}>Custom filament…</button>
-          <span className="spacer" />
-          <button className="btn ghost" onClick={onCancel}>Cancel</button>
-        </div>
-      </>}
-      {custom && <>
-        <div className="hf-custom">
-          <label className="hf-swatch big" style={{ background: custom.color }} title={custom.color}>
-            <input type="color" value={custom.color} aria-label="Colour" onChange={(e) => setCustom({ ...custom, color: e.target.value })} />
-          </label>
-          <input className="text-param" autoFocus value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="Name, e.g. PLA Matte Ivory White" aria-label="Filament name" />
-          <input className="text-param" value={custom.brand ?? ''} onChange={(e) => setCustom({ ...custom, brand: e.target.value })} placeholder="Brand, e.g. Bambu Lab" aria-label="Brand" />
-          <label className="hf-td">
-            <span className="dim small">TD</span>
-            <NumBox value={custom.td} min={0.05} max={50} label="TD" onCommit={(td) => setCustom({ ...custom, td })} />
-          </label>
-          <button className="btn ghost" disabled={!custom.name.trim() || lookup?.busy} onClick={() => void look()} title="Find this filament's TD and colour (library and the web)">
-            {lookup?.busy ? <><span className="spinner" /> Looking up…</> : 'Look up TD'}
-          </button>
-        </div>
-        {lookup?.result && <LookupNote r={lookup.result} />}
-        {lookup?.error && <div className="bad-note small" role="alert">{lookup.error}</div>}
-        <div className="hf-add-actions">
-          <button className="btn primary" disabled={!custom.name.trim()} onClick={() => onAdd({ ...custom, name: custom.name.trim(), brand: custom.brand?.trim() || undefined })}><Icon name="plus" size={14} /> Add</button>
-          <span className="spacer" />
-          <button className="btn ghost" onClick={() => { setCustom(null); setLookup(null); }}>Back</button>
-        </div>
-      </>}
-    </div>
-  );
-}
-
-function LookupNote({ r }: { r: FilamentLookup }) {
-  const [label, trust] = CONFIDENCE[r.confidence] ?? CONFIDENCE.estimate;
-  const src = (r.filament as LibraryFilament).source;
-  const link = src && /^https?:\/\//.test(src) ? src : undefined;
-  return (
-    <div className="hf-lookup small" role="status">
-      <span className={`src-kind ${trust}`}>{label}</span>
-      <span>TD <span className="mono">{r.filament.td} mm</span>{r.filament.brand ? ` · ${r.filament.brand} ${r.filament.name}` : ''}</span>
-      {link ? <a href={link} target="_blank" rel="noopener noreferrer">{new URL(link).hostname.replace(/^www\./, '')}</a> : src ? <span className="dim">{src}</span> : null}
-      {r.note && <span className="dim">{r.note}</span>}
     </div>
   );
 }

@@ -274,6 +274,12 @@ export function cleanFilaments(raw: unknown): HfFilament[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** A filament as the stack stores it: name, brand, colour and TD only (no library line or source). */
+export const stackFilament = (f: HfFilament): HfFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
+
+/** The stack with filament `i` swapped for `f`, in place: the order (and so the swaps) stay. */
+export const replaceFilament = (list: HfFilament[], i: number, f: HfFilament): HfFilament[] => list.map((g, j) => (j === i ? stackFilament(f) : g));
+
 /** The user's setup from the design's values (HF_KEY), checked. */
 export function parseHueforgeSetup(raw: unknown): HueforgeSetup {
   let o: unknown = raw;
