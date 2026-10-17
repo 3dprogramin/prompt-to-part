@@ -7,7 +7,7 @@ import { Icon } from './Icon';
 import { useReleaseSlider } from './useReleaseSlider';
 
 type Key = keyof PrintSettings;
-const KEYS: Key[] = ['layerHeight', 'walls', 'topLayers', 'bottomLayers', 'infill', 'infillPattern', 'supports', 'supportsOnPlate', 'brim', 'wallOrder', 'seam', 'ironing', 'fuzzySkin'];
+const KEYS: Key[] = ['layerHeight', 'firstLayerHeight', 'walls', 'topLayers', 'bottomLayers', 'infill', 'infillPattern', 'supports', 'supportsOnPlate', 'brim', 'wallOrder', 'seam', 'ironing', 'fuzzySkin'];
 
 interface Props {
   parts: string[];
@@ -68,7 +68,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
         </div>
       )}
 
-      {KEYS.filter((k) => !(part && k === 'layerHeight') && !(k === 'supportsOnPlate' && eff.supports === 'off')).map((key) => {
+      {KEYS.filter((k) => !(part && (k === 'layerHeight' || k === 'firstLayerHeight')) && !(k === 'supportsOnPlate' && eff.supports === 'off')).map((key) => {
         const src = source(ai, user, key, part);
         const ownUser = (own(user) as PrintSettings)[key] !== undefined;
         return (
@@ -102,7 +102,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
 
 function Control({ k, label, value, onChange }: { k: Key; label: string; value: PrintSettings[Key]; onChange: (v: PrintSettings[Key]) => void }) {
   switch (k) {
-    case 'layerHeight':
+    case 'layerHeight': case 'firstLayerHeight':
       return <select aria-label={label} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{LAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{h === 0.2 ? ' (standard)' : ''}</option>)}</select>;
     case 'walls': case 'topLayers': case 'bottomLayers':
       return <Stepper label={label} value={Number(value)} min={k === 'walls' ? 1 : 0} max={k === 'walls' ? 10 : 30} onChange={onChange} />;
