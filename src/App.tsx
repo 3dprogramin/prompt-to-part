@@ -33,8 +33,8 @@ import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRI
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
-interface ChatOptions { model: string; effort: string; webSearch: boolean }
-const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true };
+interface ChatOptions { model: string; effort: string; webSearch: boolean; artwork: boolean }
+const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, artwork: true };
 
 function newDesign(): Design {
   const now = Date.now();
@@ -171,8 +171,11 @@ export default function App() {
   // The part selected in the Object tab, highlighted in the view.
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
-  const chat = chatOpts[design.id] ?? DEFAULT_CHAT;
-  const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? DEFAULT_CHAT), ...patch } }));
+  // The starting model and effort come from the server's settings (JIG_MODEL, JIG_EFFORT).
+  const [chatDefaults, setChatDefaults] = useState<ChatOptions>(DEFAULT_CHAT);
+  const chat = chatOpts[design.id] ?? chatDefaults;
+  const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatDefaults), ...patch } }));
+  const [artworkModel, setArtworkModel] = useState<string | null>(null);
   const [viewOpts, setViewOpts] = useState<ViewerOptions>(() => ({
     showBBox: true, showAnnotations: true, showEdges: true, ortho: false, measure: false, hiddenParts: [],
     section: { enabled: false, axis: 'z', position: 0, flip: false },
@@ -201,7 +204,7 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null); setArtworkModel(c.artwork ?? null); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -378,12 +381,14 @@ export default function App() {
         model: chat.model,
         effort: chat.effort,
         webSearch: chat.webSearch,
+        artwork: chat.artwork,
         drawings: Object.keys(drawings).length ? drawings : undefined,
         scad: scad.length ? scad : undefined,
         // In case the session can't be continued: what was said, for a fresh one.
         history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
+        else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
@@ -842,6 +847,10 @@ export default function App() {
           effort={chat.effort} onEffort={(effort) => setChat({ effort })}
           webSearch={chat.webSearch}
           onWebSearch={(webSearch) => setChat({ webSearch })}
+          artwork={chat.artwork}
+          artworkModel={artworkModel}
+          onArtwork={(artwork) => setChat({ artwork })}
+          defaultModel={chatDefaults.model}
           hasModel={!!design.code}
           dictation={dictation}
           claudeProblem={claudeProblem}

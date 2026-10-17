@@ -8,11 +8,12 @@ import { geometry, formatReport } from './geometry';
 import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
-import { authMode, claudeAuthProblem, DATA_DIR } from './config';
+import { authMode, claudeAuthProblem, claudeViaOpenRouter, DATA_DIR } from './config';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
+import { artworkAvailable } from './artwork';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
 
@@ -29,6 +30,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__evaluate_model: 'Evaluating model',
   mcp__cad__render_model: 'Rendering preview',
   mcp__cad__render_scad: 'Rendering the OpenSCAD file',
+  mcp__cad__generate_artwork: 'Generating artwork',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
   WebFetch: 'Reading a web page',
@@ -42,8 +44,11 @@ export function claudeEnv(): Record<string, string | undefined> {
   // API-key mode the key (or token and base URL) is passed on, and without one nothing runs at all
   // (claudeAuthProblem), so the CLI's login is never used silently.
   if (authMode() === 'subscription') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_BASE_URL; }
+  // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
+  else if (claudeViaOpenRouter()) Object.assign(env, { ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });
   // Claude has no use for other services' keys.
   delete env.ELEVENLABS_API_KEY;
+  delete env.OPENROUTER_API_KEY;
   return env;
 }
 
@@ -143,7 +148,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const opened = new Set<string>();
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
-  const { server: cad, state } = cadTools(file, emit, opened, Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {});
+  // AI artwork (on unless turned off in the chat, and only with an OpenRouter key); it may draw from the attached photos.
+  const artwork = req.artwork !== false && artworkAvailable();
+  const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
+  const { server: cad, state } = cadTools(file, emit, opened, Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}, artwork ? { references, signal: abort.signal } : undefined);
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
 
@@ -244,7 +252,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = query({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase),
+        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
@@ -440,6 +448,7 @@ function describeToolInput(name: string, input: Record<string, unknown> | undefi
     return `Editing model.js – replacing ${a} line${a === 1 ? '' : 's'} with ${b}${input.replace_all ? ' (all occurrences)' : ''}`;
   }
   if (name === 'Read') return 'Reading model.js';
+  if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
   if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {
     return `${name.endsWith('render_model') ? 'Rendering' : 'Evaluating'} with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(', ')}`;

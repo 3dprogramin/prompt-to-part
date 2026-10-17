@@ -44,6 +44,12 @@ interface Props {
   claudeProblem: string | null;
   /** Claude may search the web for this design (off for every design until turned on). */
   webSearch: boolean;
+  /** AI artwork (generate_artwork) on; `artworkModel`: the image model, null when Jig has no OpenRouter key. */
+  artwork: boolean;
+  artworkModel: string | null;
+  onArtwork: (on: boolean) => void;
+  /** The server's starting model (JIG_MODEL), offered even when it is a full model ID. */
+  defaultModel: string;
   onWebSearch: (on: boolean) => void;
 }
 
@@ -299,12 +305,13 @@ export function ChatPanel(p: Props) {
           rows={3}
         />
         <div className="composer-bar">
-          <button className="icon-btn" title="Attach photos, SVG or OpenSCAD (.scad) files" aria-label="Attach photos, SVG or OpenSCAD files" onClick={() => fileInput.current?.click()}><Icon name="image" /></button>
+          <button className="icon-btn" title="Attach photos, SVG or OpenSCAD (.scad) files" aria-label="Attach photos, SVG or OpenSCAD files" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
           <input ref={fileInput} type="file" accept="image/*,.svg,.scad" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
           <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
             <option value="opus">Opus</option>
             <option value="sonnet">Sonnet</option>
             <option value="haiku">Haiku</option>
+            {!['opus', 'sonnet', 'haiku'].includes(p.defaultModel) && <option value={p.defaultModel}>{modelLabel(p.defaultModel)}</option>}
           </select>
           <select value={p.effort} onChange={(e) => p.onEffort(e.target.value)} title="Reasoning effort" aria-label="Reasoning effort">
             <option value="medium">Medium</option>
@@ -321,6 +328,17 @@ export function ChatPanel(p: Props) {
           >
             <Icon name="globe" size={14} />
           </button>
+          {p.artworkModel && (
+            <button
+              className={`web-toggle art ${p.artwork ? 'on' : ''}`}
+              aria-label="AI artwork"
+              aria-pressed={p.artwork}
+              onClick={() => p.onArtwork(!p.artwork)}
+              title={p.artwork ? `AI artwork is on: for people, characters, animals and scenes Claude has ${p.artworkModel} draw the artwork, then builds the design from it (click to turn it off for this design)` : `AI artwork is off for this design: click to let Claude have ${p.artworkModel} draw artwork for people, characters, animals and scenes`}
+            >
+              <Icon name="palette" size={14} />
+            </button>
+          )}
           <span className="spacer" />
           <button
             className={`icon-btn mic ${listening}`}
@@ -532,4 +550,10 @@ function SourcesChip({ list }: { list?: DimensionSource[] }) {
   const weakest = list && weakestKind(list);
   if (!list || !weakest) return null;
   return <span className={`src-chip ${SOURCE_KINDS[weakest].trust}`} title={`Dimension sources: ${sourcesSummary(list)} (Model tab for details)`}>{sourcesSummary(list)}</span>;
+}
+
+/** "claude-opus-5-5" → "Opus 5.5"; other IDs as they are. */
+function modelLabel(id: string) {
+  const m = /^(?:anthropic\/)?claude-([a-z]+)-(\d+)[.-](\d+)/.exec(id);
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : id;
 }

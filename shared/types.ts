@@ -160,6 +160,8 @@ export interface AgentStep {
   verbose?: boolean;
   /** The full text behind the step (what Claude was sent or got back), shown in the activity panel. */
   detail?: string;
+  /** Show `detail` unfolded (e.g. the prompt an artwork was drawn from). */
+  detailOpen?: boolean;
 }
 
 /** One entry of a reply's live transcript, shown in the activity panel. */

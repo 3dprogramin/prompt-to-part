@@ -6,7 +6,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { runGeneration, workspaceDir } from './agent';
 import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechToken, PriceRequest } from '../shared/api';
-import { claudeAuthProblem, DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
+import { claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
@@ -14,6 +14,7 @@ import { sliceProject } from './slicer';
 import { suggestPrice } from './pricing';
 import { cleanCostSettings } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
+import { artworkAvailable, imageModel } from './artwork';
 import type { Design, DesignSummary } from '../shared/types';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -185,7 +186,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
 
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, model: defaultModel(), effort: defaultEffort() } satisfies Capabilities);
   });
 
   // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream
@@ -323,7 +324,6 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
 }
 
 const MODELS = ['opus', 'sonnet', 'haiku'];
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const isImage = (i: unknown) => !!i && typeof (i as { data?: unknown }).data === 'string' && typeof (i as { mediaType?: unknown }).mediaType === 'string';
 
 /** What is wrong with a generation request's fields, or null. */
@@ -331,7 +331,7 @@ function generateProblem(b: GenerateRequest): string | null {
   if (typeof b.prompt !== 'string' || b.prompt.length > 20000) return 'prompt must be text (up to 20,000 characters)';
   if (b.images != null && (!Array.isArray(b.images) || b.images.length > 8 || !b.images.every(isImage))) return 'up to 8 images';
   if (b.currentView != null && !isImage(b.currentView)) return 'bad currentView';
-  if (b.model != null && !MODELS.includes(b.model)) return `model must be one of ${MODELS.join(', ')}`;
+  if (b.model != null && !MODELS.includes(b.model) && b.model !== defaultModel()) return `model must be one of ${[...new Set([...MODELS, defaultModel()])].join(', ')}`;
   if (b.effort != null && !EFFORTS.includes(b.effort)) return `effort must be one of ${EFFORTS.join(', ')}`;
   if (b.code != null && typeof b.code !== 'string') return 'bad code';
   if (b.sessionId != null && !/^[\w-]{1,100}$/.test(b.sessionId)) return 'bad sessionId';

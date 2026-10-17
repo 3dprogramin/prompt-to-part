@@ -24,8 +24,22 @@ export function authMode(): 'api-key' | 'subscription' {
   return process.env.JIG_AUTH === 'subscription' ? 'subscription' : 'api-key';
 }
 
+/**
+ * Claude through OpenRouter: in API-key mode, when OPENROUTER_API_KEY is set and no Anthropic key
+ * or token is (an Anthropic key wins, and OpenRouter is then used for artwork only).
+ */
+export function claudeViaOpenRouter(): boolean {
+  return authMode() === 'api-key' && !!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN;
+}
+
 /** Why Jig can't run Claude as configured, or null. Without a key it never falls back to the CLI's login. */
 export function claudeAuthProblem(): string | null {
-  if (authMode() === 'subscription' || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return null;
-  return 'Jig has no Claude API key: set ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude account or API key" in the README.';
+  if (authMode() === 'subscription' || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.OPENROUTER_API_KEY) return null;
+  return 'Jig has no Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude account or API key" in the README.';
 }
+
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** The chat's starting model (JIG_MODEL: opus, sonnet, haiku or a full model ID such as claude-opus-5-5). */
+export const defaultModel = () => process.env.JIG_MODEL?.trim() || 'opus';
+/** The chat's starting reasoning effort (JIG_EFFORT). */
+export const defaultEffort = () => (EFFORTS.includes(process.env.JIG_EFFORT?.trim() ?? '') ? process.env.JIG_EFFORT!.trim() : 'high');

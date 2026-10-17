@@ -37,6 +37,8 @@ export interface GenerateRequest {
   drawings?: Record<string, SvgDrawing>;
   /** OpenSCAD files attached in the chat: Claude rebuilds them as Jig scripts. */
   scad?: ScadFile[];
+  /** Let Claude have artwork drawn by an image model (on by default; needs OPENROUTER_API_KEY). */
+  artwork?: boolean;
   /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */
   history?: { role: 'user' | 'assistant'; text: string }[];
 }
@@ -48,6 +50,8 @@ export type AgentEvent =
   | { type: 'model'; code: string; summary: string; sources: DimensionSource[] }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
   | { type: 'error'; message: string }
+  /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */
+  | { type: 'drawing'; name: string; drawing: SvgDrawing }
   /** Transient one-line status (throttled), replaced by the next one. */
   | { type: 'live'; text: string }
   /** Live transcript: a content block starts, its text grows, or a tool call's input fields are re-sent as they stream. */
@@ -79,6 +83,11 @@ export interface Capabilities {
   printDefaults: Required<PrintSettings> | null;
   /** Why Claude can't run as configured (no API key), or null. */
   claude: string | null;
+  /** The image model for AI artwork (OPENROUTER_API_KEY set), or null. */
+  artwork: string | null;
+  /** The chat's starting model and effort (JIG_MODEL, JIG_EFFORT). */
+  model: string;
+  effort: string;
 }
 
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */

@@ -1,6 +1,7 @@
 const PATHS: Record<string, string> = {
   send: 'M4 12 20 4l-6 16-3-7-7-1z',
   image: 'M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15 9.5a1.5 1.5 0 1 0 0-.01',
+  paperclip: 'M20 11.5 12.2 19.3a5 5 0 0 1-7.1-7.1l8.1-8.1a3.4 3.4 0 0 1 4.8 4.8l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4',
   stop: 'M7 7h10v10H7z',
   plus: 'M12 5v14M5 12h14',
   folder: 'M3 7h6l2 2h10v10H3z',

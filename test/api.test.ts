@@ -127,8 +127,8 @@ test('cost settings are stored, slicing needs a project, price suggestions go th
 });
 
 test('without an API key (and not in subscription mode) Claude is never started', async () => {
-  const saved = { auth: process.env.JIG_AUTH, key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN };
-  delete process.env.JIG_AUTH; delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN;
+  const saved = { auth: process.env.JIG_AUTH, key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN, openrouter: process.env.OPENROUTER_API_KEY };
+  delete process.env.JIG_AUTH; delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.OPENROUTER_API_KEY;
   try {
     assert.match((await (await fetch(`${A}/api/capabilities`)).json()).claude, /ANTHROPIC_API_KEY/);
     const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000007', prompt: 'a cube' }) });
@@ -137,7 +137,7 @@ test('without an API key (and not in subscription mode) Claude is never started'
     process.env.ANTHROPIC_API_KEY = 'sk-test';
     assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).claude, null);
   } finally {
-    for (const [k, v] of [['JIG_AUTH', saved.auth], ['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token]] as const) {
+    for (const [k, v] of [['JIG_AUTH', saved.auth], ['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token], ['OPENROUTER_API_KEY', saved.openrouter]] as const) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }
