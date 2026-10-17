@@ -92,6 +92,14 @@ export interface HueforgePart {
   layerColors: LayerColor[];
   /** Print settings a HueForge print needs (layer heights, 100 % infill…). */
   print: { layerHeight: number; firstLayerHeight: number; infill: number; infillPattern?: string; walls?: number; topLayers?: number; bottomLayers?: number };
+  /** What the relief was made from, for the side panel's preview (PartMesh.hueforge). */
+  hueforge: HueforgeSource;
+}
+
+/** The picture (key in HF_IMAGES_KEY) and the options a HueForge part was built with, defaults filled in. */
+export interface HueforgeSource {
+  image: string;
+  options: Required<Omit<HueforgeOptions, 'filaments'>>;
 }
 
 export const DEFAULT_FILAMENTS: HfFilament[] = [
@@ -352,6 +360,20 @@ export function cleanLayerColors(raw: unknown, scale = 1): LayerColor[] | undefi
   }
   out.sort((a, b) => a.z - b.z);
   return out.length ? out : undefined;
+}
+
+/** A part's HueForge source returned by a script, checked and scaled by the runtime's uniform scale; undefined if unusable. */
+export function cleanHueforgeSource(raw: unknown, scale = 1): HueforgeSource | undefined {
+  const o = raw as HueforgeSource | null;
+  if (!o || typeof o !== 'object' || typeof o.image !== 'string' || !o.options || typeof o.options !== 'object') return undefined;
+  const n = (k: keyof HueforgeSource['options']) => Number(o.options[k]);
+  const lengths = (['width', 'layerHeight', 'firstLayerHeight', 'baseHeight', 'maxHeight', 'border', 'resolution'] as const).map(n);
+  if (!lengths.every((v) => v >= 0 && Number.isFinite(v)) || !(lengths[0] > 0) || !(n('gamma') > 0)) return undefined;
+  const [width, layerHeight, firstLayerHeight, baseHeight, maxHeight, border, resolution] = lengths.map((v) => v * scale);
+  return {
+    image: o.image.slice(0, 120),
+    options: { width, layerHeight, firstLayerHeight, baseHeight, maxHeight, border, resolution, invert: !!o.options.invert, gamma: n('gamma') },
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
-import type { LayerColor } from './hueforge';
+import type { HueforgeSource, LayerColor } from './hueforge';
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -106,6 +106,8 @@ export interface PartMesh {
   layerColors?: LayerColor[];
   /** RGB 0–1 per vertex (HueForge parts: the simulated print colour); the viewer uses it instead of `color`. */
   vertexColors?: Float32Array;
+  /** HueForge part: the picture and options it was built with (lengths scaled with the part), for simulateImage. */
+  hueforge?: HueforgeSource;
 }
 
 export interface PartDisplay {
