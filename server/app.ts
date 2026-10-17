@@ -6,7 +6,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { runGeneration, steerGeneration, workspaceDir } from './agent';
 import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, ImageData, SpeechToken, PriceRequest } from '../shared/api';
-import { claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, PORT, PRODUCTION, ROOT } from './config';
+import { authMode, claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
@@ -419,7 +419,10 @@ function generateProblem(b: GenerateRequest): string | null {
 }
 
 function friendlyError(msg: string) {
-  if (/auth|login|credential|401|oauth/i.test(msg)) return `Claude authentication failed – run \`claude\` in a terminal and log in (/login) with your subscription. (${msg})`;
+  if (/auth|login|credential|401|oauth/i.test(msg)) {
+    if (authMode() === 'subscription' && process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed – the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart Jig. (${msg})`;
+    return `Claude authentication failed – run \`claude\` in a terminal and log in (/login) with your subscription. (${msg})`;
+  }
   if (/rate.?limit|429|usage limit/i.test(msg)) return `Claude usage limit reached for now. (${msg})`;
   return msg;
 }

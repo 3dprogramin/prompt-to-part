@@ -16,6 +16,8 @@ npm test             # unit and API tests (about 5 s)
 npm run typecheck
 ```
 
+Or in Docker: see [Docker](#docker).
+
 Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
 
 Optional:
@@ -25,6 +27,65 @@ Optional:
 Both are found on `PATH` and in their default install folders on macOS (`/Applications`) and Windows (`Program Files`). Otherwise set `BAMBU_STUDIO_PATH` / `BLENDER_PATH`. Jig is developed and tested on Linux.
 
 `npm run dev` does not restart the API server when its code changes, because a restart kills every running generation. Restart it yourself once nothing is generating.
+
+## Docker
+
+Jig also runs in Docker (with Compose v2), as a single container serving the app and its API (the production build, as `npm start` does).
+
+```sh
+cp .env.sample .env        # then fill it in (see below)
+docker compose up -d --build
+```
+
+Then open http://localhost:8787. The image is built on your computer: it installs Jig's dependencies with `npm ci` (Claude Code among them) and never contains `.env`, `data/` or any credentials.
+
+Jig has no login, so whoever can reach its port can use your Claude account and keys. Compose therefore publishes it on `127.0.0.1` only; keep it that way, and don't publish the image to a registry either (it contains Claude Code and, with the Bambu option, Bambu Studio, which are not Jig's to redistribute). `JIG_PORT` in `.env` changes the port (default 8787); the container then listens on that port too, because Jig only answers requests addressed to its own port.
+
+**Claude on your subscription (`JIG_AUTH=subscription`).** The container has no `claude` login of its own, and mounting your `~/.claude` into it could sign your computer out (the two would rotate the same login). Instead, make a long-lived token for it, once:
+
+1. On your computer, with Claude Code installed and logged in to your Claude account: `claude setup-token`, and follow the steps. It prints a token starting with `sk-ant-oat01-`.
+2. In `.env`: `JIG_AUTH=subscription` and `CLAUDE_CODE_OAUTH_TOKEN=<the token>`.
+3. `docker compose up -d` (restarts Jig with the new settings), then send a message in a design to check that Claude answers.
+
+In subscription mode Claude never runs through OpenRouter or an API key, even when they are set (`OPENROUTER_API_KEY` is still used for AI artwork and product photos). If the token expires or is revoked, the chat says so: make a new one the same way. The same rules apply as for [subscription mode](#claude-account-or-api-key) outside Docker: it is for your own use only. With API keys instead, `.env` works as it is.
+
+**Data.** Everything Jig keeps is in three named volumes, so it survives rebuilds and `docker compose down`:
+
+| Volume | In the container | |
+|---|---|---|
+| `jig_data` | `/data` (`JIG_DATA`) | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings |
+| `jig_claude` | `/home/node/.claude` | Claude Code's sessions (follow-up messages continue the conversation) and settings |
+| `jig_cache` | `/app/node_modules/.cache` | The OpenSCAD engine (downloaded and hash-checked the first time a `.scad` file is used) and Jig's bundled workers |
+
+Back up `jig_data` (the others can be rebuilt; without `jig_claude`, a design's next message starts a fresh Claude session with a summary of the conversation):
+
+```sh
+docker compose run --rm --no-deps -v "$PWD:/backup" jig tar czf /backup/jig-data.tgz -C /data .    # back up
+docker compose run --rm --no-deps -v "$PWD:/backup:ro" jig tar xzf /backup/jig-data.tgz -C /data   # restore
+```
+
+`docker compose down -v` deletes the volumes, and with them every design.
+
+**Moving a local install's designs into Docker.** From the folder whose `data/` holds them (or point the first path at your `JIG_DATA`):
+
+```sh
+docker compose run --rm --no-deps -v "$PWD/data:/from:ro" jig cp -r --preserve=timestamps /from/. /data/
+docker compose restart jig
+```
+
+The Bambu template is rebuilt by the container's Bambu Studio when its version differs. Claude sessions are not moved: a design's next message starts a fresh session with a summary of the conversation.
+
+**Updating:** `git pull && docker compose up -d --build`. Old images can then be removed with `docker image prune`.
+
+**Logs:** `docker compose logs -f jig` (add `DEBUG_AGENT=1` to `.env` to include Claude Code's own output). `docker compose ps` shows whether the container is healthy.
+
+**Bambu Studio (Cost tab, 3MF print settings).** Not in the image by default, as it adds about 750 MB. To include it, set `JIG_WITH_BAMBU=1` in `.env` and run `docker compose up -d --build`. The build downloads the official Linux AppImage of a pinned Bambu Studio release from GitHub, checks it against its SHA-256 and unpacks only what its command line needs; it runs headless, with its own data folder in `jig_data`. Only `linux/amd64` (Bambu Studio has no Linux ARM build). To use another release, pass the build arguments `BAMBU_URL` and `BAMBU_SHA256` (see the `Dockerfile`).
+
+**Fonts.** The bundled fonts, plus DejaVu and Liberation. To list your own fonts too, uncomment the fonts line under `volumes:` in `docker-compose.yml` (it mounts a fonts folder from your computer read-only).
+
+**Blender** (`.blend` export) is not included; that export is unavailable in Docker.
+
+The container runs as a non-root user with a read-only file system (only the volumes and in-memory `/tmp` and home folder are writable), no Linux capabilities and a health check on `/api/capabilities`.
 
 ## How it works
 
@@ -182,6 +243,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8787` | API server port |
+| `JIG_HOST` | `127.0.0.1` | The address the server listens on (`0.0.0.0` in the Docker image, which Compose publishes on `127.0.0.1` only). Jig has no login: don't make it reachable from other computers |
 | `ELEVENLABS_API_KEY` | | Turns on dictation (the microphone button) |
 | `ELEVENLABS_LANGUAGE` | detected | Main dictation language (ISO 639 code, e.g. `en`) |
 | `ELEVENLABS_SECONDARY_LANGUAGES` | | Other languages you may speak, comma-separated (e.g. `ro`) |
@@ -194,7 +256,9 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_IMAGE_MODEL` | `google/gemini-nano-banana-2.1` | The OpenRouter image model for AI artwork and product photos |
 | `JIG_IMAGE_FALLBACK` | `google/gemini-3.1-flash-image` | Used when the image model stays busy (rate-limited upstream) after two retries; empty turns it off |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
-| `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with instead of a key, for your own use on your own computer only (see below) |
+| `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with (or `CLAUDE_CODE_OAUTH_TOKEN`) instead of a key, for your own use on your own computer only (see below) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | | With `JIG_AUTH=subscription`: a long-lived token from `claude setup-token`, how Jig signs in to your subscription in [Docker](#docker). Ignored in API-key mode |
+| `JIG_PORT`, `JIG_WITH_BAMBU` | `8787`, `0` | Docker Compose only: the published port, and `1` to build the image with Bambu Studio |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |
 | `BLENDER_PATH` | found on `PATH` or in the default install folder | Blender executable |
@@ -205,7 +269,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 
 Jig needs an API key for Claude. The simplest is OpenRouter: set `OPENROUTER_API_KEY` in `.env` (or the environment), and Jig runs Claude through OpenRouter's Anthropic-compatible endpoint and uses the same key for AI artwork. Or set `ANTHROPIC_API_KEY` to use Anthropic directly (it wins for Claude when both are set). An Anthropic-compatible provider works too, through `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`, with `ANTHROPIC_API_KEY` set but empty. For [OpenRouter](https://openrouter.ai/docs/guides/guides/claude-code-integration): `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, your OpenRouter key in `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_API_KEY=` (see `.env.sample`). A design whose Claude session was started another way (on a subscription, say) can't continue it through a different provider: its next message starts a fresh session with a summary of the conversation, and later messages continue that one. Without either, Jig doesn't start Claude: the chat box says what is missing, and it never falls back to a Claude account logged in on the computer.
 
-`JIG_AUTH=subscription` makes Jig use the Claude account the `claude` CLI is logged in with (`claude` → `/login`) instead of a key. That is meant only for running Jig yourself, on your own computer, with your own account. Anthropic's terms do not allow third-party developers to offer claude.ai login, or to route requests through Free, Pro or Max plan credentials on behalf of their users, without approval. See the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview) and [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance). If you share or host Jig for other people, use API keys.
+`JIG_AUTH=subscription` makes Jig use the Claude account the `claude` CLI is logged in with (`claude` → `/login`), or the token in `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`; see [Docker](#docker)), instead of a key. That is meant only for running Jig yourself, on your own computer, with your own account. Anthropic's terms do not allow third-party developers to offer claude.ai login, or to route requests through Free, Pro or Max plan credentials on behalf of their users, without approval. See the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview) and [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance). If you share or host Jig for other people, use API keys.
 
 ## License
 
