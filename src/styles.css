@@ -694,6 +694,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .mode-menu button > span:last-child > span { font-size: 11.5px; color: var(--text-3); }
 .mode-menu button.on b { color: var(--accent-2); }
 .mode-check { width: 16px; flex-shrink: 0; display: grid; place-items: center; padding-top: 2px; color: var(--accent-2); }
+.mode-icon { width: 30px; height: 30px; flex-shrink: 0; display: grid; place-items: center; border-radius: 7px; background: var(--bg); border: 1px solid var(--line-2); color: var(--text-2); }
+.mode-default { margin-left: 7px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text-3); font: 600 9.5px/1.4 var(--sans); font-style: normal; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
+.mode-menu button.on .mode-icon { color: var(--accent-2); border-color: var(--accent); background: #e0a43c1a; }
 
 /* ---------- HueForge (Print tab) ---------- */
 .hf-panel { display: flex; flex-direction: column; gap: 8px; }

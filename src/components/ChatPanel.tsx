@@ -384,7 +384,7 @@ export function ChatPanel(p: Props) {
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 
 const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null) => string }[] = [
-  { mode: 'off', label: '3D model (no picture)', icon: 'palette', hint: () => 'Claude models people, characters and animals as 3D objects.' },
+  { mode: 'off', label: '3D model (no picture)', icon: 'cube', hint: () => 'Claude models people, characters and animals as 3D objects.' },
   { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes ${m ?? 'an image model'} draws flat artwork, which Claude turns into colour layers for wall art, reliefs and signs.` },
   { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Claude has one made' : ''}; set the filaments in the Print tab.` },
 ];
@@ -407,7 +407,8 @@ function ImageModeMenu({ mode, artworkModel, onMode }: { mode: ImageMode; artwor
     if (to >= 0) { e.preventDefault(); items[to]?.focus(); }
     if (e.key === 'Tab') setOpen(false);
   };
-  const pick = (m: ImageMode) => { onMode(m); setOpen(false); trigger.current?.focus(); };
+  // Picking keeps the menu open (to compare the modes); Escape, Tab or a click outside closes it.
+  const pick = (m: ImageMode) => onMode(m);
   return (
     <span className="mode-wrap" ref={wrap}>
       <button
@@ -428,7 +429,8 @@ function ImageModeMenu({ mode, artworkModel, onMode }: { mode: ImageMode; artwor
           {modes.map((m) => (
             <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} className={m.mode === mode ? 'on' : ''} onClick={() => pick(m.mode)}>
               <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
-              <span><b>{m.label}</b><span>{m.hint(artworkModel)}</span></span>
+              <span className="mode-icon" aria-hidden><Icon name={m.icon} size={16} /></span>
+              <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.hint(artworkModel)}</span></span>
             </button>
           ))}
         </div>
