@@ -1,4 +1,5 @@
 import { PRINTER } from '../shared/printer';
+import { FILAMENT_LIBRARY } from '../shared/filaments';
 import { A1_DEFAULTS, describeSetting, SETTING_LABELS, type PrintSettings } from '../shared/print';
 
 /** "layer 0.20 mm, 2 walls, …" for the baseline profile. */
@@ -213,17 +214,35 @@ const ARTWORK_ON = `AI artwork is ON (generate_artwork). When a design needs rea
 - Describe the subject precisely (who/what, pose, expression, framing, the mood); the print rules (flat colours, no background) are added for you. Leave style empty: the default is realistic artwork (true proportions, faces, light and shadow, posterized like a screen print), which is what users want; set a style only when the user asks for one (cartoon, minimal…). Describe real people by their look rather than by name (image models often refuse names). Use the user's attached photos (use_attached_photos) when the artwork should look like them.
 - Not for geometric or mechanical parts, plain shapes or lettering (use primitives and H.text), or when the user attached an SVG to use.`;
 
+/** The filament library, one line per brand and line, for Claude to pick HueForge filaments from. */
+const FILAMENT_LINES = (() => {
+  const groups = new Map<string, string[]>();
+  for (const f of FILAMENT_LIBRARY) {
+    const key = `${f.brand} ${f.line ?? ''}`.trim();
+    const colour = f.line && f.name.startsWith(f.line) ? f.name.slice(f.line.length).trim() : f.name;
+    groups.set(key, [...(groups.get(key) ?? []), `${colour} ${f.color} ${f.td}${f.unverified ? '*' : ''}`]);
+  }
+  return [...groups].map(([k, v]) => `  ${k}: ${v.join(', ')}`).join('\n');
+})();
+
 function hueforgePrompt(pictures: boolean) {
   return `HueForge mode is ON: the user wants a HueForge-style filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
 - Build it with H.hueforge(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
     const params = { width: { label: 'Picture width', value: 150, min: 40, max: 250, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
     function build(p) { return { name: 'Picture', ...H.hueforge('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
 - The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
-- Filaments (bottom → top, { name, brand, color: '#rrggbb', td } with TD in mm): by default the user's loaded Bambu Lab PLA Basic Black (TD 0.2) and Jade White (TD 5.9) – H.hueforge uses them when you pass no filaments – which give a classic black-and-white print. Add colours (up to 4 for the A1's AMS lite) only when the user asks, darkest at the bottom usually; Jig's filament library has TDs for Bambu Lab PLA Basic/Matte/Silk+ and eSUN PLA+ (the user can look others up in the panel). The user can change filaments, TDs and swap heights in the HueForge panel (Print tab); their choice wins over the script's.
+- Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
+  - The printer is a Bambu Lab A1 with an AMS lite, so up to 4 filaments always work with no manual work: treat 4 as your normal budget and use as many as the picture benefits from – 2 for a classic black-and-white print, 3–4 when the picture has colour or needs more tonal range.
+  - More than 4 only when really needed: each extra filament means a pause and a manual spool swap. If you go above 4, say so in your final message and why.
+  - Black at the bottom and white on top is the most common choice, not a rule: pick colours that suit the subject (skin tones, sky, a brown or grey mid-tone, a team colour…), dark at the bottom to light at the top unless the picture calls for something else.
+  - Prefer filaments from Jig's library below (their TDs are known); colours marked * have an estimated TD – mention those. Use the library's exact name, brand, colour and TD.
+  - First version: pass them to H.hueforge({ …, filaments: [...] }). Later messages: change them with set_hueforge.
+- Jig's filament library (brand line: colour #hex TD; * = estimated TD):
+${FILAMENT_LINES}
 - Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
 - Filaments, their order, TDs and swap layers live in the HueForge setup: the user edits it in the HueForge panel, you edit it with set_hueforge – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_hueforge (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.hueforge as its own default.
 - Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.hueforge part.
-- Check it with render_model (it shows the simulated colours) and describe in your final message the size, the filaments and that colour swaps are set automatically (adjustable in the Print tab).`;
+- Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the HueForge panel (Print tab) or ask you to.`;
 }
 
 const WEB_OFF = `You have no web access in this design. For real products whose exact size matters, use what you know (kind memory) or estimate, say in your final message which dimensions may be off by a few mm, and mention that the user can turn on web search (the globe button under the chat box) so you can look them up.`;
