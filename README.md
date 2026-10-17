@@ -36,12 +36,14 @@ Both are found on `PATH` and in their default install folders on macOS (`/Applic
 - **Sandbox**: model scripts are untrusted code (Claude writes them from your prompts, photos and web pages), so they never run with the app's privileges:
   - each script runs in an [SES](https://github.com/endojs/endo/tree/master/packages/ses) Compartment (`shared/sandbox.ts`) that holds only `Manifold`, `CrossSection`, `H`, `quality` and `console`: no `process`, `require`, `import()`, `fetch`, timers, network or app API. The `constructor` escape routes are disarmed, and the classes and prototypes scripts get are frozen, so one design can't change what the next one runs;
   - a name that is used but never declared (a typo) is an error with its line number, not a silent `undefined`;
+  - the Manifold classes scripts get are frozen, and a script that rewrites a Manifold object's internals (its heap pointer) is stopped and its worker replaced, so one design can't corrupt another's geometry. A WebAssembly crash is noticed even if the script catches it;
+  - what a script can send back to Claude is capped (console output, errors, warnings, labels, parameters, the whole report);
   - on the server that happens in its own Node process under the permission model. It may only read `node_modules`, can't write files or start processes, has no network access and gets no environment variables (`server/geometry.ts`, `server/geometry-worker.ts`);
   - the API only answers Jig's own pages: requests must name Jig's host (against DNS rebinding) and come from Jig's own origin, and writes need an `X-Jig` header. The dev server answers no cross-origin requests and never serves `data/`.
 - **Agent loop** (`server/agent.ts`, `server/cadTools.ts`): Claude can only Read/Write/Edit one file (`data/workspaces/<id>/model.js`), optionally search the web, and call three tools:
   - `evaluate_model`: errors with line numbers, bounding boxes, volumes, disconnected-piece and build-plate checks
   - `render_model`: a software-rendered ISO/front/right/top sheet with a mm grid, so Claude can compare against your photos
-  - `submit_model`: requires a render of the current script first, then evaluates the defaults and a stress test at draft quality:
+  - `submit_model`: requires a render of the current script first and the sources of the real-world dimensions it uses (see *Dimension sources*), then evaluates the defaults and a stress test at draft quality:
     - all sliders at their minimum, then all at their maximum
     - each slider alone at its minimum and maximum
     - each switch flipped, and up to 6 options of each select
@@ -52,7 +54,7 @@ Both are found on `PATH` and in their default install folders on macOS (`/Applic
 - **Dictation** (the microphone button next to *Update*): speak instead of typing. The languages come from `ELEVENLABS_LANGUAGE` and `ELEVENLABS_SECONDARY_LANGUAGES` (English with Romanian in `.env.sample`); without them the language is detected. The words appear in the chat box as you speak, after anything you typed. Enter, Esc or the microphone button stops listening and keeps the text, so you can check it; the next Enter sends it. *Update* while listening stops and sends. Audio goes from the browser to ElevenLabs' realtime speech-to-text (Scribe v2 Realtime) with a single-use token from Jig's server, so your API key stays on the server. Needs `ELEVENLABS_API_KEY`.
 - **Model and effort** start at Opus / High (Medium, High, X-High or Max) for every new design; a change applies to that design until you reload.
 - **Follow-ups** resume the same Claude session and send what you are looking at: a screenshot of the viewer and a four-view render with your current slider values, scale and text, plus a note if you restored an older version or edited the code.
-- **System prompt**: `server/systemPrompt.ts` covers conventions (mm, Z-up, on the bed), the API reference, the helper library, printability rules and print-setting suggestions.
+- **System prompt**: `server/systemPrompt.ts` covers conventions (mm, Z-up, on the bed), the API reference, the helper library, printability rules, where to take real-world dimensions from and the clearances for parts that must fit purchased ones, and print-setting suggestions (with your Bambu Studio profile as the baseline).
 - **Helpers** (`shared/helpers.ts`): helical sweep (springs, corkscrews), ISO threads and threaded-hole cutters, radial surfaces (knurling), sweeps/tubes, lofts, rounded boxes, arrays, text.
 - **Designs** are saved as JSON in `data/designs/`, with chat history, versions and slider values. Chat images (your photos, renders, assembly pictures) are stored once each in `data/designs/<id>/`.
 
@@ -85,7 +87,7 @@ The panel follows the newest output unless you scroll up. Thinking arrives as Cl
 - **Display:** fullscreen (`U` hides the controls there) and draft/normal/high preview quality.
 - **Sidebars:** `T` and `N` hide the chat and parameter sidebars.
 
-The 256 × 256 mm Bambu Lab A1 plate is drawn. The printer is defined in `shared/printer.ts` (build volume, nozzle and Bambu Studio presets); the baseline print settings are in `shared/print.ts`.
+The 256 × 256 mm Bambu Lab A1 plate is drawn. The printer is defined in `shared/printer.ts` (build volume, nozzle and Bambu Studio presets). The baseline print settings come from the template built from your Bambu Studio (`data/bambu/template.json`), with the Bambu Studio 2.8 values in `shared/print.ts` as the fallback.
 
 **Editable dimensions:** double-click any X/Y/Z or callout label (or type in *Overall size*) and the app solves for the parameter value that produces exactly that size. Uniform *Scale %* is available too.
 
