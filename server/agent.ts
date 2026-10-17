@@ -194,9 +194,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Whether Claude has answered at all: then a failure is not a missing session, and starting over
   // in a new one would repeat the work (and could produce a second version).
   let gotOutput = false;
-  const run = async (resume?: string) => {
+  const run = async (resume?: string, recap?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
-      yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null };
+      // A fresh session after one that couldn't be continued starts with what was said before.
+      yield { type: 'user', message: { role: 'user', content: recap ? [{ type: 'text', text: recap }, ...content] : content }, parent_tool_use_id: null };
     }
     let finalText = '';
     const q = query({
@@ -350,12 +351,22 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   } catch (e) {
     if (abort.signal.aborted) return;
     const msg = (e as Error).message ?? String(e);
-    // Session may have been deleted – retry once without resuming.
-    if (req.sessionId && !gotOutput && /session|conversation/i.test(msg)) {
-      emit({ type: 'step', step: { kind: 'status', text: 'Previous session unavailable – starting a fresh one.' } });
-      await run(undefined);
+    // The session may be gone, or the API refuses its history (e.g. a session started on a Claude
+    // subscription, continued through another provider): retry once in a fresh session, with a
+    // recap of the conversation so Claude knows what came before.
+    if (req.sessionId && !gotOutput && /session|conversation|invalid .*request/i.test(msg)) {
+      emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
+      await run(undefined, recapOf(req.history));
     } else throw e;
   }
+}
+
+/** The earlier conversation as text for a fresh session (newest messages kept, each shortened). */
+function recapOf(history: GenerateRequest['history']): string | undefined {
+  const lines = (history ?? []).filter((h) => h.text.trim()).slice(-12)
+    .map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.text.replace(/\s+/g, ' ').trim().slice(0, 600)}`);
+  if (!lines.length) return undefined;
+  return `EARLIER CONVERSATION about this design (the previous session couldn't be continued, so here is what was said; model.js holds the current script):\n${lines.join('\n')}`;
 }
 
 function lastSentence(text: string) {

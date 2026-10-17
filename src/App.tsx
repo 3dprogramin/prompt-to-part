@@ -378,6 +378,8 @@ export default function App() {
         effort: chat.effort,
         webSearch: chat.webSearch,
         drawings: Object.keys(drawings).length ? drawings : undefined,
+        // In case the session can't be continued: what was said, for a fresh one.
+        history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));

@@ -34,6 +34,8 @@ export interface GenerateRequest {
   webSearch?: boolean;
   /** SVG drawings attached in the chat (name → drawing): model scripts use them with H.svg(name). */
   drawings?: Record<string, SvgDrawing>;
+  /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */
+  history?: { role: 'user' | 'assistant'; text: string }[];
 }
 
 /** Server-sent events of POST /api/generate. */
