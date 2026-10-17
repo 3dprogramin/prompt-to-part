@@ -14,7 +14,8 @@ test('the photo prompt keeps the object, its size and colours, and sets the scen
   const p = photoPrompt(request());
   assert.match(p, /Café coaster – Round coaster with raised lettering/);
   assert.match(p, /100 × 100 mm footprint and 5\.2 mm high/);
-  assert.match(p, /drinks coaster/, 'a familiar size for the scale');
+  assert.match(p, /drinks coaster/, "a familiar size for the scale");
+  assert.match(p, /true proportion/);
   assert.match(p, /exact colours of the render/);
   assert.match(p, /do not add, remove, move/);
   assert.match(p, /letter for letter/);
@@ -22,6 +23,7 @@ test('the photo prompt keeps the object, its size and colours, and sets the scen
   assert.match(p, /warm oak wooden table/);
   assert.match(p, /No text, captions, logos, watermarks/);
   assert.doesNotMatch(p, /Also:/);
+  assert.match(photoPrompt(request({ product: { name: 'x', size: [100, 100, 5], colors: ['#1f6f78', '#f2efe6'] } })), /filament colours #1f6f78, #f2efe6/);
   assert.doesNotMatch(p, /\n\n\n/);
 });
 
@@ -59,6 +61,7 @@ test('photo requests are checked', () => {
   assert.match(photoProblem(request({ aspect: '2:1' as PhotoRequest['aspect'] }))!, /aspect/);
   assert.match(photoProblem(request({ render: { mediaType: 'image/webp', data: 'x' } }))!, /PNG or JPEG/);
   assert.match(photoProblem(request({ product: { name: 'x', size: [1, 2, Infinity] } }))!, /size/);
+  assert.match(photoProblem(request({ product: { name: 'x', size: [1, 2, 3], colors: ['red'] } }))!, /colors/);
   assert.match(photoProblem(request({ product: { name: 'x'.repeat(300), size: [1, 2, 3] } }))!, /name/);
   assert.match(photoProblem(null as unknown as PhotoRequest)!, /render/);
 });

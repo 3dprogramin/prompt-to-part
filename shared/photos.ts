@@ -18,7 +18,7 @@ export interface PhotoScene {
 
 export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'table', label: 'Wooden table', icon: 'table', scene: 'on a warm oak wooden table in a bright, cosy home interior, softly blurred background, natural window light from the side' },
-  { id: 'wall', label: 'Living-room wall', icon: 'frame', wall: true, scene: 'hanging on a light painted wall in a modern, calm living room, mounted flat against the wall at eye level, with a hint of a sofa, a plant or a lamp blurred nearby, soft daylight' },
+  { id: 'wall', label: 'Living-room wall', icon: 'frame', wall: true, scene: 'hanging on a light painted wall in a calm, modern living room, mounted flat against the wall at eye level, with a plant, a lamp or a picture frame softly blurred nearby, soft daylight' },
   { id: 'kitchen', label: 'Kitchen counter', icon: 'cup', scene: 'on a clean kitchen counter (light stone or wood) in a bright modern kitchen, with a few kitchen things softly blurred in the background, morning light' },
   { id: 'office', label: 'Office desk', icon: 'desk', scene: 'on a tidy modern office desk with a laptop, a notebook and a pen softly blurred around it, daylight from a window' },
   { id: 'shelf', label: 'Shelf with plants', icon: 'plant', scene: 'on a wooden wall shelf styled with small potted green plants and a couple of books, Scandinavian look, soft natural light' },
@@ -65,6 +65,8 @@ export interface PhotoRequest {
     size: Vec3;
     /** The render shows a flat print face-on (it hangs on the wall). */
     faceOn?: boolean;
+    /** The filament colours of the parts shown (#rrggbb). */
+    colors?: string[];
   };
 }
 
@@ -91,6 +93,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (!p || typeof p.name !== 'string' || p.name.length > 200) return 'product.name: text up to 200 characters';
   if (p.description != null && (typeof p.description !== 'string' || p.description.length > 2000)) return 'product.description: text up to 2,000 characters';
   if (!Array.isArray(p.size) || p.size.length !== 3 || !p.size.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 10000)) return 'product.size: [x, y, z] in mm';
+  if (p.colors != null && (!Array.isArray(p.colors) || p.colors.length > 16 || !p.colors.every((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)))) return 'product.colors: up to 16 #rrggbb colours';
   return null;
 }
 
@@ -122,15 +125,18 @@ export function photoPrompt(b: PhotoRequest): string {
     'Turn the attached render into a photorealistic product photo of the real, 3D-printed object.',
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
-    `Real size: ${size} (${familiar(Math.max(x, y, faceOn ? 0 : z))}). Show it at exactly this scale relative to everything around it.`,
-    'It is printed in matte PLA plastic, in the exact colours of the render.',
+    `Real size: ${size} (${familiar(Math.max(x, y, faceOn ? 0 : z))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide), and frame the photo around it so it is not lost in the room.`,
+    b.product.colors?.length
+      ? `It is printed in matte PLA plastic, in the exact colours of the render: filament ${b.product.colors.length > 1 ? 'colours' : 'colour'} ${b.product.colors.join(', ')} (keep each as it is, light ones light, dark ones dark).`
+      : 'It is printed in matte PLA plastic, in the exact colours of the render.',
     '',
     'KEEP THE OBJECT EXACTLY AS IN THE RENDER – it is the real product the customer receives:',
     '- the same shape, outline, proportions and thickness; every hole, edge, cut-out, relief and detail in the same place',
-    '- the same colours on the same areas, and any text, letters, numbers or pattern on it exactly as shown, letter for letter',
+    '- the same colours on the same areas',
+    '- any text, numbers, logos or patterns on it copied exactly from the render: the same typeface, letter shapes, stroke widths, spacing and position, letter for letter (never retyped in another font)',
     '- do not add, remove, move, mirror, bend or redesign any part; add nothing to it (no hardware, cords, stands, labels or decorations that are not in the render)',
     wall
-      ? `- ${faceOn ? 'the render shows its front face; ' : ''}it hangs flat on the wall with this face to the viewer, upright, the way it is drawn in the render`
+      ? `- ${faceOn ? 'the render shows its front face; ' : ''}it hangs flat on the wall with this face to the viewer, upright, photographed from almost straight in front, so the face reads exactly as in the render`
       : '- keep it in the same orientation and seen from about the same angle as in the render, so no unseen side has to be invented',
     '- the grey background of the render is not part of the product: replace it completely with the scene',
     '',
@@ -140,6 +146,8 @@ export function photoPrompt(b: PhotoRequest): string {
     '- solid, opaque filament colours (no gloss, glass, metal or painted look)',
     '',
     `SCENE: ${preset ? preset.scene : notes}.`,
+    // A small sign alone on a wall reads as a big one: give it something of known size beside it.
+    wall && Math.max(x, y) < 350 ? 'It is a small piece for a wall: show a light switch, a door frame or a small framed picture near it so its real size is obvious, and photograph it from close by.' : null,
     preset && notes ? `Also: ${notes}.` : null,
     'It rests naturally in the scene with real contact shadows and light that matches the surroundings.',
     '',

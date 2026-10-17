@@ -112,7 +112,11 @@ export function PhotosPanel(p: Props) {
       scene: choice.scene,
       aspect,
       notes: choice.notes.trim() || undefined,
-      product: { name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn },
+      product: {
+        name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn,
+        // Per-vertex (HueForge) parts are many colours: the render shows them.
+        colors: [...new Set(parts.filter((x) => !x.vertexColors).map((x) => x.color.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
+      },
     });
   };
 
@@ -168,7 +172,7 @@ export function PhotosPanel(p: Props) {
       <button className="btn primary wide" disabled={!p.imageModel || !size} onClick={generate}>
         <Icon name="camera" size={14} /> Generate photo
       </button>
-      <div className="dim small ph-note">{p.imageModel ?? 'Image model'} · about $0.04 and 10–30 s each · the photo is made from a clean render of the model as shown (hidden parts stay hidden).</div>
+      <div className="dim small ph-note">{p.imageModel ?? 'Image model'} · about $0.04–0.07 and 10–30 s each · the photo is made from a clean render of the model as shown (hidden parts stay hidden).</div>
       {p.notAssembled && <div className="dim small">Tip: the photo shows the parts as laid out in the view – choose <b>Assembled</b> below the view for the finished object.</div>}
       {error && <div className="bad-note small" role="alert">{error}</div>}
 
