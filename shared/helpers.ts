@@ -4,6 +4,7 @@ import { layoutText, type TextLayoutOptions } from './text';
 import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
+import { hueforgeLayers, hueforgeMesh, resolveHfOptions, type HfImage, type HueforgeOptions, type HueforgePart, type HueforgeSetup } from './hueforge';
 
 const DEG = Math.PI / 180;
 
@@ -33,7 +34,13 @@ function checkPoints(pts: unknown, what: string, min = 3): Vec2[] {
   return pts as Vec2[];
 }
 
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}) {
+/** HueForge input from the design's values: its pictures and the user's filament setup. */
+export interface HueforgeInput {
+  images: Record<string, HfImage>;
+  setup: HueforgeSetup;
+}
+
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, hf: HueforgeInput = { images: {}, setup: {} }) {
   const { wasm } = rt;
   const M = rt.Manifold as any;
   const C = rt.CrossSection as any;
@@ -423,6 +430,26 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       const cs = drawingSection(d, height, opts.colors ?? defaultColors(d), C);
       if (!cs) throw new Error(`H.svg: "${name}" has no shape in the colours ${JSON.stringify(opts.colors ?? defaultColors(d))}`);
       return cs;
+    },
+
+    /**
+     * A HueForge-style filament painting of a picture the user attached: a flat relief `width` mm
+     * wide (bottom at z = 0, centred), whose height at each point sets how much light filament
+     * covers the dark ones below. Filaments and swap layers come from the user's side panel, else
+     * `opts.filaments` (default black and white) with automatic swaps. Return it as a part,
+     * `{ name: 'Picture', ...H.hueforge(...) }`: its layerColors colour the preview and its print
+     * settings (0.08 mm layers, 100 % infill) go with it.
+     */
+    hueforge(imageName: string, opts: HueforgeOptions): HueforgePart {
+      const image = hf.images[imageName];
+      if (!image) throw new Error(`H.hueforge: no picture named "${imageName}" (pictures: ${Object.keys(hf.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
+      const r = resolveHfOptions(opts, quality);
+      const layerColors = hueforgeLayers(image, opts, hf.setup, quality);
+      const { vertProperties, triVerts } = hueforgeMesh(image, layerColors, r);
+      const shape = new M(new wasm.Mesh({ numProp: 3, vertProperties, triVerts })) as Manifold;
+      const st = shape.status();
+      if (st !== 'NoError') throw new Error(`H.hueforge: the relief mesh is invalid (${st})`);
+      return { shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' } };
     },
 
     clamp(v: number, lo: number, hi: number): number { return Math.min(hi, Math.max(lo, v)); },
