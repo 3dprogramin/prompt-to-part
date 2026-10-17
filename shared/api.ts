@@ -113,6 +113,16 @@ export interface Capabilities {
   effort: string;
 }
 
+/** GET /api/connection: what Jig runs Claude on, and whether that service answers. */
+export interface Connection {
+  via: 'subscription' | 'openrouter' | 'anthropic' | 'custom' | 'none';
+  ok: boolean;
+  /** What was checked, or what is wrong. */
+  detail: string;
+  /** OpenRouter credit left, in USD (when the key may read it). */
+  credit?: number;
+}
+
 /** POST /api/designs/:id/meshes: an attached mesh file, imported and stored with the design. */
 export interface MeshUpload {
   /** A name from the file's (the app makes it unique in the design). */

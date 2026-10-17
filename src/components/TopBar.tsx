@@ -1,4 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { Connection } from '../../shared/api';
+import { api } from '../lib/api';
 import type { Design, DesignSummary } from '../../shared/types';
 import { Icon } from './Icon';
 import { DesignTabs, type DesignTab } from './DesignTabs';
@@ -68,6 +70,7 @@ export function TopBar(p: Props) {
           <Icon name="x" size={13} /> Close all
         </button>
       )}
+      <ConnectionChip />
       <button className="btn ghost" onClick={p.onNew}><Icon name="plus" size={14} /> New</button>
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
@@ -89,5 +92,36 @@ export function TopBar(p: Props) {
         )}
       </div>
     </header>
+  );
+}
+
+const VIA_LABEL: Record<Connection['via'], string> = {
+  subscription: 'Claude subscription',
+  openrouter: 'OpenRouter API',
+  anthropic: 'Anthropic API',
+  custom: 'Custom API',
+  none: 'No Claude access',
+};
+
+/** What Jig runs Claude on and whether it answers: checked on load, every 5 minutes, and on click. */
+function ConnectionChip() {
+  const [conn, setConn] = useState<Connection | null>(null);
+  const [checking, setChecking] = useState(true);
+  const check = (fresh: boolean) => {
+    setChecking(true);
+    api.connection(fresh).then(setConn, (e: Error) => setConn({ via: 'none', ok: false, detail: `Jig's server didn't answer: ${e.message}` })).finally(() => setChecking(false));
+  };
+  useEffect(() => {
+    check(false);
+    const t = setInterval(() => check(false), 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const state = checking && !conn ? 'checking' : conn?.ok ? 'ok' : 'bad';
+  const credit = conn?.credit != null ? ` · $${conn.credit.toFixed(2)}` : '';
+  return (
+    <button className={`conn-chip ${state}`} onClick={() => check(true)} disabled={checking}
+      title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'} Click to check again.`}>
+      <span className="conn-dot" /> {conn ? VIA_LABEL[conn.via] : 'Checking…'}{credit}
+    </button>
   );
 }

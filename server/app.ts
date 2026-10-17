@@ -25,6 +25,7 @@ import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './mes
 import { freeMeshName, MAX_MESHES, MESH_NAME } from '../shared/meshes';
 import { meshFormat } from '../shared/meshFormats';
 import { meshyAvailable } from './meshy';
+import { checkConnection } from './connection';
 import type { MeshUpload } from '../shared/api';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -284,6 +285,10 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
     res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort() } satisfies Capabilities);
+  });
+
+  app.get('/api/connection', async (req, res) => {
+    res.json(await checkConnection(req.query.fresh === '1'));
   });
 
   // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream

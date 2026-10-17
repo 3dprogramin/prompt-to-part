@@ -298,6 +298,8 @@ Jig needs an API key for Claude. The simplest is OpenRouter: set `OPENROUTER_API
 
 `JIG_AUTH=subscription` makes Jig use the Claude account the `claude` CLI is logged in with (`claude` → `/login`), or the token in `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`; see [Docker](#docker)), instead of a key. That is meant only for running Jig yourself, on your own computer, with your own account. Anthropic's terms do not allow third-party developers to offer claude.ai login, or to route requests through Free, Pro or Max plan credentials on behalf of their users, without approval. See the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview) and [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance). If you share or host Jig for other people, use API keys.
 
+The chip in the top bar shows what Jig runs Claude on (*Claude subscription*, *OpenRouter API*, *Anthropic API* or *Custom API*) with a green dot when that service answers and a red one when it doesn't (hover for why). For OpenRouter it also shows the credit left. It checks on load and every 5 minutes, and clicking it checks again; no check spends model usage.
+
 ## License
 
 Copyright (C) 2026 3dprogramin.

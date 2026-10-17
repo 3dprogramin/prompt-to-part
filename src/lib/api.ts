@@ -1,5 +1,5 @@
 import type { Design, DesignSummary } from '../../shared/types';
-import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { AgentEvent, BambuTemplate, Capabilities, Connection, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { HfFilament } from '../../shared/hueforge';
@@ -91,6 +91,7 @@ export const api = {
     await request(`/api/designs/${id}`, { method: 'DELETE' });
   },
   capabilities: () => getJson<Capabilities>('/api/capabilities'),
+  connection: (fresh = false) => getJson<Connection>(`/api/connection${fresh ? '?fresh=1' : ''}`),
   /** The Bambu Studio project template (built from the user's Bambu Studio the first time: minutes). */
   bambuTemplate: () => getJson<BambuTemplate>('/api/bambu/template', { method: 'POST' }),
   costSettings: () => getJson<CostSettings>('/api/cost/settings'),
