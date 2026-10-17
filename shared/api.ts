@@ -2,6 +2,7 @@
 // two can't drift apart.
 import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
+import type { SvgDrawing } from './svgFeatures';
 import type { PrintSettings } from './print';
 
 /** A base64 image as sent to Claude. */
@@ -31,6 +32,8 @@ export interface GenerateRequest {
   versionNote?: string;
   /** Let Claude use WebSearch / WebFetch (on by default; the user can turn it off per design). */
   webSearch?: boolean;
+  /** SVG drawings attached in the chat (name → drawing): model scripts use them with H.svg(name). */
+  drawings?: Record<string, SvgDrawing>;
 }
 
 /** Server-sent events of POST /api/generate. */

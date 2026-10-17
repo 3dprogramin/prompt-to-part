@@ -4,6 +4,7 @@ import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import type { AgentEvent } from '../shared/api';
+import type { ParamValues } from '../shared/types';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
 
 const sourcesSchema = z.array(z.object({
@@ -21,7 +22,9 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * Claude got a model accepted. `opened` holds the pages Claude read (pageKey), so a source can be
  * marked as actually opened.
  */
-export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set()) {
+export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}) {
+  // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
+  const v = (values?: ParamValues) => ({ ...base, ...values });
   const state = { submitted: false };
   const readModel = async () => {
     try { return await readFile(file, 'utf8'); } catch { return null; }
@@ -38,7 +41,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         const code = await readModel();
         if (code == null) return noFile;
         try {
-          const r = await geometry.evaluate(code, values);
+          const r = await geometry.evaluate(code, v(values));
           const report = formatReport(r);
           emit({ type: 'step', step: { kind: 'tool', ok: r.ok, text: r.ok ? oneLine(r) : `Error: ${r.error.message}${r.error.line ? ` (line ${r.error.line})` : ''}` } });
           return { content: [{ type: 'text', text: report }], isError: !r.ok };
@@ -51,7 +54,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         const code = await readModel();
         if (code == null) return noFile;
         try {
-          const r = await geometry.render(code, values);
+          const r = await geometry.render(code, v(values));
           if (!r.ok || !r.png) {
             const report = formatReport(r);
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: r.ok ? 'Nothing to render' : `Error: ${r.error.message}` } });
@@ -97,12 +100,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           };
         }
         try {
-          const r = await geometry.evaluate(code);
+          const r = await geometry.evaluate(code, v());
           if (!r.ok || !r.parts.length) {
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: defaults fail' } });
             return { content: [{ type: 'text', text: `Rejected – the default parameters do not produce a valid model:\n${formatReport(r)}` }], isError: true };
           }
-          const s = await geometry.stress(code);
+          const s = await geometry.stress(code, base);
           if (s.failures.length && !force) {
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Stress test: ${s.failures.length} slider extreme(s) fail` } });
             return {
@@ -126,7 +129,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
               if (v && !def.options.some((o) => o.value === v)) return reject(`"${v}" is not an option of "${assembly.layoutParam}" (${def.options.map((o) => o.value).join(', ')}).`);
             }
             // The animated assembly needs a sequence returned from build() in the assembled layout.
-            const asm = await geometry.evaluate(code, { [assembly.layoutParam]: assembly.assembledValue });
+            const asm = await geometry.evaluate(code, v({ [assembly.layoutParam]: assembly.assembledValue }));
             if (!asm.ok) return reject(`The assembled layout fails: ${asm.error.message}`);
             if (!asm.assembly.length) {
               return reject('build() must also return an assembly sequence – assembly: [{ label, parts: [partNames], from?: [dx,dy,dz], rotate?: { axis, degrees, center? } }, …] – so the user can watch it being put together. Parts that never appear in a step are the base (already in place).');
@@ -136,7 +139,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
             const shots: [string, string | undefined][] = [['Assembled', assembly.assembledValue], ['Exploded view', assembly.explodedValue]];
             for (const [label, value] of shots) {
               if (!value) continue;
-              const shot = await geometry.iso(code, { [assembly.layoutParam]: value });
+              const shot = await geometry.iso(code, v({ [assembly.layoutParam]: value }));
               if (!shot.ok || !shot.png) return reject(`Rendering the ${label.toLowerCase()} layout failed: ${shot.ok ? 'no geometry' : shot.error.message}`);
               pictures.push({ label, png: shot.png });
             }

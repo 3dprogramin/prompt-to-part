@@ -1,7 +1,7 @@
 import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
-import { SVG_KEY } from '../../shared/svgFeatures';
+import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
 import { PRINT_KEY } from '../../shared/print';
 
 type Params = EvalResult['params'];
@@ -10,7 +10,8 @@ type Params = EvalResult['params'];
 function effective(values: ParamValues, params: Params): ParamValues {
   const out: ParamValues = {};
   for (const [k, v] of Object.entries(values)) {
-    if (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$')) continue;
+    // Attached drawings come with chat messages; they aren't settings to save as a version.
+    if (k === DRAWINGS_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
     out[k] = v;
   }
   return out;
@@ -33,6 +34,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === SCALE_KEY) return `Scale ${Math.round(Number(v ?? 1) * 100)} %`;
     if (k === TEXT_KEY) return 'text';
     if (k === SVG_KEY) return 'SVG';
+    if (k === DRAWINGS_KEY) return 'attached drawings';
     if (k === PRINT_KEY) return 'print settings';
     const d = params[k];
     return `${d?.label ?? k} ${fmt(v, d)}`;

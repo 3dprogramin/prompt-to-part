@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentStep, ChatMessage, DesignVersion } from '../../shared/types';
-import { prepareImage } from '../lib/files';
+import { isSvg, prepareImage } from '../lib/files';
+import { importSvg } from '../lib/svg';
+import type { SvgDrawing } from '../../shared/svgFeatures';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
@@ -18,7 +20,8 @@ interface Props {
   generating: boolean;
   /** Another browser tab is generating this design. */
   busyElsewhere: boolean;
-  onSend: (text: string, images: string[]) => void;
+  /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg). */
+  onSend: (text: string, images: string[], drawings: SvgDrawing[]) => void;
   onStop: () => void;
   onRestore: (versionIndex: number) => void;
   model: string;
@@ -79,15 +82,33 @@ export function ChatPanel(p: Props) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [p.designId]);
 
+  // SVG attachments also bring their exact shapes (keyed by their picture), for Claude's H.svg.
+  const [svgShapes, setSvgShapes] = useState<Record<string, SvgDrawing>>({});
+  const [attachError, setAttachError] = useState<string | null>(null);
   const addFiles = async (files: Iterable<File>) => {
-    const imgs = [...files].filter((f) => f.type.startsWith('image/'));
-    const urls = await Promise.all(imgs.map((f) => prepareImage(f).catch(() => null)));
-    setImages((prev) => [...prev, ...urls.filter((u): u is string => !!u)].slice(0, 8));
+    const imgs = [...files].filter((f) => f.type.startsWith('image/') || isSvg(f));
+    setAttachError(null);
+    const added = await Promise.all(imgs.map(async (f) => {
+      const url = await prepareImage(f).catch(() => null);
+      if (!url) { setAttachError(`${f.name} could not be read as a picture.`); return null; }
+      if (!isSvg(f)) return { url };
+      try {
+        return { url, drawing: importSvg(await f.text(), f.name).drawing };
+      } catch (e) {
+        // Still sent as a picture; Claude just doesn't get the exact shapes.
+        setAttachError(`${f.name}: ${(e as Error).message} It is attached as a picture only.`);
+        return { url };
+      }
+    }));
+    const ok = added.filter((a): a is { url: string; drawing?: SvgDrawing } => !!a);
+    setImages((prev) => [...prev, ...ok.map((a) => a.url)].slice(0, 8));
+    setSvgShapes((prev) => ({ ...prev, ...Object.fromEntries(ok.filter((a) => a.drawing).map((a) => [a.url, a.drawing!])) }));
   };
 
   const send = (message = text) => {
     if (p.generating || p.busyElsewhere || (!message.trim() && !images.length)) return;
-    p.onSend(message.trim(), images);
+    p.onSend(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])));
+    setSvgShapes({});
     setText('');
     setImages([]);
   };
@@ -167,11 +188,13 @@ export function ChatPanel(p: Props) {
       </div>
 
       <div className="composer">
+        {attachError && <div className="bad-note small" role="alert">{attachError}</div>}
         {images.length > 0 && (
           <div className="attachments">
             {images.map((src, i) => (
-              <div key={i} className="thumb">
-                <img src={src} alt={`Attached photo ${i + 1}`} />
+              <div key={i} className={`thumb ${svgShapes[src] ? 'svg' : ''}`} title={svgShapes[src] ? `${svgShapes[src].name}: Claude also gets its exact shapes` : undefined}>
+                <img src={src} alt={svgShapes[src] ? `Attached drawing ${svgShapes[src].name}` : `Attached photo ${i + 1}`} />
+                {svgShapes[src] && <span className="thumb-tag">SVG</span>}
                 <button onClick={() => setImages(images.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`}><Icon name="x" size={12} /></button>
               </div>
             ))}
@@ -196,7 +219,7 @@ export function ChatPanel(p: Props) {
         />
         <div className="composer-bar">
           <button className="icon-btn" title="Attach reference photos" aria-label="Attach reference photos" onClick={() => fileInput.current?.click()}><Icon name="image" /></button>
-          <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
+          <input ref={fileInput} type="file" accept="image/*,.svg" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
           <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
             <option value="opus">Opus</option>
             <option value="sonnet">Sonnet</option>

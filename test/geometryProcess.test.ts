@@ -21,3 +21,11 @@ test('the stress test finds the slider value that breaks the model', async () =>
   const s = await geometry.stress('const params = { w: { value: 20, min: 5, max: 50 } };\nfunction build(p) { if (p.w > 40) throw new Error("too wide"); return Manifold.cube([p.w, 1, 1]); }');
   assert.ok(s.failures.some((f) => f.case === 'w=50'), JSON.stringify(s.failures));
 });
+
+test('attached drawings reach the geometry process', async () => {
+  const drawing = { name: 'sq.svg', aspect: 1, shapes: [{ rule: 'NonZero', contours: [[[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]] }] };
+  const r = await geometry.evaluate("function build() { return H.svg('sq.svg', { height: 10 }).extrude(2); }", { $drawings: JSON.stringify({ 'sq.svg': drawing }) });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.match(formatReport(r), /10\.00 × 10\.00 × 2\.00 mm/);
+});
+

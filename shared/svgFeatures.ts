@@ -5,6 +5,10 @@ import { placeOnSurface, type SurfacePlacement } from './textFeatures';
 import type { Vec2 } from './types';
 
 export const SVG_KEY = '$svg';
+/** SVG drawings attached in the chat, by file name: model scripts use them with H.svg(name). */
+export const DRAWINGS_KEY = '$drawings';
+/** At most this many attached drawings per design. */
+export const MAX_DRAWINGS = 12;
 
 /** Filled shapes of an imported SVG, flattened to polygons: centred on (0, 0), y up, 1 unit high. */
 export interface SvgDrawing {
@@ -89,22 +93,50 @@ export function parseSvgFeatures(raw: unknown): SvgFeature[] {
   }
 }
 
+/**
+ * A drawing as one flat shape, `height` units high, centred on the origin with y up. Painted in
+ * order, each element with its own fill rule: the chosen colours (undefined = all) add to the
+ * shape, any other colour painted on top cuts it away. Null if nothing is left.
+ */
+export function drawingSection(d: SvgDrawing, height: number, colors: string[] | undefined, C: typeof CrossSection): CrossSection | null {
+  const chosen = colors ? new Set(colors) : null;
+  let cs: CrossSection | null = null;
+  for (const sh of d.shapes) {
+    const part = new C(sh.contours.map((c) => c.map(([x, y]) => [x * height, y * height] as Vec2)), sh.rule);
+    if (!chosen || chosen.has(sh.color ?? '')) cs = cs ? cs.add(part) : part;
+    else if (cs) cs = cs.subtract(part);
+  }
+  return cs && !cs.isEmpty() ? cs : null;
+}
+
 /** Applies the SVG features to `shape` (one part); `base` is the part's box before any text or SVG. */
 export function applySvgFeatures(shape: Manifold, features: SvgFeature[], C: typeof CrossSection, base = shape.boundingBox()): Manifold {
   let out = shape;
   for (const f of features) {
     if (!f.enabled || !(f.size > 0) || !(f.depth > 0)) continue;
-    const k = f.size;
-    // Painted in order, each element with its own fill rule: the chosen colours add to the shape,
-    // any other colour painted on top cuts it away.
-    const chosen = f.colors ? new Set(f.colors) : null;
-    let cs: CrossSection | null = null;
-    for (const sh of f.drawing.shapes) {
-      const part = new C(sh.contours.map((c) => c.map(([x, y]) => [x * k, y * k] as Vec2)), sh.rule);
-      if (!chosen || chosen.has(sh.color ?? '')) cs = cs ? cs.add(part) : part;
-      else if (cs) cs = cs.subtract(part);
-    }
-    if (cs && !cs.isEmpty()) out = placeOnSurface(out, base, f, cs);
+    const cs = drawingSection(f.drawing, f.size, f.colors, C);
+    if (cs) out = placeOnSurface(out, base, f, cs);
   }
   return out;
+}
+
+/** Attached drawings from saved JSON (name → drawing), checked. */
+export function parseDrawings(raw: unknown): Record<string, SvgDrawing> {
+  let o: unknown = raw;
+  if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch { return {}; } }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+  const out: Record<string, SvgDrawing> = {};
+  for (const [name, d] of Object.entries(o).slice(0, MAX_DRAWINGS)) {
+    const clean = cleanDrawing(d);
+    if (clean) out[name.slice(0, 120)] = { ...clean, name: name.slice(0, 120) };
+  }
+  return out;
+}
+
+/** One line per attached drawing for Claude: name, proportions and colours in paint order. */
+export function describeDrawings(drawings: Record<string, SvgDrawing>): string {
+  return Object.values(drawings).map((d) => {
+    const colours = drawingColors(d).map((c) => `${c || 'unset'} (${d.shapes.filter((s) => (s.color ?? '') === c).length} shape${d.shapes.filter((s) => (s.color ?? '') === c).length > 1 ? 's' : ''})`);
+    return `"${d.name}": width/height ${d.aspect.toFixed(2)}, colours in paint order: ${colours.join(', ')}; raised by default: ${(defaultColors(d) ?? drawingColors(d)).join(', ') || 'all'}`;
+  }).join('\n');
 }

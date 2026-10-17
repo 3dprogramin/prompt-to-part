@@ -10,6 +10,7 @@ import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { DATA_DIR, USE_API_KEY } from './config';
 import { pageKey } from '../shared/sources';
+import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
 
@@ -130,7 +131,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 
   // Pages Claude actually read in this generation (WebFetch calls Jig allowed), by pageKey().
   const opened = new Set<string>();
-  const { server: cad, state } = cadTools(file, emit, opened);
+  // Drawings attached in the chat: every check and render of the script can use them (H.svg).
+  const drawings = parseDrawings(req.drawings);
+  const { server: cad, state } = cadTools(file, emit, opened, Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {});
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
 
@@ -178,6 +181,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
   if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
+  if (Object.keys(drawings).length) parts.push(`SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
   parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
 import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
-import { parseSvgFeatures, SVG_KEY, type SvgFeature } from '../shared/svgFeatures';
+import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
@@ -287,14 +287,19 @@ export default function App() {
   // Re-fit the camera only when a new script version arrives.
   const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
 
-  const onSend = async (text: string, images: string[]) => {
+  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = []) => {
     const now = Date.now();
     const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, createdAt: now };
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
     const designId = design.id;
     // For follow-ups, capture exactly what the user is looking at before the chat changes anything.
     const current = followUpContext();
-    setDesign((d) => ({ ...d, messages: [...d.messages, userMsg, asst], updatedAt: now }));
+    // Attached SVG drawings are kept with the design, so scripts can use them (H.svg) everywhere.
+    const drawings = withDrawings(parseDrawings(design.values[DRAWINGS_KEY]), attached);
+    setDesign((d) => ({
+      ...d, messages: [...d.messages, userMsg, asst], updatedAt: now,
+      values: attached.length ? { ...d.values, [DRAWINGS_KEY]: JSON.stringify(drawings) } : d.values,
+    }));
     // Updates always go to the design this generation belongs to, even if another one is open by now.
     const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
     const patchAsst = (fn: (m: ChatMessage) => ChatMessage) =>
@@ -316,6 +321,7 @@ export default function App() {
         model: chat.model,
         effort: chat.effort,
         webSearch: chat.webSearch,
+        drawings: Object.keys(drawings).length ? drawings : undefined,
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
@@ -815,6 +821,18 @@ export default function App() {
 /** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */
 function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
+}
+
+/** `known` plus newly attached drawings; a different drawing with a name in use gets "-2", "-3"… */
+function withDrawings(known: Record<string, SvgDrawing>, attached: SvgDrawing[]): Record<string, SvgDrawing> {
+  const out = { ...known };
+  for (const d of attached) {
+    let name = d.name, n = 2;
+    while (out[name] && JSON.stringify(out[name].shapes) !== JSON.stringify(d.shapes)) name = d.name.replace(/(\.svg)?$/i, `-${n++}$1`);
+    out[name] = { ...d, name };
+  }
+  // The newest ones are kept when there are too many.
+  return Object.fromEntries(Object.entries(out).slice(-MAX_DRAWINGS));
 }
 
 function describeSvg(features: SvgFeature[]): string | undefined {

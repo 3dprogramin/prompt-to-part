@@ -331,6 +331,7 @@ function generateProblem(b: GenerateRequest): string | null {
   if (b.code != null && typeof b.code !== 'string') return 'bad code';
   if (b.sessionId != null && !/^[\w-]{1,100}$/.test(b.sessionId)) return 'bad sessionId';
   for (const v of [b.values, b.renderValues]) if (v != null && (typeof v !== 'object' || Array.isArray(v))) return 'bad values';
+  if (b.drawings != null && (typeof b.drawings !== 'object' || Array.isArray(b.drawings))) return 'bad drawings';
   return null;
 }
 

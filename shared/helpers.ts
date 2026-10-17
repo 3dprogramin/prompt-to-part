@@ -3,6 +3,7 @@ import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { layoutText, type TextLayoutOptions } from './text';
 import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
+import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
 
 const DEG = Math.PI / 180;
 
@@ -32,7 +33,7 @@ function checkPoints(pts: unknown, what: string, min = 3): Vec2[] {
   return pts as Vec2[];
 }
 
-export function makeHelpers(rt: HelperRuntime, quality: Quality) {
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}) {
   const { wasm } = rt;
   const M = rt.Manifold as any;
   const C = rt.CrossSection as any;
@@ -406,6 +407,22 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality) {
         v[0] = r * Math.cos(th);
         v[1] = r * Math.sin(th);
       });
+    },
+
+    /**
+     * An SVG drawing the user attached in the chat, as a flat CrossSection centred on the origin
+     * (y up), `height` mm high (default 20; the width keeps the proportions). `colors`: the fill
+     * colours that make the shape (default: all but white-ish ones); colours painted on top of
+     * them cut through, as in the drawing.
+     */
+    svg(name: string, opts: { height?: number; colors?: string[] } = {}): CrossSection {
+      const d = drawings[name];
+      if (!d) throw new Error(`H.svg: no attached drawing named "${name}" (attached: ${Object.keys(drawings).map((n) => `"${n}"`).join(', ') || 'none'})`);
+      const height = opts.height ?? 20;
+      if (!(height > 0)) throw new Error('H.svg: height must be > 0');
+      const cs = drawingSection(d, height, opts.colors ?? defaultColors(d), C);
+      if (!cs) throw new Error(`H.svg: "${name}" has no shape in the colours ${JSON.stringify(opts.colors ?? defaultColors(d))}`);
+      return cs;
     },
 
     clamp(v: number, lo: number, hi: number): number { return Math.min(hi, Math.max(lo, v)); },

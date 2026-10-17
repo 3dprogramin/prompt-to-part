@@ -144,7 +144,8 @@ export const geometry = {
   evaluate: (code: string, values?: ParamValues, quality: Quality = 'normal') =>
     call<EvalSummary | EvalFailure>({ cmd: 'evaluate', code, values, quality }, 30000),
   render: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'render', code, values }, 45000),
-  stress: (code: string) => call<StressResult>({ cmd: 'stress', code, budgetMs: 20000 }, 40000),
+  /** `extra`: values every case starts from (attached drawings). */
+  stress: (code: string, extra?: ParamValues) => call<StressResult>({ cmd: 'stress', code, budgetMs: 20000, extra }, 40000),
   /** One large iso picture (used for assembled / exploded views). */
   iso: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'iso', code, values }, 45000),
   warmup: () => { getWorker(); },

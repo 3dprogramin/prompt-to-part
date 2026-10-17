@@ -6,7 +6,7 @@ import { compile, locate, ScriptError } from './compile';
 import { makeHelpers } from './helpers';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
-import { applySvgFeatures, parseSvgFeatures, SVG_KEY } from './svgFeatures';
+import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanProfile } from './print';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
@@ -276,7 +276,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   takeFontSubstitutions();
   heapAtStart = heapSize();
   try {
-    const H = makeHelpers(rt, quality);
+    const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]));
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));

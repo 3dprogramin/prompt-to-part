@@ -608,3 +608,6 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .svg-colours { display: flex; flex-wrap: wrap; gap: 6px; }
 .svg-colours .chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; }
 .svg-colours .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line-2); }
+
+.thumb { position: relative; }
+.thumb-tag { position: absolute; left: 3px; bottom: 3px; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; background: #191b1fd9; color: var(--accent-2); border-radius: 3px; padding: 0 3px; }

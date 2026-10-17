@@ -112,7 +112,7 @@ async function run(code: string, values: ParamValues | undefined, quality: Quali
 type Req =
   | { id: number; cmd: 'evaluate'; code: string; values?: ParamValues; quality?: Quality }
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
-  | { id: number; cmd: 'stress'; code: string; budgetMs?: number }
+  | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues };
 
 type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
@@ -146,7 +146,7 @@ process.on('message', async (req: Req | FontReply) => {
       const png = result && result.parts.length ? renderIso(result.parts).png.toString('base64') : undefined;
       post({ data: { ...out, png } });
     } else if (req.cmd === 'stress') {
-      post({ data: await stress(req.code, req.budgetMs ?? 20000) });
+      post({ data: await stress(req.code, req.budgetMs ?? 20000, req.extra) });
     }
   } catch (e) {
     post({ error: (e as Error).message });
@@ -154,7 +154,7 @@ process.on('message', async (req: Req | FontReply) => {
 });
 
 /** Evaluate the script across parameter extremes so sliders never break the model. */
-async function stress(code: string, budgetMs: number) {
+async function stress(code: string, budgetMs: number, extra: ParamValues = {}) {
   const t0 = performance.now();
   let params;
   try {
@@ -182,7 +182,7 @@ async function stress(code: string, budgetMs: number) {
   for (const c of cases) {
     if (performance.now() - t0 > budgetMs || runtimeTrapped()) break;
     tested++;
-    const { out } = await run(code, c.values, 'draft');
+    const { out } = await run(code, { ...extra, ...c.values }, 'draft');
     if (!out.ok) failures.push({ case: c.label, error: `${out.error.message}${out.error.line ? ` (line ${out.error.line})` : ''}` });
     else if (!out.parts.length) failures.push({ case: c.label, error: 'produced no geometry (all parts empty)' });
   }

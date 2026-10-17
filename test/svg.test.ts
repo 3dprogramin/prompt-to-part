@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { flattenPath, parseTransform } from '../src/lib/svg';
 import { evaluateScript } from '../shared/runtime';
-import { defaultColors, newSvgFeature, parseSvgFeatures, SVG_KEY, type SvgDrawing } from '../shared/svgFeatures';
+import { defaultColors, DRAWINGS_KEY, newSvgFeature, parseSvgFeatures, SVG_KEY, type SvgDrawing } from '../shared/svgFeatures';
 
 const area = (c: [number, number][]) => Math.abs(c.reduce((s, [x, y], i) => { const [x2, y2] = c[(i + 1) % c.length]; return s + x * y2 - x2 * y; }, 0)) / 2;
 
@@ -68,5 +68,13 @@ test('colours painted on top cut through the chosen ones', () => {
   assert.ok(Math.abs(vol(['#f40009']) - 300) < 1);   // the red with the white cut out
   assert.ok(Math.abs(vol(['#ffffff']) - 100) < 1);   // only the white
   assert.ok(Math.abs(vol(undefined) - 400) < 1);     // everything: a solid square
+});
+
+test('scripts use attached drawings with H.svg', () => {
+  const values = { [DRAWINGS_KEY]: JSON.stringify({ 'cap.svg': cap }) };
+  const vol = (call: string) => evaluateScript(`function build() { return ${call}.extrude(1); }`, values, 'draft').parts[0].volume;
+  assert.ok(Math.abs(vol("H.svg('cap.svg', { height: 20 })") - 300) < 1);   // default: red, white cut out
+  assert.ok(Math.abs(vol("H.svg('cap.svg', { height: 20, colors: ['#ffffff'] })") - 100) < 1);
+  assert.throws(() => evaluateScript("function build() { return H.svg('logo.svg').extrude(1); }", values, 'draft'), /no attached drawing named "logo.svg" \(attached: "cap.svg"\)/);
 });
 
