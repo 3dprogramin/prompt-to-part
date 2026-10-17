@@ -85,9 +85,11 @@ export interface FilamentPlan {
 
 /**
  * The project's filaments and the HueForge filament changes, on the print's layers. A change at
- * height z starts with the first layer whose bottom is at or above z (the HueForge part's own
- * heights match the print's layers when it is printed with its layer heights). Filaments beyond the
- * AMS's four reuse the slot of one that is done, with a pause before they start.
+ * height z starts with the layer whose bottom is nearest to z: z rather than LayerColor.layer, as z
+ * follows the part (scaled with $scale, like the relief and the viewer's colours) and the layer
+ * index only fits the heights the part was made with. At the part's own layer heights the two
+ * agree. Filaments beyond the AMS's four reuse the slot of one that is done, with a pause before
+ * they start.
  */
 export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; firstLayerHeight: number }): FilamentPlan {
   const filaments: FilamentPlan['filaments'] = [];
@@ -96,10 +98,10 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
     if (i < 0) i = filaments.push(name ? { colour, name } : { colour }) - 1;
     return i + 1;
   };
-  const h = layers.layerHeight, first = layers.firstLayerHeight, eps = 1e-3;
+  const h = layers.layerHeight, first = layers.firstLayerHeight, eps = 1e-6;
   const bottom = (i: number) => (i === 0 ? 0 : first + (i - 1) * h);
-  /** The first layer whose bottom is at or above z. */
-  const layerAt = (z: number) => (z <= eps ? 0 : Math.max(1, Math.ceil((z - first) / h - eps) + 1));
+  /** The layer whose bottom is nearest to z (the end of a part: the first layer above it). */
+  const layerAt = (z: number) => (z < first / 2 ? 0 : Math.max(1, Math.round((z - first) / h + eps) + 1));
   const used: [number, number][][] = []; // per filament: [first, last] layer ranges
   const use = (f: number, from: number, to: number) => { if (to >= from) (used[f - 1] ??= []).push([from, to]); };
   const floor = Math.min(...parts.map((p) => p.bbox.min[2]));
