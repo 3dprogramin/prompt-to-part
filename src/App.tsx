@@ -109,21 +109,31 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState<boolean>(() => load('leftOpen', true));
   const [rightOpen, setRightOpen] = useState<boolean>(() => load('rightOpen', true));
   useEffect(() => store('leftOpen', leftOpen), [leftOpen]);
-  // Sidebar widths: dragged at their inner edges, remembered; a double-click goes back to the default.
+  // Sidebar widths: dragged at their inner edges; only a width the user dragged is remembered, so a
+  // better default still reaches everyone else. A double-click goes back to the default. The chat's
+  // default fits the whole composer bar on one row.
   const narrow = window.innerWidth <= 1100;
-  const DEFAULT_W = { left: narrow ? 300 : 360, right: narrow ? 280 : 320 };
-  const [widths, setWidths] = useState<{ left: number; right: number }>(() => ({ ...DEFAULT_W, ...load<Partial<{ left: number; right: number }>>('sidebarWidths', {}) }));
-  useEffect(() => store('sidebarWidths', widths), [widths]);
+  const DEFAULT_W = { left: narrow ? 300 : 440, right: narrow ? 280 : 320 };
+  const [userWidths, setUserWidths] = useState<Partial<{ left: number; right: number }>>(() => {
+    const saved = load<Partial<{ left: number; right: number }> | null>('sidebarWidthsUser', null);
+    if (saved) return saved;
+    // Earlier versions saved every width, defaults (360/320) included: keep only widths that were dragged.
+    const old = load<Partial<{ left: number; right: number }>>('sidebarWidths', {});
+    return { ...(old.left && old.left !== 360 ? { left: old.left } : {}), ...(old.right && old.right !== 320 ? { right: old.right } : {}) };
+  });
+  useEffect(() => store('sidebarWidthsUser', userWidths), [userWidths]);
+  const widths = { ...DEFAULT_W, ...userWidths };
   const workspace = useRef<HTMLElement>(null);
   const resize = (side: 'left' | 'right') => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const box = workspace.current!.getBoundingClientRect();
-    const onMove = (ev: PointerEvent) => setWidths((w) => {
+    const onMove = (ev: PointerEvent) => setUserWidths((u) => {
       // Each sidebar 240–700 px, and the 3D view keeps at least 320 px.
+      const w = { ...DEFAULT_W, ...u };
       const other = side === 'left' ? (rightOpen ? w.right : 0) : (leftOpen ? w.left : 0);
       const want = side === 'left' ? ev.clientX - box.left : box.right - ev.clientX;
-      return { ...w, [side]: Math.round(Math.max(240, Math.min(700, box.width - other - 320, want))) };
+      return { ...u, [side]: Math.round(Math.max(240, Math.min(700, box.width - other - 320, want))) };
     });
     const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); document.body.classList.remove('resizing'); };
     window.addEventListener('pointermove', onMove);
@@ -907,8 +917,8 @@ export default function App() {
       />
       <main ref={workspace} className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
         style={{ '--left-w': `${widths.left}px`, '--right-w': `${widths.right}px` } as React.CSSProperties}>
-        {leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setWidths((w) => ({ ...w, left: DEFAULT_W.left }))} />}
-        {rightOpen && <div className="sidebar-resize right" role="separator" aria-orientation="vertical" aria-label="Resize the parameters sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('right')} onDoubleClick={() => setWidths((w) => ({ ...w, right: DEFAULT_W.right }))} />}
+        {leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setUserWidths(({ left: _l, ...u }) => u)} />}
+        {rightOpen && <div className="sidebar-resize right" role="separator" aria-orientation="vertical" aria-label="Resize the parameters sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('right')} onDoubleClick={() => setUserWidths(({ right: _r, ...u }) => u)} />}
         <ChatPanel
           designId={design.id}
           messages={design.messages}
