@@ -80,6 +80,11 @@ function findUndeclared(ast: Node): { name: string; line: number; column: number
   return { name: bad.name as string, line: loc.start.line, column: loc.start.column + 1 };
 }
 
+/** The compartment's global names that can be plain parameters (not eval, which strict code can't rebind). */
+function compartmentGlobals(c: Compartment): string[] {
+  return Object.getOwnPropertyNames(c.globalThis).filter((n) => /^[A-Za-z_$][\w$]*$/.test(n) && n !== 'eval' && n !== 'arguments');
+}
+
 /** Compiles a model script inside an SES Compartment (see shared/sandbox.ts); never outside one. */
 export function compile(code: string): Compiled {
   const hit = compileCache.get(code);
@@ -98,8 +103,14 @@ export function compile(code: string): Compiled {
   }
   let fn: Compiled;
   try {
-    const src = `(function (Manifold, CrossSection, H, quality, console) {\n"use strict";\n${code}\n;return { meta: typeof meta !== "undefined" ? meta : {}, params: typeof params !== "undefined" ? params : {}, build: typeof build === "function" ? build : undefined };\n})\n//# sourceURL=model.js\n`;
-    fn = new Compartment({ __options__: true, name: 'model.js' }).evaluate(src) as Compiled;
+    // The compartment's globals (Math, Number, …) come in as parameters of an outer function, so a
+    // script reads them as closure variables instead of looking each one up through the
+    // compartment's with-scopes: an SDF script calling Math.* per vertex was ~8× slower that way.
+    const compartment = new Compartment({ __options__: true, name: 'model.js' });
+    const globals = compartmentGlobals(compartment);
+    const src = `(function (${globals.join(', ')}) { return function (Manifold, CrossSection, H, quality, console) {\n"use strict";\n${code}\n;return { meta: typeof meta !== "undefined" ? meta : {}, params: typeof params !== "undefined" ? params : {}, build: typeof build === "function" ? build : undefined };\n}; })\n//# sourceURL=model.js\n`;
+    const outer = compartment.evaluate(src) as (...g: unknown[]) => Compiled;
+    fn = outer(...globals.map((g) => (compartment.globalThis as Record<string, unknown>)[g]));
   } catch (e) {
     throw new ScriptError({ message: `Syntax error: ${(e as Error).message}`, stage: 'compile' });
   }
