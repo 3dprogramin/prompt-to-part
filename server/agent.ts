@@ -177,7 +177,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   } else {
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
-  if (req.textNote) parts.push(`Text the user placed with the app's text tool (applied automatically after your build – do not add it again unless asked): ${req.textNote}`);
+  if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
   parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 

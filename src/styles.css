@@ -484,7 +484,8 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .export-main { min-width: 0; overflow: hidden; }
 .side-panel { overflow: hidden; }
 /* Narrow side panel: tab labels only, so five tabs and a count badge fit. */
-@media (max-width: 1100px) { .tabs button svg, .tabs .tab-glyph { display: none; } }
+/* Seven tabs in the 320 px panel: names only (their counts and spinners stay). */
+.tabs button svg, .tabs .tab-glyph { display: none; }
 .export-menu.threemf .btn { flex-direction: row; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; }
 
 /* design tabs in the top bar */

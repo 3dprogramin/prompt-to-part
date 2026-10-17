@@ -4,6 +4,8 @@ import { Icon } from './Icon';
 import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
+import { SvgPanel } from './SvgPanel';
+import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
 import type { PrintProfile, PrintSettings } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
@@ -17,7 +19,7 @@ import { PRINTER, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
-type Tab = 'params' | 'text' | 'print' | 'cost' | 'info' | 'code';
+type Tab = 'params' | 'text' | 'svg' | 'print' | 'cost' | 'info' | 'code';
 
 interface Props {
   /** The open design: unapplied code edits are kept per design. */
@@ -61,6 +63,8 @@ interface Props {
   onScale: (factor: number) => void;
   textFeatures: TextFeature[];
   onTextFeatures: (f: TextFeature[]) => void;
+  svgFeatures: SvgFeature[];
+  onSvgFeatures: (f: SvgFeature[]) => void;
   fonts: FontEntry[];
   picking: string | null;
   onPick: (featureId: string | null) => void;
@@ -86,6 +90,7 @@ export function SidePanel(p: Props) {
   const tabs: [Tab, React.ReactNode][] = [
     ['params', <><Icon name="sliders" size={14} /> Params</>],
     ['text', <><span className="tab-glyph" aria-hidden>T</span> Text{p.textFeatures.length ? <span className="count" aria-label={`${p.textFeatures.length} texts`}>{p.textFeatures.length}</span> : null}</>],
+    ['svg', <><Icon name="shapes" size={14} /> SVG{p.svgFeatures.length ? <span className="count" aria-label={`${p.svgFeatures.length} drawings`}>{p.svgFeatures.length}</span> : null}</>],
     ['print', <><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count" aria-label={`${p.printChanges} changed settings`}>{p.printChanges}</span> : null}</>],
     ['cost', <><Icon name="coin" size={14} /> Cost{p.cost.running ? <span className="spinner tab-spinner" aria-label="calculating" /> : null}</>],
     ['info', <><Icon name="info" size={14} /> Model</>],
@@ -107,6 +112,9 @@ export function SidePanel(p: Props) {
         {tab === 'text' && (shown
           ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
           : noModel('Generate a model first, then add text to it.'))}
+        {tab === 'svg' && (shown
+          ? <SvgPanel result={shown} features={p.svgFeatures} onChange={p.onSvgFeatures} picking={p.picking} onPick={p.onPick} />
+          : noModel('SVG drawings can be added once a model is generated.'))}
         {tab === 'cost' && (shown
           ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
             result={p.cost.result} upToDate={p.cost.upToDate} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />

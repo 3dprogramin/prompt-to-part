@@ -6,6 +6,7 @@ import { compile, locate, ScriptError } from './compile';
 import { makeHelpers } from './helpers';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
+import { applySvgFeatures, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanProfile } from './print';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
@@ -319,6 +320,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
 
     const parts: PartMesh[] = [];
     const textFeatures = parseTextFeatures(inputValues?.[TEXT_KEY]);
+    const svgFeatures = parseSvgFeatures(inputValues?.[SVG_KEY]);
     const partNames = rawParts.map((rp, i) => {
       const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name.slice(0, 120) : '';
       return n || (rawParts.length === 1 ? meta.name || 'Model' : `Part ${i + 1}`);
@@ -335,16 +337,24 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (!(shape instanceof M)) throw new ScriptError({ message: `Part ${i + 1} is not a Manifold (got ${shape instanceof C ? 'CrossSection' : typeof shape})`, stage: 'output' });
       if (scale !== 1) shape = shape.scale(scale);
       name = partNames[i];
-      const mine = textFeatures.filter((f) => (f.part && partNames.includes(f.part) ? f.part === name : i === 0));
+      const onThisPart = (f: { part?: string }) => (f.part && partNames.includes(f.part) ? f.part === name : i === 0);
+      const mine = textFeatures.filter(onThisPart);
+      const mySvgs = svgFeatures.filter(onThisPart);
       let textBase: Box3 | undefined;
-      if (mine.length) {
+      if (mine.length || mySvgs.length) {
+        // The part without any text or SVG: picked points are relative to it.
         const tb = shape.boundingBox();
         textBase = { min: [tb.min[0], tb.min[1], tb.min[2]], max: [tb.max[0], tb.max[1], tb.max[2]] };
         try {
-          shape = applyTextFeatures(shape, mine, rt.CrossSection);
+          if (mine.length) shape = applyTextFeatures(shape, mine, rt.CrossSection, tb);
         } catch (e) {
           if (e instanceof FontMissingError) throw e;
           warnings.push(`Text feature failed: ${(e as Error).message}`);
+        }
+        try {
+          if (mySvgs.length) shape = applySvgFeatures(shape, mySvgs, rt.CrossSection, tb);
+        } catch (e) {
+          warnings.push(`SVG feature failed: ${(e as Error).message}`);
         }
       }
       color ||= PALETTE[i % PALETTE.length];

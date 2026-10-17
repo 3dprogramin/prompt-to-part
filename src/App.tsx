@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
 import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
+import { parseSvgFeatures, SVG_KEY, type SvgFeature } from '../shared/svgFeatures';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
@@ -158,18 +159,26 @@ export default function App() {
     if (list.length) values[TEXT_KEY] = JSON.stringify(list); else delete values[TEXT_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
+  const svgFeatures = useMemo(() => parseSvgFeatures(design.values[SVG_KEY]), [design.values]);
+  const setSvgFeatures = (list: SvgFeature[]) => setDesign((d) => {
+    const values = { ...d.values };
+    if (list.length) values[SVG_KEY] = JSON.stringify(list); else delete values[SVG_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
     const part = r?.parts.find((p) => p.name === hit.part);
     if (!picking || !part) return;
-    // Relative to the part without text-tool text, as applyTextFeatures maps it back.
+    // Relative to the part without text or SVG, as placeOnSurface maps it back.
     const box = part.textBase ?? part.bbox;
     const anchor = [0, 1, 2].map((k) => {
       const span = box.max[k] - box.min[k];
       return span > 1e-6 ? (hit.point[k] - box.min[k]) / span : 0.5;
     }) as [number, number, number];
-    setTextFeatures(textFeatures.map((f) => (f.id === picking ? { ...f, face: 'pick', anchor, normal: hit.normal, part: hit.part, offset: [0, 0] } : f)));
+    const placed = { face: 'pick' as const, anchor, normal: hit.normal, part: hit.part, offset: [0, 0] as [number, number] };
+    if (svgFeatures.some((f) => f.id === picking)) setSvgFeatures(svgFeatures.map((f) => (f.id === picking ? { ...f, ...placed } : f)));
+    else setTextFeatures(textFeatures.map((f) => (f.id === picking ? { ...f, ...placed } : f)));
     setPicking(null);
   };
   const loaded = useRef(false);
@@ -301,7 +310,7 @@ export default function App() {
         images: images.map(dataUrlToImage),
         code: design.code || undefined,
         values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
-        textNote: describeText(textFeatures),
+        textNote: [describeText(textFeatures), describeSvg(svgFeatures)].filter(Boolean).join('; ') || undefined,
         ...current,
         sessionId: design.sessionId,
         model: chat.model,
@@ -763,6 +772,8 @@ export default function App() {
           onEditDimension={onEditDimension}
           textFeatures={textFeatures}
           onTextFeatures={setTextFeatures}
+          svgFeatures={svgFeatures}
+          onSvgFeatures={setSvgFeatures}
           fonts={fonts}
           picking={picking}
           onPick={setPicking}
@@ -804,6 +815,12 @@ export default function App() {
 /** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */
 function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
+}
+
+function describeSvg(features: SvgFeature[]): string | undefined {
+  const on = features.filter((f) => f.enabled);
+  if (!on.length) return undefined;
+  return on.map((f) => `SVG drawing "${f.drawing.name}" ${f.mode === 'emboss' ? 'raised' : 'engraved'} ${f.depth} mm, ${f.size} × ${(f.size * f.drawing.aspect).toFixed(1)} mm (height × width), on the ${f.face === 'pick' ? 'picked surface' : f.face} of part "${f.part ?? 'first part'}"${f.curve === 'wrap' ? ', wrapped' : ''}`).join('; ');
 }
 
 function describeText(features: TextFeature[]): string | undefined {

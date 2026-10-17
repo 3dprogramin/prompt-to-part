@@ -1,6 +1,7 @@
 import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
+import { SVG_KEY } from '../../shared/svgFeatures';
 import { PRINT_KEY } from '../../shared/print';
 
 type Params = EvalResult['params'];
@@ -31,6 +32,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     const v = current[k] ?? (k in params ? params[k].value : undefined);
     if (k === SCALE_KEY) return `Scale ${Math.round(Number(v ?? 1) * 100)} %`;
     if (k === TEXT_KEY) return 'text';
+    if (k === SVG_KEY) return 'SVG';
     if (k === PRINT_KEY) return 'print settings';
     const d = params[k];
     return `${d?.label ?? k} ${fmt(v, d)}`;
