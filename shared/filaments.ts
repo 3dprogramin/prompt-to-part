@@ -27,6 +27,50 @@ export interface FilamentLookup {
 export const MAX_BRAND_CHARS = 60;
 export const MAX_FILAMENT_NAME_CHARS = 120;
 
+// ---------------------------------------------------------------- the user's own filaments
+
+/** Most filaments the user can save (GET/PUT /api/filaments/mine, data/filaments.json). */
+export const MAX_MY_FILAMENTS = 100;
+/** TD range a saved filament may have, mm. */
+export const MY_TD_RANGE: [number, number] = [0.05, 20];
+
+/** What is wrong with a list of the user's filaments for PUT /api/filaments/mine, if anything. */
+export function myFilamentsProblem(raw: unknown): string | undefined {
+  if (!Array.isArray(raw)) return 'Send { filaments: [...] }';
+  if (raw.length > MAX_MY_FILAMENTS) return `At most ${MAX_MY_FILAMENTS} filaments`;
+  for (const [i, f] of raw.entries()) {
+    const at = `Filament ${i + 1}`;
+    if (!f || typeof f !== 'object') return `${at} is not a filament`;
+    const { name, brand, color, td } = f as Record<string, unknown>;
+    if (typeof name !== 'string' || !name.trim()) return `${at} needs a name`;
+    if (name.length > MAX_FILAMENT_NAME_CHARS) return `${at}: the name is longer than ${MAX_FILAMENT_NAME_CHARS} characters`;
+    if (brand != null && typeof brand !== 'string') return `${at}: the brand must be text`;
+    if (typeof brand === 'string' && brand.length > MAX_BRAND_CHARS) return `${at}: the brand is longer than ${MAX_BRAND_CHARS} characters`;
+    if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return `${at}: the colour must be #rrggbb`;
+    if (typeof td !== 'number' || !(td >= MY_TD_RANGE[0] && td <= MY_TD_RANGE[1])) return `${at}: TD must be ${MY_TD_RANGE[0]}–${MY_TD_RANGE[1]} mm`;
+  }
+  return undefined;
+}
+
+/**
+ * The user's filaments as stored: valid ones only (as myFilamentsProblem checks), trimmed, colour in
+ * lower case, one per brand and name (the last wins), at most MAX_MY_FILAMENTS.
+ */
+export function cleanMyFilaments(raw: unknown): HfFilament[] {
+  if (!Array.isArray(raw)) return [];
+  const out = new Map<string, HfFilament>();
+  for (const f of raw) {
+    if (myFilamentsProblem([f])) continue;
+    const name = f.name.trim(), brand = typeof f.brand === 'string' ? f.brand.trim() : '';
+    out.delete(myFilamentKey({ name, brand }));
+    out.set(myFilamentKey({ name, brand }), { name, ...(brand ? { brand } : {}), color: f.color.toLowerCase(), td: f.td });
+  }
+  return [...out.values()].slice(-MAX_MY_FILAMENTS);
+}
+
+/** Brand and name, in any case and spelling: a saved filament with the same key is the same one. */
+export const myFilamentKey = (f: { brand?: string; name: string }) => `${normalizeFilamentText(f.brand ?? '')}|${normalizeFilamentText(f.name)}`;
+
 // Published TD values only, each with its source; sorted by brand, line, then name. Where sources
 // disagree, a TD measured on a swatch (filamentcolors.xyz, with that swatch's colour) wins over the
 // community-compiled lists, and color_tools only fills colours nothing else has (marked unverified).
@@ -290,4 +334,13 @@ export function estimatedTd(f: HfFilament): boolean {
 /** The picker's filaments: those matching the query (colour words included), of one line (its key) or all. */
 export function pickerFilaments(query: string, line?: string): LibraryFilament[] {
   return searchFilaments(query, Infinity, { families: true }).filter((f) => !line || lineKey(f) === line);
+}
+
+/** The user's filaments matching a query: every word in the brand, the name or the colour's family. */
+export function searchMyFilaments(list: HfFilament[], query: string): HfFilament[] {
+  const q = words(query);
+  return list.filter((f) => {
+    const ws = [...words(`${f.brand ?? ''} ${f.name}`), ...colourFamilies(f.color)];
+    return q.every((w) => ws.some((x) => x.includes(w)));
+  });
 }

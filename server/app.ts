@@ -13,7 +13,8 @@ import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
 import { sliceProject } from './slicer';
 import { suggestPrice } from './pricing';
 import { lookupFilament } from './filaments';
-import { matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS } from '../shared/filaments';
+import { cleanMyFilaments, matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS, myFilamentsProblem } from '../shared/filaments';
+import { MY_FILAMENTS_FILE, readMyFilaments } from './myFilaments';
 import { cleanCostSettings } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
@@ -310,6 +311,20 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     } catch (e) {
       res.status(502).json({ error: (e as Error).message });
     }
+  });
+
+  // The user's own filaments, for every design's HueForge panel and for Claude.
+  app.get('/api/filaments/mine', async (_req, res) => {
+    res.json({ filaments: await readMyFilaments() });
+  });
+  app.put('/api/filaments/mine', json('64kb'), async (req, res) => {
+    const list = (req.body as { filaments?: unknown } | undefined)?.filaments;
+    const problem = myFilamentsProblem(list);
+    if (problem) return void res.status(400).json({ error: problem });
+    const filaments = cleanMyFilaments(list);
+    await mkdir(DATA_DIR, { recursive: true });
+    await writeAtomically(MY_FILAMENTS_FILE, JSON.stringify({ filaments }));
+    res.json({ filaments });
   });
 
   app.post('/api/export/blend', json('300mb'), async (req, res) => {

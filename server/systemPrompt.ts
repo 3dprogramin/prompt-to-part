@@ -1,5 +1,6 @@
 import { PRINTER } from '../shared/printer';
 import { FILAMENT_LIBRARY } from '../shared/filaments';
+import type { HfFilament } from '../shared/hueforge';
 import { A1_DEFAULTS, describeSetting, SETTING_LABELS, type PrintSettings } from '../shared/print';
 
 /** "layer 0.20 mm, 2 walls, …" for the baseline profile. */
@@ -8,7 +9,7 @@ function describeBase(b: Required<PrintSettings>): string {
   return `layer ${b.layerHeight.toFixed(2)} mm, ${b.walls} walls, ${b.topLayers} top / ${b.bottomLayers} bottom layers, ${b.infill} % ${d('infillPattern')} infill, supports ${d('supports')}${b.supportsOnPlate ? ' (from the build plate only)' : ''}, brim ${d('brim')}, ironing ${d('ironing')}, seam ${d('seam')}, ${SETTING_LABELS.wallOrder.toLowerCase()} ${d('wallOrder')}, fuzzy skin ${d('fuzzySkin')}`;
 }
 
-export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, hueforge?: { pictures: boolean }, lithophane?: { pictures: boolean }): string {
+export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, hueforge?: { pictures: boolean; mine?: HfFilament[] }, lithophane?: { pictures: boolean }): string {
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${PRINTER.name} (FDM bed-slinger, ${PRINTER.nozzle} mm nozzle, PLA/PETG, build volume ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
@@ -37,7 +38,7 @@ export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, pri
 # Dimensions of real products
 ${webSearch ? WEB_ON : WEB_OFF}
 ${artwork ? ARTWORK_ON : ''}
-${hueforge ? hueforgePrompt(hueforge.pictures) : ''}
+${hueforge ? hueforgePrompt(hueforge.pictures, hueforge.mine) : ''}
 ${lithophane ? lithophanePrompt(lithophane.pictures) : ''}
 
 When the design must fit a real product or standard part (dev board, phone, camera, battery, connector, display, fastener…), take its fit-critical dimensions from the most authoritative source available, in this order:
@@ -226,7 +227,10 @@ const FILAMENT_LINES = (() => {
   return [...groups].map(([k, v]) => `  ${k}: ${v.join(', ')}`).join('\n');
 })();
 
-function hueforgePrompt(pictures: boolean) {
+/** The user's own filaments (saved in the HueForge panel), one per line. */
+const myFilamentLines = (mine: HfFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
+
+function hueforgePrompt(pictures: boolean, mine: HfFilament[] = []) {
   return `HueForge mode is ON: the user wants a HueForge-style filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
 - Build it with H.hueforge(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
     const params = { width: { label: 'Picture width', value: 250, min: 40, max: 250, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
@@ -241,7 +245,9 @@ function hueforgePrompt(pictures: boolean) {
   - First version: pass them to H.hueforge({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_hueforge, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.
 - Jig's filament library (brand line: colour #hex TD; * = estimated TD):
 ${FILAMENT_LINES}
-- Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
+${mine.length ? `- The user's own filaments, saved in Jig (name (brand) #hex TD). The user has these: prefer them over the library when they fit the picture, and use their exact name, brand, colour and TD:
+${myFilamentLines(mine)}
+` : ''}- Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
 - Filaments, their order, TDs and swap layers live in the HueForge setup: the user edits it in the HueForge panel, you edit it with set_hueforge – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_hueforge (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.hueforge as its own default.
 - Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.hueforge part.
 - Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the HueForge panel (Print tab) or ask you to.`;

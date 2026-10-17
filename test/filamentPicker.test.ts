@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { colourFamilies, COMMON_FILAMENTS, estimatedTd, FILAMENT_LIBRARY, filamentLines, libraryFilament, pickerFilaments } from '../shared/filaments';
+import { cleanMyFilaments, colourFamilies, COMMON_FILAMENTS, estimatedTd, FILAMENT_LIBRARY, filamentLines, libraryFilament, myFilamentKey, myFilamentsProblem, pickerFilaments, searchMyFilaments } from '../shared/filaments';
 import { replaceFilament, type HfFilament } from '../shared/hueforge';
 
 const id = (f: { brand?: string; name: string }) => `${f.brand} ${f.name}`;
@@ -71,4 +71,20 @@ test('picker: a filament is replaced in place, with only the stack\'s fields', (
   assert.deepEqual(out, [list[0], { name: 'PLA+ Red', brand: 'eSUN', color: '#c4402b', td: 3.5 }, list[2]]);
   assert.equal(list[1].name, 'Mine'); // not changed
   assert.deepEqual(replaceFilament(list, 0, { name: 'Grey', brand: undefined, color: '#808080', td: 1 })[0], { name: 'Grey', color: '#808080', td: 1 });
+});
+
+test('my filaments: what is wrong, cleaning, search', () => {
+  const ok = { name: 'Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5 };
+  assert.equal(myFilamentsProblem([ok, { name: 'Grey', color: '#808080', td: 20 }]), undefined);
+  assert.equal(myFilamentsProblem(ok), 'Send { filaments: [...] }');
+  assert.match(myFilamentsProblem([ok, { ...ok, td: 0 }])!, /^Filament 2: TD/);
+  assert.match(myFilamentsProblem([{ ...ok, color: 'red' }])!, /#rrggbb/);
+  assert.deepEqual(cleanMyFilaments([{ ...ok, name: ' Teal ', brand: ' ' }, { bad: 1 }, null, { ...ok, color: '#33AA77' }]), [{ name: 'Teal', color: '#33aa77', td: 2.5 }, { name: 'Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5 }]);
+  assert.deepEqual(cleanMyFilaments('x'), []);
+  assert.equal(myFilamentKey({ name: 'PLA Plus Grey', brand: 'eSun' }), myFilamentKey({ name: 'pla+ gray', brand: 'ESUN' }));
+  const list = [ok, { name: 'Leftover', color: '#111111', td: 0.3 }];
+  assert.deepEqual(searchMyFilaments(list, 'poly').map((f) => f.name), ['Teal']);
+  assert.deepEqual(searchMyFilaments(list, 'black').map((f) => f.name), ['Leftover']);
+  assert.deepEqual(searchMyFilaments(list, 'teal green').map((f) => f.name), ['Teal']);
+  assert.deepEqual(searchMyFilaments(list, 'red'), []);
 });

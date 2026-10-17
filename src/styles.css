@@ -778,8 +778,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .hf-pick-detail .mono { margin-left: auto; flex-shrink: 0; }
 .hf-pick-detail .swatch { width: 12px; height: 12px; box-shadow: inset 0 0 0 1px #ffffff2e; }
 .hf-pick-detail .dim:not(:first-child) { flex-shrink: 0; }
-.hf-custom-open { align-self: flex-start; }
+.hf-custom-open, .hf-mine-edit { align-self: flex-start; }
+.hf-mine .hf-grid-head { display: flex; justify-content: space-between; align-items: baseline; padding-top: 0; }
+.hf-mine .hf-grid-head .link { text-transform: none; letter-spacing: 0; }
+.hf-mine ul { list-style: none; margin: 0; padding: 0; max-height: 150px; overflow-y: auto; }
+.hf-mine li { display: flex; align-items: center; gap: 6px; min-height: 26px; }
+.hf-mine .swatch { width: 14px; height: 14px; box-shadow: inset 0 0 0 1px #ffffff2e; }
+.hf-mine .hf-title { flex: 1; min-width: 0; }
+.hf-mine .icon-btn { width: 24px; height: 24px; }
+.hf-mine .icon-btn.confirm { width: auto; padding: 0 6px; color: var(--bad); font-size: 11.5px; background: #e5675f14; }
 .hf-custom-box { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.hf-custom-box .hf-add-actions { flex-wrap: wrap; }
+.hf-custom-box .btn { padding: 5px 9px; font-size: 12px; }
 .step.user .step-text, .act-step.user { color: var(--accent-2); }
 .icon-btn.danger { color: var(--bad); }
 .icon-btn.danger:hover { background: #e5675f22; }
