@@ -164,7 +164,7 @@ export function SidePanel(p: Props) {
             : noModel('Print settings appear once a model is generated.')))}
           {section('cost', 'Cost', () => (shown
             ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
-              result={p.cost.result} upToDate={p.cost.upToDate} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />
+              result={p.cost.result} upToDate={p.cost.upToDate} inputsKey={p.cost.key} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />
             : noModel('Costs appear once a model is generated.')))}
         </>}
         {tab === 'code' && <>

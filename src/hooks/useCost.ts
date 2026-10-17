@@ -8,7 +8,7 @@ import { buildProject } from '../lib/projects';
 import { exportedParts } from '../geometry/validate';
 import type { GeometryClient } from '../geometry/client';
 
-/** What a cost calculation is doing; each stage is shown with its elapsed time. */
+/** What a cost calculation is doing; shown with the time since the calculation started. */
 export type CostStage = 'model' | 'template' | 'slicing';
 export const STAGE_TEXT: Record<CostStage, string> = {
   model: 'Building the model at export resolution',
@@ -48,7 +48,7 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
   const busy = useRef(false);
   useEffect(() => { api.costSettings().then(setSettings).catch(() => {}); }, []);
 
-  const key = JSON.stringify([design.code, values, hiddenParts]);
+  const key = JSON.stringify([design.code, values, hiddenParts, userPrint]);
   const latest = useRef({ design, values, hiddenParts, userPrint, onTemplate, key });
   latest.current = { design, values, hiddenParts, userPrint, onTemplate, key };
 
@@ -56,7 +56,9 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
     const { design: d, values: v, hiddenParts: hidden, userPrint: user, onTemplate: gotTemplate, key: k } = latest.current;
     if (busy.current || !d.code) return;
     busy.current = true;
-    const stage = (s: CostStage) => setRunning({ designId: d.id, stage: s, since: performance.now() });
+    // One clock for the whole calculation: a new stage isn't a restart.
+    const since = performance.now();
+    const stage = (s: CostStage) => setRunning({ designId: d.id, stage: s, since });
     const fail = (message: string) => setErrors((e) => ({ ...e, [d.id]: { key: k, message } }));
     try {
       stage('model');
@@ -93,6 +95,8 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
     running,
     result: result ?? null,
     upToDate: !!result && result.key === key,
+    /** The inputs a calculation now would use. */
+    key,
     /** Why the last calculation for these inputs failed (null once the inputs change). */
     error: error && error.key === key ? error.message : null,
   };

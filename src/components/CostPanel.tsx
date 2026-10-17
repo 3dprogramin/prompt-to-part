@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { costOf, CURRENCY, duration, money, type CostSettings } from '../../shared/cost';
 import type { PriceSuggestion } from '../../shared/api';
 import { api } from '../lib/api';
@@ -14,6 +14,8 @@ interface Props {
   onSettings: (s: CostSettings) => void;
   result: CostResult | null;
   upToDate: boolean;
+  /** The inputs the numbers would be calculated from now (a change restarts the 2 s wait). */
+  inputsKey: string;
   error: string | null;
   running: { designId: string; stage: CostStage; since: number } | null;
   /** Bambu Studio is installed (slicing needs it). */
@@ -27,11 +29,18 @@ interface Props {
  */
 export function CostPanel(p: Props) {
   const mine = p.running?.designId === p.designId;
-  // Opening the tab (or another design in it) calculates what is missing or out of date; later
-  // changes only mark the numbers as out of date, so moving a slider doesn't start a slice.
+  // While the Cost section is open, what is missing or out of date is recalculated: at once when it
+  // opens (or shows another design), otherwise 2 s after the last change, so moving a slider doesn't
+  // start a slice per step. A change during a slice is picked up once it finishes.
+  const opened = useRef(true);
+  const stale = p.bambu && !p.running && !p.upToDate && !p.error;
+  const resultKey = p.result?.key;
+  useEffect(() => { opened.current = true; }, [p.designId]);
   useEffect(() => {
-    if (p.bambu && !p.running && !p.upToDate && !p.error) p.onCalculate();
-  }, [p.designId, p.bambu]);
+    if (!stale) { opened.current = false; return; }
+    const t = setTimeout(() => { opened.current = false; p.onCalculate(); }, opened.current ? 0 : 2000);
+    return () => clearTimeout(t);
+  }, [stale, p.designId, resultKey, p.inputsKey]);
 
   return (
     <div className="cost-panel">
