@@ -44,17 +44,30 @@ export default function App() {
   const [running, setRunning] = useState<Record<string, AbortController>>({});
   const runningRef = useRef(running);
   runningRef.current = running;
-  const { saveNow, saveSoon, saveErrors, clearSaveError, saveTimers, lastLoaded, adopted, stopSaving } = useDesignSaving({
+  // The open design as last rendered, for handlers that run later (e.g. after a failed delete).
+  const designRef = useRef(design);
+  designRef.current = design;
+  const { saveNow, saveSoon, saveErrors, clearSaveError, saveTimers, lastLoaded, adopted, stopSaving, cancelPending, isUnsaved } = useDesignSaving({
     setDesign, currentId, runningRef,
-    onSaved: () => refreshList(),
+    onSaved: (saved) => {
+      refreshList();
+      // A design kept in memory only because it wasn't saved yet can go now.
+      if (saved.id !== currentId.current && !runningRef.current[saved.id] && background.current.get(saved.id) === saved) background.current.delete(saved.id);
+    },
     onAdopted: () => setNotice({ text: 'This design was changed in another tab or window – showing the newest version.', level: 'info', details: false }),
+    onGone: (id) => forgetDesign(id),
   });
   // Designs generating in other tabs (id → last heartbeat); their saves replace the open copy.
   const remoteRunning = useCrossTabSync(runningRef, (saved) => setDesign((d) => {
     if (d.id !== saved.id || runningRef.current[d.id]) return d;
+    // The other tab's copy is newer: an autosave of this one still waiting would undo it.
+    cancelPending(d.id);
     lastLoaded.current = saved;
     return saved;
-  }));
+  }), (id) => {
+    stopSaving(id);
+    forgetDesign(id);
+  });
   const generating = !!running[design.id];
   // Designs open as tabs in the top bar (kept across reloads), and those that finished in the background unseen.
   const [tabIds, setTabIds] = useState<string[]>(() => load('designTabs', []));
@@ -99,7 +112,7 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
   // Model, effort and web search per design, in memory only: every new design (and every reload)
-  // starts with Opus, High effort and web search off.
+  // starts with Opus, High effort and web search on.
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
   const chat = chatOpts[design.id] ?? DEFAULT_CHAT;
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? DEFAULT_CHAT), ...patch } }));
@@ -115,8 +128,10 @@ export default function App() {
   const [validation, setValidation] = useState<ValidationState | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
   const [validating, setValidating] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean } | null>(null);
-  // In-memory copies of designs that are generating while another design is open.
+  type Notice = { text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean };
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const switchNotice = useRef<Notice | null>(null);
+  // In-memory copies of designs that are generating, or not saved yet, while another design is open.
   const background = useRef(new Map<string, Design>());
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<{ version: string; problem: string | null } | null>(null);
@@ -185,11 +200,12 @@ export default function App() {
     });
   }, [saveSoon]);
 
-  /** Switch the open design, keeping a still-generating one alive in memory. */
+  /** Switch the open design, keeping a still-generating or unsaved one alive in memory. */
   const switchTo = useCallback((next: Design) => {
     setDesign((cur) => {
       if (cur.id === next.id) return cur;
-      if (runningRef.current[cur.id]) background.current.set(cur.id, cur);
+      // An unsaved copy (pending or failed save) is reopened from memory, not reloaded without its changes.
+      if (runningRef.current[cur.id] || isUnsaved(cur.id)) background.current.set(cur.id, cur);
       const live = background.current.get(next.id);
       background.current.delete(next.id);
       // A background copy saves itself as it changes; a loaded one is saved already.
@@ -310,12 +326,13 @@ export default function App() {
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
       if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
       tell({ type: 'running', id: designId, on: false });
-      // A design that finished in the background is persisted, then dropped from memory.
+      // A design that finished in the background is persisted, then dropped from memory (by
+      // onSaved; a failed save keeps it, so "Retry" still has the changes).
       setTimeout(() => {
         const bg = background.current.get(designId);
         if (bg && currentId.current !== designId) {
           clearTimeout(saveTimers.current.get(designId));
-          saveNow(bg).finally(() => { if (currentId.current !== designId) background.current.delete(designId); });
+          saveNow(bg).catch(() => {});
         }
       }, 0);
     }
@@ -385,7 +402,9 @@ export default function App() {
     setPlayback(null);
     setValidation(null);
     setValidationOpen(false);
-    setNotice(null);
+    // A notice about the switch itself (e.g. the design was deleted elsewhere) outlives it.
+    setNotice(switchNotice.current);
+    switchNotice.current = null;
   }, [design.id, design.code, design.values]);
 
   // A clean result fades away by itself; problems stay until dismissed.
@@ -574,8 +593,10 @@ export default function App() {
     if (next) openDesign(next); else createNew();
   };
 
+  const deletingHere = useRef(new Set<string>());
   const deleteDesign = async (id: string) => {
     if (!confirm('Delete this design permanently?')) return;
+    deletingHere.current.add(id);
     const saving = stopSaving(id);
     try {
       // The server refuses to delete a design Claude is working on: stop it and wait until it has.
@@ -591,17 +612,32 @@ export default function App() {
       }
     } catch (e) {
       saving.undo();
-      const copy = background.current.get(id) ?? (design.id === id ? design : null);
+      // The latest copy: a generation stopped for the delete may have changed it since the click.
+      const copy = background.current.get(id) ?? (designRef.current.id === id ? designRef.current : null);
       if (copy) saveSoon(copy);
+      deletingHere.current.delete(id);
       setNotice({ text: `Could not delete the design: ${(e as Error).message}`, level: 'error', details: false });
       return;
     }
+    tell({ type: 'deleted', id });
+    forgetDesign(id);
+  };
+
+  /** Drop a deleted design from memory and the tabs; the open one is replaced by a new design. */
+  function forgetDesign(id: string) {
     background.current.delete(id);
     clearSaveError(id);
     setTabIds((t) => t.filter((x) => x !== id));
-    if (id === design.id) createNew();
+    setUnseen((u) => u.filter((x) => x !== id));
+    if (currentId.current === id) {
+      const name = designRef.current.name;
+      createNew();
+      // Not after our own delete: only when it happened elsewhere.
+      if (!deletingHere.current.has(id)) switchNotice.current = { text: `"${name}" was deleted in another tab or window.`, level: 'info', details: false };
+    }
+    deletingHere.current.delete(id);
     refreshList();
-  };
+  }
 
   return (
     <div className="app">

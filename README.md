@@ -61,9 +61,10 @@ Both are found on `PATH` and in their default install folders on macOS (`/Applic
 - **Code tab:** edit `model.js` by hand and *Apply* it (Ctrl+S) to make a new version. Edits you haven't applied stay there while you look at other tabs or designs.
 - **Saved settings:** when your sliders, scale, text or print overrides differ from the current version, *Save as vN* appears next to it and stores them as a new version. Restoring a version brings its settings back; switching versions with unsaved changes asks whether to save them, discard them or cancel.
 - **Autosave:** every change is saved to `data/designs/<id>.json` about half a second later, even if you open another design right away. There is one file per design, overwritten; autosave never creates versions.
-  - If a save fails, *Not saved – retry* appears in the top bar.
+  - If a save fails, *Not saved – retry* appears in the top bar. The unsaved copy stays in memory if you open another design, so coming back and retrying saves your changes.
   - Closing the page with unsaved changes, or while Claude is working, asks first. Closing it stops the generation.
-  - If another tab or window saved a newer copy of the design, that copy is shown instead of being overwritten.
+  - Each save is numbered (`rev`). If another tab or window saved the design since this one last did, that newer copy is shown instead of being overwritten (while Claude works on the design here, Claude's copy wins).
+  - A design deleted in one tab closes in the others, and nothing saves it back.
 - **Questions:** ask Claude something about the design and the reply starts with the short answer, then the explanation; the model is only changed when you ask for a change.
 
 ## Watching Claude work

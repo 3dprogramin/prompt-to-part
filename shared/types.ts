@@ -195,6 +195,8 @@ export interface Design {
   currentVersion: number;
   code: string;
   values: ParamValues;
+  /** Revision on the server, counted up by every save (missing until the first save). */
+  rev?: number;
 }
 
 export interface DesignSummary {

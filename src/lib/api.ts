@@ -34,18 +34,20 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
 
 const getJson = async <T>(path: string, init?: RequestInit): Promise<T> => (await request(path, init)).json() as Promise<T>;
 
-// Images already stored on the server, by the data URL they came from. Only images that arrived
-// in this tab are data URLs; a design loaded from the server already refers to stored ones.
+// Images already stored on the server, by design and the data URL they came from (each design keeps
+// its own copy: deleting one design must not break another's). Only images that arrived in this tab
+// are data URLs; a design loaded from the server already refers to stored ones.
 const storedImages = new Map<string, string>();
 
 /** The design with every data-URL image replaced by its stored copy (uploaded first if needed). */
 async function withStoredImages(d: Design): Promise<Design> {
   const sub = async (src: string) => {
     if (!src.startsWith('data:')) return src;
-    let url = storedImages.get(src);
+    const key = `${d.id}\n${src}`;
+    let url = storedImages.get(key);
     if (!url) {
       ({ url } = await getJson<{ url: string }>(`/api/designs/${d.id}/images`, { method: 'POST', body: JSON.stringify(dataUrlToImage(src)) }));
-      storedImages.set(src, url);
+      storedImages.set(key, url);
       if (storedImages.size > 500) storedImages.delete(storedImages.keys().next().value!);
     }
     return url;
@@ -70,13 +72,16 @@ export const api = {
       throw e;
     }
   },
-  /** Saves the design and returns what was saved (images replaced by their stored URLs). */
-  async saveDesign(d: Design): Promise<Design> {
+  /**
+   * Saves the design as the next revision after `rev` and returns what was saved (images replaced by
+   * their stored URLs, `rev` the new revision). 409: another save came first; 410: deleted.
+   */
+  async saveDesign(d: Design, rev: number): Promise<Design> {
     const saved = await withStoredImages(d);
     // The live activity transcript stays in memory (it can hold every model.js Claude typed).
-    const body = JSON.stringify(saved, (k, v) => (k === 'activity' ? undefined : v));
-    await request(`/api/designs/${d.id}`, { method: 'PUT', body });
-    return saved;
+    const body = JSON.stringify({ ...saved, rev }, (k, v) => (k === 'activity' ? undefined : v));
+    const r = await (await request(`/api/designs/${d.id}`, { method: 'PUT', body })).json() as { rev: number };
+    return { ...saved, rev: r.rev };
   },
   async deleteDesign(id: string): Promise<void> {
     await request(`/api/designs/${id}`, { method: 'DELETE' });

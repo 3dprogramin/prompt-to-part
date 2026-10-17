@@ -20,13 +20,21 @@ function isDesign(d: unknown): d is Design {
   const o = d as Design;
   return !!o && typeof o === 'object' && typeof o.id === 'string' && typeof o.name === 'string' && typeof o.code === 'string'
     && Number.isFinite(o.updatedAt) && Number.isFinite(o.createdAt) && Number.isInteger(o.currentVersion)
-    && Array.isArray(o.messages) && Array.isArray(o.versions) && !!o.values && typeof o.values === 'object';
+    && Array.isArray(o.messages) && Array.isArray(o.versions) && !!o.values && typeof o.values === 'object'
+    && (o.rev === undefined || Number.isInteger(o.rev));
 }
 
 // Chat images (reference photos, renders, assembly pictures) are stored once per design, by
 // content, instead of inside the design JSON that is rewritten on every autosave.
 const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
 const IMAGE_NAME = /^[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
+
+/** Write through a temp file and rename it into place, so readers see the old or the new file. */
+async function writeAtomically(file: string, data: string | Buffer) {
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  await writeFile(tmp, data);
+  await rename(tmp, file);
+}
 
 export interface AppOptions {
   /** Port the server listens on: requests must name it in their Host header. */
@@ -64,6 +72,9 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
   // Writes to one design run one after another, each through its own temp file, so overlapping
   // saves (two tabs, an autosave racing a retry) can never interleave into a corrupt file.
   const writeQueues = new Map<string, Promise<unknown>>();
+  // Designs deleted while this server runs: a late save (another tab, an upload still in flight)
+  // must not bring one back.
+  const deleted = new Set<string>();
   function serially<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const next = (writeQueues.get(id) ?? Promise.resolve()).catch(() => undefined).then(fn);
     writeQueues.set(id, next);
@@ -100,15 +111,17 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
     if (!isDesign(d)) return void res.status(400).json({ error: 'Not a complete design' });
     const file = designFile(d.id);
     await serially(d.id, async () => {
-      // A copy older than the saved one (e.g. a tab that opened the design before another tab saved
-      // a new version) must not roll it back.
-      const stored = await readFile(file, 'utf8').then((t) => Number(JSON.parse(t).updatedAt), () => 0);
-      if (d.updatedAt < stored) return void res.status(409).json({ error: 'A newer version of this design was saved in another tab', updatedAt: stored });
+      // Every save names the revision it was based on (`rev`, counted up by each save), so a copy
+      // that missed a save from another tab can't overwrite it. A design that is gone is not
+      // re-created by a copy that had been saved before.
+      const stored = await readFile(file, 'utf8').then((t) => Number(JSON.parse(t).rev) || 0, () => null);
+      const base = d.rev ?? 0;
+      if (stored === null && (deleted.has(d.id) || base > 0)) return void res.status(410).json({ error: 'This design was deleted' });
+      if (stored !== null && base !== stored) return void res.status(409).json({ error: 'A newer version of this design was saved in another tab', rev: stored });
+      const rev = (stored ?? 0) + 1;
       await mkdir(DESIGNS, { recursive: true });
-      const tmp = `${file}.${randomUUID()}.tmp`;
-      await writeFile(tmp, JSON.stringify(d));
-      await rename(tmp, file);
-      res.json({ ok: true });
+      await writeAtomically(file, JSON.stringify({ ...d, rev }));
+      res.json({ ok: true, rev });
     });
   });
 
@@ -117,6 +130,7 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
     if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'Claude is working on this design – stop it first.' });
     await serially(id, async () => {
+      deleted.add(id);
       await rm(designFile(id), { force: true });
       await rm(imageDir(id), { recursive: true, force: true });
       await rm(workspaceDir(id), { recursive: true, force: true });
@@ -131,16 +145,23 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
     if (!ID_RE.test(id) || !ext || typeof data !== 'string') return void res.status(400).json({ error: 'bad image' });
     const bytes = Buffer.from(data, 'base64');
     const name = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}.${ext}`;
-    await mkdir(imageDir(id), { recursive: true });
-    if (!existsSync(path.join(imageDir(id), name))) await writeFile(path.join(imageDir(id), name), bytes);
-    res.json({ url: `/api/designs/${id}/images/${name}` });
+    // In the design's queue, so a delete can't run between the check and the write.
+    await serially(id, async () => {
+      if (deleted.has(id)) return void res.status(410).json({ error: 'This design was deleted' });
+      const target = path.join(imageDir(id), name);
+      await mkdir(imageDir(id), { recursive: true });
+      // Written whole or not at all: a half-written file would be served (and cached) forever.
+      if (!existsSync(target)) await writeAtomically(target, bytes);
+      res.json({ url: `/api/designs/${id}/images/${name}` });
+    });
   });
 
   app.get('/api/designs/:id/images/:name', (req, res) => {
     const { id, name } = req.params;
     if (!ID_RE.test(id) || !IMAGE_NAME.test(name)) return void res.status(400).json({ error: 'bad image' });
-    res.set('Cache-Control', 'max-age=31536000, immutable').sendFile(path.join(imageDir(id), name), (e) => {
-      if (e && !res.headersSent) res.status(404).json({ error: 'not found' });
+    // Named by content, so a stored image never changes; a missing one may still be uploaded.
+    res.sendFile(path.join(imageDir(id), name), { headers: { 'Cache-Control': 'max-age=31536000, immutable' } }, (e) => {
+      if (e && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'not found' });
     });
   });
 

@@ -3,14 +3,14 @@ import type { Design } from '../../shared/types';
 import { channel, TAB_ID, tell, type TabMessage } from '../lib/tabs';
 
 /**
- * Keeps this tab in step with Jig's other tabs: their saves arrive through `onSaved`, and the
- * designs they are generating are returned (id → last heartbeat). This tab's generations are
- * announced every few seconds, so a closed tab's ones are forgotten.
+ * Keeps this tab in step with Jig's other tabs: their saves and deletes arrive through `onSaved`
+ * and `onDeleted`, and the designs they are generating are returned (id → last heartbeat). This
+ * tab's generations are announced every few seconds, so a closed tab's ones are forgotten.
  */
-export function useCrossTabSync(runningRef: MutableRefObject<Record<string, AbortController>>, onSaved: (d: Design) => void) {
+export function useCrossTabSync(runningRef: MutableRefObject<Record<string, AbortController>>, onSaved: (d: Design) => void, onDeleted: (id: string) => void) {
   const [remoteRunning, setRemoteRunning] = useState<Record<string, number>>({});
-  const saved = useRef(onSaved);
-  saved.current = onSaved;
+  const handlers = useRef({ onSaved, onDeleted });
+  handlers.current = { onSaved, onDeleted };
   useEffect(() => {
     if (!channel) return;
     const onMsg = (ev: MessageEvent<TabMessage>) => {
@@ -25,7 +25,9 @@ export function useCrossTabSync(runningRef: MutableRefObject<Record<string, Abor
           return next;
         });
       } else if (m.type === 'saved') {
-        saved.current(m.design);
+        handlers.current.onSaved(m.design);
+      } else if (m.type === 'deleted') {
+        handlers.current.onDeleted(m.id);
       }
     };
     channel.addEventListener('message', onMsg);
