@@ -427,8 +427,13 @@ function ImageModeMenu({ mode, artworkModel, onMode }: { mode: ImageMode; artwor
     if (to >= 0) { e.preventDefault(); items[to]?.focus(); }
     if (e.key === 'Tab') setOpen(false);
   };
-  // Picking keeps the menu open (to compare the modes); Escape, Tab or a click outside closes it.
-  const pick = (m: ImageMode) => onMode(m);
+  // Picking another mode keeps the menu open (to compare the modes); picking the chosen one again,
+  // Escape, Tab or a click outside closes it.
+  const pick = (m: ImageMode) => {
+    if (m !== mode) return onMode(m);
+    setOpen(false);
+    trigger.current?.focus();
+  };
   return (
     <span className="mode-wrap" ref={wrap}>
       <button
