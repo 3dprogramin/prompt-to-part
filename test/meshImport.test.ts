@@ -128,7 +128,7 @@ test('repairs are reported in words', () => {
 });
 
 test('a single open sheet is refused with a clear message', () => {
-  assert.throws(() => importMeshFile(fixture('open-sheet.stl'), 'sheet.stl'), /encloses no volume/);
+  assert.throws(() => importMeshFile(fixture('open-sheet.stl'), 'sheet.stl', { resolution: 60 }), /encloses no volume/);
 });
 
 test('units and up axis: Y-up files stand up, unit-less ones get a sensible size', () => {
