@@ -1,0 +1,20 @@
+# Only the sources go into the build: dependencies are installed by npm ci, and secrets, designs and
+# local builds stay out of the image.
+node_modules
+dist
+data
+.env
+.env.*
+!.env.sample
+*.pem
+*.crt
+*.log
+*.tsbuildinfo
+.git
+.gitignore
+.DS_Store
+test
+Dockerfile
+docker-compose*.yml
+compose*.yml
+.dockerignore

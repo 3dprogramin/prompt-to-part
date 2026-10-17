@@ -9,7 +9,7 @@ function describeBase(b: Required<PrintSettings>): string {
   return `layer ${b.layerHeight.toFixed(2)} mm, ${b.walls} walls, ${b.topLayers} top / ${b.bottomLayers} bottom layers, ${b.infill} % ${d('infillPattern')} infill, supports ${d('supports')}${b.supportsOnPlate ? ' (from the build plate only)' : ''}, brim ${d('brim')}, ironing ${d('ironing')}, seam ${d('seam')}, ${SETTING_LABELS.wallOrder.toLowerCase()} ${d('wallOrder')}, fuzzy skin ${d('fuzzySkin')}`;
 }
 
-export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, hueforge?: { pictures: boolean; mine?: HfFilament[] }, lithophane?: { pictures: boolean }): string {
+export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, hueforge?: { pictures: boolean; mine?: HfFilament[] }, lithophane?: { pictures: boolean }, meshes?: { figure: boolean; meshy: boolean }): string {
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${PRINTER.name} (FDM bed-slinger, ${PRINTER.nozzle} mm nozzle, PLA/PETG, build volume ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
@@ -40,6 +40,7 @@ ${webSearch ? WEB_ON : WEB_OFF}
 ${artwork ? ARTWORK_ON : ''}
 ${hueforge ? hueforgePrompt(hueforge.pictures, hueforge.mine) : ''}
 ${lithophane ? lithophanePrompt(lithophane.pictures) : ''}
+${meshes ? meshPrompt(meshes) : ''}
 
 When the design must fit a real product or standard part (dev board, phone, camera, battery, connector, display, fastener…), take its fit-critical dimensions from the most authoritative source available, in this order:
 1. **official** – the manufacturer's mechanical drawing, datasheet or spec page (e.g. datasheets.raspberrypi.com for a Raspberry Pi).
@@ -188,6 +189,7 @@ CrossSection (2D, XY plane):
   - Expose user-facing text as a parameter with type 'text' (e.g. { label: 'Name', type: 'text', value: 'ANA' }) and a font choice as { type: 'text', font: true, value: 'Roboto Bold' } – the UI shows a text box / font picker.
   - Printability: letters ≥ 5 mm high (≥ 8 mm for script fonts), stroke ≥ 0.8 mm; raised 0.6–1.5 mm; engraved 0.6–1 mm deep. Text on the bottom face should be engraved and read correctly when viewed from below.
 - H.svg(name, { height = 20, colors }) → CrossSection: an SVG drawing the user attached in the chat (listed by name in their message) or one made with generate_artwork, exactly as drawn, centred on the origin with y up, \`height\` mm high (the width keeps the proportions). \`colors\` picks the fill colours that form the shape (default: all but white-ish ones); colours painted on top of them cut through, as in the drawing – e.g. white lettering on a red disc: colors ['#f40009'] gives the disc with the lettering cut out, ['#ffffff'] only the lettering. Use it for logos, emblems, outlines and cut-outs: extrude it, subtract it, offset it for a border; never redraw an attached drawing by hand. Call it inside build().
+- H.mesh(name, { height | width | depth | size | scale, rotate: [x, y, z], center = true }) → Manifold: a mesh the user attached (STL, OBJ, GLB, 3MF) or one made with generate_3d, already repaired into a watertight solid, Z up, standing on z = 0 and centred in X/Y, in mm. Give at most one of height (Z), width (X), depth (Y), size (longest side) or scale; rotate (degrees, applied first) fixes a model that lies on its side, then it is stood on the bed again (center: false keeps it where it is). See "Meshes" when there are any.
 - H.polarArray(shape, count, totalDeg = 360) – copies rotated about Z, unioned; H.linearArray(shape, count, [dx, dy, dz])
 - H.placeOnBed(shape, centerXY = true) – translate so min Z = 0 (and centered on XY)
 - H.segments(radius) – the circle segment count for the current quality; H.clamp(v, lo, hi), H.lerp(a, b, t)
@@ -203,6 +205,17 @@ CrossSection (2D, XY plane):
 - A missing feature in the render usually means a wrong translate/rotate (remember rotate is about the origin) or a subtract that removed it.`;
 }
 
+
+function meshPrompt({ figure, meshy }: { figure: boolean; meshy: boolean }) {
+  return `# Meshes (imported models and AI 3D figures)
+This design works with ready-made meshes: models the user attached (STL, OBJ, GLB, 3MF; each arrives with a four-view render and an import report)${meshy ? ' and ones you have made with generate_3d' : ''}. Jig has already repaired each one (welded, holes closed, inside-out faces flipped, or rebuilt as a watertight solid on a fine grid; heavy meshes simplified) and stored it with the design. Use them with H.mesh(name, …), which returns an ordinary Manifold.
+${figure ? `- 3D figure mode is ON: the user wants a sculpted figure (a person, character, animal, statue…) as a real 3D mesh, not one modelled from primitives. ${meshy ? 'Call generate_3d with a clear description of the subject (pose, proportions, clothes, accessories, style), or from_photo: true to build it from the photo the user attached; then build the design around it with H.mesh.' : 'Jig has no Meshy key (MESHY_API_KEY), so it can\'t make figures: tell the user, and offer to model the subject from primitives instead.'}` : ''}
+${meshy ? `- generate_3d({ name, prompt, from_photo }) has Meshy make a mesh (about 1–3 minutes and 25 Meshy credits each): describe only the subject; Jig adds the printing wishes ("on a stable circular base, solid, printable, no thin overhangs"), so the model usually comes on a round base of its own. Describe it standing or sitting in a compact pose that prints well (arms close to the body, no thin raised weapons or tails in mid-air). Keep Meshy's base if it is flat and sound; if the user wants a different base (a name plate, a bigger disc), cut Meshy's off with trimByPlane just above it and build yours. Look at the render it returns: if the subject is wrong, call it again with a better prompt (each call costs credits, so not for small things you can fix in the script). Reusing a name replaces that mesh.` : ''}
+- Remixing: everything a model script does works on a mesh – add a base or name plate (union), cut a flat bottom (trimByPlane), drill a hole or a magnet pocket (subtract a cylinder), add a hanging loop or mount, engrave or emboss text on it, cut it in half (trimByPlane or splitByPlane on both sides, each half its own part laid flat), hollow it (subtract a smaller copy, e.g. H.mesh(name, { height: h - 2 * wall }) moved into place, or an inward offset made with a levelSet – and add a drain hole), or subtract it from something (a mould, a stand that fits it).
+- Keep the mesh as it is otherwise: scale it with H.mesh's options, never rebuild it from primitives. Its size in mm is what the user gets; a slider for its height (e.g. 40–200 mm) is usually welcome.
+- Printing a figure on the ${PRINTER.name}: it needs a flat bottom to stand on (cut 0.5–2 mm off the feet with trimByPlane, or sink it into a base 1–2 mm); a base for a figure that can't stand on its own (round or oval, 3–5 mm thick, 10–20 % wider than the figure, its edge chamfered); features ≥ 1 mm and walls ≥ 1.2 mm (a figure scaled down loses fingers, horns and ears first – say so); overhangs (outstretched arms, chins, tails) need supports: suggest tree supports in print settings (supports: 'tree'), and orient it standing. Hollow figures over about 100 mm tall to save filament (2–3 mm walls, a drain hole under the base), or tell the user to use 2–3 walls and 10–15 % infill instead.
+- Meshes are heavy: build the rest of the model around them with few booleans (one union of everything, one subtract of all holes), and don't loop over them.`;
+}
 
 const WEB_ON = `Web search is ON for this design (WebSearch and WebFetch tools).
 - When the user names a real product or standard part whose exact size matters for fit, look up its dimensions BEFORE writing the script, following the source order below, even if you think you know them: with web search on, memory is not a source for fit-critical sizes. Cross-check when sources disagree.

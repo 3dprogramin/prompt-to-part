@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1.7
+# Jig: the built app and its API on one port (`npm start`). See "Docker" in the README.
+#
+# Build arguments:
+#   WITH_BAMBU=1   adds Bambu Studio's command line (Cost tab slicing, 3MF print settings); about
+#                  +750 MB, linux/amd64 only. BAMBU_URL / BAMBU_SHA256 pin the release.
+
+ARG NODE_IMAGE=node:26.7.0-trixie-slim@sha256:5758d367d7b4f48b73a9bb3530e687e47efb289f3b43f9c0450a25225ae0db5d
+ARG WITH_BAMBU=0
+
+# ---- dependencies (all of them, for the build) ----
+FROM ${NODE_IMAGE} AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+
+# ---- the browser app (dist/) ----
+FROM deps AS build
+COPY . .
+RUN npm run build
+
+# ---- runtime dependencies only ----
+FROM deps AS prod-deps
+RUN --mount=type=cache,target=/root/.npm npm prune --omit=dev --no-audit --no-fund
+
+# ---- Bambu Studio: the official Linux AppImage, checked and unpacked ----
+FROM ${NODE_IMAGE} AS bambu-1
+ARG BAMBU_URL=https://github.com/bambulab/BambuStudio/releases/download/v02.08.02.61/BambuStudio_ubuntu24.04-v02.08.02.61-20260820225108.AppImage
+ARG BAMBU_SHA256=d501b103fac5424513ec0e8d6bc145fb30719de2c7d94d7320d723740c81a7fd
+ADD --checksum=sha256:${BAMBU_SHA256} ${BAMBU_URL} /tmp/bambu.AppImage
+WORKDIR /tmp
+# The command line needs the slicer and its printer profiles, not the GUI's help pages, web views,
+# pictures, bed models, calibration models, fonts or translations.
+RUN chmod +x bambu.AppImage && ./bambu.AppImage --appimage-extract > /dev/null \
+  && cd squashfs-root/resources && rm -rf hms web images model calib fonts i18n tooltip && cd /tmp \
+  && mv squashfs-root /opt/bambu-studio && rm bambu.AppImage
+
+FROM scratch AS bambu-0
+WORKDIR /opt/bambu-studio
+
+FROM bambu-${WITH_BAMBU} AS bambu
+
+# ---- runtime ----
+FROM ${NODE_IMAGE}
+ARG WITH_BAMBU
+# fontconfig and fonts for text (installed fonts are listed next to the bundled ones), tini to pass
+# signals on and reap Bambu Studio and Claude Code processes; Bambu Studio's command line also needs
+# the GTK and WebKit libraries it is linked against, even without a display.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  rm -f /etc/apt/apt.conf.d/docker-clean \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends tini fontconfig fonts-dejavu-core fonts-liberation2 \
+  && if [ "$WITH_BAMBU" = 1 ]; then apt-get install -y --no-install-recommends \
+       libgtk-3-0t64 libwebkit2gtk-4.1-0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgl1 libegl1 libdbus-1-3; fi \
+  && fc-cache -f
+COPY --from=bambu /opt/bambu-studio /opt/bambu-studio
+RUN if [ "$WITH_BAMBU" = 1 ]; then ln -s /opt/bambu-studio/AppRun /usr/local/bin/bambustudio; else rmdir /opt/bambu-studio; fi
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    JIG_HOST=0.0.0.0 \
+    PORT=8787 \
+    JIG_DATA=/data \
+    JIG_DOCKER=1 \
+    CLAUDE_CONFIG_DIR=/home/node/.claude
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY package.json package-lock.json tsconfig.json index.html vite.config.ts LICENSE ./
+COPY server ./server
+COPY shared ./shared
+COPY src ./src
+# The volumes' mount points, owned by the user Jig runs as: designs and the Bambu template (/data),
+# Claude Code's sessions (CLAUDE_CONFIG_DIR) and the OpenSCAD engine plus the bundled workers
+# (node_modules/.cache, the only place the sandboxed workers may read besides node_modules).
+RUN mkdir -p /data /home/node/.claude node_modules/.cache \
+  && chown node:node /data /home/node/.claude node_modules/.cache
+
+USER node
+EXPOSE 8787
+VOLUME ["/data", "/home/node/.claude", "/app/node_modules/.cache"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.PORT}/api/capabilities`).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+# What `npm start` runs, without npm in between.
+CMD ["node", "--import", "tsx", "server/index.ts", "--production"]

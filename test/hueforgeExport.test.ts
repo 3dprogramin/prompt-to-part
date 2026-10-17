@@ -128,8 +128,13 @@ test('Bambu project: a HueForge print alone gets "change filament" marks on the 
   assert.deepEqual(settings.filament_colour, ['#161616', '#808080', '#FF0000', '#FFFFFF', '#0000FF', '#FFFF00']);
   assert.equal(settings.layer_height, '0.08');
   assert.equal(settings.initial_layer_print_height, '0.16');
+  assert.equal(settings.enable_prime_tower, '0', 'no prime tower: it collides with a big picture');
   const cfg = strFromU8(files['Metadata/model_settings.config']);
   assert.match(cfg, /value="Relief"\/><metadata key="extruder" value="1"\/><metadata key="sparse_infill_density" value="100%"\/>/);
+
+  // Ordinary multi-colour parts keep the prime tower.
+  const normal = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Lid', 20, 40, 5, '#ff0000')], 't', tpl, { colours: true, print: HF_PRINT }));
+  assert.notEqual(JSON.parse(strFromU8(normal['Metadata/project_settings.config'])).enable_prime_tower, '0');
 
   // Without colours: one filament, no changes.
   const plain = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { colours: false, print: HF_PRINT }));

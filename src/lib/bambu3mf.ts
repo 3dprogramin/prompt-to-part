@@ -161,6 +161,9 @@ export function toBambuProject(
   const base = defaultsFromTemplate(tpl.settings);
   const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user, undefined, base) : base;
   const globalChanges = bambuOverrides(globalSettings, base);
+  // A HueForge print changes filament once per layer, for the whole layer: no prime tower is needed,
+  // and on the A1's bed it collides with a big picture ("G-code conflicts"). Purging goes to the chute.
+  if (parts.some((p) => p.layerColors?.length)) globalChanges.enable_prime_tower = '0';
 
   // Filament slots (1-based): one per distinct colour and HueForge filament, or a single filament.
   const plan = filamentPlan(parts, globalSettings);

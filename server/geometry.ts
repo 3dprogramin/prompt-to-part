@@ -7,6 +7,8 @@ import path from 'node:path';
 import { buildSync } from 'esbuild';
 import { ROOT } from './config';
 import { loadFontBuffers } from './fonts';
+import { readMeshFile } from './meshes';
+import type { ImportOptions, ImportReport } from '../shared/meshRepair';
 import type { ParamValues, Quality } from '../shared/types';
 import type { EvalFailure, EvalSummary } from './geometry-worker';
 
@@ -77,11 +79,19 @@ function getWorker(): Worker {
   const crashAll = (error: string) => {
     for (const [id, p] of pending) if (p.worker === w) { pending.delete(id); p.resolve({ error, crashed: true }); }
   };
-  w.on('message', (msg: Reply & { id: number } | { fontReq: number; font: string }) => {
+  w.on('message', (msg: Reply & { id: number } | { fontReq: number; font: string } | { meshReq: number; url: string }) => {
     if ('fontReq' in msg) {
       loadFontBuffers(msg.font).then(
         (buffers) => w.connected && w.send({ fontReply: msg.fontReq, buffers }),
         (e: Error) => w.connected && w.send({ fontReply: msg.fontReq, error: e.message }),
+      );
+      return;
+    }
+    // A design's mesh file (H.mesh): read here, as the worker may only read node_modules.
+    if ('meshReq' in msg) {
+      readMeshFile(String(msg.url)).then(
+        (bytes) => w.connected && w.send({ meshReply: msg.meshReq, bytes }),
+        (e: NodeJS.ErrnoException) => w.connected && w.send({ meshReply: msg.meshReq, error: e.code === 'ENOENT' ? 'the file is missing' : e.message, transient: e.code !== 'ENOENT' && !/not a mesh/i.test(e.message) }),
       );
       return;
     }
@@ -141,6 +151,8 @@ function call<T>(msg: Record<string, unknown>, timeoutMs: number): Promise<T> {
   return job;
 }
 
+export interface ImportedMesh { bin: Uint8Array; report: ImportReport; png: string; gridStep: number }
+
 export type RenderResult = (EvalSummary | EvalFailure) & { png?: string; gridStep?: number };
 export interface StressResult { failures: { case: string; error: string }[]; tested: number; skipped: number }
 
@@ -152,6 +164,8 @@ export const geometry = {
   stress: (code: string, extra?: ParamValues) => call<StressResult>({ cmd: 'stress', code, budgetMs: 20000, extra }, 40000),
   /** One large iso picture (used for assembled / exploded views). */
   iso: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'iso', code, values }, 45000),
+  /** Parse, repair and normalise an uploaded mesh file in the locked-down worker (a stored .bin, a report and a four-view render). */
+  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options }, 120000),
   warmup: () => { getWorker(); },
   /** Stop the worker process (tests: it would keep the event loop alive). */
   stop: () => { if (worker) dropWorker(worker); },

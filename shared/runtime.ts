@@ -10,6 +10,9 @@ import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KE
 import { cleanHueforgeSource, cleanLayerColors, HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, vertexColors, type HueforgeSource, type LayerColor } from './hueforge';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import { cleanProfile } from './print';
+import { MESHES_KEY, MeshMissingError, parseMeshes, type MeshData } from './meshes';
+import { parseMeshFile } from './meshFormats';
+import { repairMesh, type ImportOptions, type ImportReport } from './meshRepair';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
   PartMesh, Quality, ScriptErrorInfo, Vec3,
@@ -32,6 +35,8 @@ interface Runtime {
   registry: Set<{ delete(): void; isDeleted?(): boolean }>;
   Manifold: typeof Manifold;
   CrossSection: typeof CrossSection;
+  /** Keeps a handle alive across evaluations (checked like the others, never deleted by cleanup). */
+  keep: (h: object) => void;
 }
 
 let runtime: Runtime | null = null;
@@ -120,6 +125,12 @@ export function initRuntime(wasm: ManifoldToplevel): void {
     return r;
   };
   intactHandle = (h) => intact(h);
+  // A kept handle (a cached imported mesh) is checked like any other but is not in the registry,
+  // so cleanup() leaves it alone. (manifold-3d's constructor already called a method on it.)
+  const keep = (h: any) => {
+    if (!born.has(h)) born.set(h, { rec: h.$$, ptr: h.$$?.ptr, count: h.$$?.count });
+    registry.delete(h);
+  };
   // manifold-3d's JS layer drops temporaries without deleting them (the per-contour vectors
   // built from polygons, the _ToPolygons() result in extrude/revolve, get() copies in
   // toPolygons, the un-centred solid of extrude(center)). Tracking the receiver and handle
@@ -168,7 +179,7 @@ export function initRuntime(wasm: ManifoldToplevel): void {
   const records = samples.map((s) => s.$$?.ptrType);
   for (const s of samples) s.delete();
   freezeReachable([M, C, handleProto, wasm.Mesh, ...classes, ...records]);
-  runtime = { wasm, registry, Manifold: proxied(M), CrossSection: proxied(C) };
+  runtime = { wasm, registry, Manifold: proxied(M), CrossSection: proxied(C), keep };
 }
 
 /** Object.freeze everything reachable through own properties and prototypes (not the wasm heap). */
@@ -218,12 +229,15 @@ export function inspectScript(code: string): { meta: ModelMeta; params: Record<s
     return { meta: normalizeMeta(r.meta), params: normalizeParams(r.params) };
   } catch (e) {
     noteTrap(e);
-    if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
+    if (e instanceof ScriptError || assetMissing(e)) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'params', ...locate(e) });
   } finally {
     cleanup(rt);
   }
 }
+
+/** A font or mesh that the caller loads before running the script again. */
+const assetMissing = (e: unknown) => e instanceof FontMissingError || e instanceof MeshMissingError;
 
 function normalizeMeta(m: unknown): ModelMeta {
   const o = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>;
@@ -280,13 +294,13 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   try {
     const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
       images: parseHfImages(inputValues?.[HF_IMAGES_KEY]), setup: parseHueforgeSetup(inputValues?.[HF_KEY]),
-    });
+    }, parseMeshes(inputValues?.[MESHES_KEY]));
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
     } catch (e) {
       // A font used at the top level (outside build) is loaded and the script run again.
-      if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
+      if (e instanceof ScriptError || assetMissing(e)) throw e;
       throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'params', ...locate(e) });
     }
     const meta = normalizeMeta(scope.meta);
@@ -297,7 +311,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     try {
       out = (scope.build as (p: ParamValues, lib: unknown) => unknown)(Object.freeze({ ...values }), { Manifold: rt.Manifold, CrossSection: rt.CrossSection, H, quality });
     } catch (e) {
-      if (e instanceof FontMissingError) throw e;
+      if (assetMissing(e)) throw e;
       throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });
     }
     if (out && typeof (out as any).then === 'function') throw new ScriptError({ message: 'build() must be synchronous (no async/await)', stage: 'output' });
@@ -445,8 +459,27 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     if (runtimeOutOfMemory()) {
       throw new ScriptError({ message: `Ran out of memory: building the model needed over ${(OUT_OF_MEMORY_BYTES / 2 ** 30).toFixed(0)} GB. Lower segment counts or resolution (sphere/cylinder segments, levelSet, refine, text detail).`, stage: 'build', ...locate(e) });
     }
-    if (e instanceof ScriptError || e instanceof FontMissingError) throw e;
+    if (e instanceof ScriptError || assetMissing(e)) throw e;
     throw new ScriptError({ message: (e as Error)?.message ?? String(e), stage: 'build', ...locate(e) });
+  } finally {
+    cleanup(rt);
+  }
+}
+
+/**
+ * Reads a mesh file (STL, OBJ, GLB/glTF, 3MF) and makes it a printable solid: millimetres, Z up,
+ * watertight, on the bed and centred (shared/meshRepair.ts). Throws on a file it can't read.
+ */
+export function importMeshFile(bytes: Uint8Array, filename: string, opts: ImportOptions = {}): { mesh: MeshData; report: ImportReport } {
+  if (!runtime) throw new Error('runtime not initialised');
+  const rt = runtime;
+  heapAtStart = heapSize();
+  try {
+    return repairMesh(rt.wasm, parseMeshFile(bytes, filename), opts);
+  } catch (e) {
+    noteTrap(e);
+    if (runtimeOutOfMemory()) throw new Error('Ran out of memory importing the mesh: it is too big. Simplify it first (e.g. Blender\'s Decimate) or upload a smaller file.');
+    throw e;
   } finally {
     cleanup(rt);
   }

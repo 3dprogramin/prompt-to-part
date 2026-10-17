@@ -1,5 +1,5 @@
 import type { Design, DesignSummary } from '../../shared/types';
-import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, ImageData, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { HfFilament } from '../../shared/hueforge';
@@ -103,6 +103,10 @@ export const api = {
   suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),
   /** A product photo of the design from a render of it (the image model: 10–30 s). */
   photo: (designId: string, r: PhotoRequest) => getJson<PhotoResponse>(`/api/designs/${designId}/photos`, { method: 'POST', body: JSON.stringify(r) }),
+  /** A mesh file attached in the chat: imported, repaired and stored with the design (seconds for big files). */
+  uploadMesh: (designId: string, file: File) => getJson<MeshUpload>(`/api/designs/${designId}/meshes?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } }),
+  /** Copies one design's mesh files to another (a design started from a version). */
+  copyMeshes: (to: string, from: string) => getJson<{ copied: number }>(`/api/designs/${to}/meshes/copy`, { method: 'POST', body: JSON.stringify({ from }) }),
   /** Font files (base64) for the text tool and font previews. */
   fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };

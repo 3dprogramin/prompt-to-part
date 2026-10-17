@@ -6,6 +6,7 @@ import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
 import { hueforgeLayers, hueforgeMesh, resolveHfOptions, type HfImage, type HueforgeOptions, type HueforgePart, type HueforgeSetup } from './hueforge';
 import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
+import { getMeshData, type MeshEntry } from './meshes';
 
 const DEG = Math.PI / 180;
 
@@ -14,6 +15,31 @@ export interface HelperRuntime {
   wasm: ManifoldToplevel;
   Manifold: typeof Manifold;
   CrossSection: typeof CrossSection;
+  /** Keeps a handle across evaluations (see initRuntime); without it nothing is cached. */
+  keep?: (h: object) => void;
+}
+
+/**
+ * Imported meshes as Manifolds, kept across evaluations by URL (the files never change): building
+ * one from 300k triangles takes about half a second, moving the kept one a few milliseconds.
+ */
+const meshCache = new Map<string, Manifold>();
+/** Most triangles kept in meshCache. */
+const MESH_CACHE_TRIANGLES = 1_500_000;
+const gone = (m: Manifold) => (m as unknown as { isDeleted(): boolean }).isDeleted();
+
+export interface MeshOptions {
+  /** Scale to this height (Z), width (X), depth (Y) or longest side in mm; at most one. Default: as stored. */
+  height?: number;
+  width?: number;
+  depth?: number;
+  size?: number;
+  /** Uniform scale factor (instead of a size). */
+  scale?: number;
+  /** Rotation in degrees about X, Y, Z (applied first), e.g. [90, 0, 0] to stand up a model lying on its back. */
+  rotate?: Vec3;
+  /** Stand it on z = 0, centred in X and Y, after rotating (default true). */
+  center?: boolean;
 }
 
 function signedArea(pts: Vec2[]) {
@@ -41,8 +67,10 @@ export interface HueforgeInput {
   setup: HueforgeSetup;
 }
 
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, hf: HueforgeInput = { images: {}, setup: {} }) {
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, hf: HueforgeInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}) {
   const { wasm } = rt;
+  // Meshes this evaluation uses: they stay in meshCache until it is over.
+  const meshesInUse = new Set<string>();
   const M = rt.Manifold as any;
   const C = rt.CrossSection as any;
   const sptDefault = quality === 'draft' ? 24 : quality === 'normal' ? 48 : 96;
@@ -110,6 +138,39 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
     const off = (rings.length - 1) * m;
     for (const [i, j, l] of wasm.triangulate([to2d(rings[rings.length - 1])])) tris.push(off + i, off + j, off + l);
     return fromTriangles(verts, tris);
+  }
+
+  /** The stored mesh at `url` as a kept Manifold (MeshMissingError while it still has to be loaded). */
+  function meshSolid(url: string): Manifold {
+    meshesInUse.add(url);
+    const hit = meshCache.get(url);
+    if (hit && !gone(hit)) {
+      meshCache.delete(url);
+      meshCache.set(url, hit);
+      return hit;
+    }
+    const data = getMeshData(url);
+    // The untracked constructor: this one outlives the evaluation (when it can be kept).
+    const make = rt.keep ? wasm.Manifold : M;
+    const m = new make(new wasm.Mesh({ numProp: 3, vertProperties: data.positions, triVerts: data.indices })) as Manifold;
+    // Kept before its first method call, which would otherwise put it in this evaluation's registry.
+    rt.keep?.(m);
+    const st = m.status();
+    if (st !== 'NoError') { if (rt.keep) m.delete(); throw new Error(`H.mesh: the stored mesh is not a valid solid (${st})`); }
+    if (!rt.keep) return m;
+    // Shared with later evaluations; scripts only ever get copies of it, and it can't be changed either.
+    Object.freeze(m);
+    meshCache.set(url, m);
+    // Over budget: drop the least recently used meshes this evaluation doesn't use.
+    let total = [...meshCache.values()].reduce((s, x) => s + (gone(x) ? 0 : x.numTri()), 0);
+    for (const [u, x] of meshCache) {
+      if (total <= MESH_CACHE_TRIANGLES) break;
+      if (meshesInUse.has(u)) continue;
+      total -= gone(x) ? 0 : x.numTri();
+      if (!gone(x)) x.delete();
+      meshCache.delete(u);
+    }
+    return m;
   }
 
   const H = {
@@ -479,6 +540,31 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       if (st !== 'NoError') throw new Error(`H.lithophane: the panel mesh is invalid (${st})`);
       const { print, note } = lithoPrint(r);
       return { shape, print, lithophane: { image: imageName, options: r }, note };
+    },
+
+    /**
+     * A mesh the user imported (STL, OBJ, GLB, 3MF in the chat) or Claude generated (generate_3d),
+     * as a watertight Manifold: Z up, standing on z = 0, centred in X and Y, in mm. Options scale
+     * it to a height/width/depth/size (or by `scale`) and rotate it (degrees, then stood on the bed
+     * again unless center is false).
+     */
+    mesh(name: string, opts: MeshOptions = {}): Manifold {
+      const entry = meshes[name];
+      if (!entry) throw new Error(`H.mesh: no mesh named "${name}" (meshes: ${Object.keys(meshes).map((n) => `"${n}"`).join(', ') || 'none'})`);
+      const sizes = (['height', 'width', 'depth', 'size', 'scale'] as const).filter((k) => opts[k] != null);
+      if (sizes.length > 1) throw new Error(`H.mesh: give one of height, width, depth, size or scale (got ${sizes.join(', ')})`);
+      for (const k of sizes) if (!(Number(opts[k]) > 0)) throw new Error(`H.mesh: ${k} must be > 0`);
+      let m = meshSolid(entry.file).translate([0, 0, 0]);
+      const rot = opts.rotate;
+      if (rot != null) {
+        if (!Array.isArray(rot) || rot.length !== 3 || !rot.every((x) => Number.isFinite(x))) throw new Error('H.mesh: rotate must be [x, y, z] in degrees');
+        if (rot.some((x) => x !== 0)) m = m.rotate(rot);
+      }
+      const b = m.boundingBox();
+      const ext = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+      const k = opts.scale ?? (opts.height != null ? opts.height / ext[2] : opts.width != null ? opts.width / ext[0] : opts.depth != null ? opts.depth / ext[1] : opts.size != null ? opts.size / Math.max(...ext) : 1);
+      if (opts.center !== false) m = m.translate([-(b.min[0] + b.max[0]) / 2, -(b.min[1] + b.max[1]) / 2, -b.min[2]]);
+      return k !== 1 ? m.scale(k) : m;
     },
 
     clamp(v: number, lo: number, hi: number): number { return Math.min(hi, Math.max(lo, v)); },

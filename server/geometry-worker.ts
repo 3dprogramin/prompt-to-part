@@ -12,9 +12,11 @@ import net from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import Module from 'manifold-3d';
-import { initRuntime, evaluateScript, formatScriptError, inspectScript, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../shared/runtime';
+import { initRuntime, evaluateScript, formatScriptError, importMeshFile, inspectScript, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../shared/runtime';
 import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
+import { decodeMesh, encodeMesh, withMeshes, type MeshData } from '../shared/meshes';
+import type { ImportOptions } from '../shared/meshRepair';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
 import type { LayerColor } from '../shared/hueforge';
 import type { LithophaneSource } from '../shared/lithophane';
@@ -66,6 +68,19 @@ function requestFont(font: string): Promise<ArrayBuffer[]> {
   });
 }
 
+// Meshes the same way: the server reads the design's mesh file and sends its bytes.
+let meshSeq = 0;
+const meshWaiters = new Map<number, { resolve: (m: MeshData) => void; reject: (e: Error) => void }>();
+function requestMesh(url: string): Promise<MeshData> {
+  return new Promise((resolve, reject) => {
+    const meshReq = ++meshSeq;
+    meshWaiters.set(meshReq, { resolve, reject });
+    send({ meshReq, url });
+  });
+}
+/** Runs fn with every font and mesh it needs loaded. */
+const withAssets = <T>(fn: () => T): Promise<T> => withMeshes(() => withFonts(fn, requestFont), requestMesh);
+
 let startFailed!: (e: unknown) => void;
 const ready = Promise.race([
   // instantiateWasm is an emscripten Module option that manifold-3d's types leave out.
@@ -104,7 +119,7 @@ function summarize(r: EvalResult): EvalSummary {
 
 async function run(code: string, values: ParamValues | undefined, quality: Quality): Promise<{ result?: EvalResult; out: EvalSummary | EvalFailure }> {
   try {
-    const result = await withFonts(() => evaluateScript(code, values, quality), requestFont);
+    const result = await withAssets(() => evaluateScript(code, values, quality));
     return { result, out: summarize(result) };
   } catch (e) {
     return { out: { ok: false, error: formatScriptError(e) } };
@@ -115,17 +130,28 @@ type Req =
   | { id: number; cmd: 'evaluate'; code: string; values?: ParamValues; quality?: Quality }
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
-  | { id: number; cmd: 'iso'; code: string; values?: ParamValues };
+  | { id: number; cmd: 'iso'; code: string; values?: ParamValues }
+  | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions };
 
 type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
+type MeshReply = { meshReply: number; bytes?: Uint8Array; error?: string; transient?: boolean };
 
 // `crashed` tells the parent the wasm instance trapped, so it replaces this worker and retries
 // (not after running out of memory, `oom`, which a retry would only repeat).
-process.on('message', async (req: Req | FontReply) => {
+process.on('message', async (req: Req | FontReply | MeshReply) => {
   if ('fontReply' in req) {
     const w = fontWaiters.get(req.fontReply);
     fontWaiters.delete(req.fontReply);
     if (req.buffers) w?.resolve(req.buffers); else w?.reject(new Error(req.error ?? 'font failed to load'));
+    return;
+  }
+  if ('meshReply' in req) {
+    const w = meshWaiters.get(req.meshReply);
+    meshWaiters.delete(req.meshReply);
+    try {
+      if (!req.bytes) throw Object.assign(new Error(req.error ?? 'mesh failed to load'), { transient: req.transient });
+      w?.resolve(decodeMesh(new Uint8Array(req.bytes)));
+    } catch (e) { w?.reject(e as Error); }
     return;
   }
   const post = (msg: { data?: unknown; error?: string; crashed?: boolean }) => send({ id: req.id, crashed: runtimeTrapped(), oom: runtimeOutOfMemory(), ...msg });
@@ -147,6 +173,12 @@ process.on('message', async (req: Req | FontReply) => {
       const { result, out } = await run(req.code, req.values, 'normal');
       const png = result && result.parts.length ? renderIso(result.parts).png.toString('base64') : undefined;
       post({ data: { ...out, png } });
+    } else if (req.cmd === 'importMesh') {
+      // The file is untrusted: parsed and repaired here, in the locked-down process.
+      const { mesh, report } = importMeshFile(new Uint8Array(req.bytes), req.filename, req.options);
+      const part = { name: 'Mesh', color: '#b0b7c3', positions: mesh.positions, indices: mesh.indices, bbox: { min: [-report.size[0] / 2, -report.size[1] / 2, 0], max: [report.size[0] / 2, report.size[1] / 2, report.size[2]] }, volume: report.volume, surfaceArea: 0, triCount: report.triangles, genus: 0, components: report.components } as EvalResult['parts'][number];
+      const { png, gridStep } = renderSheet([part]);
+      post({ data: { bin: encodeMesh(mesh), report, png: png.toString('base64'), gridStep } });
     } else if (req.cmd === 'stress') {
       post({ data: await stress(req.code, req.budgetMs ?? 20000, req.extra) });
     }
@@ -160,7 +192,7 @@ async function stress(code: string, budgetMs: number, extra: ParamValues = {}) {
   const t0 = performance.now();
   let params;
   try {
-    params = (await withFonts(() => inspectScript(code), requestFont)).params;
+    params = (await withAssets(() => inspectScript(code))).params;
   } catch (e) {
     return { failures: [{ case: 'defaults', error: formatScriptError(e).message }], tested: 0, skipped: 0 };
   }

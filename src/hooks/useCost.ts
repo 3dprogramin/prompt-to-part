@@ -4,7 +4,7 @@ import type { BambuTemplate } from '../../shared/api';
 import type { PrintProfile } from '../../shared/print';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import { api } from '../lib/api';
-import { toBambuProject } from '../lib/bambu3mf';
+import { buildProject } from '../lib/projects';
 import { exportedParts } from '../geometry/validate';
 import type { GeometryClient } from '../geometry/client';
 
@@ -67,7 +67,7 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
       stage('template');
       const tpl = await api.bambuTemplate();
       gotTemplate(tpl);
-      const project = await toBambuProject(parts, o.result.meta.name || d.name, tpl, { colours: true, print: { ai: o.result.print, user } });
+      const project = await buildProject({ kind: 'bambu', parts, title: o.result.meta.name || d.name, tpl, opts: { colours: true, print: { ai: o.result.print, user } } });
       stage('slicing');
       const stats = await api.slice(project);
       setResults((r) => ({ ...r, [d.id]: { key: k, stats, result: o.result, parts: parts.length, colours: new Set(parts.map((p) => p.color.toLowerCase())).size } }));

@@ -12,7 +12,9 @@ import { ActivityPanel } from './ActivityPanel';
 import { activityOf } from '../lib/activity';
 import { useEscape } from './useEscape';
 import { usePopover } from './usePopover';
-import type { GenerateRequest } from '../../shared/api';
+import type { GenerateRequest, MeshUpload } from '../../shared/api';
+import { meshFormat } from '../../shared/meshFormats';
+import { api } from '../lib/api';
 import { load, store } from '../lib/storage';
 import { startDictation, type Dictation } from '../lib/dictation';
 import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../shared/sources';
@@ -26,15 +28,15 @@ interface Props {
   generating: boolean;
   /** Another browser tab is generating this design. */
   busyElsewhere: boolean;
-  /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg); `scad`: attached OpenSCAD files. */
-  onSend: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
+  /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg); `scad`: attached OpenSCAD files; `meshes`: attached mesh files, already imported. */
+  onSend: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => void;
   /** Messages written while Claude works, sent once its reply is done. */
-  queued: { text: string; images: string[]; scad: ScadFile[] }[];
+  queued: { text: string; images: string[]; scad: ScadFile[]; meshes: MeshUpload[] }[];
   /** The reply was stopped or failed: the queue waits for "Send now". */
   queuePaused: boolean;
-  onQueue: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
+  onQueue: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => void;
   /** While Claude works: into the running reply (Claude reads it at its next step). */
-  onSteer: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
+  onSteer: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => void;
   onRemoveQueued: (index: number) => void;
   onSendQueued: () => void;
   onStop: () => void;
@@ -53,6 +55,8 @@ interface Props {
   /** What Claude does with pictures (the palette menu); `artworkModel`: the image model, null when Jig has no OpenRouter key. */
   imageMode: ImageMode;
   artworkModel: string | null;
+  /** 3D figures can be made (the server has a Meshy key). */
+  meshy: boolean;
   onImageMode: (mode: ImageMode) => void;
   /** The server's starting model (JIG_MODEL), offered even when it is a full model ID. */
   defaultModel: string;
@@ -109,10 +113,26 @@ export function ChatPanel(p: Props) {
   const [svgShapes, setSvgShapes] = useState<Record<string, SvgDrawing>>({});
   const [attachError, setAttachError] = useState<string | null>(null);
   const [scad, setScad] = useState<ScadFile[]>([]);
+  // Mesh files are imported (repaired, stored with the design) as soon as they are attached.
+  const [meshes, setMeshes] = useState<{ key: number; name: string; upload?: MeshUpload; error?: string }[]>([]);
+  const meshKey = useRef(0);
+  const addMeshes = (files: File[]) => {
+    for (const f of files) {
+      const key = ++meshKey.current;
+      setMeshes((prev) => [...prev, { key, name: f.name }].slice(-4));
+      api.uploadMesh(p.designId, f).then(
+        (upload) => setMeshes((prev) => prev.map((m) => (m.key === key ? { ...m, upload } : m))),
+        (e: Error) => setMeshes((prev) => prev.map((m) => (m.key === key ? { ...m, error: e.message } : m))),
+      );
+    }
+  };
+  const importing = meshes.some((m) => !m.upload && !m.error);
+  const readyMeshes = meshes.flatMap((m) => (m.upload ? [m.upload] : []));
   const addFiles = async (files: Iterable<File>) => {
     const all = [...files];
     const imgs = all.filter((f) => f.type.startsWith('image/') || isSvg(f));
     setAttachError(null);
+    addMeshes(all.filter((f) => meshFormat(f.name)));
     // OpenSCAD files go to Claude as source (the server renders them with OpenSCAD).
     const scadFiles = all.filter((f) => /\.scad$/i.test(f.name));
     if (scadFiles.length) {
@@ -138,13 +158,14 @@ export function ChatPanel(p: Props) {
     setSvgShapes((prev) => ({ ...prev, ...Object.fromEntries(ok.filter((a) => a.drawing).map((a) => [a.url, a.drawing!])) }));
   };
 
-  const hasDraft = !!text.trim() || images.length > 0 || scad.length > 0;
+  const hasDraft = !!text.trim() || images.length > 0 || scad.length > 0 || readyMeshes.length > 0;
   const send = (message = text, later = false) => {
-    if (p.busyElsewhere || p.claudeProblem || (!message.trim() && !images.length && !scad.length)) return;
+    if (p.busyElsewhere || p.claudeProblem || importing || (!message.trim() && !images.length && !scad.length && !readyMeshes.length)) return;
     // While Claude works the message goes into the reply now, or waits for its end ("Later").
-    (p.generating ? (later ? p.onQueue : p.onSteer) : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])), scad);
+    (p.generating ? (later ? p.onQueue : p.onSteer) : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])), scad, readyMeshes);
     setSvgShapes({});
     setScad([]);
+    setMeshes([]);
     setText('');
     setImages([]);
   };
@@ -271,6 +292,7 @@ export function ChatPanel(p: Props) {
                 <span className="queued-text">{clip(q.text || (q.images.length ? 'Pictures only' : 'Files only'), 140)}</span>
                 {q.images.length > 0 && <span className="dim small">+{q.images.length} picture{q.images.length > 1 ? 's' : ''}</span>}
                 {q.scad.length > 0 && <span className="dim small">+{q.scad.map((f) => f.name).join(', ')}</span>}
+                {q.meshes.length > 0 && <span className="dim small">+{q.meshes.map((m) => m.entry.original ?? m.name).join(', ')}</span>}
                 <button className="icon-btn" aria-label="Remove this queued message" title="Remove" onClick={() => p.onRemoveQueued(i)}><Icon name="x" size={12} /></button>
               </div>
             ))}
@@ -287,6 +309,20 @@ export function ChatPanel(p: Props) {
             ))}
           </div>
         )}
+        {meshes.length > 0 && (
+          <div className="attachments">
+            {meshes.map((m) => (
+              <div key={m.key} className={`thumb mesh ${m.error ? 'failed' : ''}`} role={m.error ? 'alert' : undefined}
+                title={m.error ?? (m.upload ? meshSummary(m.upload) : `Importing ${m.name}: reading, repairing and making it a solid…`)}>
+                {/* The import's four-view render, cropped to its ISO view. */}
+                {m.upload?.entry.preview ? <span className="thumb-crop"><img src={m.upload.entry.preview} alt={`Attached mesh ${m.name}`} /></span> : <span className="thumb-icon">{m.error ? <Icon name="alert" size={18} /> : <span className="spinner" />}</span>}
+                <span className="thumb-tag">{(meshFormat(m.name) ?? 'mesh').toUpperCase()}</span>
+                <button onClick={() => setMeshes(meshes.filter((x) => x !== m))} aria-label={`Remove ${m.name}`}><Icon name="x" size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        {meshes.some((m) => m.error) && <div className="bad-note small" role="alert">{meshes.filter((m) => m.error).map((m) => m.error).join(' ')}</div>}
         {images.length > 0 && (
           <div className="attachments">
             {images.map((src, i) => (
@@ -319,8 +355,8 @@ export function ChatPanel(p: Props) {
           rows={3}
         />
         <div className="composer-bar">
-          <button className="icon-btn" title="Attach photos, SVG or OpenSCAD (.scad) files" aria-label="Attach photos, SVG or OpenSCAD files" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
-          <input ref={fileInput} type="file" accept="image/*,.svg,.scad" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
+          <button className="icon-btn" title="Attach photos, SVG, OpenSCAD (.scad) or 3D models (STL, 3MF, OBJ, GLB)" aria-label="Attach photos, SVG, OpenSCAD files or 3D models" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
+          <input ref={fileInput} type="file" accept="image/*,.svg,.scad,.stl,.3mf,.obj,.glb,.gltf" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
           <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
             <option value="opus">Opus</option>
             <option value="sonnet">Sonnet</option>
@@ -342,7 +378,7 @@ export function ChatPanel(p: Props) {
           >
             <Icon name="globe" size={14} />
           </button>
-          <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} onMode={p.onImageMode} />
+          <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} onMode={p.onImageMode} />
           <span className="spacer" />
           <button
             className={`icon-btn mic ${listening}`}
@@ -365,8 +401,8 @@ export function ChatPanel(p: Props) {
             </button>
           )}
           {(!p.generating || hasDraft) && (
-            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || listening === 'starting' || (!text.trim() && !images.length && !scad.length)}
-              title={p.generating ? 'Send now: Jig reads it at its next step, while it works' : p.hasModel ? 'Update' : 'Design'}>
+            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || importing || listening === 'starting' || (!text.trim() && !images.length && !scad.length && !readyMeshes.length)}
+              title={importing ? 'Importing the 3D model…' : p.generating ? 'Send now: Jig reads it at its next step, while it works' : p.hasModel ? 'Update' : 'Design'}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
           )}
@@ -388,7 +424,7 @@ export function ChatPanel(p: Props) {
           onHover={() => {}}
         />
       )}
-      {dragOver && <div className="drop-overlay">Drop photos, SVG or .scad files to attach</div>}
+      {dragOver && <div className="drop-overlay">Drop photos, SVG, .scad files or 3D models (STL, 3MF, OBJ, GLB) to attach</div>}
       {lightbox && (
         <div className="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged image" onClick={closeLightbox}
           onKeyDown={(e) => { if (e.key === 'Tab') e.preventDefault(); }}>
@@ -402,15 +438,18 @@ export function ChatPanel(p: Props) {
 
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 
-const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null) => string }[] = [
+const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null, meshy: boolean) => string }[] = [
   { mode: 'off', label: '3D model (no picture)', icon: 'cube', hint: () => 'Jig models people, characters and animals as 3D objects.' },
   { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes Jig has ${m ?? 'an image model'} draw flat artwork, then turns it into colour layers for wall art, reliefs and signs.` },
   { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Jig makes one' : ''}; set the filaments in the Print tab.` },
   { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
+  { mode: 'figure', label: '3D figure (AI mesh)', short: 'Figure', icon: 'figure', hint: (_a, meshy) => (meshy
+    ? 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount.'
+    : 'Needs a Meshy API key: set MESHY_API_KEY in .env and restart Jig.') },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */
-function ImageModeMenu({ mode, artworkModel, onMode }: { mode: ImageMode; artworkModel: string | null; onMode: (m: ImageMode) => void }) {
+function ImageModeMenu({ mode, artworkModel, meshy, onMode }: { mode: ImageMode; artworkModel: string | null; meshy: boolean; onMode: (m: ImageMode) => void }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -444,20 +483,24 @@ function ImageModeMenu({ mode, artworkModel, onMode }: { mode: ImageMode; artwor
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}
-        title={`Picture mode: ${current.label}. ${current.hint(artworkModel)} Click to choose.`}
+        title={`Picture mode: ${current.label}. ${current.hint(artworkModel, meshy)} Click to choose.`}
       >
         <Icon name={current.icon} size={14} />
         {current.short && <span className="mode-label">{current.short}</span>}
       </button>
       {open && (
         <div className="mode-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>
-          {modes.map((m) => (
-            <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} className={m.mode === mode ? 'on' : ''} onClick={() => pick(m.mode)}>
-              <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
-              <span className="mode-icon" aria-hidden><Icon name={m.icon} size={16} /></span>
-              <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.hint(artworkModel)}</span></span>
-            </button>
-          ))}
+          {modes.map((m) => {
+            // Without a Meshy key the mode is shown, saying what it needs, but can't be chosen.
+            const off = m.mode === 'figure' && !meshy && mode !== 'figure';
+            return (
+              <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} aria-disabled={off || undefined} className={`${m.mode === mode ? 'on' : ''} ${off ? 'unavailable' : ''}`} onClick={() => { if (!off) pick(m.mode); }}>
+                <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
+                <span className="mode-icon" aria-hidden><Icon name={m.icon} size={16} /></span>
+                <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.hint(artworkModel, meshy)}</span></span>
+              </button>
+            );
+          })}
         </div>
       )}
     </span>
@@ -484,7 +527,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
   if (m.role === 'user') {
     return (
       <div className="msg user">
-        {m.files?.length ? <div className="file-chips sent">{m.files.map((n) => <span key={n} className="file-chip"><Icon name="code" size={12} /> {n}</span>)}</div> : null}
+        {m.files?.length ? <div className="file-chips sent">{m.files.map((n) => <span key={n} className="file-chip"><Icon name={meshFormat(n) ? 'cube' : 'code'} size={12} /> {n}</span>)}</div> : null}
         {m.images?.length ? <div className="msg-images">{m.images.map((src, i) => <ImageButton key={i} src={src} alt={`Reference photo ${i + 1}`} onOpen={onImage} />)}</div> : null}
         {m.text && <div className="bubble">{m.text}</div>}
       </div>
@@ -618,6 +661,12 @@ function besideChat(el: HTMLElement) {
   const r = el.getBoundingClientRect();
   const chat = el.closest('.chat-panel')?.getBoundingClientRect();
   return { left: (chat?.right ?? r.right) + 8, top: r.top };
+}
+
+/** The import of an attached mesh in one line (its chip's tooltip). */
+function meshSummary(u: MeshUpload) {
+  const [x, y, z] = u.entry.size.map((v) => v.toFixed(0));
+  return `${u.entry.original ?? u.name}: ${x} × ${y} × ${z} mm, ${u.entry.triangles.toLocaleString('en')} triangles. ${u.report.repairs.length ? `Repairs: ${u.report.repairs.join('; ')}.` : 'No repairs needed.'} Jig gets a render and this report.`;
 }
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);

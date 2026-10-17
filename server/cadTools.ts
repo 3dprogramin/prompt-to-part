@@ -12,6 +12,9 @@ import { checkSwaps, cleanFilaments, HF_IMAGES_KEY, HF_KEY, MAX_HF_FILAMENTS, pa
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
 interface AiImages { references: string[]; signal?: AbortSignal }
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
+import { MESHES_KEY, parseMeshes } from '../shared/meshes';
+import { generateMeshyModel, type MeshyClient } from './meshy';
+import { describeImport, storeMesh } from './meshes';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
@@ -33,8 +36,12 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * and with `pictures` a picture made for H.hueforge, or with `lithophane` for H.lithophane
  * (generate_picture), from the user's `references` photos if it likes.
  */
-export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: { artwork?: AiImages; pictures?: AiImages; hueforge?: boolean; lithophane?: boolean } = {}) {
-  const { artwork, pictures, hueforge, lithophane } = extra;
+export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: {
+  artwork?: AiImages; pictures?: AiImages; hueforge?: boolean; lithophane?: boolean;
+  /** 3D models from Meshy (generate_3d), stored with this design. */
+  meshy?: AiImages & { client: MeshyClient; designId: string };
+} = {}) {
+  const { artwork, pictures, hueforge, lithophane, meshy } = extra;
   // What generate_picture's pictures are for.
   const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.hueforge', what: 'a HueForge filament painting (H.hueforge)' };
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
@@ -185,6 +192,58 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           };
         } catch (e) {
           emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Artwork: ${(e as Error).message}` } });
+          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+        }
+      })] : []),
+      ...(meshy ? [tool('generate_3d', 'Have Meshy (an AI 3D generator) make a sculpted 3D model – a figure, character, animal, statue or ornament – from a description or from the photo the user attached. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. Takes about 1–3 minutes and costs Meshy credits: describe the subject well, and call again only when the subject itself is wrong.', {
+        name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name to use with H.mesh, e.g. "fox"; an existing name is replaced'),
+        prompt: z.string().max(700).optional().describe('The subject: what it is, pose, proportions, clothes, accessories, style – no printing instructions (Jig adds them). Required unless from_photo'),
+        from_photo: z.boolean().optional().describe('Build it from the photo the user attached to this message (image to 3D) instead of the description'),
+      }, async (a) => {
+        if (a.from_photo && !meshy.references.length) return { content: [{ type: 'text', text: 'The user attached no photo to this message.' }], isError: true };
+        if (!a.from_photo && !a.prompt?.trim()) return { content: [{ type: 'text', text: 'Describe the subject in prompt (or use from_photo).' }], isError: true };
+        const how = a.from_photo ? 'from the photo' : 'from the description';
+        emit({ type: 'step', step: { kind: 'status', text: `Meshy: making "${a.name}" ${how}…` } });
+        let shown = -1;
+        let status = '';
+        try {
+          const r = await generateMeshyModel(meshy.client, a.from_photo ? { image: meshy.references[0] } : { prompt: a.prompt! }, {
+            signal: meshy.signal,
+            onStarted: (id) => emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Meshy task ${id}` } }),
+            onProgress: (t) => {
+              const p = Math.round(t.progress ?? 0);
+              const line = t.status === 'PENDING' ? `Meshy: waiting in the queue${t.preceding_tasks ? ` (${t.preceding_tasks} ahead)` : ''}…` : `Meshy: ${p} %…`;
+              emit({ type: 'live', text: line });
+              // The steps get the status changes and every quarter; the live line every poll.
+              if (t.status !== status || (t.status === 'IN_PROGRESS' && Math.floor(p / 25) > Math.floor(shown / 25))) {
+                status = t.status;
+                shown = p;
+                if (t.status === 'PENDING' || t.status === 'IN_PROGRESS') emit({ type: 'step', step: { kind: 'status', text: line } });
+              }
+            },
+          });
+          emit({ type: 'live', text: `Meshy: importing and repairing "${a.name}"…` });
+          const imported = await geometry.importMesh(r.model.bytes, r.model.filename);
+          const entry = await storeMesh(meshy.designId, imported, r.model, { source: 'meshy', prompt: r.prompt, picture: r.picture });
+          if (!entry) throw new Error('The design was deleted');
+          base[MESHES_KEY] = JSON.stringify({ ...parseMeshes(base[MESHES_KEY]), [a.name]: entry });
+          emit({ type: 'mesh', name: a.name, entry });
+          const report = describeImport(a.name, entry, imported.report);
+          const picture = r.picture ? `data:image/${r.picture.ext === 'jpg' ? 'jpeg' : r.picture.ext};base64,${Buffer.from(r.picture.bytes).toString('base64')}` : `data:image/png;base64,${imported.png}`;
+          emit({ type: 'step', step: {
+            kind: 'render', ok: true, image: picture, detailOpen: true,
+            text: `3D model "${a.name}" from Meshy${r.task.consumed_credits ? ` · ${r.task.consumed_credits} credits` : ''}`,
+            detail: `Prompt sent to Meshy (${a.from_photo ? 'image to 3D' : 'text to 3D'}):\n\n${r.prompt}\n\n${report}`,
+          } });
+          return {
+            content: [
+              { type: 'image', data: imported.png, mimeType: 'image/png' },
+              { type: 'text', text: `${report}\nThe picture shows it as stored (ISO, FRONT, RIGHT, TOP; grid ${imported.gridStep} mm). Check that it is the subject asked for and stands upright (rotate it with H.mesh's rotate if not), then build the design around it.` },
+            ],
+          };
+        } catch (e) {
+          if (meshy.signal?.aborted) throw e;
+          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: ${(e as Error).message}` } });
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       })] : []),
