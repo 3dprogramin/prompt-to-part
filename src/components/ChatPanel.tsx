@@ -8,6 +8,7 @@ import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
 import { activityOf } from '../lib/activity';
 import { useEscape } from './useEscape';
+import { load, store } from '../lib/storage';
 import { startDictation, type Dictation } from '../lib/dictation';
 import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../shared/sources';
 
@@ -155,11 +156,30 @@ export function ChatPanel(p: Props) {
   useEscape(listening !== 'off', () => { void stopListening(); });
   useEffect(() => () => { void dictation.current?.stop(); }, []);
   useEffect(() => { if (listeningRef.current !== 'off') void stopListening(); }, [p.designId]);
+  // ---- the activity panel, pinned on a live reply, follows Claude across designs: it shows the
+  // live reply of whichever design is open (and keeps showing it once it finishes), is hidden on
+  // designs where Claude isn't working, and only closing it (X) stops this.
+  const [followLive, setFollowLive] = useState<boolean>(() => load('followActivity', false));
+  useEffect(() => store('followActivity', followLive), [followLive]);
+  const lastMsg = p.messages.at(-1);
+  const liveId = (p.generating || p.busyElsewhere) && lastMsg?.role === 'assistant' ? lastMsg.id : null;
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  useEffect(() => { setShownFor(liveId); }, [p.designId]);
+  useEffect(() => { if (liveId) setShownFor(liveId); }, [liveId]);
+  const followed = followLive && shownFor ? p.messages.find((m) => m.id === shownFor) : undefined;
+  const follow = (id: string, on: boolean) => { setFollowLive(on); setShownFor(on ? id : null); };
+  const chatRoot = useRef<HTMLDivElement>(null);
+  const besideChatTop = () => {
+    const r = chatRoot.current?.getBoundingClientRect();
+    return { left: (r?.right ?? 360) + 8, top: (r?.top ?? 0) + 120 };
+  };
+
   /** Update while listening: stop, then send everything that was said. */
   const sendNow = async () => { send(listening === 'off' ? text : await stopListening()); };
 
   return (
     <div
+      ref={chatRoot}
       className={`chat-panel ${dragOver ? 'drag' : ''}`}
       onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragOver(true); } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false); }}
@@ -183,7 +203,8 @@ export function ChatPanel(p: Props) {
           </div>
         )}
         {p.messages.map((m, i) => (
-          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox} />
+          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
+            followed={followed?.id === m.id} onFollow={(on) => follow(m.id, on)} />
         ))}
       </div>
 
@@ -260,6 +281,18 @@ export function ChatPanel(p: Props) {
         {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}
         {dictationError && listening === 'off' && <div className="composer-opts"><span className="bad-note" role="alert">{dictationError}</span> <button className="link" onClick={() => setDictationError(null)}>Dismiss</button></div>}
       </div>
+      {followed && (
+        <ActivityPanel
+          items={activityOf(followed)}
+          live={followed.id === liveId}
+          onImage={openLightbox}
+          at={besideChatTop()}
+          pinned
+          onPin={(pin) => { if (!pin) follow(followed.id, false); }}
+          onClose={() => follow(followed.id, false)}
+          onHover={() => {}}
+        />
+      )}
       {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
       {lightbox && (
         <div className="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged image" onClick={closeLightbox}
@@ -272,9 +305,11 @@ export function ChatPanel(p: Props) {
   );
 }
 
-function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
+function Message({ m, live, versions, currentVersion, onRestore, onImage, followed, onFollow }: {
   m: ChatMessage; live: boolean; versions: DesignVersion[]; currentVersion: number;
   onRestore: (i: number) => void; onImage: (src: string) => void;
+  /** This reply's activity is the panel that follows Claude across designs (ChatPanel shows it). */
+  followed: boolean; onFollow: (on: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const elapsed = useElapsed(live ? m.createdAt : null);
@@ -283,7 +318,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
   const hideTimer = useRef(0);
   const peek = (inside: boolean, el?: HTMLElement) => {
     clearTimeout(hideTimer.current);
-    if (inside) { if (el) setThink((t) => t ?? { mode: 'hover', at: besideChat(el) }); }
+    if (inside) { if (el && !followed) setThink((t) => t ?? { mode: 'hover', at: besideChat(el) }); }
     else hideTimer.current = window.setTimeout(() => setThink((t) => (t?.mode === 'hover' ? null : t)), 250);
   };
   useEffect(() => () => clearTimeout(hideTimer.current), []);
@@ -301,11 +336,11 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
   const peekProps = {
     onMouseEnter: (e: React.MouseEvent<HTMLElement>) => peek(true, e.currentTarget),
     onMouseLeave: () => peek(false),
-    // Clicking pins the panel open (or unpins it).
-    onClick: (e: React.MouseEvent<HTMLElement>) => {
+    // Clicking pins the panel open (or closes it): pinned on a live reply, it follows Claude.
+    onClick: () => {
       clearTimeout(hideTimer.current);
-      const at = besideChat(e.currentTarget);
-      setThink((t) => (t?.mode === 'pinned' ? { ...t, mode: 'hover' } : { mode: 'pinned', at: t?.at ?? at }));
+      setThink(null);
+      onFollow(!followed);
     },
     title: 'Hover to watch everything Claude is doing, click to pin it open',
   };
@@ -324,19 +359,24 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage }: {
           {!live && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
         </button>
         {(live || hasActivity) && (
-          <button className="link think-link" title="Show everything Claude did for this reply: thinking, code, tool calls and results" onClick={(e) => setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) })}>
+          <button className="link think-link" title="Show everything Claude did for this reply: thinking, code, tool calls and results"
+            onClick={(e) => {
+              if (live || followed) { setThink(null); onFollow(!followed); return; }
+              setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) });
+            }}>
             <Icon name="spark" size={12} /> activity
           </button>
         )}
       </div>
-      {think && (
+      {think && !followed && (
         <ActivityPanel
           items={activity}
           live={live}
           onImage={onImage}
           at={think.at}
           pinned={think.mode === 'pinned'}
-          onPin={(pinned) => setThink((t) => t && { ...t, mode: pinned ? 'pinned' : 'hover' })}
+          // Pinning the live reply hands it to the panel that follows Claude.
+          onPin={(pinned) => { if (pinned && live) { setThink(null); onFollow(true); } else setThink((t) => t && { ...t, mode: pinned ? 'pinned' : 'hover' }); }}
           onClose={() => setThink(null)}
           onHover={(inside) => peek(inside)}
         />

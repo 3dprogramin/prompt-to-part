@@ -1,8 +1,9 @@
-import { memo, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ActivityItem } from '../../shared/types';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { useEscape } from './useEscape';
+import { load, store } from '../lib/storage';
 
 interface Props {
   items: ActivityItem[];
@@ -16,16 +17,65 @@ interface Props {
   onImage: (src: string) => void;
 }
 
+/** Where the user put the panel and how big they made it (remembered across reloads). */
+interface Placement { left: number; top: number; width: number; height?: number }
+const PLACEMENT_KEY = 'activityPanel';
+const MIN_W = 280, MIN_H = 160;
+
+/** Keeps a placement on screen: the header stays reachable and the bottom (with the resize corner) inside the window. */
+function onScreen(p: Placement): Placement {
+  const width = Math.max(MIN_W, Math.min(p.width, window.innerWidth - 16));
+  const top = Math.max(8, Math.min(p.top, window.innerHeight - MIN_H - 8));
+  const height = p.height != null ? Math.max(MIN_H, Math.min(p.height, window.innerHeight - top - 8)) : undefined;
+  return { width, height, top, left: Math.max(80 - width, Math.min(p.left, window.innerWidth - 80)) };
+}
+
+/** Without a chosen height the panel grows with its content, up to the window's bottom edge. */
+const maxHeightAt = (top: number) => Math.max(MIN_H, Math.min(window.innerHeight * 0.8, window.innerHeight - top - 8));
+
 /**
  * Everything Claude does during one reply, beside the chat: thinking, the reply, model.js as it
  * is typed, tool calls and their results. Follows the newest output unless the user scrolls up.
+ * Drag the header to move it (anywhere, e.g. over the 3D view) and the corner to resize it; a
+ * double-click on the header puts it back beside the chat.
  */
 export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover, onImage }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
-  const width = Math.max(300, Math.min(760, window.innerWidth - at.left - 16));
-  const maxHeight = window.innerHeight * 0.8;
-  const top = Math.max(12, Math.min(at.top - 40, window.innerHeight - maxHeight - 12));
+  const beside = (): Placement => {
+    const width = Math.max(300, Math.min(760, window.innerWidth - at.left - 16));
+    return { left: at.left, top: Math.max(12, Math.min(at.top - 40, window.innerHeight * 0.2 - 12)), width };
+  };
+  const [place, setPlace] = useState<Placement>(() => onScreen(load<Placement | null>(PLACEMENT_KEY, null) ?? beside()));
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  useEffect(() => {
+    const fit = () => setPlace((p) => onScreen(p));
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
+
+  /** Pointer drag on the header (move) or the corner (resize); saved when released. */
+  const drag = (kind: 'move' | 'size') => (e: React.PointerEvent<HTMLElement>) => {
+    if (e.button !== 0 || (kind === 'move' && (e.target as HTMLElement).closest('button'))) return;
+    e.preventDefault();
+    const panel = e.currentTarget.closest('.activity-panel') as HTMLElement;
+    const start = { x: e.clientX, y: e.clientY, p: placeRef.current, h: panel.offsetHeight };
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+      setPlace(onScreen(kind === 'move'
+        ? { ...start.p, left: start.p.left + dx, top: start.p.top + dy }
+        : { ...start.p, width: start.p.width + dx, height: (start.p.height ?? start.h) + dy }));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      store(PLACEMENT_KEY, placeRef.current);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+  const reset = () => { store(PLACEMENT_KEY, null); setPlace(onScreen(beside())); };
 
   // Stay at the bottom while following; leave the scroll position alone while the user reads.
   useLayoutEffect(() => {
@@ -41,8 +91,10 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
   };
 
   return (
-    <div className="activity-panel" style={{ left: at.left, top, width, maxHeight }} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
-      <div className="activity-head">
+    <div className="activity-panel" style={{ left: place.left, top: place.top, width: place.width, height: place.height, maxHeight: place.height ? undefined : maxHeightAt(place.top) }}
+      onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
+      <div className="activity-head" onPointerDown={drag('move')} onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button')) reset(); }}
+        title="Drag to move · double-click to put it back beside the chat">
         {live ? <span className="spinner" /> : <Icon name="spark" size={14} />}
         <span className="activity-title">{live ? 'Claude is working' : "Claude's work"}</span>
         <span className="dim small">{items.length} item{items.length === 1 ? '' : 's'}</span>
@@ -61,6 +113,7 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
           {live ? 'Paused · jump to latest' : 'Jump to end'} <span className="chev open"><Icon name="chevron" size={11} /></span>
         </button>
       )}
+      <div className="activity-resize" onPointerDown={drag('size')} title="Drag to resize" aria-hidden />
     </div>
   );
 }

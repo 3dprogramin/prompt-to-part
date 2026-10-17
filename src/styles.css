@@ -511,11 +511,13 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .think-link:hover { color: var(--accent-2); }
 .peek { cursor: help; }
 .activity-panel { position: fixed; z-index: 60; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 16px 48px #000a; }
-.activity-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); }
+.activity-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); cursor: move; user-select: none; touch-action: none; }
+.activity-head button { cursor: pointer; }
+.activity-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 55%, var(--text-3) 55%, var(--text-3) 62%, transparent 62%, transparent 75%, var(--text-3) 75%, var(--text-3) 82%, transparent 82%); border-bottom-right-radius: var(--radius); }
 .activity-head .spinner { width: 11px; height: 11px; }
 .activity-title { font-weight: 600; }
 .activity-head .icon-btn.on { color: var(--accent); background: #e0a43c1a; }
-.activity-body { overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; line-height: 1.55; }
+.activity-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; line-height: 1.55; }
 .act-head { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
 .act-time { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--text-3); min-width: 30px; letter-spacing: 0; }
 .act-block.thinking { color: var(--text-2); }
