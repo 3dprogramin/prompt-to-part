@@ -613,3 +613,9 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 
 .thumb { position: relative; }
 .thumb-tag { position: absolute; left: 3px; bottom: 3px; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; background: #191b1fd9; color: var(--accent-2); border-radius: 3px; padding: 0 3px; }
+
+/* ---------- messages queued while Claude works ---------- */
+.queued { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; padding: 6px 8px; border: 1px dashed var(--line-2); border-radius: 8px; background: var(--bg); }
+.queued-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-3); }
+.queued-item { display: flex; align-items: center; gap: 6px; }
+.queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -23,6 +23,13 @@ interface Props {
   busyElsewhere: boolean;
   /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg). */
   onSend: (text: string, images: string[], drawings: SvgDrawing[]) => void;
+  /** Messages written while Claude works, sent once its reply is done. */
+  queued: { text: string; images: string[] }[];
+  /** The reply was stopped or failed: the queue waits for "Send now". */
+  queuePaused: boolean;
+  onQueue: (text: string, images: string[], drawings: SvgDrawing[]) => void;
+  onRemoveQueued: (index: number) => void;
+  onSendQueued: () => void;
   onStop: () => void;
   onRestore: (versionIndex: number) => void;
   model: string;
@@ -107,8 +114,9 @@ export function ChatPanel(p: Props) {
   };
 
   const send = (message = text) => {
-    if (p.generating || p.busyElsewhere || (!message.trim() && !images.length)) return;
-    p.onSend(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])));
+    if (p.busyElsewhere || (!message.trim() && !images.length)) return;
+    // While Claude works, the message waits for the end of its reply.
+    (p.generating ? p.onQueue : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])));
     setSvgShapes({});
     setText('');
     setImages([]);
@@ -209,6 +217,21 @@ export function ChatPanel(p: Props) {
       </div>
 
       <div className="composer">
+        {p.queued.length > 0 && (
+          <div className="queued" role="status">
+            <div className="queued-head small">
+              {p.queuePaused ? 'Not sent – the reply was stopped or failed:' : 'Sends when Claude has finished:'}
+              {p.queuePaused && <button className="link" onClick={p.onSendQueued}>Send now</button>}
+            </div>
+            {p.queued.map((q, i) => (
+              <div key={i} className="queued-item">
+                <span className="queued-text">{clip(q.text || 'Pictures only', 140)}</span>
+                {q.images.length > 0 && <span className="dim small">+{q.images.length} picture{q.images.length > 1 ? 's' : ''}</span>}
+                <button className="icon-btn" aria-label="Remove this queued message" title="Remove" onClick={() => p.onRemoveQueued(i)}><Icon name="x" size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
         {attachError && <div className="bad-note small" role="alert">{attachError}</div>}
         {images.length > 0 && (
           <div className="attachments">
@@ -273,9 +296,13 @@ export function ChatPanel(p: Props) {
           >
             <Icon name="mic" />
           </button>
-          {p.generating
-            ? <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>
-            : <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || listening === 'starting' || (!text.trim() && !images.length)} title={p.hasModel ? 'Update' : 'Design'}><Icon name="send" /> <span className="btn-label">{p.hasModel ? 'Update' : 'Design'}</span></button>}
+          {p.generating && <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>}
+          {(!p.generating || text.trim() || images.length > 0) && (
+            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || listening === 'starting' || (!text.trim() && !images.length)}
+              title={p.generating ? 'Send when Claude has finished this reply' : p.hasModel ? 'Update' : 'Design'}>
+              <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
+            </button>
+          )}
         </div>
         {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Claude is working on this design in another tab</span></div>}
         {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}

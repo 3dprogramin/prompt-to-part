@@ -69,6 +69,7 @@ Both are found on `PATH` and in their default install folders on macOS (`/Applic
   - Closing the page with unsaved changes, or while Claude is working, asks first. Closing it stops the generation.
   - Each save is numbered (`rev`). If another tab or window saved the design since this one last did, that newer copy is shown instead of being overwritten (while Claude works on the design here, Claude's copy wins).
   - A design deleted in one tab closes in the others, and nothing saves it back.
+- **Messages while Claude works:** type and press Enter (or *Send*, next to *Stop*) and the message is queued; it goes out once Claude's reply is done, several queued messages together as one. If the reply is stopped or fails, the queue waits for *Send now*. Queued messages show above the chat box, each with a × to drop it.
 - **Questions:** ask Claude something about the design and the reply starts with the short answer, then the explanation; the model is only changed when you ask for a change.
 
 ## Watching Claude work

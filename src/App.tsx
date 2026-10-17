@@ -308,6 +308,8 @@ export default function App() {
     setRunning((r) => ({ ...r, [designId]: abort }));
     tell({ type: 'running', id: designId, on: true });
     let finished = false;
+    // Messages queued meanwhile go out only after a reply that ended normally.
+    let completed = false;
     try {
       await generate({
         designId: design.id,
@@ -341,7 +343,7 @@ export default function App() {
             };
           });
           if (currentId.current === designId) setViewOpts((o) => ({ ...o, hiddenParts: [] }));
-        } else if (ev.type === 'done') { finished = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
+        } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
         else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
       }, abort.signal);
       if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Claude finished (the server may have restarted). Please send the request again.' }));
@@ -350,6 +352,8 @@ export default function App() {
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
     } finally {
       patchAsst((m) => ({ ...m, live: undefined }));
+      // Stopped or failed: messages queued for after this reply wait for the user ("Send now").
+      if (!completed) setQueues((s) => (s[designId]?.items.length ? { ...s, [designId]: { ...s[designId], paused: true } } : s));
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
       if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
       tell({ type: 'running', id: designId, on: false });
@@ -364,6 +368,28 @@ export default function App() {
       }, 0);
     }
   };
+
+  // ---- messages sent while Claude works: queued per design, sent together once the reply is done
+  const [queues, setQueues] = useState<Record<string, { items: QueuedMessage[]; paused: boolean }>>({});
+  const queue = queues[design.id];
+  const enqueue = (text: string, images: string[], drawings: SvgDrawing[]) =>
+    setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings }], paused: false } }));
+  const removeQueued = (i: number) => setQueues((s) => {
+    const items = (s[design.id]?.items ?? []).filter((_, j) => j !== i);
+    const next = { ...s };
+    if (items.length) next[design.id] = { ...s[design.id], items }; else delete next[design.id];
+    return next;
+  });
+  const sendQueued = () => {
+    const q = queues[design.id];
+    if (!q?.items.length) return;
+    setQueues((s) => { const next = { ...s }; delete next[design.id]; return next; });
+    void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings));
+  };
+  // When the open design's reply is done (and its new model is on screen), the queue goes out.
+  useEffect(() => {
+    if (queue?.items.length && !queue.paused && !running[design.id] && remoteRunning[design.id] == null && !busy) sendQueued();
+  }, [queue, running, remoteRunning, busy, design.id]);
 
   const restore = (vi: number) => {
     const v = design.versions[vi];
@@ -743,6 +769,11 @@ export default function App() {
           busyElsewhere={busyElsewhere}
           onSend={onSend}
           onStop={() => running[design.id]?.abort()}
+          queued={queue?.items ?? []}
+          queuePaused={!!queue?.paused}
+          onQueue={enqueue}
+          onRemoveQueued={removeQueued}
+          onSendQueued={sendQueued}
           onRestore={onRestore}
           model={chat.model} onModel={(model) => setChat({ model })}
           effort={chat.effort} onEffort={(effort) => setChat({ effort })}
@@ -847,6 +878,9 @@ export default function App() {
 function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }
+
+/** A message written while Claude was working, sent after its reply. */
+interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[] }
 
 /** `known` plus newly attached drawings; a different drawing with a name in use gets "-2", "-3"… */
 function withDrawings(known: Record<string, SvgDrawing>, attached: SvgDrawing[]): Record<string, SvgDrawing> {
