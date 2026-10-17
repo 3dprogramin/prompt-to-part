@@ -10,6 +10,8 @@ import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
 import { activityOf } from '../lib/activity';
 import { useEscape } from './useEscape';
+import { usePopover } from './usePopover';
+import type { GenerateRequest } from '../../shared/api';
 import { load, store } from '../lib/storage';
 import { startDictation, type Dictation } from '../lib/dictation';
 import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../shared/sources';
@@ -45,10 +47,10 @@ interface Props {
   claudeProblem: string | null;
   /** Claude may search the web for this design (off for every design until turned on). */
   webSearch: boolean;
-  /** AI artwork (generate_artwork) on; `artworkModel`: the image model, null when Jig has no OpenRouter key. */
-  artwork: boolean;
+  /** What Claude does with pictures (the palette menu); `artworkModel`: the image model, null when Jig has no OpenRouter key. */
+  imageMode: ImageMode;
   artworkModel: string | null;
-  onArtwork: (on: boolean) => void;
+  onImageMode: (mode: ImageMode) => void;
   /** The server's starting model (JIG_MODEL), offered even when it is a full model ID. */
   defaultModel: string;
   onWebSearch: (on: boolean) => void;
@@ -329,17 +331,7 @@ export function ChatPanel(p: Props) {
           >
             <Icon name="globe" size={14} />
           </button>
-          {p.artworkModel && (
-            <button
-              className={`web-toggle art ${p.artwork ? 'on' : ''}`}
-              aria-label="AI artwork"
-              aria-pressed={p.artwork}
-              onClick={() => p.onArtwork(!p.artwork)}
-              title={p.artwork ? `AI artwork is on: for people, characters, animals and scenes Claude has ${p.artworkModel} draw the artwork, then builds the design from it (click to turn it off, so Claude models them as 3D objects)` : `AI artwork is off: Claude models people, characters and animals as 3D objects. Click to have ${p.artworkModel} draw them as flat artwork for wall art, reliefs and signs (this design, until you reload)`}
-            >
-              <Icon name="palette" size={14} />
-            </button>
-          )}
+          <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} onMode={p.onImageMode} />
           <span className="spacer" />
           <button
             className={`icon-btn mic ${listening}`}
@@ -386,6 +378,62 @@ export function ChatPanel(p: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
+
+const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null) => string }[] = [
+  { mode: 'off', label: '3D model (no picture)', icon: 'palette', hint: () => 'Claude models people, characters and animals as 3D objects.' },
+  { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes ${m ?? 'an image model'} draws flat artwork, which Claude turns into colour layers for wall art, reliefs and signs.` },
+  { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: () => 'A photo printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach the photo; set the filaments in the Print tab.' },
+];
+
+/** The palette button: what Claude does with pictures for this design (until you reload). */
+function ImageModeMenu({ mode, artworkModel, onMode }: { mode: ImageMode; artworkModel: string | null; onMode: (m: ImageMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  usePopover(open, () => setOpen(false), wrap, trigger);
+  const modes = IMAGE_MODES.filter((m) => m.mode !== 'artwork' || artworkModel || mode === 'artwork');
+  const current = IMAGE_MODES.find((m) => m.mode === mode) ?? IMAGE_MODES[0];
+  // Opening puts the focus on the chosen mode; arrows, Home and End move it.
+  useEffect(() => { if (open) menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus(); }, [open]);
+  const onKey = (e: React.KeyboardEvent) => {
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    const to = e.key === 'ArrowDown' ? (i + 1) % items.length : e.key === 'ArrowUp' ? (i - 1 + items.length) % items.length : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1;
+    if (to >= 0) { e.preventDefault(); items[to]?.focus(); }
+    if (e.key === 'Tab') setOpen(false);
+  };
+  const pick = (m: ImageMode) => { onMode(m); setOpen(false); trigger.current?.focus(); };
+  return (
+    <span className="mode-wrap" ref={wrap}>
+      <button
+        ref={trigger}
+        className={`web-toggle art mode-btn ${mode !== 'off' ? 'on' : ''}`}
+        aria-label={`Picture mode: ${current.label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}
+        title={`Picture mode: ${current.label}. ${current.hint(artworkModel)} Click to choose.`}
+      >
+        <Icon name={current.icon} size={14} />
+        {current.short && <span className="mode-label">{current.short}</span>}
+      </button>
+      {open && (
+        <div className="mode-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>
+          {modes.map((m) => (
+            <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} className={m.mode === mode ? 'on' : ''} onClick={() => pick(m.mode)}>
+              <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
+              <span><b>{m.label}</b><span>{m.hint(artworkModel)}</span></span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 
