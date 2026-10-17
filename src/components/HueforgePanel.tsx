@@ -80,10 +80,14 @@ export function HueforgePanel({ result, part, values, onSetup, onImage }: Props)
     setPicking(null);
     trigger.current?.focus();
   };
+  // The preview takes new colours and TDs at once: a full-size relief takes seconds to rebuild, and
+  // until then only the swatches would change. Where the layers start still comes from the rebuild.
+  const filamentsKey = JSON.stringify(filaments);
+  const previewLayers = useMemo(() => (built ? layers.map((l, i) => ({ ...l, color: filaments[i].color, td: filaments[i].td })) : layers), [layers, filamentsKey]);
   const changes = Math.max(0, filaments.length - 1);
   return (
     <div className="hf-panel">
-      <Pictures part={part} grid={grid} images={images} onImage={onImage} />
+      <Pictures part={part} layers={previewLayers} grid={grid} images={images} onImage={onImage} />
 
       <div className="hf-stats small" role="status">
         <span className="mono">{grid.total} layers</span> · <span className="mono">{grid.top.toFixed(2)} mm</span> · {changes} filament change{changes === 1 ? '' : 's'}
@@ -182,7 +186,7 @@ function SwapSlider({ name, layer, min, max, grid, onCommit }: { name: string; l
 
 // ---------------------------------------------------------------- pictures
 
-function Pictures({ part, grid, images, onImage }: { part: HfPart; grid: Grid; images: Record<string, HfImage>; onImage: Props['onImage'] }) {
+function Pictures({ part, layers, grid, images, onImage }: { part: HfPart; layers: LayerColor[]; grid: Grid; images: Record<string, HfImage>; onImage: Props['onImage'] }) {
   const name = part.hueforge?.image && images[part.hueforge.image] ? part.hueforge.image : Object.keys(images)[0];
   const image = name ? images[name] : undefined;
   const options: HueforgeOptions = part.hueforge?.options ?? { width: part.bbox.max[0] - part.bbox.min[0], maxHeight: grid.top, layerHeight: grid.lh, firstLayerHeight: grid.first };
@@ -191,12 +195,12 @@ function Pictures({ part, grid, images, onImage }: { part: HfPart; grid: Grid; i
   const simulated = useMemo(() => {
     if (!image) return null;
     try {
-      const s = simulateImage(image, part.layerColors, options);
+      const s = simulateImage(image, layers, options);
       return rgbaToDataUrl(s.width, s.height, s.rgba);
     } catch {
       return null;
     }
-  }, [image, part.layerColors, optionsKey]);
+  }, [image, layers, optionsKey]);
   return <PicturePair name={name} image={image} preview={simulated} previewLabel="Simulated print" previewAlt="How the print will look" onImage={onImage}
     empty="No picture is stored with this design: attach a photo in the chat with HueForge chosen in the palette menu." />;
 }
