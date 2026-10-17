@@ -1,0 +1,48 @@
+# Jig in Docker: `docker compose up -d --build`, then open http://localhost:8787 (see "Docker" in the
+# README). Settings and secrets come from .env (copy .env.sample).
+#
+# Jig has no login: anyone who can reach its port can use your Claude account and keys. It is
+# therefore published on this computer only (127.0.0.1); don't change that to 0.0.0.0.
+name: jig
+
+services:
+  jig:
+    build:
+      context: .
+      args:
+        # 1 adds Bambu Studio for Cost tab slicing and 3MF print settings (larger image, amd64 only).
+        WITH_BAMBU: ${JIG_WITH_BAMBU:-0}
+    image: jig:local
+    env_file: .env
+    # These win over .env, which may still hold a local install's paths.
+    environment:
+      # Jig checks that requests name its own port, so the container listens on the published one.
+      PORT: ${JIG_PORT:-8787}
+      JIG_HOST: 0.0.0.0
+      JIG_DATA: /data
+      CLAUDE_CONFIG_DIR: /home/node/.claude
+    ports:
+      - "127.0.0.1:${JIG_PORT:-8787}:${JIG_PORT:-8787}"
+    volumes:
+      # Designs, chat images, workspaces, the Bambu template and slicer data, cost settings.
+      - data:/data
+      # Claude Code's sessions (so follow-up messages continue the conversation) and settings.
+      - claude:/home/node/.claude
+      # The OpenSCAD engine (downloaded and hash-checked on first use) and the bundled workers.
+      - cache:/app/node_modules/.cache
+      # Your own fonts, listed next to the bundled ones:
+      # - /usr/share/fonts:/usr/local/share/fonts/host:ro
+    read_only: true
+    # Everything else is read-only; scratch space and the rest of the home folder live in memory.
+    tmpfs:
+      - /tmp
+      - /home/node:uid=1000,gid=1000,mode=0700
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  data:
+  claude:
+  cache:

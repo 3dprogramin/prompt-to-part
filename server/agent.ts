@@ -48,12 +48,16 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 /** The environment for the Claude Code process the Agent SDK starts. */
 export function claudeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
-  // Subscription mode uses the `claude` CLI's login, so no key may override it; in the default
-  // API-key mode the key (or token and base URL) is passed on, and without one nothing runs at all
-  // (claudeAuthProblem), so the CLI's login is never used silently.
+  // Subscription mode uses the `claude` CLI's login or the CLAUDE_CODE_OAUTH_TOKEN from `claude
+  // setup-token`, so no key may override it; in the default API-key mode the key (or token and base
+  // URL) is passed on, and without one nothing runs at all (claudeAuthProblem), so the subscription
+  // is never used silently.
   if (authMode() === 'subscription') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_BASE_URL; }
-  // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
-  else if (claudeViaOpenRouter()) Object.assign(env, { ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });
+  else {
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
+    if (claudeViaOpenRouter()) Object.assign(env, { ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });
+  }
   // Claude has no use for other services' keys.
   delete env.ELEVENLABS_API_KEY;
   delete env.OPENROUTER_API_KEY;
