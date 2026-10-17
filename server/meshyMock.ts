@@ -135,7 +135,8 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
       if (b.enable_pbr && b.should_texture === false) return send(res, 400, { message: 'enable_pbr requires should_texture' });
       prompt = typeof b.texture_prompt === 'string' ? b.texture_prompt : '';
     }
-    const credits = family === 'text-to-3d' || b.should_texture === false ? 20 : 30;
+    // 20 for the mesh, 30 textured; 2k/4k geometry costs 5 more.
+    const credits = (family === 'text-to-3d' || b.should_texture === false ? 20 : 30) + (b.geometry_resolution === '2k' || b.geometry_resolution === '4k' ? 5 : 0);
     if (balance < credits) return send(res, 402, { message: 'Insufficient credits' });
     if (active() >= 10) return send(res, 429, { message: 'NoMorePendingTasks: too many tasks in the queue' });
     balance -= credits;

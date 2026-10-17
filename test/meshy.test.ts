@@ -26,8 +26,8 @@ test('a model from a description: PENDING â†’ IN_PROGRESS with rising progress â
   const progress = seen.filter((t) => t.status === 'IN_PROGRESS').map((t) => t.progress);
   assert.ok(progress.length >= 1 && progress.every((p, i) => p < 100 && (i === 0 || p >= progress[i - 1])), `${progress}`);
   assert.equal(seen.at(-1)!.progress, 100);
-  assert.match(r.prompt, /^a red fox sitting, one solid object, printable/);
-  assert.equal(r.task.consumed_credits, 20);
+  assert.match(r.prompt, /^a red fox sitting, on a stable circular base, solid, printable/);
+  assert.equal(r.task.consumed_credits, 25); // the mesh, 2k geometry
   assert.match(r.model.filename, /\.glb$/);
   assert.equal(r.picture?.ext, 'png');
   // The fox sample, unit-less and Y-up like Meshy's models, imports as a solid.
@@ -50,10 +50,22 @@ test('errors: a bad key, a bad request, a failed task, credits', async () => {
   assert.match((await long.json()).message, /800/);
   const before = await balance();
   await assert.rejects(generateMeshyModel(client, { prompt: 'a dragon FAIL' }), (e) => e instanceof MeshyError && e.code === 'image_too_complex' && /couldn't make the model: The uploaded image is too complex/.test(e.message));
-  assert.equal(await balance(), before - 20); // charged when created (the real API refunds failures later)
-  const poor = { ...client, baseUrl: await startMock(30) };
+  assert.equal(await balance(), before - 25); // charged when created (the real API refunds failures later)
+  const poor = { ...client, baseUrl: await startMock(40) };
   await createTextTo3d(poor, 'one');
   await assert.rejects(createTextTo3d(poor, 'two'), (e) => e instanceof MeshyError && e.status === 402 && /Not enough Meshy credits/.test(e.message));
+});
+
+test('a full queue is a 429 without Retry-After, and no task is created', async () => {
+  const busy = { ...client, baseUrl: await startMock() };
+  for (let i = 0; i < 10; i++) await createTextTo3d(busy, `cat ${i}`);
+  const r = await fetch(`${busy.baseUrl}/v2/text-to-3d`, { method: 'POST', headers: { Authorization: 'Bearer msy_x', 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'preview', prompt: 'one more' }) });
+  assert.equal(r.status, 429);
+  assert.equal(r.headers.get('retry-after'), null);
+  assert.match((await r.json()).message, /^NoMorePendingTasks/);
+  await assert.rejects(createTextTo3d(busy, 'one more'), (e) => e instanceof MeshyError && e.status === 429 && /Meshy is busy/.test(e.message));
+  const list = await (await fetch(`${busy.baseUrl}/v2/text-to-3d?page_size=100`, { headers: { Authorization: 'Bearer msy_x' } })).json();
+  assert.equal(list.length, 10);
 });
 
 test('polling rides out a server error, follows a reschedule, and gives up after the time limit', async () => {

@@ -104,13 +104,13 @@ test('generate_3d: Meshy (the mock) makes a model, Jig repairs and stores it, Cl
   assert.match(out.content[1].text!, /Mesh "fox"[\s\S]*Use it with H\.mesh\("fox"/);
   const mesh = events.find((e) => e.type === 'mesh') as { name: string; entry: MeshEntry };
   assert.equal(mesh.entry.source, 'meshy');
-  assert.match(mesh.entry.prompt!, /^a cute fox sitting, one solid object/);
+  assert.match(mesh.entry.prompt!, /^a cute fox sitting, on a stable circular base/);
   assert.ok(existsSync(path.join(dataDir, 'designs', 'test-mesh-00000004', 'meshes', mesh.entry.file.split('/').pop()!)));
   assert.equal(JSON.parse(base.$meshes).fox.file, mesh.entry.file);
   const steps = events.flatMap((e) => (e.type === 'step' ? [e.step] : []));
   assert.ok(steps.some((s) => /^Meshy: \d+ %…$/.test(s.text)), steps.map((s) => s.text).join('\n'));
   const shown = steps.find((s) => s.kind === 'render')!;
-  assert.match(shown.text, /3D model "fox" from Meshy · 20 credits/);
+  assert.match(shown.text, /3D model "fox" from Meshy · 25 credits/);
   assert.match(shown.detail!, /Prompt sent to Meshy \(text to 3D\):\n\na cute fox sitting/);
   assert.match(shown.image!, /^data:image\/png;base64,/);
   assert.ok(events.some((e) => e.type === 'live' && /^Meshy: \d+ %…$/.test(e.text)));

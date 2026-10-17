@@ -4,12 +4,14 @@ Small models for the mesh import tests and the mock Meshy server (`server/meshyM
 
 | File | What | Author | Licence | Source |
 |---|---|---|---|---|
-| `figurine.glb` | "character-female-a" from Mini Characters, geometry only | Kenney (www.kenney.nl) | CC0 1.0 (the pack's `License.txt`: "License: (Creative Commons Zero, CC0)") | https://kenney.nl/assets/mini-characters |
+| `figurine.glb` | "character-female-a" from Mini Characters, geometry only | Kenney (www.kenney.nl) | CC0 1.0 ("License: Creative Commons CC0" on the pack's page; its `License.txt`: "License: (Creative Commons Zero, CC0)") | https://kenney.nl/assets/mini-characters |
 | `fox.glb`, `fox.obj` | "animal-fox" from Cube Pets (the OBJ as distributed; it refers to a `.mtl` that isn't included) | Kenney | CC0 1.0 (the pack's `License.txt`) | https://kenney.nl/assets/cube-pets |
 | `dog.glb` | "animal-dog" from Cube Pets, geometry only | Kenney | CC0 1.0 (the pack's `License.txt`) | https://kenney.nl/assets/cube-pets |
-| `cat.glb` | Cat, geometry only | Quaternius | CC0 1.0 ("All models are under the CC0 License.", https://quaternius.com/faq.html) | Quaternius' animal packs (https://quaternius.com/packs/ultimateanimatedanimals.html), downloaded from poly.pizza |
-| `fish.glb` | Fish, geometry only | Quaternius | CC0 1.0 (as above) | as above |
-| `pug.stl` | Pug, converted to a binary STL in millimetres (Z up, 60 mm long) | Quaternius | CC0 1.0 (as above) | as above |
+| `cat.glb` | Cat, geometry only (bind pose; the animations left out) | Quaternius | CC0 1.0 ("Public Domain (CC0)" on the model's page) | https://poly.pizza/m/2f54vbV0In |
+| `fish.glb` | Fish, geometry only | Quaternius | CC0 1.0 ("Public Domain (CC0)" on the model's page) | https://poly.pizza/m/XWl86YFtpF |
+| `pug.stl` | Pug, converted to a binary STL in millimetres (Z up, 60 mm long) | Quaternius | CC0 1.0 ("Public Domain (CC0)" on the model's page) | https://poly.pizza/m/1gXKv15ik8 |
+
+Not every Quaternius model on poly.pizza is CC0 (some are CC-BY 3.0), so each one's own page was checked.
 
 Broken variants for the repair tests, made by Jig's fixture script from the models above (CC0 as well):
 

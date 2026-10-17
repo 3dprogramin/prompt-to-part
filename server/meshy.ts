@@ -1,6 +1,6 @@
 // Meshy (https://docs.meshy.ai): AI 3D models from a description (Text to 3D, preview stage) or a
 // photo (Image to 3D), for generate_3d. Jig prints in one colour, so it asks for the untextured
-// mesh only (20 credits a model); the preview picture is only for the chat. The key stays on the
+// mesh only (25 credits a model at 2k geometry); the preview picture is only for the chat. The key stays on the
 // server. MESHY_BASE_URL points it at the mock (`npm run mock:meshy`, server/meshyMock.ts).
 
 export const MESHY_DEFAULT_BASE = 'https://api.meshy.ai/openapi';
@@ -80,7 +80,7 @@ async function call<T>(c: MeshyClient, method: string, path: string, body: unkno
 /** Starts a model from a description; returns the task id. Each call costs credits: never retry it blindly. */
 export async function createTextTo3d(c: MeshyClient, prompt: string, signal?: AbortSignal): Promise<string> {
   const { data } = await call<{ result: string }>(c, 'POST', PATHS['text-to-3d'], {
-    mode: 'preview', prompt: prompt.slice(0, MAX_MESHY_PROMPT), ai_model: 'latest', should_remesh: false, target_formats: ['glb'],
+    mode: 'preview', prompt: prompt.slice(0, MAX_MESHY_PROMPT), ai_model: 'meshy-7.1', geometry_resolution: '2k', should_remesh: false, target_formats: ['glb'],
   }, 60000, signal);
   if (typeof data?.result !== 'string') throw new MeshyError('Meshy returned no task id');
   return data.result;
@@ -89,7 +89,7 @@ export async function createTextTo3d(c: MeshyClient, prompt: string, signal?: Ab
 /** Starts a model from a photo (a data URI: JPEG, PNG or WebP up to 20 MB); returns the task id. */
 export async function createImageTo3d(c: MeshyClient, imageDataUri: string, signal?: AbortSignal): Promise<string> {
   const { data } = await call<{ result: string }>(c, 'POST', PATHS['image-to-3d'], {
-    image_url: imageDataUri, ai_model: 'latest', should_texture: false, should_remesh: false, target_formats: ['glb'],
+    image_url: imageDataUri, ai_model: 'meshy-7.1', geometry_resolution: '2k', should_texture: false, should_remesh: false, target_formats: ['glb'],
   }, 60000, signal);
   if (typeof data?.result !== 'string') throw new MeshyError('Meshy returned no task id');
   return data.result;
@@ -167,7 +167,7 @@ export async function download(c: MeshyClient, url: string, signal?: AbortSignal
 
 /** The printing wishes added to every description (Meshy's own advice for figurines). */
 export function meshyPrompt(subject: string): string {
-  const extra = ', one solid object, printable, no thin overhangs or floating parts';
+  const extra = ', on a stable circular base, solid, printable, no thin overhangs';
   return subject.trim().slice(0, MAX_MESHY_PROMPT - extra.length) + extra;
 }
 
