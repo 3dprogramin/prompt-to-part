@@ -174,6 +174,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_MODEL` | `opus` | The model the chat starts with: `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
 | `JIG_EFFORT` | `high` | The reasoning effort the chat starts with (`low` … `max`) |
 | `JIG_IMAGE_MODEL` | `google/gemini-nano-banana-2.1` | The OpenRouter image model for AI artwork |
+| `JIG_IMAGE_FALLBACK` | `google/gemini-3.1-flash-image` | Used when the image model stays busy (rate-limited upstream) after two retries; empty turns it off |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with instead of a key, for your own use on your own computer only (see below) |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
