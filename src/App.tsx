@@ -50,6 +50,8 @@ function newDesign(): Design {
 
 export default function App() {
   const [design, setDesign] = useState<Design>(newDesign);
+  // The browser tab names the open design.
+  useEffect(() => { document.title = design.name.trim() ? `Jig - ${design.name.trim()}` : 'Jig'; }, [design.name]);
   const currentId = useRef(design.id);
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);

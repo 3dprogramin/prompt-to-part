@@ -13,6 +13,7 @@ npm run dev:watch    # same, but the API server restarts on code changes (kills 
 # or
 npm run build && npm start   # single server on http://127.0.0.1:8787
 npm test             # unit and API tests (about 20 s)
+npm run test:ui      # UI smoke test: builds, opens a design in headless Chromium (about 10 s; screenshots in JIG_UI_SHOTS)
 npm run mock:meshy   # a stand-in for Meshy's API, for 3D figures without credits (see "3D figures with Meshy")
 npm run typecheck
 ```

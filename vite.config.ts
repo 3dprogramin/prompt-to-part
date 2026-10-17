@@ -3,7 +3,7 @@ import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Jig's version (package.json), shown in the page title: index.html reads it as %VITE_APP_VERSION%.
+// Jig's version (package.json), shown in the top bar as import.meta.env.VITE_APP_VERSION.
 process.env.VITE_APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
 
 const API = `http://127.0.0.1:${process.env.API_PORT ?? 8787}`;

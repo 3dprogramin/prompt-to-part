@@ -47,6 +47,7 @@ export function TopBar(p: Props) {
       <a className="brand" href="/" title="New design" onClick={newHere}>
         <span className="logo"><Icon name="cube" size={18} /></span> Jig
       </a>
+      <span className="app-version" title="Jig version">v{import.meta.env.VITE_APP_VERSION}</span>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
           version menu sits right after it. */}
       <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)}

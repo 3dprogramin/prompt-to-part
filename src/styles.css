@@ -39,6 +39,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .topbar { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: 0.01em; background: none; border: 0; padding: 4px 6px 4px 0; border-radius: 8px; color: var(--text); text-decoration: none; }
 .brand:hover { color: #fff; }
+.app-version { font-family: var(--mono); font-size: 11px; color: var(--text-3); margin-left: -6px; }
 .brand:hover .logo { background: var(--accent-2); }
 .logo { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); }
 .design-name { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 8px; flex: 0 1 auto; width: calc(var(--name-chars, 16) * 0.62em + 20px); min-width: 120px; max-width: clamp(160px, 30vw, 420px); font-weight: 500; text-overflow: ellipsis; }
