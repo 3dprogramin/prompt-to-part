@@ -32,6 +32,8 @@ interface Runtime {
 }
 
 let runtime: Runtime | null = null;
+/** Whether a handle's embind record is as Jig created it (set by initRuntime). */
+let intactHandle: (h: object) => boolean = () => true;
 
 // A WebAssembly trap (out-of-bounds access, unreachable, abort) can leave the wasm heap
 // corrupted, so after one the worker should be replaced rather than reused.
@@ -47,8 +49,11 @@ export function runtimeTrapped(): boolean { return trapped; }
 // which a retry would only repeat.
 const OUT_OF_MEMORY_BYTES = 2 ** 31;
 let memory: WebAssembly.Memory | null = null;
-/** True if the last trap came from running out of wasm memory. */
-export function runtimeOutOfMemory(): boolean { return trapped && (memory?.buffer.byteLength ?? 0) >= OUT_OF_MEMORY_BYTES; }
+// The heap never shrinks: an earlier large model must not make every later trap look like this one.
+let heapAtStart = 0;
+const heapSize = () => memory?.buffer.byteLength ?? 0;
+/** True if the last trap came from running out of wasm memory during the current evaluation. */
+export function runtimeOutOfMemory(): boolean { return trapped && heapSize() >= OUT_OF_MEMORY_BYTES && heapSize() > heapAtStart; }
 
 /**
  * manifold-3d Module() option that instantiates the wasm with `load`, keeping a handle on its
@@ -75,11 +80,41 @@ export function initRuntime(wasm: ManifoldToplevel): void {
   let handleProto = M.prototype;
   while (handleProto && !Object.prototype.hasOwnProperty.call(handleProto, 'isDeleted')) handleProto = Object.getPrototypeOf(handleProto);
   const isHandle = (x: unknown): x is { delete(): void } => typeof x === 'object' && x !== null && handleProto.isPrototypeOf(x);
+  // embind keeps each object's heap pointer and reference count in its own record ($$), which has to
+  // stay writable for delete(). A script that rewrote it could make a call read or write another
+  // object's memory, or free one twice. Each handle's record is remembered when Jig first sees it and
+  // checked before every call and before the delete in cleanup().
+  const born = new WeakMap<object, { rec: any; ptr: unknown; count: any }>();
+  const adopt = (h: any) => {
+    if (born.has(h)) return;
+    const rec = h.$$;
+    born.set(h, { rec, ptr: rec?.ptr, count: rec?.count });
+    registry.add(h);
+  };
+  const intact = (h: any) => {
+    const b = born.get(h);
+    if (!b) return true;
+    const rec = h.$$;
+    if (rec !== b.rec || rec.count !== b.count) return false;
+    // Deleted (by embind's delete): ptr cleared, count 0. Alive: the original ptr and count 1.
+    return rec.ptr === undefined ? b.count.value === 0 : rec.ptr === b.ptr && b.count.value === 1;
+  };
+  const check = (h: unknown): void => {
+    // Lists of shapes (union, hull, compose…) are read through each element's record too.
+    if (Array.isArray(h)) { for (const x of h) if (isHandle(x)) check(x); return; }
+    if (!isHandle(h)) return;
+    adopt(h);
+    if (!intact(h)) {
+      trapped = true;
+      throw new Error('The script changed the internals of a Manifold object.');
+    }
+  };
   const track = (r: any) => {
-    if (isHandle(r)) registry.add(r);
-    else if (Array.isArray(r)) for (const x of r) if (isHandle(x)) registry.add(x);
+    if (isHandle(r)) adopt(r);
+    else if (Array.isArray(r)) for (const x of r) if (isHandle(x)) adopt(x);
     return r;
   };
+  intactHandle = (h) => intact(h);
   // manifold-3d's JS layer drops temporaries without deleting them (the per-contour vectors
   // built from polygons, the _ToPolygons() result in extrude/revolve, get() copies in
   // toPolygons, the un-centred solid of extrude(center)). Tracking the receiver and handle
@@ -91,9 +126,10 @@ export function initRuntime(wasm: ManifoldToplevel): void {
       if (!desc || typeof desc.value !== 'function' || !desc.writable) continue;
       const orig = desc.value;
       obj[name] = function (this: unknown, ...args: unknown[]) {
-        if (isHandle(this)) registry.add(this);
-        for (const a of args) if (isHandle(a)) registry.add(a);
-        return track(orig.apply(this, args));
+        check(this);
+        for (const a of args) check(a);
+        // A trap the script catches itself must still retire the worker.
+        try { return track(orig.apply(this, args)); } catch (e) { noteTrap(e); throw e; }
       };
     }
   };
@@ -111,8 +147,14 @@ export function initRuntime(wasm: ManifoldToplevel): void {
     }
   }
   const proxied = (cls: any) => new Proxy(cls, {
-    construct(target, args) { return track(Reflect.construct(target, args)); },
+    construct(target, args) {
+      for (const a of args) check(a);
+      try { return track(Reflect.construct(target, args)); } catch (e) { noteTrap(e); throw e; }
+    },
   });
+  // clone() makes a second handle on the same object (shared count); shapes are immutable, so
+  // scripts never need it, and refusing it keeps one handle per object for the check above.
+  Object.defineProperty(handleProto, 'clone', { value() { throw new Error('clone() is not available: shapes never change, so use the original.'); } });
   // Every script in this worker gets the same classes, so freeze what a script can reach from them:
   // otherwise one design could patch e.g. Manifold.prototype.scale for every later design. embind's
   // per-class records come from sample objects (deleted before freezing, as delete() writes to them).
@@ -145,6 +187,9 @@ function freezeReachable(roots: unknown[]) {
 
 function cleanup(rt: Runtime) {
   for (const obj of rt.registry) {
+    // A tampered handle is left alone (deleting it could free another object's memory), and the
+    // worker is retired.
+    if (!intactHandle(obj)) { trapped = true; continue; }
     try {
       if (!obj.isDeleted || !obj.isDeleted()) obj.delete();
     } catch (e) { noteTrap(e); }
@@ -186,6 +231,15 @@ const MAX_LOG_LINE = 500;
 const MAX_LOG_TOTAL = 8000;
 const MAX_ERROR = 2000;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length - n} more characters)` : s);
+// So are callouts, assembly steps and warnings: a loop that adds 2000 broken callouts must not
+// turn one evaluation into 30k tokens.
+const MAX_DIMENSIONS = 200;
+const MAX_LABEL = 120;
+const MAX_WARNINGS = 25;
+function capWarnings(w: string[]): string[] {
+  const out = [...new Set(w.map((s) => clip(s, 300)))];
+  return out.length > MAX_WARNINGS ? [...out.slice(0, MAX_WARNINGS), `…and ${out.length - MAX_WARNINGS} more warnings`] : out;
+}
 
 function makeConsole(logs: string[]) {
   const fmt = (args: unknown[]) => args.map((a) => (typeof a === 'string' ? a : safeJson(a))).join(' ');
@@ -217,6 +271,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   const warnings: string[] = [];
   applyQuality(rt.wasm, quality);
   takeFontSubstitutions();
+  heapAtStart = heapSize();
   try {
     const H = makeHelpers(rt, quality);
     let scope;
@@ -316,12 +371,13 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     });
 
     const dimensions: DimensionAnnotation[] = [];
-    for (const d of rawDims) {
+    for (const d of rawDims.slice(0, MAX_DIMENSIONS)) {
       if (!d || typeof d !== 'object') continue;
       const o = d as Record<string, unknown>;
-      if (!isVec3(o.from) || !isVec3(o.to)) { warnings.push(`Ignored dimension "${o.label ?? '?'}": from/to must be [x, y, z]`); continue; }
+      const label = typeof o.label === 'string' ? o.label.slice(0, MAX_LABEL) : undefined;
+      if (!isVec3(o.from) || !isVec3(o.to)) { warnings.push(`Ignored dimension "${label ?? '?'}": from/to must be [x, y, z]`); continue; }
       const sc = (v: number[]) => v.slice(0, 3).map((x) => x * scale) as Vec3;
-      dimensions.push({ label: typeof o.label === 'string' ? o.label : undefined, from: sc(o.from), to: sc(o.to), offset: isVec3(o.offset) ? sc(o.offset) : undefined, param: typeof o.param === 'string' && o.param in params ? o.param : undefined });
+      dimensions.push({ label, from: sc(o.from), to: sc(o.to), offset: isVec3(o.offset) ? sc(o.offset) : undefined, param: typeof o.param === 'string' && o.param in params ? o.param : undefined });
     }
 
     let bbox: Box3 | null = null;
@@ -331,15 +387,15 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     }
     const names = new Set(parts.map((p) => p.name));
     const assembly: AssemblyStep[] = [];
-    rawAssembly.forEach((st, i) => {
+    rawAssembly.slice(0, MAX_DIMENSIONS).forEach((st, i) => {
       if (!st || typeof st !== 'object') return;
       const o = st as Record<string, unknown>;
       const stepParts = (Array.isArray(o.parts) ? o.parts : typeof o.part === 'string' ? [o.part] : []).filter((n): n is string => typeof n === 'string');
       const unknown = stepParts.filter((n) => !names.has(n));
-      if (unknown.length) warnings.push(`Assembly step ${i + 1}: unknown part(s) ${unknown.map((n) => `"${n}"`).join(', ')}`);
+      if (unknown.length) warnings.push(`Assembly step ${i + 1}: unknown part(s) ${unknown.slice(0, 5).map((n) => `"${n.slice(0, MAX_LABEL)}"`).join(', ')}${unknown.length > 5 ? ` and ${unknown.length - 5} more` : ''}`);
       const known = stepParts.filter((n) => names.has(n));
       if (!known.length) return;
-      const step: AssemblyStep = { label: typeof o.label === 'string' ? o.label : `Step ${i + 1}`, parts: known };
+      const step: AssemblyStep = { label: typeof o.label === 'string' ? o.label.slice(0, MAX_LABEL) : `Step ${i + 1}`, parts: known };
       if (isVec3(o.from)) step.from = o.from.slice(0, 3).map((x) => x * scale) as Vec3;
       const rot = o.rotate as Record<string, unknown> | undefined;
       if (rot && isVec3(rot.axis) && Number.isFinite(rot.degrees)) {
@@ -349,7 +405,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     });
     for (const f of takeFontSubstitutions()) warnings.push(`Font "${f.replace(/^(std|sys):/, '').replace('|', ' ')}" is not available – the text uses Roboto Bold instead`);
     const print = cleanProfile(rawPrint, parts.map((p) => p.name));
-    return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings, logs, quality };
+    return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings: capWarnings(warnings), logs, quality };
   } catch (e) {
     noteTrap(e);
     if (runtimeOutOfMemory()) {

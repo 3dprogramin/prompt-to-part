@@ -7,6 +7,7 @@ import '../shared/sandbox'; // first: locks down the worker before anything else
 import dgram from 'node:dgram';
 import dns from 'node:dns';
 import inspector from 'node:inspector';
+import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,9 @@ function closeNetwork() {
   // Functions only, not the Resolver classes (their prototypes are locked above).
   for (const m of [dns, dns.promises]) lock(m, Object.keys(m).filter((k) => typeof (m as Record<string, unknown>)[k] === 'function' && !/^[A-Z]/.test(k)));
   for (const k of ['fetch', 'WebSocket', 'EventSource']) delete (globalThis as Record<string, unknown>)[k];
+  // `import('node:dns')` hands out a namespace copied when the module was first imported; bring
+  // it up to date with the locked functions.
+  syncBuiltinESMExports();
 }
 closeNetwork();
 

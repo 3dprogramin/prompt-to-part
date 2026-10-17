@@ -84,3 +84,18 @@ test('many builds free their wasm objects (no growth)', () => {
   for (let i = 0; i < 40; i++) evaluateScript(code, {}, 'draft');
   assert.ok(process.memoryUsage().rss - before < 100 * 2 ** 20, 'RSS grew by more than 100 MB');
 });
+
+test('callouts, warnings and parameter text are capped', () => {
+  const code = `const params = { ['k'.repeat(5000)]: { value: 1 }, ok: { value: 1, label: 'L'.repeat(5000) } };
+function build() {
+  const dimensions = [];
+  for (let i = 0; i < 2000; i++) dimensions.push({ label: i + 'x'.repeat(5000), from: [0, 0], to: [1, 0] });
+  return { parts: [Manifold.cube([1, 1, 1])], dimensions };
+}`;
+  const r = evaluateScript(code, undefined, 'draft');
+  assert.ok(r.warnings.length <= 26, `${r.warnings.length} warnings`);
+  assert.match(r.warnings.at(-1)!, /more warnings/);
+  assert.ok(r.warnings.every((w) => w.length < 400));
+  assert.deepEqual(Object.keys(r.params), ['ok']);
+  assert.equal(r.params.ok.label!.length, 120);
+});

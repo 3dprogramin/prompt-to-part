@@ -151,6 +151,8 @@ export const geometry = {
 };
 
 const f = (n: number, d = 2) => (Math.abs(n) < 1e-9 ? 0 : n).toFixed(d);
+// Each report is a tool result in Claude's context.
+const MAX_REPORT = 20000;
 
 /** Human/AI readable report of an evaluation. */
 export function formatReport(r: EvalSummary | EvalFailure): string {
@@ -193,5 +195,6 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   if (r.timeMs > 1500) warn.push(`Slow evaluation (${Math.round(r.timeMs)} ms) – sliders will feel laggy; simplify or lower segment counts`);
   if (warn.length) { lines.push('Warnings:'); for (const w of warn) lines.push(`  - ${w}`); }
   if (r.logs.length) { lines.push('console output:'); for (const l of r.logs.slice(0, 40)) lines.push(`  ${l}`); }
-  return lines.join('\n');
+  const report = lines.join('\n');
+  return report.length > MAX_REPORT ? `${report.slice(0, MAX_REPORT)}\n… report cut at ${MAX_REPORT} characters` : report;
 }

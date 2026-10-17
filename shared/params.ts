@@ -11,18 +11,23 @@ function niceStep(range: number) {
   return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
 }
 
+// Parameters end up in the sidebar and in Claude's tool results, so their text is bounded.
+const MAX_PARAMS = 80;
+const MAX_OPTIONS = 100;
+const text = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : undefined);
+
 /** The script's `params` as slider/switch/select/text definitions; anything unusable is dropped. */
 export function normalizeParams(raw: unknown): Record<string, ParamDef> {
   const out: Record<string, ParamDef> = {};
   if (!raw || typeof raw !== 'object') return out;
-  const entries: [string, any][] = Array.isArray(raw)
-    ? raw.map((p: any) => [String(p?.key ?? p?.name), p])
-    : Object.entries(raw as object);
+  const entries: [string, any][] = (Array.isArray(raw)
+    ? raw.map((p: any) => [String(p?.key ?? p?.name), p] as [string, any])
+    : Object.entries(raw as object)).slice(0, MAX_PARAMS);
   for (const [key, p] of entries) {
-    if (!key || !p || typeof p !== 'object') continue;
-    const label = typeof p.label === 'string' ? p.label : key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ').replace(/^./, (c) => c.toUpperCase());
+    if (!key || key.length > 80 || !p || typeof p !== 'object') continue;
+    const label = text(p.label, 120) ?? key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ').replace(/^./, (c) => c.toUpperCase());
     const value = p.value ?? p.default;
-    const common = { label, group: typeof p.group === 'string' ? p.group : undefined, description: typeof p.description === 'string' ? p.description : undefined };
+    const common = { label, group: text(p.group, 60), description: text(p.description, 500) };
     let type = p.type;
     // The script's own objects are read, never written: they may be frozen.
     const font = type === 'font' || !!p.font;
@@ -31,10 +36,10 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
     if (type === 'string' || type === 'font') type = 'text';
     if (!type) type = typeof value === 'boolean' ? 'boolean' : Array.isArray(p.options) ? 'select' : typeof value === 'string' ? 'text' : 'number';
     if (type === 'boolean') out[key] = { ...common, type, value: !!value };
-    else if (type === 'text') out[key] = { ...common, type, value: String(value ?? ''), font };
+    else if (type === 'text') out[key] = { ...common, type, value: String(value ?? '').slice(0, 2000), font };
     else if (type === 'select') {
-      const options = (Array.isArray(p.options) ? p.options : []).map((o: any) =>
-        typeof o === 'object' && o ? { value: String(o.value), label: String(o.label ?? o.value) } : { value: String(o), label: String(o) });
+      const options = (Array.isArray(p.options) ? p.options : []).slice(0, MAX_OPTIONS).map((o: any) =>
+        typeof o === 'object' && o ? { value: String(o.value).slice(0, 120), label: String(o.label ?? o.value).slice(0, 120) } : { value: String(o).slice(0, 120), label: String(o).slice(0, 120) });
       if (!options.length) continue;
       const v = options.some((o: any) => o.value === String(value)) ? String(value) : options[0].value;
       out[key] = { ...common, type, options, value: v };
@@ -50,7 +55,7 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
       const isInt = type === 'integer';
       const step = Number(p.step) > 0 ? Number(p.step) : isInt ? 1 : niceStep(max - min || 1);
       const drives = ['x', 'y', 'z'].includes(p.drives) ? p.drives : undefined;
-      out[key] = { ...common, type: isInt ? 'integer' : 'number', min, max, step, value: isInt ? Math.round(val) : val, unit: typeof p.unit === 'string' ? p.unit : isInt ? undefined : 'mm', drives };
+      out[key] = { ...common, type: isInt ? 'integer' : 'number', min, max, step, value: isInt ? Math.round(val) : val, unit: text(p.unit, 16) ?? (isInt ? undefined : 'mm'), drives };
     }
   }
   return out;
