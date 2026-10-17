@@ -4,7 +4,7 @@ import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
-import type { HfImage } from './hueforge';
+import type { HfImage, HueforgeSetup } from './hueforge';
 import type { PrintSettings } from './print';
 
 /** A base64 image as sent to Claude. */
@@ -61,6 +61,8 @@ export type AgentEvent =
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
   /** A picture for H.hueforge (an attached photo or one the image model drew), kept with the design under HF_IMAGES_KEY. */
   | { type: 'hfImage'; name: string; image: HfImage }
+  /** Claude changed the HueForge setup (set_hueforge): the design's HF_KEY value, or null to clear it. */
+  | { type: 'hfSetup'; setup: HueforgeSetup | null }
   /** Transient one-line status (throttled), replaced by the next one. */
   | { type: 'live'; text: string }
   /** Live transcript: a content block starts, its text grows, or a tool call's input fields are re-sent as they stream. */

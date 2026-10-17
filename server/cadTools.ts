@@ -7,7 +7,7 @@ import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
 import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from './artwork';
-import { HF_IMAGES_KEY, parseHfImages, toHfImage } from '../shared/hueforge';
+import { checkSwaps, cleanFilaments, HF_IMAGES_KEY, HF_KEY, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, toHfImage, type HueforgeSetup } from '../shared/hueforge';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
 interface AiImages { references: string[]; signal?: AbortSignal }
@@ -33,8 +33,8 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * and with `pictures` a picture made for H.hueforge (generate_picture), from the user's
  * `references` photos if it likes.
  */
-export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: { artwork?: AiImages; pictures?: AiImages } = {}) {
-  const { artwork, pictures } = extra;
+export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: { artwork?: AiImages; pictures?: AiImages; hueforge?: boolean } = {}) {
+  const { artwork, pictures, hueforge } = extra;
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   const state = { submitted: false };
@@ -85,6 +85,37 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
+      ...(hueforge ? [tool('set_hueforge', 'Change the HueForge setup – the same one the user edits in the HueForge panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Check the result with render_model (the report lists the stack used).', {
+        filaments: z.array(z.object({
+          name: z.string().max(120).describe('e.g. "PLA Basic Black"'),
+          brand: z.string().max(60).optional().describe('e.g. "Bambu Lab", "eSUN"'),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('#rrggbb'),
+          td: z.number().min(0.05).max(20).describe('Transmission distance, mm'),
+        })).min(1).max(MAX_HF_FILAMENTS).optional().describe('All filaments, bottom (printed first) → top'),
+        swaps: z.union([z.array(z.number().int().min(1)).max(MAX_HF_FILAMENTS - 1), z.literal('auto')]).optional()
+          .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts – one ascending number per filament after the first; "auto" lets Jig choose'),
+        reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
+      }, async (a) => {
+        const now = parseHueforgeSetup(base[HF_KEY]);
+        let setup: HueforgeSetup = a.reset ? {} : { ...now };
+        if (a.filaments) setup.filaments = cleanFilaments(a.filaments);
+        if (a.swaps === 'auto') delete setup.swaps;
+        else if (a.swaps) setup.swaps = a.swaps;
+        // New filaments without new swaps: the old swaps no longer fit, so they go automatic.
+        else if (a.filaments && setup.swaps && setup.swaps.length !== setup.filaments!.length - 1) delete setup.swaps;
+        const count = setup.filaments?.length;
+        if (setup.swaps && count != null && !checkSwaps(setup.swaps, count)) {
+          return { content: [{ type: 'text', text: `swaps must be ${count - 1} ascending whole layer numbers, each ≥ 1 (one per filament after the first).` }], isError: true };
+        }
+        if (!setup.filaments) delete setup.filaments;
+        if (!Object.keys(setup).length) setup = {};
+        if (Object.keys(setup).length) base[HF_KEY] = JSON.stringify(setup); else delete base[HF_KEY];
+        emit({ type: 'hfSetup', setup: Object.keys(setup).length ? setup : null });
+        const text = !Object.keys(setup).length ? 'The HueForge setup is cleared: the script\'s filaments and automatic swaps apply.'
+          : `HueForge setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}.`;
+        emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
+        return { content: [{ type: 'text', text: `${text} The user sees it in the HueForge panel. Call render_model to check the print.` }] };
+      })] : []),
       ...(pictures ? [tool('generate_picture', `Have an image model (${imageModel()}) make a picture for a HueForge filament painting (H.hueforge): realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
         name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.hueforge, e.g. "portrait"'),
         subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),

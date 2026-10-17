@@ -70,6 +70,8 @@ export interface HueforgeOptions {
   gamma?: number;
   /** Filaments when the user hasn't chosen any (default: black and white). */
   filaments?: HfFilament[];
+  /** The script's swap layers (as HueforgeSetup.swaps) when the setup has none; missing = automatic. */
+  swaps?: number[];
   /** Grid spacing of the relief, mm (default by quality: draft 0.6, normal 0.35, high 0.2). */
   resolution?: number;
 }
@@ -99,7 +101,7 @@ export interface HueforgePart {
 /** The picture (key in HF_IMAGES_KEY) and the options a HueForge part was built with, defaults filled in. */
 export interface HueforgeSource {
   image: string;
-  options: Required<Omit<HueforgeOptions, 'filaments'>>;
+  options: Required<Omit<HueforgeOptions, 'filaments' | 'swaps'>>;
 }
 
 /** The user's loaded black and white, as in the filament library (shared/filaments.ts). */
@@ -297,7 +299,7 @@ export function checkSwaps(swaps: number[] | undefined, count: number): number[]
 // ---------------------------------------------------------------------------
 
 /** Options with defaults filled in and the relief's layer range: tops of `nBase` to `nMax` layers. */
-export interface HfResolved extends Required<Omit<HueforgeOptions, 'filaments'>> {
+export interface HfResolved extends Required<Omit<HueforgeOptions, 'filaments' | 'swaps'>> {
   nBase: number;
   nMax: number;
 }
@@ -342,7 +344,7 @@ export function stackLayers(filaments: HfFilament[], swaps: number[], r: { layer
 export function hueforgeLayers(image: HfImage, o: HueforgeOptions, setup: HueforgeSetup = {}, quality: Quality = 'normal'): LayerColor[] {
   const r = resolveHfOptions(o, quality);
   const filaments = setup.filaments ?? cleanFilaments(o.filaments) ?? DEFAULT_FILAMENTS;
-  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? autoSwaps(image, filaments, o), r);
+  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? checkSwaps(o.swaps, filaments.length) ?? autoSwaps(image, filaments, o), r);
 }
 
 /** Layer colours returned by a script, checked, sorted and scaled by the runtime's uniform scale; undefined if unusable. */

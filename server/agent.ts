@@ -35,6 +35,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__render_scad: 'Rendering the OpenSCAD file',
   mcp__cad__generate_artwork: 'Generating artwork',
   mcp__cad__generate_picture: 'Generating a picture',
+  mcp__cad__set_hueforge: 'Changing the HueForge filaments',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
   WebFetch: 'Reading a web page',
@@ -156,12 +157,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // painting (H.hueforge); both only when turned on, and AI pictures need an OpenRouter key.
   const mode = req.imageMode ?? (req.artwork ? 'artwork' : 'off');
   const artwork = mode === 'artwork' && artworkAvailable();
-  const hueforge = mode === 'hueforge';
+  // A HueForge design stays one in follow-ups, whatever the menu says now: Claude keeps its HueForge tools.
+  const hueforge = mode === 'hueforge' || Object.keys(parseHfImages(req.renderValues?.[HF_IMAGES_KEY])).length > 0;
+  const newHueforge = mode === 'hueforge';
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   // HueForge pictures: the design's own, plus the photos attached now (kept with the design).
   const hfImages = parseHfImages(req.renderValues?.[HF_IMAGES_KEY]);
   const newPictures: string[] = [];
-  if (hueforge) {
+  if (newHueforge) {
     for (const img of (req.images ?? []).filter((i) => i.mediaType === 'image/png' || i.mediaType === 'image/jpeg')) {
       try {
         const raster = decodeImage(Buffer.from(img.data, 'base64'));
@@ -183,6 +186,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const { server: cad, state } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
     pictures: hueforge && artworkAvailable() ? { references, signal: abort.signal } : undefined,
+    hueforge,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -251,6 +255,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
   if (hueforge) {
     const names = Object.keys(hfImages);
+    const setup = typeof req.renderValues?.[HF_KEY] === 'string' ? req.renderValues[HF_KEY] : null;
+    if (isFollowUp) parts.push(setup ? `The HueForge setup (the user's panel; set_hueforge changes it, and it wins over the script): ${setup}` : 'The HueForge setup is empty: the script\'s filaments and automatic swaps apply (set_hueforge changes that).');
     parts.push(`HueForge mode is on: make this a HueForge filament painting with H.hueforge (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.hueforge: ${names.map((n) => `"${n}" (${hfImages[n].width}×${hfImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);

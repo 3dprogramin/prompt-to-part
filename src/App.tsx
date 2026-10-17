@@ -398,6 +398,10 @@ export default function App() {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'hfImage') update((d) => withHfImage(d, ev.name, ev.image));
+        else if (ev.type === 'hfSetup') update((d) => {
+          const { [HF_KEY]: _old, ...rest } = d.values;
+          return { ...d, values: ev.setup ? { ...rest, [HF_KEY]: JSON.stringify(ev.setup) } : rest };
+        });
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
