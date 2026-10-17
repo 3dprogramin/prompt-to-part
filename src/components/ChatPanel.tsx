@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentStep, ChatMessage, DesignVersion } from '../../shared/types';
+import type { ActivityItem, AgentStep, ChatMessage, DesignVersion } from '../../shared/types';
 import { isSvg, prepareImage } from '../lib/files';
 import { importSvg } from '../lib/svg';
 import type { SvgDrawing } from '../../shared/svgFeatures';
@@ -166,16 +166,28 @@ export function ChatPanel(p: Props) {
   useEffect(() => { if (listeningRef.current !== 'off') void stopListening(); }, [p.designId]);
   // ---- the activity panel, pinned on a live reply, follows Claude across designs: it shows the
   // live reply of whichever design is open (and keeps showing it once it finishes), is hidden on
-  // designs where Claude isn't working, and only closing it (X) stops this.
+  // designs where Claude isn't working, and only closing it (X) stops this. On one design it keeps
+  // what it has shown: the next reply (e.g. a queued message) is added below the earlier ones.
   const [followLive, setFollowLive] = useState<boolean>(() => load('followActivity', false));
   useEffect(() => store('followActivity', followLive), [followLive]);
   const lastMsg = p.messages.at(-1);
   const liveId = (p.generating || p.busyElsewhere) && lastMsg?.role === 'assistant' ? lastMsg.id : null;
-  const [shownFor, setShownFor] = useState<string | null>(null);
-  useEffect(() => { setShownFor(liveId); }, [p.designId]);
-  useEffect(() => { if (liveId) setShownFor(liveId); }, [liveId]);
-  const followed = followLive && shownFor ? p.messages.find((m) => m.id === shownFor) : undefined;
-  const follow = (id: string, on: boolean) => { setFollowLive(on); setShownFor(on ? id : null); };
+  const [shownIds, setShownIds] = useState<string[]>([]);
+  useEffect(() => { setShownIds(liveId ? [liveId] : []); }, [p.designId]);
+  useEffect(() => {
+    if (!liveId) return;
+    setShownIds((ids) => (ids.includes(liveId) ? ids : followLive && ids.length ? [...ids, liveId] : [liveId]));
+  }, [liveId]);
+  const followedMsgs = followLive ? p.messages.filter((m) => shownIds.includes(m.id)) : [];
+  const followed = followedMsgs.at(-1);
+  const follow = (id: string, on: boolean) => { setFollowLive(on); setShownIds(on ? [id] : []); };
+  /** The followed replies' activity, each later one after a line with the message that started it. */
+  const followedItems = (): ActivityItem[] => followedMsgs.flatMap((m, i) => {
+    if (!i) return activityOf(m);
+    const asked = p.messages[p.messages.indexOf(m) - 1];
+    const text = asked?.role === 'user' ? asked.text.split('\n')[0] || 'pictures' : 'next message';
+    return [{ kind: 'step' as const, step: { kind: 'status' as const, text: `── Your next message: "${clip(text, 120)}" ──` } }, ...activityOf(m)];
+  });
   const chatRoot = useRef<HTMLDivElement>(null);
   const besideChatTop = () => {
     const r = chatRoot.current?.getBoundingClientRect();
@@ -212,7 +224,7 @@ export function ChatPanel(p: Props) {
         )}
         {p.messages.map((m, i) => (
           <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
-            followed={followed?.id === m.id} onFollow={(on) => follow(m.id, on)} />
+            followed={followedMsgs.some((f) => f.id === m.id)} onFollow={(on) => follow(m.id, on)} />
         ))}
       </div>
 
@@ -310,7 +322,7 @@ export function ChatPanel(p: Props) {
       </div>
       {followed && (
         <ActivityPanel
-          items={activityOf(followed)}
+          items={followedItems()}
           live={followed.id === liveId}
           onImage={openLightbox}
           at={besideChatTop()}

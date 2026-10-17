@@ -79,7 +79,7 @@ The chat shows every step with its time while Claude works, and follows new outp
 - `model.js` as it is typed (edits as replace/with)
 - each tool call with its result and render previews
 
-The panel follows the newest output unless you scroll up. Drag its header to move it anywhere (over the 3D view, say) and its corner to resize it; it remembers where you put it, and a double-click on the header puts it back beside the chat. Pinned on a reply Claude is working on, it follows Claude: it shows the live reply of whichever design you open, is hidden on designs where Claude isn't working, stays open on a reply that has just finished, and only its × stops this. Thinking arrives as Claude Code's summaries, a few sentences at a time. The live transcript is kept in memory only; after a reload the panel is rebuilt from the saved steps.
+The panel follows the newest output unless you scroll up. Drag its header to move it anywhere (over the 3D view, say) and its corner to resize it; it remembers where you put it, and a double-click on the header puts it back beside the chat. Pinned on a reply Claude is working on, it follows Claude: it shows the live reply of whichever design you open, is hidden on designs where Claude isn't working, stays open on a reply that has just finished, and only its × stops this. On one design it keeps what it has shown: the next reply (a queued message, say) is added below, after a line with the message that started it. Thinking arrives as Claude Code's summaries, a few sentences at a time. The live transcript is kept in memory only; after a reload the panel is rebuilt from the saved steps.
 
 ## Viewer
 
