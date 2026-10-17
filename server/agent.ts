@@ -14,6 +14,7 @@ import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeat
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable } from './artwork';
+import { formatDuration } from '../shared/duration';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
 
@@ -402,7 +403,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
-        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${(msg.duration_ms / 1000).toFixed(0)} s · ${msg.num_turns} turns` } });
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${formatDuration(msg.duration_ms)} · ${msg.num_turns} turns` } });
         // An API error ends the turn with is_error; the SDK then throws, and the catch below
         // either retries or reports it, so the reply isn't marked finished here.
         if (!msg.is_error) emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted: state.submitted, text: finalText });

@@ -3,6 +3,7 @@ import type { ActivityItem, AgentStep, ChatMessage, DesignVersion } from '../../
 import { isSvg, prepareImage } from '../lib/files';
 import { importSvg } from '../lib/svg';
 import type { SvgDrawing } from '../../shared/svgFeatures';
+import { formatDuration } from '../../shared/duration';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, scadFileName, type ScadFile } from '../../shared/scad';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
@@ -433,7 +434,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
   const renders = steps.filter((s) => s.kind === 'render' && s.image && !s.verbose);
   // The full step log is open while Claude works; afterwards it folds into one line.
   const showSteps = live || open;
-  const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`;
+  const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${formatDuration(m.durationMs)}` : ''}`;
   return (
     <div className="msg assistant">
       <div className="msg-head">
