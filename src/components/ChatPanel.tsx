@@ -4,6 +4,7 @@ import { isSvg, prepareImage } from '../lib/files';
 import { importSvg } from '../lib/svg';
 import type { SvgDrawing } from '../../shared/svgFeatures';
 import { formatDuration } from '../../shared/duration';
+import { EditTags, groupEdits } from './EditTags';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, scadFileName, type ScadFile } from '../../shared/scad';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
@@ -537,7 +538,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
       )}
       {showSteps && (
         <ol className="steps">
-          {steps.map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
+          {groupEdits(steps).map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
           {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span></li>}
         </ol>
       )}
@@ -589,13 +590,14 @@ function fmtElapsed(ms: number) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 }
 
-function Step({ s, onImage }: { s: AgentStep; onImage: (src: string) => void }) {
+function Step({ s, onImage }: { s: AgentStep & { edits?: number }; onImage: (src: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const long = s.text.length > 160;
   return (
     <li className={`step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
       {s.at != null && <span className="step-time">{fmtElapsed(s.at)}</span>}
       <span className="step-text" onClick={() => long && setExpanded(!expanded)}>{s.kind === 'user' && <b>You: </b>}{expanded || !long ? s.text : clip(s.text, 160)}</span>
+      {s.edit && <EditTags edit={s.edit} edits={s.edits} />}
       {s.image && <ImageButton src={s.image} alt="Render" onOpen={onImage} />}
     </li>
   );

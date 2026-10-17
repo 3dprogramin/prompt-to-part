@@ -1,4 +1,5 @@
 import { lookup } from 'node:dns/promises';
+import { readFileSync } from 'node:fs';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
@@ -17,6 +18,7 @@ import { artworkAvailable, decodeImage } from './artwork';
 import { HF_IMAGES_KEY, HF_KEY, parseHfImages, toHfImage } from '../shared/hueforge';
 import { isLithophane } from '../shared/lithophane';
 import { formatDuration } from '../shared/duration';
+import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
 import type { ParamValues } from '../shared/types';
@@ -360,6 +362,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const flushSoon = () => { blockTimer ??= setTimeout(flushBlock, 150); };
     let block: { type: string; name?: string; chars: number; text: string } | null = null;
     const toolNames = new Map<string, string>();
+    // Line counts of the Write/Edit calls in flight, by tool call.
+    const edits = new Map<string, { added: number; removed: number }>();
 
     for await (const msg of q) {
       if (msg.type === 'system' && msg.subtype === 'init') {
@@ -420,6 +424,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             emit({ type: 'step', step: { kind: 'thinking', verbose: true, text: b.thinking.trim() } });
           } else if (b.type === 'tool_use') {
             toolNames.set(b.id, b.name);
+            // Writing or editing model.js shows as one step with its line counts once it is saved.
+            if (b.name === 'Write' || b.name === 'Edit') {
+              const input = b.input as { content?: unknown; old_string?: unknown; new_string?: unknown };
+              const before = b.name === 'Write' ? readText(file) : String(input.old_string ?? '');
+              edits.set(b.id, lineChanges(before, String(b.name === 'Write' ? input.content ?? '' : input.new_string ?? '')));
+              pushLive(`${TOOL_LABELS[b.name]}…`);
+              continue;
+            }
             emit({ type: 'step', step: { kind: 'status', text: `${TOOL_LABELS[b.name] ?? b.name}…` } });
             const detail = describeToolInput(b.name, b.input as Record<string, unknown>);
             if (detail) emit({ type: 'step', step: { kind: 'status', verbose: true, text: detail } });
@@ -449,7 +461,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             const got = `Claude got the result of ${label}${images ? ` (with ${images} picture${images > 1 ? 's' : ''})` : ''}`;
             if (name.startsWith('mcp__cad__')) emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
             else if (c.is_error) emit({ type: 'step', step: { kind: 'tool', ok: false, verbose: true, text: `${label} failed: ${text.slice(0, 200)}`, detail: detail(text) } });
-            else if (name === 'Write' || name === 'Edit') emit({ type: 'step', step: { kind: 'tool', ok: true, verbose: true, text: `${name === 'Write' ? 'Saved' : 'Edited'} model.js` } });
+            else if (name === 'Write' || name === 'Edit') emit({ type: 'step', step: { kind: 'tool', ok: true, text: 'model.js', edit: { file: 'model.js', ...(edits.get(c.tool_use_id) ?? { added: 0, removed: 0 }) } } });
             else emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
           }
         }
@@ -551,6 +563,11 @@ export function steerGeneration(designId: string, text: string, images: ImageDat
   });
   if (ok) run.emit({ type: 'step', step: { kind: 'user', text: text.trim() || `${pictures.length} picture${pictures.length > 1 ? 's' : ''}`, ...(pictures[0] ? { image: `data:${pictures[0].mediaType};base64,${pictures[0].data}` } : {}) } });
   return ok;
+}
+
+/** A file's text, or '' if it doesn't exist yet. */
+function readText(f: string): string {
+  try { return readFileSync(f, 'utf8'); } catch { return ''; }
 }
 
 /** The earlier conversation as text for a fresh session (newest messages kept, each shortened). */

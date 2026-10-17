@@ -804,3 +804,9 @@ body.resizing { cursor: col-resize; user-select: none; }
   .ph-big-side { width: auto; }
 }
 .ui-hidden .photos-panel { display: none; }
+
+.diff-tags { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; vertical-align: 1px; }
+.diff-tag { padding: 0 5px; border-radius: 4px; font: 600 10.5px/1.6 var(--mono); }
+.diff-tag.add { color: #8fdca4; background: #6cc48a26; border: 1px solid #6cc48a55; }
+.diff-tag.del { color: #f2a19b; background: #e5675f26; border: 1px solid #e5675f55; }
+.diff-count { font-size: 11px; color: var(--text-3); }
