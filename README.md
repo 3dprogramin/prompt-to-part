@@ -104,6 +104,17 @@ The 256 × 256 mm Bambu Lab A1 plate is drawn. The printer is defined in `shared
 
 **Multi-part designs:** a layout bar switches between print, assembled and exploded layouts, and *Assemble* animates Claude's assembly sequence step by step. Replies include assembly pictures and instructions.
 
+## Product photos
+
+Listing photos before anything is printed: the camera button at the top right of the 3D view opens *Product photos*. Jig renders the model on its own (no grid, plate, labels, edges, section or highlight; the real part colours, or the simulated HueForge colours, under soft studio light on a plain grey), and the image model on OpenRouter (`JIG_IMAGE_MODEL`, Nano Banana 2.1 by default, about $0.04 and 10–30 s a photo) turns that render into a realistic photo of the printed product in a scene.
+
+- **Scenes:** wooden table, living-room wall, kitchen counter, office desk, shelf with plants, plain studio (white sweep, e-commerce), outdoor / garden, a hand holding it (for scale), or a custom scene you describe. The star marks the scene Jig suggests from the design's name and Claude's description (wall art and signs → the wall, a vase → the shelf, a keychain → a hand). Extra wishes (light, mood, props) go in the text box under the scenes.
+- **Format and camera:** 1:1, 4:5 (shop listings) or 16:9. *Best angle* frames the model from a 3/4 product angle, and shows flat prints face-on for the wall scene; *Current view* keeps the angle you turned the 3D view to. Parts you hide stay out of the photo; for multi-part designs pick the assembled layout first.
+- **The prompt:** the render is the real product, so the image model is told to keep its shape, proportions, colours and any text exactly, to add or change nothing, and to keep the angle (no unseen side to invent). It gets the real size in mm from the bounding box, with a familiar comparison (a coaster, a paperback), so the scale in the scene is right, and is asked for a print, not a render: matte PLA, faint 0.2 mm layer lines, real contact shadows, natural light, shallow depth of field, no text or watermarks.
+- **Gallery:** photos are saved with the design (`Design.photos`; the pictures and the renders they came from are stored with its images). Generate several in a row; each shows its progress and lands in its own design even if you open another one meanwhile. Enlarge a photo to compare it with its render, see the exact prompt, the model and the cost, download it or delete it.
+
+It needs `OPENROUTER_API_KEY`. The image model is good at keeping simple shapes, colours and bold lettering, but it can still change small details or text: check a photo against its render before you list it.
+
 ## Pictures: AI artwork and HueForge
 
 The picture menu under the chat box (the palette button) says what Claude does with pictures for a design: *3D model* (the default: people, characters and animals become 3D objects), *AI artwork* (flat colour layers, below) or *HueForge*.
@@ -169,11 +180,11 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `ELEVENLABS_SECONDARY_LANGUAGES` | | Other languages you may speak, comma-separated (e.g. `ro`) |
 | `API_PORT` | `8787` | Where the Vite dev server proxies `/api` (set it with `PORT`) |
 | `JIG_DATA` | `data/` in the Jig folder | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings |
-| `OPENROUTER_API_KEY` | | Your OpenRouter key: Claude through OpenRouter (unless an Anthropic key is set) and AI artwork |
+| `OPENROUTER_API_KEY` | | Your OpenRouter key: Claude through OpenRouter (unless an Anthropic key is set), AI artwork and product photos |
 | `ANTHROPIC_API_KEY` | | Your Anthropic API key: Claude straight from Anthropic (generations, price suggestions) |
 | `JIG_MODEL` | `opus` | The model the chat starts with: `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
 | `JIG_EFFORT` | `high` | The reasoning effort the chat starts with (`low` … `max`) |
-| `JIG_IMAGE_MODEL` | `google/gemini-nano-banana-2.1` | The OpenRouter image model for AI artwork |
+| `JIG_IMAGE_MODEL` | `google/gemini-nano-banana-2.1` | The OpenRouter image model for AI artwork and product photos |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with instead of a key, for your own use on your own computer only (see below) |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |

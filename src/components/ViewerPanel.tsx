@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Viewer, type Measurement, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
+import { Viewer, type Measurement, type PhotoView, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import { Icon } from './Icon';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
@@ -20,6 +20,10 @@ interface Props {
   onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void;
   /** Receives a function that captures the current view as a JPEG data URL. */
   snapshotRef?: React.MutableRefObject<(() => string | null) | null>;
+  /** Receives a function that renders the model alone for a product photo (PNG data URL). */
+  photoRef?: React.MutableRefObject<((view: PhotoView, aspect: number) => string | null) | null>;
+  /** The product photos panel: open or not, toggled by the camera button; photos being made. */
+  photos?: { open: boolean; onToggle: () => void; busy: number; panel: React.ReactNode };
   /** The model has an assembly sequence that can be played. */
   canAssemble?: boolean;
   /** Assembly playback in progress (result prop is then the assembled layout). */
@@ -48,7 +52,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose }: Props) {
+export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -139,12 +143,13 @@ export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, 
     v.onMeasurementsChange = setMeasures;
     v.onPickSurface = (hit) => pickRef.current(hit);
     if (snapshotRef) snapshotRef.current = () => v.snapshot();
+    if (photoRef) photoRef.current = (view, aspect) => v.photo(view, aspect);
     v.onDimEdit = (target, rect, current) => {
       const p = panel.current!.getBoundingClientRect();
       setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
     };
     viewer.current = v;
-    return () => { v.dispose(); viewer.current = null; if (snapshotRef) snapshotRef.current = null; };
+    return () => { v.dispose(); viewer.current = null; if (snapshotRef) snapshotRef.current = null; if (photoRef) photoRef.current = null; };
     // Created once; callbacks are read through refs (editRef, pickRef).
   }, []);
 
@@ -246,6 +251,11 @@ export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, 
       {/* Top-right corner; in fullscreen the exit button sits with the other fullscreen controls (.fs-controls). */}
       {!fullscreen && (
         <div className="tb-group tb-corner">
+          {photos && (
+            <button className={`tb-btn ph-btn ${photos.open ? 'on' : ''}`} title="Product photos – realistic listing photos of the print, made from the model" aria-label="Product photos" aria-pressed={photos.open} onClick={photos.onToggle}>
+              <Icon name="camera" />{photos.busy > 0 && <span className="spinner ph-busy" aria-label={`${photos.busy} photos being made`} />}
+            </button>
+          )}
           <button className="tb-btn" title="Fullscreen – only the 3D view" aria-label="Fullscreen" onClick={toggleFullscreen}><Icon name="fullscreen" /></button>
         </div>
       )}
@@ -293,6 +303,7 @@ export function ViewerPanel({ costStatus, result, error, busy, fitKey, options, 
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`} role="status">{toast.text}</div>}
 
+      {photos?.panel}
       {validation && validationOpen && (
         <ValidationPanel state={validation} highlight={highlight} onHighlight={setHighlight} onClose={() => onValidationClose?.()} />
       )}

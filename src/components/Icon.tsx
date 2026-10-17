@@ -44,6 +44,16 @@ const PATHS: Record<string, string> = {
   code: 'M9 7l-5 5 5 5M15 7l5 5-5 5',
   sliders: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4',
   info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v6M12 7.5h.01',
+  camera: 'M4 8h3l2-3h6l2 3h3v11H4zM12 10.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7',
+  table: 'M3 11h18M5 11v9M19 11v9M9 11V6h6v5',
+  frame: 'M4 8h16v12H4zM8 8l4-4 4 4M7 17l3.5-4 2.5 3 1.5-1.5L17 17',
+  cup: 'M5 8h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h1.5a2.5 2.5 0 0 1 0 5H16M3 21h16M8 3v2M11 3v2',
+  desk: 'M3 4h18v12H3zM9 20h6M12 16v4',
+  plant: 'M7 14h10l-1.5 7h-7zM12 14V8M12 8c0-3 2-5 5-5 0 3-2 5-5 5zM12 10.5c0-2.5-1.7-4-4-4 0 2.3 1.5 4 4 4z',
+  studio: 'M4 3v10a7 7 0 0 0 7 7h10M12 14h5V9h-5z',
+  tree: 'M12 3l6 9h-3l4 6H5l4-6H6zM12 18v3',
+  hand: 'M8 13V6.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6 7-2.5 0-4-1.2-5.3-3L3.5 13.5a1.4 1.4 0 0 1 2.2-1.7L8 14',
+  pen: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }) {

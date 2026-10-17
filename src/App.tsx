@@ -19,6 +19,7 @@ import { Icon } from './components/Icon';
 import type { DesignTab } from './components/DesignTabs';
 import { TopBar } from './components/TopBar';
 import { RestoreDialog } from './components/RestoreDialog';
+import { PhotosPanel, usePhotoJobs } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
@@ -26,7 +27,7 @@ import { useLiveModel } from './hooks/useLiveModel';
 import { STAGE_TEXT, useCost } from './hooks/useCost';
 import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
-import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
+import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import { exportedParts } from './geometry/validate';
 import { pageKey } from '../shared/sources';
@@ -200,6 +201,7 @@ export default function App() {
   }));
   const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality);
   const snapshotRef = useRef<(() => string | null) | null>(null);
+  const photoRef = useRef<((view: PhotoView, aspect: number) => string | null) | null>(null);
   const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [validation, setValidation] = useState<ValidationState | null>(null);
@@ -290,6 +292,11 @@ export default function App() {
       return d;
     });
   }, [saveSoon]);
+
+  // Product photos: each lands in its own design, even when another one is open by then.
+  const [photosOpen, setPhotosOpen] = useState(false);
+  const photoJobs = usePhotoJobs((id, photo) => updateDesign(id, (d) => ({ ...d, photos: [...(d.photos ?? []), photo], updatedAt: Date.now() })));
+  const deletePhoto = (url: string) => setDesign((d) => ({ ...d, photos: d.photos?.filter((x) => x.url !== url), updatedAt: Date.now() }));
 
   /** Switch the open design, keeping a still-generating or unsaved one alive in memory. */
   const switchTo = useCallback((next: Design) => {
@@ -898,6 +905,30 @@ export default function App() {
           onEditDimension={onEditDimension}
           onPickSurface={onPickSurface}
           snapshotRef={snapshotRef}
+          photoRef={photoRef}
+          photos={{
+            open: photosOpen,
+            onToggle: () => setPhotosOpen((o) => !o),
+            busy: photoJobs.jobs.filter((j) => j.designId === design.id && !j.error).length,
+            panel: (
+              <PhotosPanel
+                open={photosOpen}
+                onClose={() => setPhotosOpen(false)}
+                designId={design.id}
+                designName={design.name}
+                summary={design.versions[design.currentVersion]?.summary}
+                result={result ?? lastGood}
+                hiddenParts={hiddenParts}
+                photos={design.photos ?? []}
+                onDelete={deletePhoto}
+                capture={(view, aspect) => photoRef.current?.(view, aspect) ?? null}
+                jobs={photoJobs.jobs}
+                onStart={(r) => photoJobs.start(design.id, r)}
+                onDismiss={photoJobs.dismiss}
+                imageModel={artworkModel}
+              />
+            ),
+          }}
           canAssemble={canAssemble}
           assembly={playback?.steps ?? null}
           assemblyLoading={playbackLoading}

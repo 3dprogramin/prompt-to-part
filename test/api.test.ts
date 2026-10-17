@@ -14,10 +14,16 @@ process.env.JIG_AUTH = 'subscription';
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
 let releaseGeneration = () => {};
+// What the stand-in image model was last asked for.
+let imageAsked: { prompt: string; aspect: string; references?: string[] } | null = null;
 const { createApp } = await import('../server/app');
 server.on('request', createApp({
   port,
   suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
+  image: async (prompt, aspect, references) => {
+    imageAsked = { prompt, aspect, references };
+    return { image: { data: Buffer.from('89504e470d0a1a0a70686f746f', 'hex').toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
+  },
   generate: (_req, send, abort) => new Promise((resolve) => {
     send({ type: 'live', text: 'working' });
     releaseGeneration = () => resolve();
@@ -143,3 +149,51 @@ test('without an API key (and not in subscription mode) Claude is never started'
   }
 });
 
+
+test('product photos: checked, need the OpenRouter key, stored with the design', async () => {
+  const id = 'test-api-00000010';
+  const photo = (extra: Record<string, unknown> = {}) => ({ render: { mediaType: 'image/png', data: PNG }, scene: 'table', aspect: '4:5', product: { name: 'Coaster', size: [100, 100, 5] }, ...extra });
+  const post = (body: unknown, designId = id) => fetch(`${A}/api/designs/${designId}/photos`, { method: 'POST', headers: W, body: JSON.stringify(body) });
+  const saved = process.env.OPENROUTER_API_KEY;
+  try {
+    delete process.env.OPENROUTER_API_KEY;
+    const noKey = await post(photo());
+    assert.equal(noKey.status, 503);
+    assert.match((await noKey.json()).error, /OPENROUTER_API_KEY/);
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    for (const bad of [
+      photo({ scene: 'moon' }), photo({ aspect: '3:1' }), photo({ scene: 'custom' }), photo({ notes: 'x'.repeat(5000) }),
+      photo({ render: { mediaType: 'image/gif', data: PNG } }), photo({ render: { mediaType: 'image/jpeg', data: PNG } }), photo({ render: { mediaType: 'image/png', data: '' } }),
+      photo({ product: { name: 'Coaster', size: [100, 100] } }), photo({ product: { name: 'Coaster', size: [100, -1, 5] } }), photo({ product: { size: [1, 1, 1] } }), {},
+    ]) assert.equal((await post(bad)).status, 400, JSON.stringify(bad).slice(0, 120));
+    assert.equal((await post(photo(), 'bad')).status, 400);
+    imageAsked = null;
+    assert.equal((await post(photo({ scene: 'moon' }))).status, 400);
+    assert.equal(imageAsked, null, 'nothing is drawn for a bad request');
+
+    const r = await post(photo({ scene: 'custom', notes: 'on a bedside table' }));
+    assert.equal(r.status, 200);
+    const out = await r.json();
+    assert.match(out.photo, /^\/api\/designs\/test-api-00000010\/images\/[0-9a-f]{32}\.png$/);
+    assert.match(out.render, /^\/api\/designs\/test-api-00000010\/images\/[0-9a-f]{32}\.png$/);
+    assert.notEqual(out.photo, out.render);
+    assert.equal(out.model, 'test/image');
+    assert.equal(out.cost, 0.04);
+    assert.equal(out.prompt, imageAsked!.prompt);
+    assert.match(out.prompt, /on a bedside table/);
+    assert.equal(imageAsked!.aspect, '4:5');
+    assert.deepEqual(imageAsked!.references, [`data:image/png;base64,${PNG}`]);
+    assert.equal((await fetch(A + out.photo)).status, 200);
+
+    // Listed in the design, which keeps them.
+    const entry = { url: out.photo, render: out.render, scene: 'custom', notes: 'on a bedside table', aspect: '4:5', prompt: out.prompt, model: out.model, cost: out.cost, createdAt: 5 };
+    assert.equal((await put(design({ id, photos: [entry] }))).status, 200);
+    assert.deepEqual((await (await fetch(`${A}/api/designs/${id}`)).json()).photos, [entry]);
+    assert.equal((await put(design({ id, rev: 1, photos: 'nope' }))).status, 400);
+
+    assert.equal((await del(id)).status, 200);
+    assert.equal((await post(photo())).status, 410);
+  } finally {
+    if (saved === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = saved;
+  }
+});

@@ -95,9 +95,14 @@ export async function requestImage(prompt: string, aspect: string, references: s
   const body = (await res.json().catch(() => ({}))) as {
     choices?: { finish_reason?: string; native_finish_reason?: string; message?: { content?: string; refusal?: string; images?: { image_url?: { url?: string } }[] } }[];
     usage?: { cost?: number };
-    error?: { message?: string };
+    error?: { message?: string; metadata?: { raw?: unknown } };
   };
-  if (!res.ok) throw new Error(`The image model refused: ${body.error?.message ?? `HTTP ${res.status}`}`);
+  if (!res.ok) {
+    // "Provider returned error" alone says nothing: the provider's own message is in metadata.raw.
+    const raw = body.error?.metadata?.raw;
+    const why = [body.error?.message ?? `HTTP ${res.status}`, typeof raw === 'string' ? raw.slice(0, 300) : ''].filter(Boolean).join(': ');
+    throw new Error(res.status === 429 ? `The image model is busy right now – try again in a minute. (${why})` : `The image model refused: ${why}`);
+  }
   const msg = body.choices?.[0]?.message;
   const url = msg?.images?.[0]?.image_url?.url;
   const m = url && /^data:(image\/[\w+.-]+);base64,(.+)$/s.exec(url);

@@ -752,3 +752,50 @@ body.resizing { cursor: col-resize; user-select: none; }
 .hf-add-actions { display: flex; gap: 6px; }
 .hf-lookup { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: var(--text-2); }
 .hf-lookup a { color: var(--text-2); }
+
+/* ---------- product photos ---------- */
+.ph-btn { position: relative; }
+.ph-busy { position: absolute; right: -2px; top: -2px; width: 9px; height: 9px; border-width: 1.5px; }
+.photos-panel { position: absolute; top: calc(var(--toolbar-bottom, 42px) + 10px); right: 22px; width: min(360px, calc(100% - 44px)); max-height: calc(100% - var(--toolbar-bottom, 42px) - 60px); overflow-y: auto; background: #191b1ff2; border: 1px solid var(--line-2); border-radius: 12px; padding: 12px; box-shadow: 0 12px 40px #000a; z-index: 13; backdrop-filter: blur(6px); display: flex; flex-direction: column; gap: 8px; }
+.photos-panel > * { flex-shrink: 0; }
+.photos-panel .vp-head { margin-bottom: 0; align-items: center; }
+.photos-panel .vp-title { display: flex; align-items: center; gap: 6px; }
+.ph-label { font-size: 11.5px; color: var(--text-2); font-weight: 600; }
+.ph-scenes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.ph-scenes button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px 6px; border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 8px; color: var(--text-2); font-size: 11px; line-height: 1.2; text-align: center; }
+.ph-scenes button:hover { border-color: #4a505b; color: var(--text); }
+.ph-scenes button.on { border-color: var(--accent); background: #e0a43c1f; color: var(--text); }
+.ph-scenes button.on svg { color: var(--accent-2); }
+.ph-suggested { position: absolute; top: 2px; right: 5px; font-style: normal; font-size: 10px; color: var(--accent-2); }
+.ph-notes { font-size: 12.5px; padding: 6px 8px; }
+.ph-row { display: flex; align-items: center; gap: 8px; }
+.ph-row .ph-label { width: 52px; flex-shrink: 0; }
+.ph-row .seg { flex: 1; }
+.ph-note { line-height: 1.35; }
+.ph-gallery-head { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.ph-gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ph-tile { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--bg); }
+.ph-tile.pending { align-items: center; justify-content: center; gap: 6px; min-height: 120px; padding: 8px; text-align: center; color: var(--text-2); }
+.ph-tile.failed { color: #ffc6c0; border-color: #5c2c2a; background: #3a1e1d80; }
+.ph-tile.failed span { overflow-wrap: anywhere; }
+.ph-thumb { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.ph-thumb img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.ph-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ph-tile-bar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 7px; }
+.ph-tile-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.ph-tile-bar .icon-btn { width: 24px; height: 24px; }
+.icon-btn.ph-armed { color: var(--bad); background: #3a1e1d; }
+.ph-lightbox { cursor: default; }
+.ph-big { display: flex; gap: 14px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); cursor: default; }
+.ph-big > img { display: block; min-width: 0; max-width: calc(100vw - 48px - 320px); max-height: calc(100vh - 48px); object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px #000a; }
+.ph-big-side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; padding: 12px; overflow-y: auto; align-self: flex-start; max-height: calc(100vh - 48px); }
+.ph-big-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
+.ph-big-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ph-prompt summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
+.ph-prompt pre { white-space: pre-wrap; font: 11px/1.45 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px; margin: 6px 0 0; max-height: 40vh; overflow-y: auto; }
+@media (max-width: 900px) {
+  .ph-big { flex-direction: column; overflow-y: auto; }
+  .ph-big > img { max-width: calc(100vw - 48px); max-height: 60vh; }
+  .ph-big-side { width: auto; }
+}
+.ui-hidden .photos-panel { display: none; }

@@ -16,7 +16,8 @@ import { lookupFilament } from './filaments';
 import { matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS } from '../shared/filaments';
 import { cleanCostSettings } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
-import { artworkAvailable, imageModel } from './artwork';
+import { artworkAvailable, imageModel, requestImage } from './artwork';
+import { photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -28,13 +29,15 @@ function isDesign(d: unknown): d is Design {
   return !!o && typeof o === 'object' && typeof o.id === 'string' && typeof o.name === 'string' && typeof o.code === 'string'
     && Number.isFinite(o.updatedAt) && Number.isFinite(o.createdAt) && Number.isInteger(o.currentVersion)
     && Array.isArray(o.messages) && Array.isArray(o.versions) && !!o.values && typeof o.values === 'object'
-    && (o.rev === undefined || Number.isInteger(o.rev));
+    && (o.rev === undefined || Number.isInteger(o.rev)) && (o.photos === undefined || Array.isArray(o.photos));
 }
 
 // Chat images (reference photos, renders, assembly pictures) are stored once per design, by
 // content, instead of inside the design JSON that is rewritten on every autosave.
 const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
 const IMAGE_NAME = /^[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
+/** Largest render sent for a product photo. */
+const MAX_RENDER_BYTES = 15 * 1024 * 1024;
 
 /** Write through a temp file and rename it into place, so readers see the old or the new file. */
 async function writeAtomically(file: string, data: string | Buffer) {
@@ -64,9 +67,11 @@ export interface AppOptions {
   suggest?: typeof suggestPrice;
   /** Finds a filament's colour and TD (tests pass one with a stand-in for Claude). */
   lookup?: typeof lookupFilament;
+  /** Asks the image model for a picture (tests pass a stand-in). */
+  image?: typeof requestImage;
 }
 
-export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament, image = requestImage }: AppOptions = {}): express.Express {
   const app = express();
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
@@ -161,22 +166,62 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     res.json({ ok: true });
   });
 
+  /** Stores an image with the design, named by its content: its URL, or null if the design was deleted. */
+  const storeImage = (id: string, bytes: Buffer, ext: string) => {
+    const name = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}.${ext}`;
+    // In the design's queue, so a delete can't run between the check and the write.
+    return serially(id, async () => {
+      if (deleted.has(id)) return null;
+      const target = path.join(imageDir(id), name);
+      await mkdir(imageDir(id), { recursive: true });
+      // Written whole or not at all: a half-written file would be served (and cached) forever.
+      if (!existsSync(target)) await writeAtomically(target, bytes);
+      return `/api/designs/${id}/images/${name}`;
+    });
+  };
+
   app.post('/api/designs/:id/images', json('20mb'), async (req, res) => {
     const { id } = req.params;
     const { mediaType, data } = (req.body ?? {}) as { mediaType?: unknown; data?: unknown };
     const ext = IMAGE_TYPES[String(mediaType)];
     if (!ID_RE.test(id) || !ext || typeof data !== 'string') return void res.status(400).json({ error: 'bad image' });
-    const bytes = Buffer.from(data, 'base64');
-    const name = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}.${ext}`;
-    // In the design's queue, so a delete can't run between the check and the write.
-    await serially(id, async () => {
-      if (deleted.has(id)) return void res.status(410).json({ error: 'This design was deleted' });
-      const target = path.join(imageDir(id), name);
-      await mkdir(imageDir(id), { recursive: true });
-      // Written whole or not at all: a half-written file would be served (and cached) forever.
-      if (!existsSync(target)) await writeAtomically(target, bytes);
-      res.json({ url: `/api/designs/${id}/images/${name}` });
-    });
+    const url = await storeImage(id, Buffer.from(data, 'base64'), ext);
+    if (!url) return void res.status(410).json({ error: 'This design was deleted' });
+    res.json({ url });
+  });
+
+  // Product photos: the image model turns a clean render of the model into a photo of the printed
+  // product in a scene. The photo and the render are stored with the design's images; the app
+  // lists them in the design (Design.photos).
+  app.post('/api/designs/:id/photos', json('25mb'), async (req, res) => {
+    const { id } = req.params;
+    if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
+    const body = req.body as PhotoRequest;
+    const problem = photoProblem(body);
+    if (problem) return void res.status(400).json({ error: problem });
+    const render = Buffer.from(body.render.data, 'base64');
+    const png = render[0] === 0x89 && render[1] === 0x50, jpg = render[0] === 0xff && render[1] === 0xd8;
+    if (render.length > MAX_RENDER_BYTES || !(body.render.mediaType === 'image/png' ? png : jpg)) {
+      return void res.status(400).json({ error: `The render must be a PNG or JPEG of up to ${MAX_RENDER_BYTES / 1024 / 1024} MB` });
+    }
+    if (!artworkAvailable()) return void res.status(503).json({ error: 'Product photos need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.' });
+    if (deleted.has(id)) return void res.status(410).json({ error: 'This design was deleted' });
+    const prompt = photoPrompt(body);
+    const abort = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) abort.abort(); });
+    try {
+      const out = await image(prompt, body.aspect, [`data:${body.render.mediaType};base64,${body.render.data}`], abort.signal);
+      const ext = IMAGE_TYPES[out.image.mediaType];
+      if (!ext) throw new Error(`The image model returned a picture format Jig can't store (${out.image.mediaType})`);
+      const photo = await storeImage(id, Buffer.from(out.image.data, 'base64'), ext);
+      const renderUrl = photo && await storeImage(id, render, IMAGE_TYPES[body.render.mediaType]);
+      if (!photo || !renderUrl) return void res.status(410).json({ error: 'This design was deleted' });
+      res.json({ photo, render: renderUrl, prompt, model: out.model, cost: out.cost } satisfies PhotoResponse);
+    } catch (e) {
+      if (abort.signal.aborted) return;
+      console.error('[photos]', (e as Error).message);
+      res.status(502).json({ error: (e as Error).message });
+    }
   });
 
   app.get('/api/designs/:id/images/:name', (req, res) => {
