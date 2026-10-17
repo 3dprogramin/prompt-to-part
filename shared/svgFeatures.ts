@@ -12,14 +12,39 @@ export interface SvgDrawing {
   name: string;
   /** Width ÷ height. */
   aspect: number;
-  /** One entry per SVG element, each with its own fill rule. */
-  shapes: { rule: 'NonZero' | 'EvenOdd'; contours: Vec2[][] }[];
+  /** One entry per SVG element in paint order (later ones are drawn on top), with its fill rule and colour. */
+  shapes: { rule: 'NonZero' | 'EvenOdd'; contours: Vec2[][]; color?: string }[];
 }
 
 export interface SvgFeature extends SurfacePlacement {
   /** Height of the drawing, mm (its width follows from the aspect ratio). */
   size: number;
   drawing: SvgDrawing;
+  /**
+   * The fill colours that make the raised (or engraved) shape; undefined = all. Shapes of other
+   * colours painted on top cut through it, as they cover it in the drawing (white lettering on a
+   * red disc becomes a disc with the lettering cut out).
+   */
+  colors?: string[];
+}
+
+/** The drawing's fill colours, in paint order. */
+export function drawingColors(d: SvgDrawing): string[] {
+  return [...new Set(d.shapes.map((s) => s.color ?? ''))];
+}
+
+/** Colours raised by default: all of them, except white-ish ones (usually the paper) when there are others. */
+export function defaultColors(d: SvgDrawing): string[] | undefined {
+  const all = drawingColors(d);
+  if (all.length < 2) return undefined;
+  const light = (c: string) => {
+    const m = /^#([0-9a-f]{6})$/.exec(c);
+    if (!m) return c === 'white';
+    const v = parseInt(m[1], 16);
+    return 0.2126 * (v >> 16) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255) > 235;
+  };
+  const dark = all.filter((c) => !light(c));
+  return dark.length && dark.length < all.length ? dark : undefined;
 }
 
 /** The most polygon points one drawing may have (it is stored in the design's values). */
@@ -44,7 +69,7 @@ export function cleanDrawing(raw: unknown): SvgDrawing | null {
       .map((c) => c.map((p) => [p[0], p[1]] as Vec2));
     points += contours.reduce((n, c) => n + c.length, 0);
     if (points > MAX_SVG_POINTS) return null;
-    if (contours.length) shapes.push({ rule: sh.rule === 'EvenOdd' ? 'EvenOdd' : 'NonZero', contours });
+    if (contours.length) shapes.push({ rule: sh.rule === 'EvenOdd' ? 'EvenOdd' : 'NonZero', contours, ...(typeof sh.color === 'string' ? { color: sh.color.slice(0, 40) } : {}) });
   }
   return shapes.length ? { name: String(o.name ?? 'drawing.svg').slice(0, 120), aspect: Number(o.aspect), shapes } : null;
 }
@@ -56,7 +81,8 @@ export function parseSvgFeatures(raw: unknown): SvgFeature[] {
     if (!Array.isArray(arr)) return [];
     return arr.flatMap((f) => {
       const drawing = f && cleanDrawing(f.drawing);
-      return drawing ? [newSvgFeature(String(f.id), drawing, { ...f, drawing, curve: f.curve === 'wrap' ? 'wrap' : 'none' })] : [];
+      const colors = Array.isArray(f.colors) ? f.colors.filter((c: unknown) => typeof c === 'string') : undefined;
+      return drawing ? [newSvgFeature(String(f.id), drawing, { ...f, drawing, colors, curve: f.curve === 'wrap' ? 'wrap' : 'none' })] : [];
     });
   } catch {
     return [];
@@ -69,11 +95,14 @@ export function applySvgFeatures(shape: Manifold, features: SvgFeature[], C: typ
   for (const f of features) {
     if (!f.enabled || !(f.size > 0) || !(f.depth > 0)) continue;
     const k = f.size;
-    // Each SVG element keeps its own fill rule; together they make one flat shape.
+    // Painted in order, each element with its own fill rule: the chosen colours add to the shape,
+    // any other colour painted on top cuts it away.
+    const chosen = f.colors ? new Set(f.colors) : null;
     let cs: CrossSection | null = null;
     for (const sh of f.drawing.shapes) {
       const part = new C(sh.contours.map((c) => c.map(([x, y]) => [x * k, y * k] as Vec2)), sh.rule);
-      cs = cs ? cs.add(part) : part;
+      if (!chosen || chosen.has(sh.color ?? '')) cs = cs ? cs.add(part) : part;
+      else if (cs) cs = cs.subtract(part);
     }
     if (cs && !cs.isEmpty()) out = placeOnSurface(out, base, f, cs);
   }

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { flattenPath, parseTransform } from '../src/lib/svg';
 import { evaluateScript } from '../shared/runtime';
-import { newSvgFeature, parseSvgFeatures, SVG_KEY, type SvgDrawing } from '../shared/svgFeatures';
+import { defaultColors, newSvgFeature, parseSvgFeatures, SVG_KEY, type SvgDrawing } from '../shared/svgFeatures';
 
 const area = (c: [number, number][]) => Math.abs(c.reduce((s, [x, y], i) => { const [x2, y2] = c[(i + 1) % c.length]; return s + x * y2 - x2 * y; }, 0)) / 2;
 
@@ -52,3 +52,21 @@ test('saved drawings are checked', () => {
   assert.equal(parseSvgFeatures(JSON.stringify([{ id: 'b', drawing: { aspect: 1, shapes: [{ rule: 'NonZero', contours: [Array.from({ length: 50000 }, (_, i) => [i, i % 2])] }] } }])).length, 0);
   assert.equal(parseSvgFeatures(JSON.stringify([newSvgFeature('c', ring)])).length, 1);
 });
+
+// A red square with a white square painted on top (like white lettering on a red bottle cap).
+const cap: SvgDrawing = {
+  name: 'cap.svg', aspect: 1,
+  shapes: [
+    { rule: 'NonZero', color: '#f40009', contours: [[[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]] },
+    { rule: 'NonZero', color: '#ffffff', contours: [[[-0.25, -0.25], [0.25, -0.25], [0.25, 0.25], [-0.25, 0.25]]] },
+  ],
+};
+
+test('colours painted on top cut through the chosen ones', () => {
+  assert.deepEqual(defaultColors(cap), ['#f40009']);
+  const vol = (colors?: string[]) => evaluateScript(CUBE, { [SVG_KEY]: JSON.stringify([newSvgFeature('c', cap, { size: 20, depth: 1, colors })]) }, 'draft').parts[0].volume - 16000;
+  assert.ok(Math.abs(vol(['#f40009']) - 300) < 1);   // the red with the white cut out
+  assert.ok(Math.abs(vol(['#ffffff']) - 100) < 1);   // only the white
+  assert.ok(Math.abs(vol(undefined) - 400) < 1);     // everything: a solid square
+});
+

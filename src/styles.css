@@ -604,3 +604,7 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .cost-status { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-2); font-size: 12px; margin-right: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
 .tab-spinner { width: 9px; height: 9px; margin-left: 3px; }
 .cost-panel td.mono { white-space: nowrap; }
+
+.svg-colours { display: flex; flex-wrap: wrap; gap: 6px; }
+.svg-colours .chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; }
+.svg-colours .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line-2); }

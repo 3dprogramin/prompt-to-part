@@ -26,7 +26,7 @@ export function importSvg(source: string, name: string): SvgImport {
   const extent = vb.length === 4 && vb[2] > 0 && vb[3] > 0 ? Math.hypot(vb[2], vb[3]) : Math.hypot(length(root.getAttribute('width'), 100), length(root.getAttribute('height'), 100));
   const tolerance = extent / 2000;
 
-  const shapes: { rule: 'NonZero' | 'EvenOdd'; contours: Vec2[][] }[] = [];
+  const shapes: SvgDrawing['shapes'] = [];
   const skipped = { strokes: 0, text: 0, images: 0 };
   const walk = (el: Element, m: Matrix, inherited: { fill: string; rule: string }, depth: number) => {
     if (depth > 64 || SKIP.has(el.localName)) return;
@@ -54,7 +54,7 @@ export function importSvg(source: string, name: string): SvgImport {
         if ((style(el, 'stroke') ?? 'none') !== 'none') skipped.strokes++;
       } else {
         const contours = outline.map((c) => c.map(([x, y]) => [mm[0] * x + mm[2] * y + mm[4], -(mm[1] * x + mm[3] * y + mm[5])] as Vec2)).filter((c) => c.length >= 3);
-        if (contours.length) shapes.push({ rule: rule === 'evenodd' ? 'EvenOdd' : 'NonZero', contours });
+        if (contours.length) shapes.push({ rule: rule === 'evenodd' ? 'EvenOdd' : 'NonZero', contours, color: colorKey(fill) });
       }
     }
     for (const child of el.children) walk(child, mm, { fill, rule }, depth + 1);
@@ -79,6 +79,7 @@ export function importSvg(source: string, name: string): SvgImport {
   for (let pass = 0; pass < 12; pass++) {
     out = shapes.map((s) => ({
       rule: s.rule,
+      color: s.color,
       contours: s.contours
         .map((c) => (simplify ? rdp(c, simplify * height) : c).map(([x, y]) => [round((x - cx) / height), round((y - cy) / height)] as Vec2))
         .filter((c) => c.length >= 3),
@@ -93,6 +94,17 @@ export function importSvg(source: string, name: string): SvgImport {
 }
 
 const round = (v: number) => Math.round(v * 1e5) / 1e5;
+
+/** A fill colour as one key: #rrggbb where it can be read, otherwise as written ("url(#g)", a name). */
+function colorKey(fill: string): string {
+  const named: Record<string, string> = { black: '#000000', white: '#ffffff', red: '#ff0000', blue: '#0000ff', green: '#008000' };
+  const f = named[fill] ?? fill;
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(f);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  const rgb = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/.exec(f);
+  if (rgb) return `#${rgb.slice(1).map((v) => Math.min(255, Number(v)).toString(16).padStart(2, '0')).join('')}`;
+  return f;
+}
 
 function length(v: string | null, fallback: number): number {
   const n = parseFloat(v ?? '');

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { EvalResult } from '../../shared/types';
-import { newSvgFeature, type SvgFeature } from '../../shared/svgFeatures';
+import { defaultColors, drawingColors, newSvgFeature, type SvgFeature } from '../../shared/svgFeatures';
 import { importSvg } from '../lib/svg';
 import { uid } from '../lib/files';
 import { Icon } from './Icon';
@@ -34,7 +34,7 @@ export function SvgPanel({ result, features, onChange, picking, onPick }: Props)
       const { drawing, notes: n } = importSvg(await f0.text(), f0.name);
       // Start at a sensible size: 20 mm high, or narrower for very wide drawings.
       const size = Math.max(2, Math.min(20, +(60 / drawing.aspect).toFixed(1)));
-      const f = newSvgFeature(uid(), drawing, { part: parts[0], size });
+      const f = newSvgFeature(uid(), drawing, { part: parts[0], size, colors: defaultColors(drawing) });
       onChange([...features, f]);
       setSelected(f.id);
       setNotes((m) => ({ ...m, [f.id]: n }));
@@ -78,6 +78,7 @@ export function SvgPanel({ result, features, onChange, picking, onPick }: Props)
           <Row label="Style">
             <Seg value={sel.mode} options={[['emboss', 'Raised'], ['engrave', 'Engraved']]} onChange={(mode) => update(sel.id, { mode })} />
           </Row>
+          {drawingColors(sel.drawing).length > 1 && <Colours f={sel} onChange={(colors) => update(sel.id, { colors })} />}
           <Slider label="Height" unit="mm" min={1} max={200} step={0.5} value={sel.size} onChange={(size) => update(sel.id, { size })} />
           <div className="hint-line">Width {(sel.size * sel.drawing.aspect).toFixed(1)} mm (the drawing keeps its proportions).</div>
           <Slider label={sel.mode === 'emboss' ? 'Raise height' : 'Engrave depth'} unit="mm" min={0.2} max={10} step={0.1} value={sel.depth} onChange={(depth) => update(sel.id, { depth })} />
@@ -96,3 +97,27 @@ export function SvgPanel({ result, features, onChange, picking, onPick }: Props)
     </div>
   );
 }
+
+/** Which of the drawing's colours make the shape; colours painted on top of them cut it. */
+function Colours({ f, onChange }: { f: SvgFeature; onChange: (colors: string[] | undefined) => void }) {
+  const all = drawingColors(f.drawing);
+  const on = f.colors ?? all;
+  const toggle = (c: string) => {
+    const next = on.includes(c) ? on.filter((x) => x !== c) : all.filter((x) => on.includes(x) || x === c);
+    onChange(next.length === all.length ? undefined : next);
+  };
+  return (
+    <div className="param">
+      <div className="param-head"><span className="param-label">Colours to {f.mode === 'emboss' ? 'raise' : 'engrave'}</span></div>
+      <div className="svg-colours" role="group" aria-label={`Colours to ${f.mode === 'emboss' ? 'raise' : 'engrave'}`}>
+        {all.map((c) => (
+          <button key={c} className={`chip ${on.includes(c) ? 'on' : ''}`} aria-pressed={on.includes(c)} title={c} onClick={() => toggle(c)}>
+            <span className="swatch" style={{ background: /^(#|rgb|[a-z]+$)/.test(c) ? c : 'transparent' }} /> {c.startsWith('url(') ? 'gradient' : c || 'unset'}
+          </button>
+        ))}
+      </div>
+      <div className="hint-line">Colours painted on top of the chosen ones cut through them, as in the drawing.</div>
+    </div>
+  );
+}
+
