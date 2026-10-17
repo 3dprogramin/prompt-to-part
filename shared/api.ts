@@ -27,7 +27,7 @@ export interface GenerateRequest {
   scale?: number;
   /** Restored-version / manual-edit note. */
   versionNote?: string;
-  /** Let Claude use WebSearch / WebFetch (off unless the user turns it on for this design). */
+  /** Let Claude use WebSearch / WebFetch (on by default; the user can turn it off per design). */
   webSearch?: boolean;
 }
 

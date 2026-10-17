@@ -28,7 +28,7 @@ import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProf
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
 interface ChatOptions { model: string; effort: string; webSearch: boolean }
-const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: false };
+const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true };
 
 function newDesign(): Design {
   const now = Date.now();

@@ -148,7 +148,7 @@ export function ChatPanel(p: Props) {
             aria-label="Web search"
             aria-pressed={p.webSearch}
             onClick={() => p.onWebSearch(!p.webSearch)}
-            title={p.webSearch ? 'Web search is on: Claude looks up exact dimensions of real products online (this design only, until you reload)' : 'Let Claude search the web for exact dimensions of real products (off for every new design)'}
+            title={p.webSearch ? 'Web search is on: Claude looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Claude search the web for exact dimensions of real products'}
           >
             <Icon name="globe" size={14} />
           </button>
