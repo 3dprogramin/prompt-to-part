@@ -81,6 +81,10 @@ Four tabs, each with two sections one under the other (click a section's title t
 - **Print:** print settings and the cost.
 - **Code:** the model's measurements, dimension sources and console, and the script editor.
 
+## Messages while Claude works
+
+While Claude works, *Send* puts your message into the running reply: Claude reads it at its next step (after the current tool call or thinking) and takes it into account in the same reply; it shows in the steps as "You: …", and the activity panel notes when Claude read it. A message that arrives just as the reply ends gets its own answer before the reply finishes. The clock button next to it (*Later*) queues the message for after the reply instead, as do SVG and OpenSCAD attachments, which Claude only takes with a new request.
+
 ## Watching Claude work
 
 The chat shows every step with its time while Claude works, and follows new output only while you are scrolled to the bottom. Hover the working line, click it to pin, or click *activity* on any reply to open the activity panel beside the chat. It shows:
@@ -185,6 +189,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_MODEL` | `opus` | The model the chat starts with: `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
 | `JIG_EFFORT` | `high` | The reasoning effort the chat starts with (`low` … `max`) |
 | `JIG_IMAGE_MODEL` | `google/gemini-nano-banana-2.1` | The OpenRouter image model for AI artwork and product photos |
+| `JIG_IMAGE_FALLBACK` | `google/gemini-3.1-flash-image` | Used when the image model stays busy (rate-limited upstream) after two retries; empty turns it off |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with instead of a key, for your own use on your own computer only (see below) |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |

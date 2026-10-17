@@ -108,7 +108,7 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .composer textarea { resize: none; background: var(--bg); border: 1px solid var(--input-line); border-radius: var(--radius); padding: 9px 10px; outline: none; min-height: 64px; max-height: 220px; }
 .composer textarea:focus { border-color: var(--accent); }
 .composer { container-type: inline-size; }
-.composer-bar { display: flex; align-items: center; gap: 4px; }
+.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 /* The menus give way first, so the send button always fits the chat column. */
 .composer-bar select { max-width: 92px; min-width: 0; flex: 0 1 auto; }
 .composer-bar > button { flex-shrink: 0; }
@@ -752,6 +752,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .hf-add-actions { display: flex; gap: 6px; }
 .hf-lookup { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: var(--text-2); }
 .hf-lookup a { color: var(--text-2); }
+.step.user .step-text, .act-step.user { color: var(--accent-2); }
+.icon-btn.danger { color: var(--bad); }
+.icon-btn.danger:hover { background: #e5675f22; }
 
 /* ---------- product photos ---------- */
 .ph-btn { position: relative; }

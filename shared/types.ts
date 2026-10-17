@@ -159,7 +159,8 @@ export interface ScriptErrorInfo {
 // ---- Chat / design persistence ----
 
 export interface AgentStep {
-  kind: 'text' | 'tool' | 'status' | 'thinking' | 'render' | 'assembly' | 'error';
+  /** 'user': a message the user sent while Claude worked. */
+  kind: 'text' | 'tool' | 'status' | 'thinking' | 'render' | 'assembly' | 'error' | 'user';
   text: string;
   ok?: boolean;
   image?: string; // data URL (render previews)

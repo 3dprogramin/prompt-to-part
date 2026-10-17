@@ -4,8 +4,8 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
-import { runGeneration, workspaceDir } from './agent';
-import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechToken, PriceRequest } from '../shared/api';
+import { runGeneration, steerGeneration, workspaceDir } from './agent';
+import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, ImageData, SpeechToken, PriceRequest } from '../shared/api';
 import { claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
@@ -335,6 +335,18 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     } catch (e) {
       res.status(404).json({ error: (e as Error).message });
     }
+  });
+
+  // A message for the reply Claude is working on (it reads it at its next step); 409 when none is
+  // running, so the page queues it for after the reply instead.
+  app.post('/api/generate/:id/message', json('40mb'), (req, res) => {
+    const { id } = req.params;
+    const b = (req.body ?? {}) as { text?: unknown; images?: unknown };
+    if (!ID_RE.test(id) || typeof b.text !== 'string' || b.text.length > 20000) return void res.status(400).json({ error: 'text must be a string (up to 20,000 characters)' });
+    if (b.images != null && (!Array.isArray(b.images) || b.images.length > 8 || !b.images.every(isImage))) return void res.status(400).json({ error: 'up to 8 images' });
+    if (!b.text.trim() && !(b.images as unknown[] | undefined)?.length) return void res.status(400).json({ error: 'empty message' });
+    if (!steerGeneration(id, b.text, (b.images ?? []) as ImageData[])) return void res.status(409).json({ error: 'Claude is not working on this design' });
+    res.json({ ok: true });
   });
 
   app.post('/api/generate', json('40mb'), async (req, res) => {

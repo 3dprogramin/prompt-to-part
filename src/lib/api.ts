@@ -1,5 +1,5 @@
 import type { Design, DesignSummary } from '../../shared/types';
-import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { AgentEvent, BambuTemplate, Capabilities, FontEntry, GenerateRequest, ImageData, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { PhotoRequest, PhotoResponse } from '../../shared/photos';
@@ -106,6 +106,16 @@ export const api = {
 /** A filament's colour and TD: from Jig's library, or found on the web by Claude (can take a minute). */
 export const lookupFilament = (brand: string, name: string): Promise<FilamentLookup> =>
   getJson<FilamentLookup>('/api/filaments/lookup', { method: 'POST', body: JSON.stringify({ brand, name }) });
+
+/** A message for the reply Claude is working on; false when no reply is running (queue it instead). */
+export async function steer(designId: string, text: string, images: ImageData[]): Promise<boolean> {
+  try {
+    await request(`/api/generate/${designId}/message`, { method: 'POST', body: JSON.stringify({ text, images }) });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function generate(body: GenerateRequest, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
   const res = await request('/api/generate', { method: 'POST', body: JSON.stringify(body), signal });

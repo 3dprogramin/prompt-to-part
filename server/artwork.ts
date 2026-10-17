@@ -71,18 +71,48 @@ export function artworkPrompt(r: ArtworkRequest): string {
 }
 
 /** Asks the image model for the artwork and traces it. */
-export async function generateArtwork(name: string, r: ArtworkRequest, signal?: AbortSignal): Promise<Artwork> {
+export async function generateArtwork(name: string, r: ArtworkRequest, signal?: AbortSignal, onStatus?: (text: string) => void): Promise<Artwork> {
   const prompt = artworkPrompt(r);
-  const { image, model, cost } = await requestImage(prompt, r.aspect ?? '1:1', r.references, signal);
+  const { image, model, cost } = await requestImage(prompt, r.aspect ?? '1:1', r.references, signal, onStatus);
   const traced = traceArtwork(decodeImage(Buffer.from(image.data, 'base64')), r.colors?.length ? r.colors : undefined, r.tones ?? 4, name);
   return { prompt, model, cost, image, ...traced };
 }
 
 /** A picture from the image model for `prompt` (with the reference photos, if any). */
-export async function requestImage(prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
+export async function requestImage(prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal, onStatus?: (text: string) => void): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('AI pictures need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.');
-  const model = imageModel();
+  // When the model is busy upstream (rate-limited for everyone, or down for a moment): wait and
+  // retry, then try the fallback model.
+  const models = [...new Set([imageModel(), fallbackImageModel()].filter(Boolean))];
+  let last: Error | null = null;
+  for (const [mi, model] of models.entries()) {
+    if (mi) onStatus?.(`${models[mi - 1]} is busy – trying ${model}…`);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) {
+        onStatus?.(`${model} is busy – retrying in ${RETRY_S[attempt - 1]} s…`);
+        await new Promise((r) => setTimeout(r, RETRY_S[attempt - 1] * 1000));
+        if (signal?.aborted) throw new Error('Stopped');
+      }
+      try {
+        return await requestOnce(key, model, prompt, aspect, references, signal);
+      } catch (e) {
+        last = e as Error;
+        if (!(e instanceof BusyError)) throw e;
+      }
+    }
+  }
+  throw last!;
+}
+
+/** Seconds to wait before the 2nd and 3rd try of a busy model. */
+const RETRY_S = [4, 10];
+/** Used when the image model stays busy (JIG_IMAGE_FALLBACK; '' turns it off). */
+export const fallbackImageModel = () => process.env.JIG_IMAGE_FALLBACK ?? 'google/gemini-3.1-flash-image';
+/** The model is rate-limited or down for a moment (HTTP 429/5xx): worth retrying. */
+class BusyError extends Error {}
+
+async function requestOnce(key: string, model: string, prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal) {
   const content = references?.length
     ? [{ type: 'text', text: prompt }, ...references.map((url) => ({ type: 'image_url', image_url: { url } }))]
     : prompt;
@@ -95,13 +125,13 @@ export async function requestImage(prompt: string, aspect: string, references: s
   const body = (await res.json().catch(() => ({}))) as {
     choices?: { finish_reason?: string; native_finish_reason?: string; message?: { content?: string; refusal?: string; images?: { image_url?: { url?: string } }[] } }[];
     usage?: { cost?: number };
-    error?: { message?: string; metadata?: { raw?: unknown } };
+    error?: { message?: string; metadata?: { raw?: string } };
   };
   if (!res.ok) {
-    // "Provider returned error" alone says nothing: the provider's own message is in metadata.raw.
-    const raw = body.error?.metadata?.raw;
-    const why = [body.error?.message ?? `HTTP ${res.status}`, typeof raw === 'string' ? raw.slice(0, 300) : ''].filter(Boolean).join(': ');
-    throw new Error(res.status === 429 ? `The image model is busy right now – try again in a minute. (${why})` : `The image model refused: ${why}`);
+    // OpenRouter's message is often just "Provider returned error"; the provider's own text says why.
+    const why = [body.error?.message, body.error?.metadata?.raw].filter(Boolean).join(': ').slice(0, 300) || `HTTP ${res.status}`;
+    if (res.status === 429 || res.status >= 500) throw new BusyError(`${model} is busy (${why})`);
+    throw new Error(`The image model refused: ${why}`);
   }
   const msg = body.choices?.[0]?.message;
   const url = msg?.images?.[0]?.image_url?.url;

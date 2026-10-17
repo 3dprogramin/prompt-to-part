@@ -6,7 +6,7 @@ import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import { HF_IMAGES_KEY, HF_KEY, parseHfImages, type HfImage, type HueforgeSetup } from '../shared/hueforge';
 import type { FontEntry } from './lib/api';
-import { api, generate, HttpError } from './lib/api';
+import { api, generate, HttpError, steer } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
 import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
@@ -470,6 +470,11 @@ export default function App() {
   // ---- messages sent while Claude works: queued per design, sent together once the reply is done
   const [queues, setQueues] = useState<Record<string, { items: QueuedMessage[]; paused: boolean }>>({});
   const queue = queues[design.id];
+  // While Claude works, a message goes into the running reply (Claude reads it at its next step);
+  // files Claude can only take with a new request, or a reply that has just ended, queue it instead.
+  const steerOrQueue = async (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => {
+    if (drawings.length || scad.length || !(await steer(design.id, text, images.map(dataUrlToImage)))) enqueue(text, images, drawings, scad);
+  };
   const enqueue = (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) =>
     setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings, scad }], paused: false } }));
   const removeQueued = (i: number) => setQueues((s) => {
@@ -877,6 +882,7 @@ export default function App() {
           queued={queue?.items ?? []}
           queuePaused={!!queue?.paused}
           onQueue={enqueue}
+          onSteer={(text, images, drawings, scad) => void steerOrQueue(text, images, drawings, scad)}
           onRemoveQueued={removeQueued}
           onSendQueued={sendQueued}
           onRestore={onRestore}

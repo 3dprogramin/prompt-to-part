@@ -3,7 +3,7 @@ import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentEvent, GenerateRequest } from '../shared/api';
+import type { AgentEvent, GenerateRequest, ImageData } from '../shared/api';
 import { geometry, formatReport } from './geometry';
 import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
@@ -281,11 +281,17 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Whether Claude has answered at all: then a failure is not a missing session, and starting over
   // in a new one would repeat the work (and could produce a second version).
   let gotOutput = false;
+  // Messages the user sends while Claude works go into the running reply (steerGeneration).
+  const inbox = new Inbox();
+  steering.set(req.designId, { inbox, emit });
   const run = async (resume?: string, recap?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
       // A fresh session after one that couldn't be continued starts with what was said before.
       yield { type: 'user', message: { role: 'user', content: recap ? [{ type: 'text', text: recap }, ...content] : content }, parent_tool_use_id: null };
+      // Then whatever the user sends meanwhile; Claude Code reads each at Claude's next step.
+      yield* inbox.drain();
     }
+    let prompts = 0; // user messages Claude Code has read in this run (the first is the request itself)
     // Exactly what goes to Claude, for the activity panel.
     const pictures = content.filter((c) => c.type === 'image').length;
     const sentText = [recap, ...content.flatMap((c) => (c.type === 'text' ? [c.text] : []))].filter(Boolean).join('\n\n');
@@ -309,6 +315,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         },
         settingSources: [],
         includePartialMessages: true,
+        // Claude Code echoes each user message when Claude reads it: how Jig knows a message sent mid-reply arrived.
+        extraArgs: { 'replay-user-messages': null },
         maxTurns: 60,
         resume,
         abortController: abort,
@@ -407,6 +415,13 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             pushLive(`Running: ${TOOL_LABELS[b.name] ?? b.name}…`);
           }
         }
+      } else if (msg.type === 'user' && 'isReplay' in msg && msg.isReplay) {
+        // A user message Claude has just read: the request, then any the user sent mid-reply.
+        if (prompts++ > 0) {
+          inbox.read++;
+          emit({ type: 'step', step: { kind: 'status', verbose: true, text: 'Claude read your message' } });
+          pushLive('Claude is reading your message…');
+        }
       } else if (msg.type === 'user') {
         // Tool results: everything Claude gets back goes to the activity panel (the CAD tools also
         // report a summary step of their own; the built-in tools' failures and saves show in the chat).
@@ -445,9 +460,16 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${formatDuration(msg.duration_ms)} · ${msg.num_turns} turns` } });
+        // A message the user sent as the turn ended starts another turn: the reply goes on until
+        // Claude has read and answered everything.
+        if (!msg.is_error && inbox.unanswered()) {
+          emit({ type: 'step', step: { kind: 'status', text: 'Answering your message…' } });
+          continue;
+        }
+        inbox.close();
         // An API error ends the turn with is_error; the SDK then throws, and the catch below
         // either retries or reports it, so the reply isn't marked finished here.
-        if (!msg.is_error) emit({ type: 'done', durationMs: msg.duration_ms, turns: msg.num_turns, submitted: state.submitted, text: finalText });
+        if (!msg.is_error) emit({ type: 'done', durationMs: Date.now() - t0, turns: msg.num_turns, submitted: state.submitted, text: finalText });
       }
     }
   };
@@ -464,7 +486,60 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
       await run(undefined, recapOf(req.history));
     } else throw e;
+  } finally {
+    inbox.close();
+    if (steering.get(req.designId)?.inbox === inbox) steering.delete(req.designId);
   }
+}
+
+/** The user's messages for one running reply, handed to Claude Code as it asks for them. */
+class Inbox {
+  private queue: SDKUserMessage[] = [];
+  private wake: (() => void) | null = null;
+  private closed = false;
+  /** Handed to Claude Code, and read by Claude (echoed back). */
+  sent = 0;
+  read = 0;
+  push(m: SDKUserMessage): boolean {
+    if (this.closed) return false;
+    this.queue.push(m);
+    this.wake?.();
+    return true;
+  }
+  /** Sent or waiting messages Claude hasn't read yet. */
+  unanswered() { return this.queue.length > 0 || this.sent > this.read; }
+  close() { this.closed = true; this.wake?.(); }
+  async *drain(): AsyncGenerator<SDKUserMessage> {
+    for (;;) {
+      const next = this.queue.shift();
+      if (next) { this.sent++; yield next; continue; }
+      if (this.closed) return;
+      await new Promise<void>((resolve) => { this.wake = resolve; });
+      this.wake = null;
+    }
+  }
+}
+
+/** Running replies by design, for messages sent while Claude works. */
+const steering = new Map<string, { inbox: Inbox; emit: (e: AgentEvent) => void }>();
+
+/**
+ * A message for the reply Claude is working on: it reads it at its next step (after the current
+ * tool call or thinking). False when no reply is running (or it has just ended): queue it instead.
+ */
+export function steerGeneration(designId: string, text: string, images: ImageData[] = []): boolean {
+  const run = steering.get(designId);
+  if (!run) return false;
+  const pictures = images.filter((img) => IMAGE_TYPES.has(img.mediaType));
+  const ok = run.inbox.push({
+    type: 'user', parent_tool_use_id: null, priority: 'next',
+    message: { role: 'user', content: [
+      { type: 'text', text: `Message from the user while you work${pictures.length ? ' (with pictures)' : ''}:\n${text.trim() || '(see the pictures)'}` },
+      ...pictures.map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mediaType as 'image/jpeg', data: img.data } })),
+    ] },
+  });
+  if (ok) run.emit({ type: 'step', step: { kind: 'user', text: text.trim() || `${pictures.length} picture${pictures.length > 1 ? 's' : ''}`, ...(pictures[0] ? { image: `data:${pictures[0].mediaType};base64,${pictures[0].data}` } : {}) } });
+  return ok;
 }
 
 /** The earlier conversation as text for a fresh session (newest messages kept, each shortened). */

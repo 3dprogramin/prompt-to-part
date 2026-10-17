@@ -132,7 +132,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         try {
           const references = a.use_attached_photos ? pictures.references : undefined;
           const prompt = picturePrompt({ subject: a.subject, style: a.style, references });
-          const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal);
+          const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
           const raster = decodeImage(Buffer.from(image.data, 'base64'));
           const hf = toHfImage(a.name, raster.width, raster.height, raster.data);
           base[HF_IMAGES_KEY] = JSON.stringify({ ...parseHfImages(base[HF_IMAGES_KEY]), [a.name]: hf });
@@ -165,7 +165,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         if (a.use_attached_photos && !artwork.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
         emit({ type: 'step', step: { kind: 'status', text: `Generating artwork "${a.name}" with ${imageModel()}…` } });
         try {
-          const art = await generateArtwork(a.name, { subject: a.subject, colors: a.colors, tones: a.tones, aspect: a.aspect, style: a.style, references: a.use_attached_photos ? artwork.references : undefined }, artwork.signal);
+          const art = await generateArtwork(a.name, { subject: a.subject, colors: a.colors, tones: a.tones, aspect: a.aspect, style: a.style, references: a.use_attached_photos ? artwork.references : undefined }, artwork.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
           // From now on every check and render can use it, and the app keeps it with the design.
           base[DRAWINGS_KEY] = JSON.stringify({ ...parseDrawings(base[DRAWINGS_KEY]), [a.name]: art.drawing });
           emit({ type: 'drawing', name: a.name, drawing: art.drawing });
