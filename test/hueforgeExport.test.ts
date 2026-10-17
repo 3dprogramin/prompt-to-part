@@ -1,3 +1,4 @@
+import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -9,7 +10,8 @@ import { A1_DEFAULTS, bambuOverrides, cleanProfile, cleanSettings, defaultsFromT
 import { DATA_DIR } from '../server/config';
 import { findBambuBinary } from '../server/bambu';
 import { slicedProject, sliceProject } from '../server/slicer';
-import type { LayerColor } from '../shared/hueforge';
+import { evaluateScript } from '../shared/runtime';
+import { HF_IMAGES_KEY, HF_KEY, toHfImage, type LayerColor } from '../shared/hueforge';
 import type { BambuTemplate } from '../shared/api';
 import type { PartMesh } from '../shared/types';
 
@@ -55,12 +57,16 @@ test('filament plan: a change starts on the layer at its height; the same colour
   assert.deepEqual(filamentPlan([box('Relief', 0, 40, 1.6, '#161616', FOUR), box('Frame', 50, 5, 2, '#ff0000')], LAYERS).slot, [1, 3]);
 });
 
-test('filament plan: other layer heights move a change to the first layer at or above its height', () => {
+test('filament plan: a scaled part or other layer heights move a change to the nearest layer', () => {
+  // $scale 1.5: the heights (and the relief) grow, the changes follow them, not the layer numbers.
+  const scaled = FOUR.map((l) => ({ ...l, z: l.z * 1.5 }));
+  assert.deepEqual(filamentPlan([box('Relief', 0, 40, 2.4, '#161616', scaled)], LAYERS).changes[0].map((c) => [c.layer, c.z]), [[8, 0.72], [14, 1.2], [20, 1.68]]);
   const plan = filamentPlan([box('Relief', 0, 40, 1.6, '#161616', FOUR)], { layerHeight: 0.2, firstLayerHeight: 0.2 });
-  assert.deepEqual(plan.changes[0].map((c) => [c.layer, c.z, c.topZ]), [[3, 0.6, 0.8], [4, 0.8, 1], [6, 1.2, 1.4]]);
+  assert.deepEqual(plan.changes[0].map((c) => [c.layer, c.z, c.topZ]), [[2, 0.4, 0.6], [4, 0.8, 1], [6, 1.2, 1.4]]);
   // Changes on the same layer: the last wins; above the top: dropped.
-  const crowded = filamentPlan([box('Relief', 0, 40, 1, '#161616', [lc(0, '#161616', 'Black'), lc(5, '#808080', 'Grey'), lc(6, '#ff0000', 'Red'), lc(13, '#ffffff', 'White')])], { layerHeight: 0.2, firstLayerHeight: 0.2 });
-  assert.deepEqual(crowded.changes[0].map((c) => c.filament), [3]);
+  const at = (z: number, color: string, name: string): LayerColor => ({ z, layer: 0, color, td: 1, name });
+  const crowded = filamentPlan([box('Relief', 0, 40, 1, '#161616', [at(0, '#161616', 'Black'), at(0.44, '#808080', 'Grey'), at(0.48, '#ff0000', 'Red'), at(1.12, '#ffffff', 'White')])], { layerHeight: 0.2, firstLayerHeight: 0.2 });
+  assert.deepEqual(crowded.changes[0].map((c) => [c.filament, c.layer]), [[3, 2]]);
 });
 
 test('filament plan: beyond 4 filaments, a pause and the AMS slot of a filament that is done', () => {
@@ -73,6 +79,25 @@ test('filament plan: beyond 4 filaments, a pause and the AMS slot of a filament 
   // Four colours used all the way up leave no slot for the HueForge print's changes.
   const full = filamentPlan([box('Relief', 0, 40, 1.6, '#161616', FOUR), ...['#00ff00', '#00ffff', '#ff00ff', '#ffaa00'].map((c, k) => box(`B${k}`, 50 + 15 * k, 10, 5, c))], LAYERS);
   assert.match(full.problem ?? '', /More than 4 filaments/);
+});
+
+// The engine's own output: a gradient picture with four filaments swapped at layers 6, 9 and 13.
+const gradient = toHfImage('gradient.png', 200, 100, Uint8Array.from({ length: 200 * 100 * 4 }, (_, i) => (i % 4 === 3 ? 255 : Math.round(((i >> 2) % 200) / 199 * 255))));
+const ENGINE_VALUES = {
+  [HF_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }),
+  [HF_KEY]: JSON.stringify({ filaments: [['Black', '#161616', 0.6], ['Blue', '#1f4fd1', 1.2], ['Red', '#d12f1f', 1.5], ['White', '#ffffff', 3]].map(([name, color, td]) => ({ name, color, td })), swaps: [6, 9, 13] }),
+};
+const ENGINE_SCRIPT = "function build() { return { name: 'Picture', ...H.hueforge('gradient.png', { width: 100 }) }; }";
+
+test("filament plan: the engine's layers and print settings", () => {
+  const r = evaluateScript(ENGINE_SCRIPT, ENGINE_VALUES, 'draft');
+  assert.deepEqual(r.print, { layerHeight: 0.08, firstLayerHeight: 0.16, infill: 100, infillPattern: 'zig-zag' });
+  const plan = filamentPlan(r.parts, { layerHeight: r.print.layerHeight!, firstLayerHeight: r.print.firstLayerHeight! });
+  assert.deepEqual(plan.changes[0].map((c) => c.layer), r.parts[0].layerColors!.slice(1).map((l) => l.layer));
+  assert.deepEqual(plan.changes[0].map((c) => c.topZ), [0.64, 0.88, 1.2]);
+  // At $scale 1.5 the changes stay with the relief's heights (0.84 → 0.88, 1.2, 1.68), not at layers 6, 9 and 13.
+  const scaled = evaluateScript(ENGINE_SCRIPT, { ...ENGINE_VALUES, $scale: 1.5 }, 'draft');
+  assert.deepEqual(filamentPlan(scaled.parts, LAYERS).changes[0].map((c) => c.z), [0.88, 1.2, 1.68]);
 });
 
 const tpl: BambuTemplate = {
@@ -159,6 +184,12 @@ function filamentCommands(gcode: string): { tool: string[]; pause: number[] } {
 
 test('Bambu Studio slices the filament changes on the intended layers', { skip: !canSlice && 'needs Bambu Studio and its Jig template' }, async () => {
   const realTpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
+  // The engine's relief, with its own print settings.
+  const r = evaluateScript(ENGINE_SCRIPT, ENGINE_VALUES, 'draft');
+  const picture = await slicedProject(new Uint8Array(await toBambuProject(r.parts, 'Picture', realTpl, { colours: true, print: { ai: r.print, user: {} } }).arrayBuffer()));
+  assert.deepEqual(filamentCommands(strFromU8(picture['Metadata/plate_1.gcode'])).tool, ['0.64:T1', '0.88:T2', '1.2:T3']);
+  assert.match(strFromU8(picture['Metadata/slice_info.config']), /<filament id="4"[^>]*color="#FFFFFF"/);
+
   const relief = { ...(await steps([0.48, 0.8, 1.12, 1.6])), layerColors: SIX };
   const project = async (parts: PartMesh[]) => new Uint8Array(await toBambuProject(parts, 'HueForge test', realTpl, { colours: true, print: HF_PRINT }).arrayBuffer());
 

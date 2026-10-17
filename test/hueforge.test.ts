@@ -124,7 +124,7 @@ test('H.hueforge: a watertight relief of the picture, heights on layer boundarie
   assert.deepEqual(p.layerColors![0], { z: 0, layer: 0, color: '#161616', td: 0.6, name: 'PLA Basic Black', brand: 'Bambu Lab' });
   assert.ok(near(p.layerColors![1].z, 0.16 + (p.layerColors![1].layer - 1) * 0.08));
   // Print settings come with the part.
-  assert.deepEqual(r.print, { layerHeight: 0.08, infill: 100, infillPattern: 'zig-zag' });
+  assert.deepEqual(r.print, { layerHeight: 0.08, firstLayerHeight: 0.16, infill: 100, infillPattern: 'zig-zag' });
   // Vertex colours: one RGB per vertex, dark on the left of the top, bright on the right.
   assert.equal(p.vertexColors?.length, p.positions.length);
   let left = 0, right = 0;
