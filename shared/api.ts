@@ -46,6 +46,15 @@ export type AgentEvent =
   | { type: 'block'; op: 'append'; text: string }
   | { type: 'block'; op: 'fields'; fields: Record<string, string> };
 
+/** POST /api/speech/token: a single-use ElevenLabs token and the languages to listen for. */
+export interface SpeechToken {
+  token: string;
+  /** Main language (ISO 639 code); undefined = detected. */
+  language?: string;
+  /** Other languages that may be spoken. */
+  secondaryLanguages: string[];
+}
+
 /** GET /api/fonts */
 export interface FontEntry { id: string; family: string; style: string; source: 'standard' | 'installed' }
 

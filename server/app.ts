@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { runGeneration, workspaceDir } from './agent';
-import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest } from '../shared/api';
+import type { AgentEvent, BlendRequest, Capabilities, GenerateRequest, SpeechToken } from '../shared/api';
 import { DATA_DIR, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
@@ -34,6 +34,18 @@ async function writeAtomically(file: string, data: string | Buffer) {
   const tmp = `${file}.${randomUUID()}.tmp`;
   await writeFile(tmp, data);
   await rename(tmp, file);
+}
+
+/**
+ * Dictation languages from ELEVENLABS_LANGUAGE (the main one) and ELEVENLABS_SECONDARY_LANGUAGES
+ * (comma-separated), as ISO 639-1/-3 codes; unset means detected automatically.
+ */
+function speechLanguages(): Pick<SpeechToken, 'language' | 'secondaryLanguages'> {
+  const code = (s: string) => s.trim().toLowerCase();
+  const valid = (s: string) => /^[a-z]{2,3}$/.test(s);
+  const language = code(process.env.ELEVENLABS_LANGUAGE ?? '');
+  const secondary = (process.env.ELEVENLABS_SECONDARY_LANGUAGES ?? '').split(',').map(code).filter(valid);
+  return { language: valid(language) ? language : undefined, secondaryLanguages: secondary };
 }
 
 export interface AppOptions {
@@ -182,7 +194,7 @@ export function createApp({ port = PORT, generate = runGeneration }: AppOptions 
         const why = typeof body.detail === 'string' ? body.detail : body.detail?.message;
         return void res.status(502).json({ error: `ElevenLabs refused the token request (HTTP ${r.status}${why ? `: ${why}` : ''})` });
       }
-      res.json({ token: body.token });
+      res.json({ token: body.token, ...speechLanguages() } satisfies SpeechToken);
     } catch (e) {
       res.status(502).json({ error: `Couldn't reach ElevenLabs: ${(e as Error).message}` });
     }

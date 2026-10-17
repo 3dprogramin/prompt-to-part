@@ -1,8 +1,9 @@
 // Dictation: the microphone streamed to ElevenLabs' realtime speech-to-text (Scribe v2 Realtime),
-// which sends the words back as they are spoken, in any language it recognises (English and
-// Romanian included). Jig's server hands out a single-use token, so the API key never reaches
-// this page.
+// which sends the words back as they are spoken, in the languages set on the server (English with
+// Romanian, by default in .env.sample). Jig's server hands out a single-use token, so the API key
+// never reaches this page.
 import { request } from './api';
+import type { SpeechToken } from '../../shared/api';
 
 const ENDPOINT = 'wss://api.elevenlabs.io/v1/speech-to-text/realtime';
 /** Sample rates Scribe accepts as raw PCM. */
@@ -27,7 +28,7 @@ export interface Dictation {
  * sentences plus the one still being spoken); `onError` a problem that ended the dictation.
  */
 export async function startDictation(onText: (text: string) => void, onError: (message: string) => void): Promise<Dictation> {
-  const { token } = (await (await request('/api/speech/token', { method: 'POST' })).json()) as { token: string };
+  const { token, language, secondaryLanguages } = (await (await request('/api/speech/token', { method: 'POST' })).json()) as SpeechToken;
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
@@ -39,6 +40,9 @@ export async function startDictation(onText: (text: string) => void, onError: (m
   const rate = ctx.sampleRate;
 
   const params = new URLSearchParams({ model_id: 'scribe_v2_realtime', token, audio_format: `pcm_${rate}`, commit_strategy: 'vad', no_verbatim: 'true' });
+  // The languages set on the server (.env); a list is sent as the parameter repeated.
+  if (language) params.set('language_code', language);
+  for (const l of secondaryLanguages ?? []) params.append('secondary_languages', l);
   const ws = new WebSocket(`${ENDPOINT}?${params}`);
   const committed: string[] = [];
   let partial = '';
