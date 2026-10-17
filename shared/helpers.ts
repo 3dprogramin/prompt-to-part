@@ -437,8 +437,9 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
      * wide (bottom at z = 0, centred), whose height at each point sets how much light filament
      * covers the dark ones below. Filaments and swap layers come from the user's side panel, else
      * `opts.filaments` (default black and white) with automatic swaps. Return it as a part,
-     * `{ name: 'Picture', ...H.hueforge(...) }`: its layerColors colour the preview and its print
-     * settings (0.08 mm layers, 100 % infill) go with it.
+     * `{ name: 'Picture', ...H.hueforge(...) }`: its layerColors colour the preview, its print
+     * settings (0.08 mm layers, 100 % infill) go with it, and `hueforge` (picture and options)
+     * lets the side panel show the print as it will look.
      */
     hueforge(imageName: string, opts: HueforgeOptions): HueforgePart {
       const image = hf.images[imageName];
@@ -449,7 +450,11 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       const shape = new M(new wasm.Mesh({ numProp: 3, vertProperties, triVerts })) as Manifold;
       const st = shape.status();
       if (st !== 'NoError') throw new Error(`H.hueforge: the relief mesh is invalid (${st})`);
-      return { shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' } };
+      const { nBase: _b, nMax: _m, ...options } = r;
+      return {
+        shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' },
+        hueforge: { image: imageName, options },
+      };
     },
 
     clamp(v: number, lo: number, hi: number): number { return Math.min(hi, Math.max(lo, v)); },
