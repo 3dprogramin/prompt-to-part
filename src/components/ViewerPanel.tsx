@@ -76,6 +76,12 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
       const on = document.fullscreenElement === panel.current;
       setFullscreen(on);
       if (!on) setHideUi(false);
+      // The pressed button goes away (the corner one in fullscreen, the exit one after it): give
+      // the focus to its counterpart instead of losing it.
+      requestAnimationFrame(() => {
+        if (document.activeElement && document.activeElement !== document.body) return;
+        panel.current?.querySelector<HTMLElement>(on ? '.fs-exit' : '.tb-corner .tb-btn')?.focus();
+      });
     };
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
@@ -277,7 +283,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
             value={editing.value}
             onFocus={(e) => e.target.select()}
             onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-            onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditing(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') { e.preventDefault(); setEditing(null); } }}
             onBlur={() => setEditing(null)}
           />
           <span>mm ↵</span>
@@ -347,7 +353,7 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           <button className="fs-btn" onClick={() => setHideUi(!hideUi)} title={hideUi ? 'Show controls (U)' : 'Hide all controls (U)'}>
             <Icon name={hideUi ? 'eye' : 'eyeOff'} size={15} /> {hideUi ? 'Show controls' : 'Hide controls'}
           </button>
-          <button className="fs-btn" onClick={toggleFullscreen} title="Exit fullscreen (Esc)"><Icon name="fullscreenExit" size={15} /></button>
+          <button className="fs-btn fs-exit" onClick={toggleFullscreen} title="Exit fullscreen (Esc)" aria-label="Exit fullscreen"><Icon name="fullscreenExit" size={15} /></button>
         </div>
       )}
 

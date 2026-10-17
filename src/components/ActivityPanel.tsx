@@ -1,7 +1,8 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { ActivityItem } from '../../shared/types';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
+import { useEscape } from './useEscape';
 
 interface Props {
   items: ActivityItem[];
@@ -32,11 +33,7 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
     if (el && follow) el.scrollTop = el.scrollHeight;
   }, [items, follow]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useEscape(true, onClose);
 
   const onScroll = () => {
     const el = scroller.current;

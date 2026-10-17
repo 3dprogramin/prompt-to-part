@@ -16,6 +16,7 @@ import { Icon } from './components/Icon';
 import type { DesignTab } from './components/DesignTabs';
 import { TopBar } from './components/TopBar';
 import { RestoreDialog } from './components/RestoreDialog';
+import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
 import { useLiveModel } from './hooks/useLiveModel';
@@ -144,12 +145,7 @@ export default function App() {
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
-  useEffect(() => {
-    if (!picking) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPicking(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [picking]);
+  useEscape(!!picking, () => setPicking(null));
 
   const textFeatures = useMemo(() => parseTextFeatures(design.values[TEXT_KEY]), [design.values]);
   const setTextFeatures = (list: TextFeature[]) => setDesign((d) => {
@@ -591,6 +587,13 @@ export default function App() {
     if (next) openDesign(next); else createNew();
   };
 
+  /** Close every tab except designs Claude is working on; a closed open design becomes a new one. */
+  const closeAllTabs = () => {
+    const busy = (id: string) => !!running[id] || remoteRunning[id] != null;
+    setTabIds((t) => t.filter(busy));
+    if (!busy(design.id)) createNew();
+  };
+
   const deletingHere = useRef(new Set<string>());
   const deleteDesign = async (id: string) => {
     if (!confirm('Delete this design permanently?')) return;
@@ -650,6 +653,7 @@ export default function App() {
         tabs={designTabs}
         onOpen={openDesign}
         onCloseTab={closeTab}
+        onCloseAllTabs={closeAllTabs}
         onNew={createNew}
         designs={designs}
         listError={listError}
@@ -659,6 +663,7 @@ export default function App() {
       />
       <main className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}>
         <ChatPanel
+          designId={design.id}
           messages={design.messages}
           versions={design.versions}
           currentVersion={design.currentVersion}

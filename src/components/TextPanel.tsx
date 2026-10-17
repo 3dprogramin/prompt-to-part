@@ -45,11 +45,11 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
     <div className="text-panel">
       <div className="text-list">
         {features.map((f) => (
-          <div key={f.id} className={`text-item ${f.id === selected ? 'on' : ''} ${f.enabled ? '' : 'off'}`} onClick={() => setSelected(f.id)}
-            role="button" tabIndex={0} aria-pressed={f.id === selected} aria-label={`Edit text "${f.text.split('\n')[0] || 'empty'}"`}
-            onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelected(f.id); } }}>
-            <span className={`text-mode ${f.mode}`}>{f.mode === 'emboss' ? 'Raised' : 'Engraved'}</span>
-            <span className="text-preview">{f.text.split('\n')[0] || '(empty)'}</span>
+          <div key={f.id} className={`text-item ${f.id === selected ? 'on' : ''} ${f.enabled ? '' : 'off'}`} onClick={() => setSelected(f.id)}>
+            <button className="text-select" aria-pressed={f.id === selected} aria-label={`Edit text "${f.text.split('\n')[0] || 'empty'}"`} onClick={(e) => { e.stopPropagation(); setSelected(f.id); }}>
+              <span className={`text-mode ${f.mode}`}>{f.mode === 'emboss' ? 'Raised' : 'Engraved'}</span>
+              <span className="text-preview">{f.text.split('\n')[0] || '(empty)'}</span>
+            </button>
             <button className="icon-btn" title={f.enabled ? 'Hide' : 'Show'} aria-label={f.enabled ? 'Hide this text' : 'Show this text'} onClick={(e) => { e.stopPropagation(); update(f.id, { enabled: !f.enabled }); }}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={14} /></button>
             <button className="icon-btn" title="Delete" aria-label="Delete this text" onClick={(e) => { e.stopPropagation(); remove(f.id); }}><Icon name="trash" size={14} /></button>
           </div>

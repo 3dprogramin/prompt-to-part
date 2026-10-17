@@ -5,8 +5,11 @@ import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
 import { activityOf } from '../lib/activity';
+import { useEscape } from './useEscape';
 
 interface Props {
+  /** The open design (its chat starts scrolled to the bottom). */
+  designId: string;
   messages: ChatMessage[];
   versions: DesignVersion[];
   currentVersion: number;
@@ -58,12 +61,19 @@ export function ChatPanel(p: Props) {
     window.addEventListener('dragend', reset);
     return () => { window.removeEventListener('drop', reset); window.removeEventListener('dragend', reset); };
   }, []);
+  // The enlarged picture is a modal: focus stays on its close button and goes back to the
+  // thumbnail that opened it.
+  const opener = useRef<HTMLElement | null>(null);
+  const openLightbox = (src: string) => { opener.current = document.activeElement as HTMLElement | null; setLightbox(src); };
+  const closeLightbox = () => { setLightbox(null); opener.current?.focus(); };
+  useEscape(!!lightbox, closeLightbox);
+  // Another design: start at the bottom of its chat, with no picture open.
   useEffect(() => {
-    if (!lightbox) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [lightbox]);
+    atBottom.current = true;
+    setLightbox(null);
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [p.designId]);
 
   const addFiles = async (files: Iterable<File>) => {
     const imgs = [...files].filter((f) => f.type.startsWith('image/'));
@@ -103,7 +113,7 @@ export function ChatPanel(p: Props) {
           </div>
         )}
         {p.messages.map((m, i) => (
-          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={setLightbox} />
+          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox} />
         ))}
       </div>
 
@@ -161,9 +171,10 @@ export function ChatPanel(p: Props) {
       </div>
       {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
       {lightbox && (
-        <div className="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged image" onClick={() => setLightbox(null)}>
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged image" onClick={closeLightbox}
+          onKeyDown={(e) => { if (e.key === 'Tab') e.preventDefault(); }}>
           <img src={lightbox} alt="" />
-          <button className="lightbox-close" autoFocus onClick={() => setLightbox(null)} aria-label="Close (Esc)"><Icon name="x" size={16} /></button>
+          <button className="lightbox-close" autoFocus onClick={closeLightbox} aria-label="Close (Esc)"><Icon name="x" size={16} /></button>
         </div>
       )}
     </div>

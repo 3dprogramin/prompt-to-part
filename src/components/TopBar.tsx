@@ -18,6 +18,8 @@ interface Props {
   tabs: DesignTab[];
   onOpen: (id: string) => void;
   onCloseTab: (id: string) => void;
+  /** Close every tab Claude isn't working on. */
+  onCloseAllTabs: () => void;
   onNew: () => void;
   designs: DesignSummary[];
   /** Why the design list couldn't be loaded, or null. */
@@ -39,7 +41,10 @@ export function TopBar(p: Props) {
       <a className="brand" href="/" title="New design" onClick={(e) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); p.onNew(); } }}>
         <span className="logo"><Icon name="cube" size={18} /></span> Jig
       </a>
-      <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)} />
+      {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
+          version menu sits right after it. */}
+      <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)}
+        style={{ '--name-chars': p.design.name.length } as React.CSSProperties} />
       {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} />}
       {p.unsavedSettings && (
         <button className="btn save-settings" onClick={p.onSaveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
@@ -56,6 +61,11 @@ export function TopBar(p: Props) {
         </button>
       )}
       {p.tabs.length > 1 ? <DesignTabs tabs={p.tabs} current={p.design.id} onOpen={p.onOpen} onClose={p.onCloseTab} /> : <span className="spacer" />}
+      {p.tabs.filter((t) => !t.running).length > 1 && (
+        <button className="btn ghost close-all" onClick={p.onCloseAllTabs} title="Close all tabs (designs Claude is working on stay open; nothing is deleted)">
+          <Icon name="x" size={13} /> Close all
+        </button>
+      )}
       <button className="btn ghost" onClick={p.onNew}><Icon name="plus" size={14} /> New</button>
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>

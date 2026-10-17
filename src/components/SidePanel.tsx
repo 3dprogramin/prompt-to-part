@@ -124,7 +124,8 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
 }) {
   const [open, setOpen] = useState<false | 'menu' | '3mf'>(false);
   const wrap = useRef<HTMLDivElement>(null);
-  usePopover(!!open, () => setOpen(false), wrap);
+  const more = useRef<HTMLButtonElement>(null);
+  usePopover(!!open, () => setOpen(false), wrap, more);
   const pick = (f: ExportFormat) => { setOpen(false); onExport(f); };
   const printOn = threeMf.print && !!bambu;
   return (
@@ -132,7 +133,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
       <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')} title={count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}>
         <Icon name="download" /> {exporting ? 'Exporting…' : 'Export STL'}
       </button>
-      <button className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats" aria-label="More export formats" aria-haspopup="menu" aria-expanded={!!open}><Icon name="chevron" size={14} /></button>
+      <button ref={more} className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats" aria-label="More export formats" aria-haspopup="menu" aria-expanded={!!open}><Icon name="chevron" size={14} /></button>
       {open === 'menu' && (
         <div className="export-menu">
           <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
@@ -203,7 +204,7 @@ function CommitInput({ value, decimals, onCommit, suffix }: { value: number; dec
   return (
     <div className="num-box">
       <input className="mono" value={draft ?? value.toFixed(decimals)} onChange={(e) => setDraft(e.target.value)} onFocus={(e) => e.target.select()} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); } }} />
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { e.preventDefault(); setDraft(null); (e.target as HTMLInputElement).blur(); } }} />
       <span className="unit">{suffix ?? 'mm'}</span>
     </div>
   );
@@ -249,9 +250,15 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
   const label = def.label ?? k;
   // The reset dot sits beside the label, not inside it: a click on the label must not reset.
   const reset = changed && <button className="mod-dot" title={`Reset to ${String(def.value)}`} aria-label={`Reset ${label} to ${String(def.value)}`} onClick={() => set(k, def.value)} />;
+  // A <label> clicks the control it points at, so it only points at real inputs; choice buttons
+  // and the font picker are named by their group instead (a click on the name changes nothing).
+  const labelId = `${id}-label`;
+  const forInput = def.type === 'number' || def.type === 'integer' || (def.type === 'text' && !def.font) || (def.type === 'select' && def.options.length > 4);
   const head = (
     <div className="param-head">
-      <label htmlFor={id} title={def.description}>{label}</label>
+      {forInput
+        ? <label htmlFor={id} id={labelId} title={def.description}>{label}</label>
+        : <span className="param-label" id={labelId} title={def.description}>{label}</span>}
       {reset}
       {def.description && <span className="hint" title={def.description} aria-hidden>?</span>}
     </div>
@@ -273,7 +280,7 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
       <div className="param">
         {head}
         {def.font
-          ? <FontPicker id={id} fonts={fonts} value={String(value)} onChange={(v) => set(k, v)} />
+          ? <div role="group" aria-labelledby={labelId}><FontPicker id={id} fonts={fonts} value={String(value)} onChange={(v) => set(k, v)} /></div>
           : <TextValue id={id} value={String(value)} onCommit={(v) => set(k, v)} />}
       </div>
     );
@@ -282,9 +289,9 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
     return (
       <div className="param">
         {head}
-        <div className="seg" role="group" aria-label={label}>
+        <div className="seg" role="group" aria-labelledby={labelId}>
           {def.options.length <= 4
-            ? def.options.map((o) => <button key={o.value} id={o === def.options[0] ? id : undefined} className={value === o.value ? 'on' : ''} aria-pressed={value === o.value} onClick={() => set(k, o.value)}>{o.label}</button>)
+            ? def.options.map((o) => <button key={o.value} className={value === o.value ? 'on' : ''} aria-pressed={value === o.value} onClick={() => set(k, o.value)}>{o.label}</button>)
             : <select id={id} value={String(value)} onChange={(e) => set(k, e.target.value)}>{def.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
         </div>
       </div>
@@ -341,7 +348,7 @@ function NumberControl({ id, label, def, value, onChange }: { id: string; label:
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur(); }
-            if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); }
+            if (e.key === 'Escape') { e.preventDefault(); setDraft(null); (e.target as HTMLInputElement).blur(); }
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               e.preventDefault();
               const mult = e.shiftKey ? 10 : 1;
@@ -436,6 +443,7 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
   const outdated = !!draft && draft.base !== code;
   // Tab indents; Escape first lets the next Tab move the focus on, as in other code editors.
   const escaped = useRef(false);
+  const hintId = useId();
   return (
     <div className="code-tab">
       {error && <div className="code-error" role="alert"><Icon name="alert" size={14} /> {error.line ? `Line ${error.line}: ` : ''}{error.message}</div>}
@@ -445,11 +453,11 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
           <button className="link" onClick={() => onDraft(null)}>Load the new script</button> or keep editing yours.
         </div>
       )}
-      <textarea className="code-editor mono" spellCheck={false} value={text} aria-label="Model script (model.js)"
+      <textarea className="code-editor mono" spellCheck={false} value={text} aria-label="Model script (model.js)" aria-describedby={hintId}
         onChange={(e) => onDraft(e.target.value === code ? null : { base: draft?.base ?? code, text: e.target.value })}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) onApply(text); }
-          if (e.key === 'Escape') { escaped.current = true; return; }
+          if (e.key === 'Escape') { e.preventDefault(); escaped.current = true; return; }
           if (e.key === 'Tab' && !e.shiftKey && !escaped.current) {
             e.preventDefault();
             const t = e.currentTarget, s = t.selectionStart;
@@ -458,7 +466,8 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
           }
           escaped.current = false;
         }}
-        placeholder="The model script appears here. Tab indents; press Esc, then Tab, to leave the editor." />
+        placeholder="The model script appears here." />
+      <div className="code-hint dim small" id={hintId}>Tab indents · Esc, then Tab, leaves the editor · Ctrl+S applies</div>
       <div className="code-actions">
         <button className="btn ghost" disabled={!dirty} onClick={() => onDraft(null)}>Revert</button>
         <button className="btn primary" disabled={!dirty} onClick={() => onApply(text)}>Apply (Ctrl+S)</button>

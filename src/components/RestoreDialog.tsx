@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useEscape } from './useEscape';
 
 interface Props {
   /** Index of the version the user wants to switch to. */
@@ -12,11 +13,12 @@ interface Props {
 
 /** Asked before switching versions while slider, scale, text or print changes are unsaved. */
 export function RestoreDialog({ target, nextVersion, onCancel, onDiscard, onSaveAndSwitch }: Props) {
+  useEscape(true, onCancel);
+  // Focus goes back to where it was (the version menu) when the dialog closes.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+    const before = document.activeElement as HTMLElement | null;
+    return () => before?.focus();
+  }, []);
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title" onClick={(e) => e.stopPropagation()} onKeyDown={trapFocus}>

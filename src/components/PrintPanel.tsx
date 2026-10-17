@@ -61,7 +61,7 @@ export function PrintPanel({ parts, ai, user, onChange, bambu }: Props) {
           <button className={`chip ${part === null ? 'on' : ''}`} aria-pressed={part === null} onClick={() => setScope(null)}>Whole model</button>
           {parts.map((n) => {
             const marked = !!(ai.parts?.[n] || user.parts?.[n]);
-            return <button key={n} className={`chip ${part === n ? 'on' : ''}`} aria-pressed={part === n} onClick={() => setScope(n)}>{n}{marked && <i className="pp-dot" aria-label="has its own settings" />}</button>;
+            return <button key={n} className={`chip ${part === n ? 'on' : ''}`} aria-pressed={part === n} onClick={() => setScope(n)}>{n}{marked && <><i className="pp-dot" aria-hidden /><span className="sr-only"> (has its own settings)</span></>}</button>;
           })}
         </div>
       )}
