@@ -2,7 +2,7 @@ import { modelWarnings } from '../shared/modelWarnings';
 import { PRINTER } from '../shared/printer';
 import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildSync } from 'esbuild';
 import { ROOT } from './config';
@@ -20,7 +20,9 @@ const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>
 /** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
 const RECYCLE_AFTER = 300;
 
-export const NODE_MODULES = path.join(ROOT, 'node_modules');
+// The real path: the permission model checks resolved paths, so a symlinked node_modules (a git
+// worktree sharing another checkout's) would otherwise be unreadable to the workers.
+export const NODE_MODULES = realpathSync(path.join(ROOT, 'node_modules'));
 const CACHE = path.join(NODE_MODULES, '.cache', 'jig');
 const major = Number(process.versions.node.split('.')[0]);
 // The flag lost its "experimental" prefix in Node 22.13 and 23.5.
