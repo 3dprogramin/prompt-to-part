@@ -20,11 +20,11 @@ const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>
 /** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
 const RECYCLE_AFTER = 300;
 
-const NODE_MODULES = path.join(ROOT, 'node_modules');
+export const NODE_MODULES = path.join(ROOT, 'node_modules');
 const CACHE = path.join(NODE_MODULES, '.cache', 'jig');
 const major = Number(process.versions.node.split('.')[0]);
 // The flag lost its "experimental" prefix in Node 22.13 and 23.5.
-const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
+export const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
 
 /**
  * Model scripts are evaluated in their own Node process under the permission model: it may read
@@ -33,7 +33,7 @@ const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') 
  * tsx's loader needs a thread, which the permission model forbids.
  */
 function spawnWorker(): Worker {
-  return fork(workerBundle(), [], {
+  return fork(bundleWorker('geometry-worker'), [], {
     execArgv: [PERMISSION_FLAG, '--disable-warning=ExperimentalWarning', `--allow-fs-read=${NODE_MODULES}`, '--max-old-space-size=2048'],
     env: {},
     serialization: 'advanced',
@@ -41,29 +41,31 @@ function spawnWorker(): Worker {
   });
 }
 
-let bundle: string | null = null;
+const bundles = new Map<string, string>();
 
 /**
- * The worker bundled once per server process, so a respawned worker always matches the code this
- * server runs (not files edited since). The file is named after its content and written atomically,
- * so two servers in the same folder never read each other's half-written bundle.
+ * A worker (server/<name>.ts) bundled once per server process, so a respawned worker always
+ * matches the code this server runs (not files edited since). The file is named after its content
+ * and written atomically, so two servers in the same folder never read each other's half-written bundle.
  */
-function workerBundle(): string {
-  if (bundle) return bundle;
+export function bundleWorker(name: string): string {
+  const done = bundles.get(name);
+  if (done) return done;
   const out = buildSync({
-    entryPoints: [path.join(ROOT, 'server', 'geometry-worker.ts')],
+    entryPoints: [path.join(ROOT, 'server', `${name}.ts`)],
     bundle: true, platform: 'node', format: 'esm', packages: 'external', target: `node${major}`,
-    outfile: path.join(CACHE, 'geometry-worker.mjs'), write: false, logLevel: 'warning',
+    outfile: path.join(CACHE, `${name}.mjs`), write: false, logLevel: 'warning',
   });
   const code = out.outputFiles[0].contents;
-  const file = path.join(CACHE, `geometry-worker-${createHash('sha256').update(code).digest('hex').slice(0, 16)}.mjs`);
+  const file = path.join(CACHE, `${name}-${createHash('sha256').update(code).digest('hex').slice(0, 16)}.mjs`);
   if (!existsSync(file)) {
     mkdirSync(CACHE, { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, code);
     renameSync(tmp, file);
   }
-  return (bundle = file);
+  bundles.set(name, file);
+  return file;
 }
 
 function getWorker(): Worker {

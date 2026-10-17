@@ -3,6 +3,7 @@ import type { ActivityItem, AgentStep, ChatMessage, DesignVersion } from '../../
 import { isSvg, prepareImage } from '../lib/files';
 import { importSvg } from '../lib/svg';
 import type { SvgDrawing } from '../../shared/svgFeatures';
+import { MAX_SCAD_CHARS, MAX_SCAD_FILES, scadFileName, type ScadFile } from '../../shared/scad';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
@@ -21,13 +22,13 @@ interface Props {
   generating: boolean;
   /** Another browser tab is generating this design. */
   busyElsewhere: boolean;
-  /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg). */
-  onSend: (text: string, images: string[], drawings: SvgDrawing[]) => void;
+  /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg); `scad`: attached OpenSCAD files. */
+  onSend: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
   /** Messages written while Claude works, sent once its reply is done. */
-  queued: { text: string; images: string[] }[];
+  queued: { text: string; images: string[]; scad: ScadFile[] }[];
   /** The reply was stopped or failed: the queue waits for "Send now". */
   queuePaused: boolean;
-  onQueue: (text: string, images: string[], drawings: SvgDrawing[]) => void;
+  onQueue: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) => void;
   onRemoveQueued: (index: number) => void;
   onSendQueued: () => void;
   onStop: () => void;
@@ -95,9 +96,19 @@ export function ChatPanel(p: Props) {
   // SVG attachments also bring their exact shapes (keyed by their picture), for Claude's H.svg.
   const [svgShapes, setSvgShapes] = useState<Record<string, SvgDrawing>>({});
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [scad, setScad] = useState<ScadFile[]>([]);
   const addFiles = async (files: Iterable<File>) => {
-    const imgs = [...files].filter((f) => f.type.startsWith('image/') || isSvg(f));
+    const all = [...files];
+    const imgs = all.filter((f) => f.type.startsWith('image/') || isSvg(f));
     setAttachError(null);
+    // OpenSCAD files go to Claude as source (the server renders them with OpenSCAD).
+    const scadFiles = all.filter((f) => /\.scad$/i.test(f.name));
+    if (scadFiles.length) {
+      const read = await Promise.all(scadFiles.map(async (f) => (f.size > MAX_SCAD_CHARS * 4 ? null : { name: scadFileName(f.name), source: await f.text() })));
+      const ok = read.filter((f): f is ScadFile => !!f && f.source.length <= MAX_SCAD_CHARS);
+      if (ok.length < scadFiles.length) setAttachError(`OpenSCAD files can be up to ${MAX_SCAD_CHARS.toLocaleString('en')} characters.`);
+      setScad((prev) => [...prev.filter((p) => !ok.some((f) => f.name === p.name)), ...ok].slice(0, MAX_SCAD_FILES));
+    }
     const added = await Promise.all(imgs.map(async (f) => {
       const url = await prepareImage(f).catch(() => null);
       if (!url) { setAttachError(`${f.name} could not be read as a picture.`); return null; }
@@ -116,10 +127,11 @@ export function ChatPanel(p: Props) {
   };
 
   const send = (message = text) => {
-    if (p.busyElsewhere || p.claudeProblem || (!message.trim() && !images.length)) return;
+    if (p.busyElsewhere || p.claudeProblem || (!message.trim() && !images.length && !scad.length)) return;
     // While Claude works, the message waits for the end of its reply.
-    (p.generating ? p.onQueue : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])));
+    (p.generating ? p.onQueue : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])), scad);
     setSvgShapes({});
+    setScad([]);
     setText('');
     setImages([]);
   };
@@ -239,14 +251,25 @@ export function ChatPanel(p: Props) {
             </div>
             {p.queued.map((q, i) => (
               <div key={i} className="queued-item">
-                <span className="queued-text">{clip(q.text || 'Pictures only', 140)}</span>
+                <span className="queued-text">{clip(q.text || (q.images.length ? 'Pictures only' : 'Files only'), 140)}</span>
                 {q.images.length > 0 && <span className="dim small">+{q.images.length} picture{q.images.length > 1 ? 's' : ''}</span>}
+                {q.scad.length > 0 && <span className="dim small">+{q.scad.map((f) => f.name).join(', ')}</span>}
                 <button className="icon-btn" aria-label="Remove this queued message" title="Remove" onClick={() => p.onRemoveQueued(i)}><Icon name="x" size={12} /></button>
               </div>
             ))}
           </div>
         )}
         {attachError && <div className="bad-note small" role="alert">{attachError}</div>}
+        {scad.length > 0 && (
+          <div className="file-chips">
+            {scad.map((f) => (
+              <span key={f.name} className="file-chip" title="OpenSCAD file: Claude gets its source and a render of it">
+                <Icon name="code" size={12} /> {f.name}
+                <button onClick={() => setScad(scad.filter((x) => x !== f))} aria-label={`Remove ${f.name}`}><Icon name="x" size={11} /></button>
+              </span>
+            ))}
+          </div>
+        )}
         {images.length > 0 && (
           <div className="attachments">
             {images.map((src, i) => (
@@ -276,8 +299,8 @@ export function ChatPanel(p: Props) {
           rows={3}
         />
         <div className="composer-bar">
-          <button className="icon-btn" title="Attach reference photos" aria-label="Attach reference photos" onClick={() => fileInput.current?.click()}><Icon name="image" /></button>
-          <input ref={fileInput} type="file" accept="image/*,.svg" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
+          <button className="icon-btn" title="Attach photos, SVG or OpenSCAD (.scad) files" aria-label="Attach photos, SVG or OpenSCAD files" onClick={() => fileInput.current?.click()}><Icon name="image" /></button>
+          <input ref={fileInput} type="file" accept="image/*,.svg,.scad" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
           <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
             <option value="opus">Opus</option>
             <option value="sonnet">Sonnet</option>
@@ -311,8 +334,8 @@ export function ChatPanel(p: Props) {
             <Icon name="mic" />
           </button>
           {p.generating && <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>}
-          {(!p.generating || text.trim() || images.length > 0) && (
-            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || listening === 'starting' || (!text.trim() && !images.length)}
+          {(!p.generating || text.trim() || images.length > 0 || scad.length > 0) && (
+            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || listening === 'starting' || (!text.trim() && !images.length && !scad.length)}
               title={p.generating ? 'Send when Claude has finished this reply' : p.hasModel ? 'Update' : 'Design'}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
@@ -335,7 +358,7 @@ export function ChatPanel(p: Props) {
           onHover={() => {}}
         />
       )}
-      {dragOver && <div className="drop-overlay">Drop photos to attach</div>}
+      {dragOver && <div className="drop-overlay">Drop photos, SVG or .scad files to attach</div>}
       {lightbox && (
         <div className="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged image" onClick={closeLightbox}
           onKeyDown={(e) => { if (e.key === 'Tab') e.preventDefault(); }}>
@@ -367,6 +390,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
   if (m.role === 'user') {
     return (
       <div className="msg user">
+        {m.files?.length ? <div className="file-chips sent">{m.files.map((n) => <span key={n} className="file-chip"><Icon name="code" size={12} /> {n}</span>)}</div> : null}
         {m.images?.length ? <div className="msg-images">{m.images.map((src, i) => <ImageButton key={i} src={src} alt={`Reference photo ${i + 1}`} onOpen={onImage} />)}</div> : null}
         {m.text && <div className="bubble">{m.text}</div>}
       </div>
@@ -388,7 +412,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = all;
-  const renders = steps.filter((s) => s.kind === 'render' && s.image);
+  const renders = steps.filter((s) => s.kind === 'render' && s.image && !s.verbose);
   // The full step log is open while Claude works; afterwards it folds into one line.
   const showSteps = live || open;
   const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${(m.durationMs / 1000).toFixed(0)} s` : ''}`;

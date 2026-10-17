@@ -1,8 +1,11 @@
 // The CAD tools Claude calls during a generation: evaluate, render and submit model.js.
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
+import { formatScadReport, runScad } from './openscad';
+import { scadFileName } from '../shared/scad';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
@@ -66,6 +69,32 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
             content: [
               { type: 'image', data: r.png, mimeType: 'image/png' },
               { type: 'text', text: `Grid spacing on FRONT/RIGHT/TOP views: ${r.gridStep} mm (darker lines = X/Y/Z axes through the origin).\n${formatReport(r)}` },
+            ],
+          };
+        } catch (e) {
+          emit({ type: 'step', step: { kind: 'tool', ok: false, text: (e as Error).message } });
+          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+        }
+      }),
+      tool('render_scad', 'Render an OpenSCAD file the user attached (saved in the workspace scad/ folder) with OpenSCAD itself, at the given Customizer parameter values (defaults for the rest): the same four views as render_model, plus its parameters and part sizes. Use it to compare your model.js with the original.', {
+        file: z.string().max(100).describe('The attached file\'s name, e.g. "box.scad"'),
+        values: valuesSchema,
+      }, async ({ file: name, values }) => {
+        let source: string;
+        try { source = await readFile(path.join(path.dirname(file), 'scad', scadFileName(name)), 'utf8'); } catch {
+          return { content: [{ type: 'text', text: `No attached OpenSCAD file named ${name}.` }], isError: true };
+        }
+        try {
+          const r = await runScad(source, values, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+          if (!r.png) {
+            emit({ type: 'step', step: { kind: 'tool', ok: false, text: `${scadFileName(name)}: OpenSCAD made no 3D model` } });
+            return { content: [{ type: 'text', text: formatScadReport(r) }], isError: true };
+          }
+          emit({ type: 'step', step: { kind: 'render', ok: true, text: `${scadFileName(name)} in OpenSCAD`, image: `data:image/png;base64,${r.png}` } });
+          return {
+            content: [
+              { type: 'image', data: r.png, mimeType: 'image/png' },
+              { type: 'text', text: `Grid spacing on FRONT/RIGHT/TOP views: ${r.gridStep} mm.\n${formatScadReport(r)}` },
             ],
           };
         } catch (e) {

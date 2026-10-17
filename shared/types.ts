@@ -158,6 +158,8 @@ export interface AgentStep {
   at?: number;
   /** Only shown in verbose mode */
   verbose?: boolean;
+  /** The full text behind the step (what Claude was sent or got back), shown in the activity panel. */
+  detail?: string;
 }
 
 /** One entry of a reply's live transcript, shown in the activity panel. */
@@ -172,6 +174,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   images?: string[]; // data URLs
+  /** Names of the OpenSCAD files attached to this message. */
+  files?: string[];
   steps?: AgentStep[];
   versionIndex?: number;
   error?: string;

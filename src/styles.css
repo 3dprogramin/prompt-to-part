@@ -667,3 +667,13 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* Tab icons only where the (resizable) panel has room for them. */
 .side-panel { container-type: inline-size; }
 @container (max-width: 400px) { .tabs button svg { display: none; } }
+
+.file-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-chips.sent { justify-content: flex-end; }
+.file-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 7px; font: 12px var(--mono); color: var(--text-2); }
+.file-chip button { display: inline-flex; background: none; border: 0; padding: 0; color: var(--text-3); cursor: pointer; }
+.file-chip button:hover { color: var(--text); }
+.act-detail { margin-top: 4px; }
+.act-detail summary { cursor: pointer; color: var(--text-3); font-size: 11.5px; }
+.act-detail summary:hover { color: var(--text-2); }
+.act-detail pre { margin: 4px 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 11px/1.45 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; color: var(--text-2); }

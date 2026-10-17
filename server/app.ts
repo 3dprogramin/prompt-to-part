@@ -13,6 +13,7 @@ import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
 import { sliceProject } from './slicer';
 import { suggestPrice } from './pricing';
 import { cleanCostSettings } from '../shared/cost';
+import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import type { Design, DesignSummary } from '../shared/types';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -276,7 +277,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     if (!body || !ID_RE.test(body.designId ?? '')) return void res.status(400).json({ error: 'designId required' });
     const problem = generateProblem(body);
     if (problem) return void res.status(400).json({ error: problem });
-    if (!body.prompt?.trim() && !body.images?.length) return void res.status(400).json({ error: 'prompt or images required' });
+    if (!body.prompt?.trim() && !body.images?.length && !body.scad?.length) return void res.status(400).json({ error: 'prompt, images or files required' });
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     if (generatingDesigns.has(body.designId)) {
@@ -336,6 +337,7 @@ function generateProblem(b: GenerateRequest): string | null {
   if (b.sessionId != null && !/^[\w-]{1,100}$/.test(b.sessionId)) return 'bad sessionId';
   for (const v of [b.values, b.renderValues]) if (v != null && (typeof v !== 'object' || Array.isArray(v))) return 'bad values';
   if (b.drawings != null && (typeof b.drawings !== 'object' || Array.isArray(b.drawings))) return 'bad drawings';
+  if (!parseScadFiles(b.scad)) return `up to ${MAX_SCAD_FILES} .scad files of up to ${MAX_SCAD_CHARS.toLocaleString('en')} characters`;
   if (b.history != null && (!Array.isArray(b.history) || b.history.length > 40 || !b.history.every((h) => h && typeof h.text === 'string' && (h.role === 'user' || h.role === 'assistant')))) return 'bad history';
   return null;
 }

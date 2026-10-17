@@ -3,6 +3,7 @@
 import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
+import type { ScadFile } from './scad';
 import type { PrintSettings } from './print';
 
 /** A base64 image as sent to Claude. */
@@ -34,6 +35,8 @@ export interface GenerateRequest {
   webSearch?: boolean;
   /** SVG drawings attached in the chat (name → drawing): model scripts use them with H.svg(name). */
   drawings?: Record<string, SvgDrawing>;
+  /** OpenSCAD files attached in the chat: Claude rebuilds them as Jig scripts. */
+  scad?: ScadFile[];
   /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */
   history?: { role: 'user' | 'assistant'; text: string }[];
 }

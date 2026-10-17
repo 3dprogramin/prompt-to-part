@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
 import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
+import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
@@ -341,9 +342,9 @@ export default function App() {
   // Re-fit the camera only when a new script version arrives.
   const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
 
-  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = []) => {
+  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = []) => {
     const now = Date.now();
-    const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, createdAt: now };
+    const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, ...(scad.length ? { files: scad.map((f) => f.name) } : {}), createdAt: now };
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
     const designId = design.id;
     // For follow-ups, capture exactly what the user is looking at before the chat changes anything.
@@ -378,6 +379,7 @@ export default function App() {
         effort: chat.effort,
         webSearch: chat.webSearch,
         drawings: Object.keys(drawings).length ? drawings : undefined,
+        scad: scad.length ? scad : undefined,
         // In case the session can't be continued: what was said, for a fresh one.
         history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
       }, (ev) => {
@@ -427,8 +429,8 @@ export default function App() {
   // ---- messages sent while Claude works: queued per design, sent together once the reply is done
   const [queues, setQueues] = useState<Record<string, { items: QueuedMessage[]; paused: boolean }>>({});
   const queue = queues[design.id];
-  const enqueue = (text: string, images: string[], drawings: SvgDrawing[]) =>
-    setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings }], paused: false } }));
+  const enqueue = (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[]) =>
+    setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings, scad }], paused: false } }));
   const removeQueued = (i: number) => setQueues((s) => {
     const items = (s[design.id]?.items ?? []).filter((_, j) => j !== i);
     const next = { ...s };
@@ -439,7 +441,7 @@ export default function App() {
     const q = queues[design.id];
     if (!q?.items.length) return;
     setQueues((s) => { const next = { ...s }; delete next[design.id]; return next; });
-    void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings));
+    void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings), q.items.flatMap((m) => m.scad).slice(0, MAX_SCAD_FILES));
   };
   // When the open design's reply is done (and its new model is on screen), the queue goes out.
   useEffect(() => {
@@ -946,7 +948,7 @@ function keepAppValues(values: ParamValues): ParamValues {
 }
 
 /** A message written while Claude was working, sent after its reply. */
-interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[] }
+interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[]; scad: ScadFile[] }
 
 /** `known` plus newly attached drawings; a different drawing with a name in use gets "-2", "-3"… */
 function withDrawings(known: Record<string, SvgDrawing>, attached: SvgDrawing[]): Record<string, SvgDrawing> {

@@ -1,0 +1,48 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseOff, parseScadFiles, scadDefines, scadFileName } from '../shared/scad';
+import { engineInstalled, runScad } from '../server/openscad';
+
+test('OFF output: one part per face colour, polygons triangulated, sizes measured', () => {
+  // A 10 mm cube (orange, quads) and a triangle-only tetrahedron (blue, 0–1 colours).
+  const cube = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0], [0, 0, 10], [10, 0, 10], [10, 10, 10], [0, 10, 10]];
+  const quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+  const tet = [[20, 0, 0], [26, 0, 0], [20, 6, 0], [20, 0, 6]].map((v) => v.join(' '));
+  const off = [
+    'OFF', `${cube.length + 4} ${quads.length + 4} 0`, ...cube.map((v) => v.join(' ')), ...tet,
+    ...quads.map((q) => `4 ${q.join(' ')} 255 165 0`),
+    ...[[8, 10, 9], [8, 9, 11], [8, 11, 10], [9, 10, 11]].map((t) => `3 ${t.join(' ')} 0.0 0.0 1.0 1.0`),
+  ].join('\n');
+  const parts = parseOff(off);
+  assert.equal(parts.length, 2);
+  const [box, tetra] = parts;
+  assert.equal(box.color, '#ffa500');
+  assert.equal(box.triCount, 12);
+  assert.ok(Math.abs(box.volume - 1000) < 1e-6);
+  assert.deepEqual(box.bbox, { min: [0, 0, 0], max: [10, 10, 10] });
+  assert.equal(tetra.color, '#0000ff');
+  assert.ok(Math.abs(tetra.volume - 36) < 1e-6);
+  assert.equal(tetra.positions.length, 12, 'each part keeps only its own vertices');
+  assert.match(box.name, /^Part 1/);
+});
+
+test('values become -D options; names are checked and strings quoted', () => {
+  assert.deepEqual(scadDefines({ width: 60, lid: false, label: 'a"b', 'bad name': 1, x: Infinity }), ['-D', 'width=60', '-D', 'lid=false', '-D', 'label="a\\"b"']);
+});
+
+test('attached files: safe names, limits', () => {
+  assert.equal(scadFileName('../../etc/passwd'), 'passwd.scad');
+  assert.equal(scadFileName('My Box (v2).SCAD'), 'My_Box_v2_.scad');
+  assert.deepEqual(parseScadFiles([{ name: 'a.scad', source: 'cube(1);' }]), [{ name: 'a.scad', source: 'cube(1);' }]);
+  assert.equal(parseScadFiles([{ name: 'a.scad', source: 'x'.repeat(300_001) }]), null);
+  assert.equal(parseScadFiles('nope'), null);
+});
+
+// Needs the OpenSCAD engine, which Jig downloads the first time a .scad file is attached.
+test('OpenSCAD renders a file with its parameters (needs the downloaded engine)', { skip: !engineInstalled() }, async () => {
+  const r = await runScad('/* [Size] */\nw = 10; // [5:1:50]\ncolor("red") cube([w, 5, 2]);\ncolor("blue") translate([0, 10, 0]) cube(3);\necho("hi");', { w: 20 });
+  assert.ok(r.ok && r.png);
+  assert.deepEqual(r.params.map((p) => [p.name, p.min, p.max]), [['w', 5, 50]]);
+  assert.deepEqual(r.parts.map((p) => [p.color, +(p.bbox.max[0] - p.bbox.min[0]).toFixed(3)]), [['#ff0000', 20], ['#0000ff', 3]]);
+  assert.deepEqual(r.messages, ['ECHO: "hi"']);
+});

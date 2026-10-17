@@ -128,6 +128,12 @@ const Item = memo(function Item({ it, streaming, onImage }: { it: ActivityItem; 
         <div className="act-step-body">
           <span>{s.text}</span>
           {s.image && <button className="img-btn" onClick={() => onImage(s.image!)} aria-label="Render – enlarge"><img src={s.image} alt="Render" /></button>}
+          {s.detail && (
+            <details className="act-detail">
+              <summary>Show the full text</summary>
+              <pre>{s.detail}</pre>
+            </details>
+          )}
         </div>
       </div>
     );

@@ -1,5 +1,5 @@
 import { lookup } from 'node:dns/promises';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
@@ -11,18 +11,24 @@ import { partialFields } from './partialJson';
 import { authMode, claudeAuthProblem, DATA_DIR } from './config';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
+import { parseScadFiles } from '../shared/scad';
+import { formatScadReport, runScad } from './openscad';
 import { cachedPrintDefaults } from './bambu';
 import { A1_DEFAULTS } from '../shared/print';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+/** Longest text kept with a step for the activity panel (it is saved with the design). */
+const MAX_DETAIL = 8000;
+const detail = (text: string, max = MAX_DETAIL) => (text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters)` : text);
 
 const TOOL_LABELS: Record<string, string> = {
-  Read: 'Reading model.js',
+  Read: 'Reading a file',
   Write: 'Writing model.js',
   Edit: 'Editing model.js',
   mcp__cad__evaluate_model: 'Evaluating model',
   mcp__cad__render_model: 'Rendering preview',
+  mcp__cad__render_scad: 'Rendering the OpenSCAD file',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
   WebFetch: 'Reading a web page',
@@ -153,6 +159,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
       content.push({ type: 'image', source: { type: 'base64', media_type: req.currentView.mediaType as 'image/jpeg', data: req.currentView.data } });
       sent.push('your current view');
+      emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Sent Claude your current view', image: `data:${req.currentView.mediaType};base64,${req.currentView.data}` } });
     }
     if (req.renderValues) {
       try {
@@ -162,6 +169,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
           parts.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
           sent.push('a four-view render with measurements');
+          emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Sent Claude a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
         }
       } catch { /* the request still works without the render */ }
     }
@@ -173,6 +181,35 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     content.push({ type: 'text', text: `REFERENCE IMAGE${refs.length > 1 ? 'S' : ''} attached by the user with this request:` });
     for (const img of refs) content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType as 'image/jpeg', data: img.data } });
   }
+
+  // OpenSCAD files: saved in the workspace (render_scad renders them, in later messages too) and
+  // rendered now, so Claude sees what they make before rebuilding them as a Jig script.
+  const scadDir = path.join(ws, 'scad');
+  const attachedScad = parseScadFiles(req.scad) ?? [];
+  const earlierScad = (await readdir(scadDir).catch(() => [] as string[])).filter((n) => n.endsWith('.scad') && !attachedScad.some((f) => f.name === n));
+  for (const f of attachedScad) {
+    await mkdir(scadDir, { recursive: true });
+    await writeFile(path.join(scadDir, f.name), f.source);
+    emit({ type: 'live', text: `Rendering ${f.name} with OpenSCAD…` });
+    emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Rendering ${f.name} with OpenSCAD…` } });
+    const source = f.source.length <= 40_000 ? `Its source:\n\`\`\`openscad\n${f.source}\n\`\`\`` : `Its source is long (${f.source.length} characters): Read ${path.join(scadDir, f.name)}.`;
+    try {
+      const r = await runScad(f.source, undefined, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+      if (r.png) {
+        content.push({ type: 'text', text: `OPENSCAD FILE ${f.name} – what OpenSCAD makes of it at its default values (views as in render_model; grid ${r.gridStep} mm):` });
+        content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
+        emit({ type: 'step', step: { kind: 'render', ok: true, text: `${f.name} in OpenSCAD`, image: `data:image/png;base64,${r.png}`, detail: formatScadReport(r) } });
+      } else emit({ type: 'step', step: { kind: 'tool', ok: false, text: `${f.name}: OpenSCAD made no 3D model`, detail: formatScadReport(r) } });
+      parts.push(`OpenSCAD file attached: ${f.name} (saved as ${path.join(scadDir, f.name)}).\n${formatScadReport(r)}\n${source}`);
+    } catch (e) {
+      emit({ type: 'step', step: { kind: 'tool', ok: false, text: `${f.name}: ${(e as Error).message}` } });
+      parts.push(`OpenSCAD file attached: ${f.name} (saved as ${path.join(scadDir, f.name)}). OpenSCAD couldn't run it here (${(e as Error).message}), so there is no picture of it.\n${source}`);
+    }
+  }
+  if (attachedScad.length) {
+    parts.push('Jig runs model scripts, not OpenSCAD: build model.js so it reproduces the OpenSCAD design, then apply what the user asks. Keep its Customizer parameters as params (same names, defaults, ranges, steps, groups and captions; options become select, free text becomes text) and each color() as its own part, unless the user says otherwise. Compare your script with the original as you go: render_scad shows the OpenSCAD file at any parameter values, render_model your script.');
+  }
+  if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {
     parts.unshift(`This is a follow-up on the existing design. Its current script is in ${file} (Read it before editing). The images above show the current model – when the user says "this", "here" or refers to a part, use them to work out what they mean.`);
@@ -186,7 +223,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
   if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
   if (Object.keys(drawings).length) parts.push(`SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
-  parts.push(`User request:\n${req.prompt.trim() || '(no text – work from the reference images)'}`);
+  parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : '(no text – work from the reference images)')}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 
   const env = claudeEnv();
@@ -199,6 +236,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       // A fresh session after one that couldn't be continued starts with what was said before.
       yield { type: 'user', message: { role: 'user', content: recap ? [{ type: 'text', text: recap }, ...content] : content }, parent_tool_use_id: null };
     }
+    // Exactly what goes to Claude, for the activity panel.
+    const pictures = content.filter((c) => c.type === 'image').length;
+    const sentText = [recap, ...content.flatMap((c) => (c.type === 'text' ? [c.text] : []))].filter(Boolean).join('\n\n');
+    emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent Claude the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
     let finalText = '';
     const q = query({
       prompt: messages(),
@@ -317,16 +358,23 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           }
         }
       } else if (msg.type === 'user') {
-        // Tool results for the built-in file tools (our CAD tools report their own results).
+        // Tool results: everything Claude gets back goes to the activity panel (the CAD tools also
+        // report a summary step of their own; the built-in tools' failures and saves show in the chat).
         const content = msg.message.content;
         if (Array.isArray(content)) {
           for (const c of content) {
             if (c.type !== 'tool_result') continue;
             const name = toolNames.get(c.tool_use_id) ?? '';
-            if (name.startsWith('mcp__cad__')) continue;
-            const text = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map((x) => ('text' in x ? x.text : '')).join(' ') : '';
-            if (c.is_error) emit({ type: 'step', step: { kind: 'tool', ok: false, verbose: true, text: `${TOOL_LABELS[name] ?? name} failed: ${text.slice(0, 200)}` } });
+            const label = TOOL_LABELS[name] ?? name;
+            const blocks = Array.isArray(c.content) ? c.content : [];
+            // (Pictures come back as placeholder lines naming a local file; the panel shows them as renders.)
+            const text = (typeof c.content === 'string' ? c.content : blocks.map((x) => ('text' in x ? x.text : '')).filter(Boolean).join('\n')).replace(/^\[Image[^\]\n]*\]\n?/gm, '').trim();
+            const images = blocks.filter((x) => x.type === 'image').length;
+            const got = `Claude got the result of ${label}${images ? ` (with ${images} picture${images > 1 ? 's' : ''})` : ''}`;
+            if (name.startsWith('mcp__cad__')) emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
+            else if (c.is_error) emit({ type: 'step', step: { kind: 'tool', ok: false, verbose: true, text: `${label} failed: ${text.slice(0, 200)}`, detail: detail(text) } });
             else if (name === 'Write' || name === 'Edit') emit({ type: 'step', step: { kind: 'tool', ok: true, verbose: true, text: `${name === 'Write' ? 'Saved' : 'Edited'} model.js` } });
+            else emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
           }
         }
         pushLive('Claude is reading the results…');
@@ -392,6 +440,7 @@ function describeToolInput(name: string, input: Record<string, unknown> | undefi
     return `Editing model.js – replacing ${a} line${a === 1 ? '' : 's'} with ${b}${input.replace_all ? ' (all occurrences)' : ''}`;
   }
   if (name === 'Read') return 'Reading model.js';
+  if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
   if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {
     return `${name.endsWith('render_model') ? 'Rendering' : 'Evaluating'} with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(', ')}`;
   }
