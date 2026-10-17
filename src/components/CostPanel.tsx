@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { costOf, CURRENCY, duration, money, type CostSettings } from '../../shared/cost';
 import type { PriceSuggestion } from '../../shared/api';
 import { api } from '../lib/api';
@@ -14,8 +14,6 @@ interface Props {
   onSettings: (s: CostSettings) => void;
   result: CostResult | null;
   upToDate: boolean;
-  /** The inputs the numbers would be calculated from now (a change restarts the 2 s wait). */
-  inputsKey: string;
   error: string | null;
   running: { designId: string; stage: CostStage; since: number } | null;
   /** Bambu Studio is installed (slicing needs it). */
@@ -29,18 +27,6 @@ interface Props {
  */
 export function CostPanel(p: Props) {
   const mine = p.running?.designId === p.designId;
-  // While the Cost section is open, what is missing or out of date is recalculated: at once when it
-  // opens (or shows another design), otherwise 2 s after the last change, so moving a slider doesn't
-  // start a slice per step. A change during a slice is picked up once it finishes.
-  const opened = useRef(true);
-  const stale = p.bambu && !p.running && !p.upToDate && !p.error;
-  const resultKey = p.result?.key;
-  useEffect(() => { opened.current = true; }, [p.designId]);
-  useEffect(() => {
-    if (!stale) { opened.current = false; return; }
-    const t = setTimeout(() => { opened.current = false; p.onCalculate(); }, opened.current ? 0 : 2000);
-    return () => clearTimeout(t);
-  }, [stale, p.designId, resultKey, p.inputsKey]);
 
   return (
     <div className="cost-panel">
@@ -60,9 +46,10 @@ export function CostPanel(p: Props) {
       <section>
         <div className="cost-head">
           <h4>This print</h4>
-          {p.bambu && <button className="btn ghost small-btn" disabled={!!p.running} onClick={p.onCalculate}><Icon name="restore" size={12} /> Recalculate</button>}
+          {p.bambu && <button className="btn ghost small-btn" disabled={!!p.running} onClick={p.onCalculate}><Icon name="restore" size={12} /> {p.result ? 'Slice again' : 'Slice'}</button>}
         </div>
         {!p.bambu && <div className="dim small">Needs Bambu Studio installed: the grams and print time come from slicing the model in it.</div>}
+        {p.bambu && !p.result && !p.running && !p.error && <div className="dim small">Slice the model in Bambu Studio to get the print time and the filament it uses, and from them the cost. It runs only when you press Slice.</div>}
         {p.running && <Progress stage={p.running.stage} since={p.running.since} other={!mine} />}
         {p.error && !p.running && <div className="bad-note small" role="alert">{p.error}</div>}
         {p.result && <Breakdown result={p.result} settings={p.settings} stale={!p.upToDate} />}
@@ -88,7 +75,7 @@ function Breakdown({ result, settings, stale }: { result: CostResult; settings: 
   const cost = costOf(stats, settings);
   return (
     <>
-      {stale && <div className="cost-stale small">The model or its settings changed since this was calculated – recalculate for current numbers.</div>}
+      {stale && <div className="cost-stale small">The model or its settings changed since this was sliced – slice again for current numbers.</div>}
       <table className="kv">
         <tbody>
           <tr><th>Print time <span className="dim small">(Bambu Studio estimate)</span></th><td className="mono">{duration(stats.seconds)}</td></tr>

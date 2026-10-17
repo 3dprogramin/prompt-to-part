@@ -95,8 +95,6 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
     running,
     result: result ?? null,
     upToDate: !!result && result.key === key,
-    /** The inputs a calculation now would use. */
-    key,
     /** Why the last calculation for these inputs failed (null once the inputs change). */
     error: error && error.key === key ? error.message : null,
   };
