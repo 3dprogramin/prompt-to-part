@@ -386,7 +386,7 @@ export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null) => string }[] = [
   { mode: 'off', label: '3D model (no picture)', icon: 'palette', hint: () => 'Claude models people, characters and animals as 3D objects.' },
   { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes ${m ?? 'an image model'} draws flat artwork, which Claude turns into colour layers for wall art, reliefs and signs.` },
-  { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: () => 'A photo printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach the photo; set the filaments in the Print tab.' },
+  { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Claude has one made' : ''}; set the filaments in the Print tab.` },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */
