@@ -4,9 +4,12 @@
 # Build arguments:
 #   WITH_BAMBU=1   adds Bambu Studio's command line (Cost tab slicing, 3MF print settings); about
 #                  +750 MB, linux/amd64 only. BAMBU_URL / BAMBU_SHA256 pin the release.
+#   WITH_BLENDER=1 adds Blender for .blend export; about +1 GB (a 380 MB download), linux/amd64 only.
+#                  BLENDER_URL / BLENDER_SHA256 pin the release.
 
 ARG NODE_IMAGE=node:26.7.0-trixie-slim@sha256:5758d367d7b4f48b73a9bb3530e687e47efb289f3b43f9c0450a25225ae0db5d
 ARG WITH_BAMBU=0
+ARG WITH_BLENDER=0
 
 # ---- dependencies (all of them, for the build) ----
 FROM ${NODE_IMAGE} AS deps
@@ -40,9 +43,25 @@ WORKDIR /opt/bambu-studio
 
 FROM bambu-${WITH_BAMBU} AS bambu
 
+# ---- Blender: the official Linux release, checked and unpacked ----
+FROM ${NODE_IMAGE} AS blender-1
+ARG BLENDER_URL=https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+ARG BLENDER_SHA256=84098912789dc450e95697c4184fb8a90acbe5111c2ba4aede3fecb57806a168
+# Headless export needs no translations, pip or Cython.
+ADD --checksum=sha256:${BLENDER_SHA256} ${BLENDER_URL} /tmp/blender.tar.xz
+RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
+  && mkdir /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm /tmp/blender.tar.xz \
+  && cd /opt/blender && rm -rf */datafiles/locale */python/lib/python3*/site-packages/pip */python/lib/python3*/site-packages/Cython
+
+FROM scratch AS blender-0
+WORKDIR /opt/blender
+
+FROM blender-${WITH_BLENDER} AS blender
+
 # ---- runtime ----
 FROM ${NODE_IMAGE}
 ARG WITH_BAMBU
+ARG WITH_BLENDER
 # fontconfig and fonts for text (installed fonts are listed next to the bundled ones), tini to pass
 # signals on and reap Bambu Studio and Claude Code processes; Bambu Studio's command line also needs
 # the GTK and WebKit libraries it is linked against, even without a display.
@@ -52,9 +71,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,t
   && apt-get install -y --no-install-recommends tini fontconfig fonts-dejavu-core fonts-liberation2 \
   && if [ "$WITH_BAMBU" = 1 ]; then apt-get install -y --no-install-recommends \
        libgtk-3-0t64 libwebkit2gtk-4.1-0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgl1 libegl1 libdbus-1-3; fi \
+  && if [ "$WITH_BLENDER" = 1 ]; then apt-get install -y --no-install-recommends \
+       libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1; fi \
   && fc-cache -f
 COPY --from=bambu /opt/bambu-studio /opt/bambu-studio
 RUN if [ "$WITH_BAMBU" = 1 ]; then ln -s /opt/bambu-studio/AppRun /usr/local/bin/bambustudio; else rmdir /opt/bambu-studio; fi
+COPY --from=blender /opt/blender /opt/blender
+RUN if [ "$WITH_BLENDER" = 1 ]; then ln -s /opt/blender/blender /usr/local/bin/blender; else rmdir /opt/blender; fi
 
 WORKDIR /app
 ENV NODE_ENV=production \

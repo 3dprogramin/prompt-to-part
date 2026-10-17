@@ -12,6 +12,8 @@ services:
       args:
         # 1 adds Bambu Studio for Cost tab slicing and 3MF print settings (larger image, amd64 only).
         WITH_BAMBU: ${JIG_WITH_BAMBU:-0}
+        # 1 adds Blender for .blend export (larger image, amd64 only).
+        WITH_BLENDER: ${JIG_WITH_BLENDER:-0}
     image: jig:local
     env_file: .env
     # These win over .env, which may still hold a local install's paths.

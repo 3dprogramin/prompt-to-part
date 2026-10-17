@@ -85,7 +85,7 @@ The Bambu template is rebuilt by the container's Bambu Studio when its version d
 
 **Fonts.** The bundled fonts, plus DejaVu and Liberation. To list your own fonts too, uncomment the fonts line under `volumes:` in `docker-compose.yml` (it mounts a fonts folder from your computer read-only).
 
-**Blender** (`.blend` export) is not included; that export is unavailable in Docker.
+**Blender (`.blend` export).** Not in the image by default, as it adds about 1 GB (a 380 MB download). To include it, set `JIG_WITH_BLENDER=1` in `.env` and run `docker compose up -d --build`. The build downloads a pinned official Blender release (5.2 LTS) from blender.org and checks it against its SHA-256; Jig runs it headless. Only `linux/amd64`. To use another release (4.1 or newer), pass the build arguments `BLENDER_URL` and `BLENDER_SHA256` (see the `Dockerfile`).
 
 The container runs as a non-root user with a read-only file system (only the volumes and in-memory `/tmp` and home folder are writable), no Linux capabilities and a health check on `/api/capabilities`.
 
