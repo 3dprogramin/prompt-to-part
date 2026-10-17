@@ -4,14 +4,21 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const API = `http://127.0.0.1:${process.env.API_PORT ?? 8787}`;
-const DATA_DIR = path.resolve(process.env.JIG_DATA ?? 'data');
+// Forward slashes: the deny globs below don't match Windows backslashes.
+const slash = (p: string) => p.replace(/\\/g, '/');
+// The repo's own data/ is hidden even when JIG_DATA points elsewhere (it may still hold designs).
+const DATA_DIRS = [...new Set([path.resolve('data'), path.resolve(process.env.JIG_DATA ?? 'data')].map(slash))];
 
 /** Designs live in ./data, inside Vite's root: never serve them as static files. */
 const hideData = (): Plugin => ({
   name: 'jig-hide-data',
   configureServer(server) {
     server.middlewares.use((req, res, next) => {
-      if (/^\/data(\/|$)/.test(req.url ?? '')) { res.statusCode = 404; res.end(); } else next();
+      // Decoded and normalised, so /%64ata/…, /./data/… and /src/../data/… are caught too.
+      let p: string;
+      try { p = path.posix.normalize(decodeURIComponent((req.url ?? '').split('?')[0])); } catch { p = '/data'; }
+      const hidden = /^\/data(\/|$)/.test(p) || (p.startsWith('/@fs/') && DATA_DIRS.some((d) => `${p.slice(4)}/`.startsWith(`${d}/`)));
+      if (hidden) { res.statusCode = 404; res.end(); } else next();
     });
   },
 });
@@ -60,7 +67,7 @@ export default defineConfig({
     port: 5173,
     // Vite answers CORS for every localhost origin by default; only Jig's own page may use the API.
     cors: false,
-    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', `${DATA_DIR}/**`] },
+    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', ...DATA_DIRS.map((d) => `${d}/**`)] },
     proxy: {
       '/api': {
         target: API,

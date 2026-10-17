@@ -42,8 +42,10 @@ export function toolPolicy(ws: string, webSearch: boolean, resolve = resolveHost
     }
     if (name.startsWith('mcp__cad__')) return null;
     if (webSearch && name === 'WebSearch') return null;
-    // A page Claude reads could tell it to fetch a local address (Jig's own API, a router) or to
-    // send the design somewhere; local and private addresses are never fetched.
+    // A page Claude reads could tell it to fetch a local address (Jig's own API, a router), so local
+    // and private addresses are never fetched. It could also tell it to put the design into a
+    // public URL; that can't be told apart from a normal fetch, which is why web search can be
+    // turned off per design.
     if (webSearch && name === 'WebFetch') return await publicPage(input.url, resolve) ? null : 'Only public http(s) web pages can be fetched.';
     return 'Tool not available in Jig.';
   };
