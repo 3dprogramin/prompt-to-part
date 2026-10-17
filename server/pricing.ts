@@ -27,10 +27,10 @@ function describe(r: PriceRequest): string {
 /** Parse Claude's answer: the first JSON object in it, checked. */
 export function parseSuggestion(text: string): PriceSuggestion {
   const m = /\{[\s\S]*\}/.exec(text);
-  if (!m) throw new Error('Claude did not answer with a price');
+  if (!m) throw new Error('Jig did not answer with a price');
   const o = JSON.parse(m[0]) as Record<string, unknown>;
   const price = Number(o.price), low = Number(o.low ?? o.price), high = Number(o.high ?? o.price);
-  if (![price, low, high].every((n) => Number.isFinite(n) && n >= 0)) throw new Error('Claude did not answer with a price');
+  if (![price, low, high].every((n) => Number.isFinite(n) && n >= 0)) throw new Error('Jig did not answer with a price');
   return { price, low: Math.min(low, price), high: Math.max(high, price), reasoning: String(o.reasoning ?? '').slice(0, 1000), currency: CURRENCY };
 }
 
@@ -57,7 +57,7 @@ export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
       },
     })) {
       if (msg.type === 'result') {
-        if (msg.subtype !== 'success') throw new Error(`Claude couldn't suggest a price (${msg.subtype})`);
+        if (msg.subtype !== 'success') throw new Error(`Jig couldn't suggest a price (${msg.subtype})`);
         text = msg.result;
       }
     }

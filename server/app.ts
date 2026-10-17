@@ -156,7 +156,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   app.delete('/api/designs/:id', async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
-    if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'Claude is working on this design – stop it first.' });
+    if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'Jig is working on this design – stop it first.' });
     await serially(id, async () => {
       deleted.add(id);
       await rm(designFile(id), { force: true });
@@ -345,7 +345,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     if (!ID_RE.test(id) || typeof b.text !== 'string' || b.text.length > 20000) return void res.status(400).json({ error: 'text must be a string (up to 20,000 characters)' });
     if (b.images != null && (!Array.isArray(b.images) || b.images.length > 8 || !b.images.every(isImage))) return void res.status(400).json({ error: 'up to 8 images' });
     if (!b.text.trim() && !(b.images as unknown[] | undefined)?.length) return void res.status(400).json({ error: 'empty message' });
-    if (!steerGeneration(id, b.text, (b.images ?? []) as ImageData[])) return void res.status(409).json({ error: 'Claude is not working on this design' });
+    if (!steerGeneration(id, b.text, (b.images ?? []) as ImageData[])) return void res.status(409).json({ error: 'Jig is not working on this design' });
     res.json({ ok: true });
   });
 
@@ -358,7 +358,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     if (generatingDesigns.has(body.designId)) {
-      return void res.status(409).json({ error: 'Claude is already working on this design (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
+      return void res.status(409).json({ error: 'Jig is already working on this design (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
     }
     generatingDesigns.add(body.designId);
 

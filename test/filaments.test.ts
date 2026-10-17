@@ -90,7 +90,7 @@ test('Claude\'s answers are checked', () => {
   const est = parseLookup('{"color": "#ffffff", "td": 4, "match": "estimate", "note": "From similar whites."}', q);
   assert.equal(est.confidence, 'estimate');
   assert.equal(est.filament.name, q.name);
-  assert.equal(est.filament.source, 'estimate by Claude');
+  assert.equal(est.filament.source, 'estimate by Jig');
   const bad = (text: string) => assert.throws(() => parseLookup(text, q));
   bad('no idea');
   bad('{"color": "white", "td": 4, "match": "estimate"}');

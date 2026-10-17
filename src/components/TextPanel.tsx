@@ -84,7 +84,7 @@ export function TextPanel({ result, features, onChange, fonts, picking, onPick }
           <button className="btn ghost wide" onClick={() => duplicate(sel)}>Duplicate</button>
         </div>
       )}
-      <p className="dim small text-tip">For text the tool can't do (twisted, stacked, cut through, following a path…) just ask Claude in the chat.</p>
+      <p className="dim small text-tip">For text the tool can't do (twisted, stacked, cut through, following a path…) just ask Jig in the chat.</p>
     </div>
   );
 }

@@ -123,18 +123,18 @@ function Suggestion(p: Props & { result: CostResult }) {
     <section>
       <div className="cost-head">
         <h4>Selling price</h4>
-        <button className="btn ghost small-btn" disabled={state.busy} onClick={ask}><Icon name="spark" size={12} /> {state.price ? 'Ask again' : 'Ask Claude'}</button>
+        <button className="btn ghost small-btn" disabled={state.busy} onClick={ask}><Icon name="spark" size={12} /> {state.price ? 'Ask again' : 'Ask Jig'}</button>
       </div>
-      {state.busy && <div className="cost-progress" role="status"><span className="spinner" /> Claude is thinking about a price…</div>}
+      {state.busy && <div className="cost-progress" role="status"><span className="spinner" /> Jig is thinking about a price…</div>}
       {state.error && <div className="bad-note small" role="alert">{state.error}</div>}
       {state.price && (
         <div className="cost-price">
           <div><b className="mono">{state.price.price.toFixed(0)} {state.price.currency}</b> <span className="dim small">(range {state.price.low.toFixed(0)}–{state.price.high.toFixed(0)} {state.price.currency})</span></div>
           <p className="small">{state.price.reasoning}</p>
-          <div className="dim small">Claude's suggestion from the costs and the design – not a calculation.</div>
+          <div className="dim small">Jig's suggestion from the costs and the design – not a calculation.</div>
         </div>
       )}
-      {!state.price && !state.busy && !state.error && <div className="dim small">Claude suggests a price from these costs, the print time and what the item is (uses a little of your Claude usage).</div>}
+      {!state.price && !state.busy && !state.error && <div className="dim small">Jig suggests a price from these costs, the print time and what the item is (uses a little of your Claude usage).</div>}
     </section>
   );
 }

@@ -446,7 +446,7 @@ export default function App() {
         } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
         else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
       }, abort.signal);
-      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Claude finished (the server may have restarted). Please send the request again.' }));
+      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Please send the request again.' }));
     } catch (e) {
       if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
@@ -959,7 +959,7 @@ export default function App() {
           } : null}
           onLayout={(v) => layoutKey && onValue(layoutKey, v)}
           emptyState={generating
-            ? <div className="empty-inner"><span className="spinner big" /><p>Claude is designing your model…</p></div>
+            ? <div className="empty-inner"><span className="spinner big" /><p>Jig is designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}
         />
         <SidePanel

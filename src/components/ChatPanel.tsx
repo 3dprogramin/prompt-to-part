@@ -240,7 +240,7 @@ export function ChatPanel(p: Props) {
         {p.messages.length === 0 && (
           <div className="chat-intro">
             <h3>Describe what you want to print</h3>
-            <p>Claude designs a parametric model with sliders and dimensions. Attach photos of an existing object to recreate or redesign it. Mention any dimensions you need; anything you leave out, Claude picks for you.</p>
+            <p>Jig designs a parametric model with sliders and dimensions. Attach photos of an existing object to recreate or redesign it. Mention any dimensions you need; anything you leave out, Jig picks for you.</p>
             <div className="examples">
               {[
                 'A wine bottle opener: T-handle with a 5-turn corkscrew spiral',
@@ -263,7 +263,7 @@ export function ChatPanel(p: Props) {
         {p.queued.length > 0 && (
           <div className="queued" role="status">
             <div className="queued-head small">
-              {p.queuePaused ? 'Not sent – the reply was stopped or failed:' : 'Sends when Claude has finished:'}
+              {p.queuePaused ? 'Not sent – the reply was stopped or failed:' : 'Sends when Jig has finished:'}
               {p.queuePaused && <button className="link" onClick={p.onSendQueued}>Send now</button>}
             </div>
             {p.queued.map((q, i) => (
@@ -280,7 +280,7 @@ export function ChatPanel(p: Props) {
         {scad.length > 0 && (
           <div className="file-chips">
             {scad.map((f) => (
-              <span key={f.name} className="file-chip" title="OpenSCAD file: Claude gets its source and a render of it">
+              <span key={f.name} className="file-chip" title="OpenSCAD file: Jig gets its source and a render of it">
                 <Icon name="code" size={12} /> {f.name}
                 <button onClick={() => setScad(scad.filter((x) => x !== f))} aria-label={`Remove ${f.name}`}><Icon name="x" size={11} /></button>
               </span>
@@ -290,7 +290,7 @@ export function ChatPanel(p: Props) {
         {images.length > 0 && (
           <div className="attachments">
             {images.map((src, i) => (
-              <div key={i} className={`thumb ${svgShapes[src] ? 'svg' : ''}`} title={svgShapes[src] ? `${svgShapes[src].name}: Claude also gets its exact shapes` : undefined}>
+              <div key={i} className={`thumb ${svgShapes[src] ? 'svg' : ''}`} title={svgShapes[src] ? `${svgShapes[src].name}: Jig also gets its exact shapes` : undefined}>
                 <img src={src} alt={svgShapes[src] ? `Attached drawing ${svgShapes[src].name}` : `Attached photo ${i + 1}`} />
                 {svgShapes[src] && <span className="thumb-tag">SVG</span>}
                 <button onClick={() => setImages(images.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`}><Icon name="x" size={12} /></button>
@@ -303,7 +303,7 @@ export function ChatPanel(p: Props) {
           value={text}
           placeholder={p.hasModel ? 'Ask for changes, e.g. "make the spiral longer and add a bottle cap lifter"' : 'Describe the object… (paste or drop photos)'}
           onChange={(e) => setText(e.target.value)}
-          aria-label={p.hasModel ? 'Ask Claude for changes' : 'Describe the object'}
+          aria-label={p.hasModel ? 'Ask Jig for changes' : 'Describe the object'}
           // Enter that confirms an input-method (IME) candidate is not a send.
           // Enter while listening only stops it (the text stays to be checked); the next Enter sends.
           onKeyDown={(e) => {
@@ -338,7 +338,7 @@ export function ChatPanel(p: Props) {
             aria-label="Web search"
             aria-pressed={p.webSearch}
             onClick={() => p.onWebSearch(!p.webSearch)}
-            title={p.webSearch ? 'Web search is on: Claude looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Claude search the web for exact dimensions of real products'}
+            title={p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products'}
           >
             <Icon name="globe" size={14} />
           </button>
@@ -360,18 +360,18 @@ export function ChatPanel(p: Props) {
             ? <button className="icon-btn danger" onClick={p.onStop} title="Stop" aria-label="Stop"><Icon name="stop" /></button>
             : <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>)}
           {p.generating && hasDraft && (
-            <button className="icon-btn" onClick={() => void sendNow(true)} disabled={listening === 'starting'} title="Later: send when Claude has finished this reply" aria-label="Send later, when Claude has finished">
+            <button className="icon-btn" onClick={() => void sendNow(true)} disabled={listening === 'starting'} title="Later: send when Jig has finished this reply" aria-label="Send later, when Jig has finished">
               <Icon name="clock" />
             </button>
           )}
           {(!p.generating || hasDraft) && (
             <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || listening === 'starting' || (!text.trim() && !images.length && !scad.length)}
-              title={p.generating ? 'Send now: Claude reads it at its next step, while it works' : p.hasModel ? 'Update' : 'Design'}>
+              title={p.generating ? 'Send now: Jig reads it at its next step, while it works' : p.hasModel ? 'Update' : 'Design'}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
           )}
         </div>
-        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Claude is working on this design in another tab</span></div>}
+        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Jig is working on this design in another tab</span></div>}
         {p.claudeProblem && <div className="composer-opts"><span className="bad-note" role="alert">{p.claudeProblem}</span></div>}
         {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}
         {dictationError && listening === 'off' && <div className="composer-opts"><span className="bad-note" role="alert">{dictationError}</span> <button className="link" onClick={() => setDictationError(null)}>Dismiss</button></div>}
@@ -403,10 +403,10 @@ export function ChatPanel(p: Props) {
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 
 const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null) => string }[] = [
-  { mode: 'off', label: '3D model (no picture)', icon: 'cube', hint: () => 'Claude models people, characters and animals as 3D objects.' },
-  { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes ${m ?? 'an image model'} draws flat artwork, which Claude turns into colour layers for wall art, reliefs and signs.` },
-  { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Claude has one made' : ''}; set the filaments in the Print tab.` },
-  { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Claude has it made' : ''}.` },
+  { mode: 'off', label: '3D model (no picture)', icon: 'cube', hint: () => 'Jig models people, characters and animals as 3D objects.' },
+  { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes Jig has ${m ?? 'an image model'} draw flat artwork, then turns it into colour layers for wall art, reliefs and signs.` },
+  { mode: 'hueforge', label: 'HueForge (filament painting)', short: 'HueForge', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Jig makes one' : ''}; set the filaments in the Print tab.` },
+  { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */
@@ -497,7 +497,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
       setThink(null);
       onFollow(!followed);
     },
-    title: 'Hover to watch everything Claude is doing, click to pin it open',
+    title: 'Hover to watch everything Jig is doing, click to pin it open',
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = all;
@@ -514,7 +514,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
           {!live && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
         </button>
         {(live || hasActivity) && (
-          <button className="link think-link" title="Show everything Claude did for this reply: thinking, code, tool calls and results"
+          <button className="link think-link" title="Show everything Jig did for this reply: thinking, code, tool calls and results"
             onClick={(e) => {
               if (live || followed) { setThink(null); onFollow(!followed); return; }
               setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) });

@@ -145,7 +145,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   };
   const authProblem = claudeAuthProblem();
   if (authProblem) { emit({ type: 'error', message: authProblem }); return; }
-  emit({ type: 'live', text: 'Starting Claude…' });
+  emit({ type: 'live', text: 'Jig is starting…' });
   const ws = workspaceDir(req.designId);
   const file = path.join(ws, MODEL_FILE);
   await mkdir(ws, { recursive: true });
@@ -206,13 +206,13 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 
   // Follow-ups: show Claude exactly what the user is looking at before they describe the change.
   if (isFollowUp) {
-    emit({ type: 'live', text: 'Capturing the current model for Claude…' });
+    emit({ type: 'live', text: 'Jig is capturing the current model…' });
     const sent: string[] = [];
     if (req.currentView && IMAGE_TYPES.has(req.currentView.mediaType)) {
       content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
       content.push({ type: 'image', source: { type: 'base64', media_type: req.currentView.mediaType as 'image/jpeg', data: req.currentView.data } });
       sent.push('your current view');
-      emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Sent Claude your current view', image: `data:${req.currentView.mediaType};base64,${req.currentView.data}` } });
+      emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got your current view', image: `data:${req.currentView.mediaType};base64,${req.currentView.data}` } });
     }
     if (req.renderValues) {
       try {
@@ -222,11 +222,11 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
           parts.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
           sent.push('a four-view render with measurements');
-          emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Sent Claude a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
+          emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
         }
       } catch { /* the request still works without the render */ }
     }
-    if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent Claude ${sent.join(' and ')} of the current model` } });
+    if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got ${sent.join(' and ')} of the current model` } });
   }
 
   const refs = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType));
@@ -308,7 +308,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // Exactly what goes to Claude, for the activity panel.
     const pictures = content.filter((c) => c.type === 'image').length;
     const sentText = [recap, ...content.flatMap((c) => (c.type === 'text' ? [c.text] : []))].filter(Boolean).join('\n\n');
-    emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent Claude the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
+    emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
     let finalText = '';
     const q = query({
       prompt: messages(),
@@ -368,11 +368,11 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     for await (const msg of q) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         emit({ type: 'session', sessionId: msg.session_id });
-        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Connected to Claude (${msg.model}) · ${resume ? 'continuing the previous conversation' : 'new conversation'}` } });
-        pushLive('Waiting for Claude…');
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig is using ${msg.model} · ${resume ? 'continuing the previous conversation' : 'new conversation'}` } });
+        pushLive('Waiting for Jig…');
       } else if (msg.type === 'stream_event') {
         const ev = msg.event;
-        if (ev.type === 'message_start') pushLive('Claude is responding…');
+        if (ev.type === 'message_start') pushLive('Jig is responding…');
         else if (ev.type === 'content_block_start') {
           const cb = ev.content_block as { type: string; name?: string };
           block = { type: cb.type, name: cb.name, chars: 0, text: '' };
@@ -442,8 +442,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         // A user message Claude has just read: the request, then any the user sent mid-reply.
         if (prompts++ > 0) {
           inbox.read++;
-          emit({ type: 'step', step: { kind: 'status', verbose: true, text: 'Claude read your message' } });
-          pushLive('Claude is reading your message…');
+          emit({ type: 'step', step: { kind: 'status', verbose: true, text: 'Jig read your message' } });
+          pushLive('Jig is reading your message…');
         }
       } else if (msg.type === 'user') {
         // Tool results: everything Claude gets back goes to the activity panel (the CAD tools also
@@ -458,14 +458,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             // (Pictures come back as placeholder lines naming a local file; the panel shows them as renders.)
             const text = (typeof c.content === 'string' ? c.content : blocks.map((x) => ('text' in x ? x.text : '')).filter(Boolean).join('\n')).replace(/^\[Image[^\]\n]*\]\n?/gm, '').trim();
             const images = blocks.filter((x) => x.type === 'image').length;
-            const got = `Claude got the result of ${label}${images ? ` (with ${images} picture${images > 1 ? 's' : ''})` : ''}`;
+            const got = `Jig got the result of ${label}${images ? ` (with ${images} picture${images > 1 ? 's' : ''})` : ''}`;
             if (name.startsWith('mcp__cad__')) emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
             else if (c.is_error) emit({ type: 'step', step: { kind: 'tool', ok: false, verbose: true, text: `${label} failed: ${text.slice(0, 200)}`, detail: detail(text) } });
             else if (name === 'Write' || name === 'Edit') emit({ type: 'step', step: { kind: 'tool', ok: true, text: 'model.js', edit: { file: 'model.js', ...(edits.get(c.tool_use_id) ?? { added: 0, removed: 0 }) } } });
             else emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
           }
         }
-        pushLive('Claude is reading the results…');
+        pushLive('Jig is reading the results…');
       } else if (msg.type === 'system' && msg.subtype === 'api_retry') {
         const why = msg.error_status ? `HTTP ${msg.error_status}` : 'connection problem';
         emit({ type: 'step', step: { kind: 'status', ok: false, text: `Claude API ${why} – retrying in ${Math.round(msg.retry_delay_ms / 1000)} s (attempt ${msg.attempt}/${msg.max_retries})` } });

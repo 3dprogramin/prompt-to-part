@@ -44,7 +44,7 @@ export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
         <div
           key={t.id}
           className={`dtab ${t.id === current ? 'on' : ''} ${t.unseen ? 'unseen' : ''}`}
-          title={`${t.name}${t.running ? ' · Claude is working on it' : t.unseen ? ' · finished, not viewed yet' : ''}`}
+          title={`${t.name}${t.running ? ' · Jig is working on it' : t.unseen ? ' · finished, not viewed yet' : ''}`}
           onMouseDown={(e) => { if (e.button === 1 && !t.running) { e.preventDefault(); onClose(t.id); } }}
         >
           <button className="dtab-open" onClick={() => onOpen(t.id)}>

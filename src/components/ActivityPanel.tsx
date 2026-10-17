@@ -97,7 +97,7 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
       <div className="activity-head" onPointerDown={drag('move')} onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button')) reset(); }}
         title="Drag to move · double-click to put it back beside the chat">
         {live ? <span className="spinner" /> : <Icon name="spark" size={14} />}
-        <span className="activity-title">{live ? 'Claude is working' : "Claude's work"}</span>
+        <span className="activity-title">{live ? 'Jig is working' : "Jig's work"}</span>
         <span className="dim small">{items.length} item{items.length === 1 ? '' : 's'}</span>
         <span className="spacer" />
         <button className={`icon-btn ${pinned ? 'on' : ''}`} title={pinned ? 'Unpin (closes when the mouse leaves)' : 'Pin open'} aria-label={pinned ? 'Unpin' : 'Pin open'} aria-pressed={pinned} onClick={() => onPin(!pinned)}>
@@ -106,7 +106,7 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
         <button className="icon-btn" title="Close (Esc)" aria-label="Close" onClick={onClose}><Icon name="x" size={14} /></button>
       </div>
       <div className="activity-body" ref={scroller} onScroll={onScroll}>
-        {!items.length && <div className="dim">{live ? 'Waiting for Claude…' : 'Nothing was recorded for this reply.'}</div>}
+        {!items.length && <div className="dim">{live ? 'Waiting for Jig…' : 'Nothing was recorded for this reply.'}</div>}
         {items.map((it, i) => <Item key={i} it={it} streaming={live && i === items.length - 1} onImage={onImage} />)}
       </div>
       {!follow && (
@@ -127,7 +127,7 @@ const Item = memo(function Item({ it, streaming, onImage }: { it: ActivityItem; 
       <div className={`act-step ${s.kind} ${s.ok === false ? 'bad' : s.ok ? 'good' : ''}`}>
         <span className="act-time">{s.at != null ? fmtTime(s.at) : ''}</span>
         <div className="act-step-body">
-          <span>{s.kind === 'user' && <b>You (while Claude worked): </b>}{s.text}{s.edit && <> <EditTags edit={s.edit} /></>}</span>
+          <span>{s.kind === 'user' && <b>You (while Jig worked): </b>}{s.text}{s.edit && <> <EditTags edit={s.edit} /></>}</span>
           {s.image && <button className="img-btn" onClick={() => onImage(s.image!)} aria-label="Render – enlarge"><img src={s.image} alt="Render" /></button>}
           {s.detail && (
             <details className="act-detail" open={s.detailOpen}>

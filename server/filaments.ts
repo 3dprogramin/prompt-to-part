@@ -18,16 +18,16 @@ Answer with ONLY a JSON object, no other text:
 /** Parse Claude's answer for the filament asked for: the first JSON object in it, checked. */
 export function parseLookup(text: string, q: FilamentQuery): FilamentLookup {
   const m = /\{[\s\S]*\}/.exec(text);
-  if (!m) throw new Error('Claude did not find this filament');
+  if (!m) throw new Error('Jig did not find this filament');
   const o = JSON.parse(m[0]) as Record<string, unknown>;
   const color = String(o.color ?? '').trim().toLowerCase();
   const td = Number(o.td);
   const source = String(o.source ?? '').trim();
   const match = o.match === 'exact' || o.match === 'similar' ? o.match : 'estimate';
-  if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Claude did not find the filament\'s colour');
-  if (!Number.isFinite(td) || td < 0.1 || td > 20) throw new Error('Claude did not find a usable TD for this filament');
+  if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Jig did not find the filament\'s colour');
+  if (!Number.isFinite(td) || td < 0.1 || td > 20) throw new Error('Jig did not find a usable TD for this filament');
   // A value read on the web names its page; only an estimate may come without one.
-  if (match !== 'estimate' && !publicUrl(source)) throw new Error('Claude did not say where the TD comes from');
+  if (match !== 'estimate' && !publicUrl(source)) throw new Error('Jig did not say where the TD comes from');
   const text200 = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : undefined);
   const note = text200(o.note);
   return {
@@ -37,7 +37,7 @@ export function parseLookup(text: string, q: FilamentQuery): FilamentLookup {
       name: text200(o.name) ?? q.name,
       color,
       td: Math.round(td * 10) / 10,
-      source: publicUrl(source) ? source.slice(0, 500) : 'estimate by Claude',
+      source: publicUrl(source) ? source.slice(0, 500) : 'estimate by Jig',
     },
     // A TD Claude found on the web is not checked like the library's, so it is never 'listed'.
     confidence: match === 'estimate' ? 'estimate' : 'similar',
@@ -72,7 +72,7 @@ async function askClaude(q: FilamentQuery): Promise<string> {
       },
     })) {
       if (msg.type === 'result') {
-        if (msg.subtype !== 'success') throw new Error(`Claude couldn't look up this filament (${msg.subtype})`);
+        if (msg.subtype !== 'success') throw new Error(`Jig couldn't look up this filament (${msg.subtype})`);
         text = msg.result;
       }
     }

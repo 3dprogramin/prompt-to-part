@@ -551,7 +551,7 @@ function Sources({ list }: { list: DimensionSource[] }) {
                 {link && (
                   <div className="small">
                     <a href={link} target="_blank" rel="noopener noreferrer">{new URL(link).hostname.replace(/^www\./, '')}</a>
-                    {WEB_KINDS.includes(s.kind) && !s.opened && <span className="dim" title="Claude cited this page without opening it (e.g. from a search result)"> · not opened by Claude</span>}
+                    {WEB_KINDS.includes(s.kind) && !s.opened && <span className="dim" title="Jig cited this page without opening it (e.g. from a search result)"> · not opened by Jig</span>}
                   </div>
                 )}
               </div>

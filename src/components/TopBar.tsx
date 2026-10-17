@@ -64,7 +64,7 @@ export function TopBar(p: Props) {
       )}
       {p.tabs.length > 1 ? <DesignTabs tabs={p.tabs} current={p.design.id} onOpen={p.onOpen} onClose={p.onCloseTab} /> : <span className="spacer" />}
       {p.tabs.filter((t) => !t.running).length > 1 && (
-        <button className="btn ghost close-all" onClick={p.onCloseAllTabs} title="Close all tabs (designs Claude is working on stay open; nothing is deleted)">
+        <button className="btn ghost close-all" onClick={p.onCloseAllTabs} title="Close all tabs (designs Jig is working on stay open; nothing is deleted)">
           <Icon name="x" size={13} /> Close all
         </button>
       )}
