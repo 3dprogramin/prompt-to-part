@@ -1,9 +1,9 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
-import { HF_IMAGES_KEY, HF_KEY, MAX_HF_FILAMENTS, simulateImage, type HfFilament, type HfImage, type HueforgeOptions, type HueforgeSetup, type LayerColor } from '../../shared/hueforge';
+import { checkSwaps, HF_IMAGES_KEY, HF_KEY, layerTop, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, simulateImage, type HfFilament, type HfImage, type HueforgeOptions, type HueforgeSetup, type LayerColor } from '../../shared/hueforge';
 import { FILAMENT_LIBRARY, searchFilaments, type FilamentLookup, type LibraryFilament } from '../../shared/filaments';
 import { request } from '../lib/api';
-import { hfImageToDataUrl, loadHfImage, parseHfImages, parseHueforgeSetup, rgbaToDataUrl } from '../lib/hfImage';
+import { hfImageToDataUrl, loadHfImage, rgbaToDataUrl } from '../lib/hfImage';
 import { Icon } from './Icon';
 import { useEscape } from './useEscape';
 import { useReleaseSlider } from './useReleaseSlider';
@@ -11,8 +11,8 @@ import { useReleaseSlider } from './useReleaseSlider';
 /** Filaments the A1's AMS lite holds; more need changing by hand during the print. */
 const AMS_SLOTS = 4;
 
-/** What the runtime may tell about a HueForge part beyond its layer colours (see hfPartInfo). */
-type HfPart = PartMesh & { layerColors: LayerColor[]; hueforge?: { image?: string; options?: HueforgeOptions } };
+/** A HueForge part: its stack, and (from the runtime) the picture and options it was built with. */
+type HfPart = PartMesh & { layerColors: LayerColor[] };
 
 /** The first part of the model that is a HueForge print (H.hueforge), if any. */
 export function hueforgePart(result: EvalResult | null): HfPart | undefined {
@@ -43,8 +43,10 @@ export function HueforgePanel({ result, part, values, onSetup, onImage }: Props)
   const filaments: HfFilament[] = setup.filaments ?? layers.map((l) => ({ name: l.name ?? l.color, brand: l.brand, color: l.color, td: l.td }));
   // The part's layers match the list (they lag behind it while the model rebuilds).
   const built = layers.length === filaments.length;
-  const manual = !!setup.swaps && setup.swaps.length === filaments.length - 1;
-  const swaps = manual ? setup.swaps! : built ? layers.slice(1).map((l) => l.layer) : evenSwaps(filaments.length, grid.total);
+  // Swaps that don't fit the filaments are ignored by the engine (automatic), so here too.
+  const manualSwaps = checkSwaps(setup.swaps, filaments.length);
+  const manual = !!manualSwaps;
+  const swaps = manualSwaps ?? built ? layers.slice(1).map((l) => l.layer) : evenSwaps(filaments.length, grid.total);
 
   const save = (next: HueforgeSetup) => onSetup(next.filaments || next.swaps ? next : null);
   const change = (list: HfFilament[], nextSwaps = manual ? swaps : undefined) =>
@@ -144,7 +146,7 @@ function layerGrid(part: HfPart, result: EvalResult): Grid {
 }
 
 /** Where layer `layer` (0 = the first) starts, mm above the bed. */
-const zOf = (layer: number, g: Grid) => (layer <= 0 ? 0 : g.first + (layer - 1) * g.lh);
+const zOf = (layer: number, g: Grid) => layerTop(layer, { firstLayerHeight: g.first, layerHeight: g.lh });
 
 const evenSwaps = (n: number, total: number) => Array.from({ length: Math.max(0, n - 1) }, (_, i) => Math.round(((i + 1) * total) / n));
 

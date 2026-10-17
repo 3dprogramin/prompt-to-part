@@ -1,5 +1,4 @@
-import type { ParamValue } from '../../shared/types';
-import { MAX_HF_IMAGE_SIDE, toHfImage, type HfFilament, type HfImage, type HueforgeSetup } from '../../shared/hueforge';
+import { MAX_HF_IMAGE_SIDE, toHfImage, type HfImage } from '../../shared/hueforge';
 
 // HueForge pictures in the browser: a file or data URL → HfImage (via a canvas), and back to
 // pictures the side panel can show.
@@ -42,29 +41,3 @@ export function hfImageToDataUrl(img: HfImage): string {
   }
   return rgbaToDataUrl(img.width, img.height, rgba);
 }
-
-/** values[HF_IMAGES_KEY]: the design's HueForge pictures by name (bad entries left out). */
-export function parseHfImages(v: ParamValue | undefined): Record<string, HfImage> {
-  try {
-    const o = JSON.parse(String(v ?? '{}')) as Record<string, HfImage>;
-    if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
-    return Object.fromEntries(Object.entries(o).filter(([, i]) => i && typeof i.luma === 'string' && i.width > 0 && i.height > 0));
-  } catch {
-    return {};
-  }
-}
-
-/** values[HF_KEY]: the user's filaments and swaps ({} = the script's). */
-export function parseHueforgeSetup(v: ParamValue | undefined): HueforgeSetup {
-  try {
-    const o = JSON.parse(String(v ?? '{}')) as HueforgeSetup;
-    if (!o || typeof o !== 'object') return {};
-    const filaments = Array.isArray(o.filaments) ? o.filaments.filter(isFilament) : undefined;
-    const swaps = Array.isArray(o.swaps) && o.swaps.every((n) => Number.isInteger(n)) ? o.swaps : undefined;
-    return { ...(filaments?.length ? { filaments } : {}), ...(swaps ? { swaps } : {}) };
-  } catch {
-    return {};
-  }
-}
-
-const isFilament = (f: HfFilament) => !!f && typeof f.name === 'string' && /^#[0-9a-f]{6}$/i.test(f.color) && Number.isFinite(f.td) && f.td > 0;
