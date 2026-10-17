@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { Icon } from './Icon';
 import { load, store } from '../lib/storage';
@@ -17,6 +17,7 @@ import type { TextFeature } from '../../shared/textFeatures';
 import type { FontEntry } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
+import { tokenize } from '../lib/highlight';
 import { PRINTER, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
@@ -563,6 +564,9 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
   // Tab indents; Escape first lets the next Tab move the focus on, as in other code editors.
   const escaped = useRef(false);
   const hintId = useId();
+  // The coloured copy of the script sits behind the textarea, whose own text is transparent.
+  const colours = useRef<HTMLPreElement>(null);
+  const tokens = useMemo(() => tokenize(text), [text]);
   return (
     <div className="code-tab">
       {error && <div className="code-error" role="alert"><Icon name="alert" size={14} /> {error.line ? `Line ${error.line}: ` : ''}{error.message}</div>}
@@ -572,7 +576,13 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
           <button className="link" onClick={() => onDraft(null)}>Load the new script</button> or keep editing yours.
         </div>
       )}
+      <div className="code-wrap">
+      <pre className="code-colours mono" ref={colours} aria-hidden="true">
+        {tokens.map((t, i) => (t.kind === 'plain' ? t.text : <span key={i} className={`tk-${t.kind}`}>{t.text}</span>))}
+        {'\n'}
+      </pre>
       <textarea className="code-editor mono" spellCheck={false} value={text} aria-label="Model script (model.js)" aria-describedby={hintId}
+        onScroll={(e) => { if (colours.current) { colours.current.scrollTop = e.currentTarget.scrollTop; colours.current.scrollLeft = e.currentTarget.scrollLeft; } }}
         onChange={(e) => onDraft(e.target.value === code ? null : { base: draft?.base ?? code, text: e.target.value })}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) onApply(text); }
@@ -586,6 +596,7 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
           escaped.current = false;
         }}
         placeholder="The model script appears here." />
+      </div>
       <div className="code-hint dim small" id={hintId}>Tab indents · Esc, then Tab, leaves the editor · Ctrl+S applies</div>
       <div className="code-actions">
         <button className="btn ghost" disabled={!dirty} onClick={() => onDraft(null)}>Revert</button>
