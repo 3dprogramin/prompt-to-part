@@ -60,6 +60,8 @@ interface Props {
   onExport3mf: () => void;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
+  /** Which parts each parameter changes (measured; undefined until known). */
+  paramOwners?: Record<string, string[]>;
   /** Set which parts are hidden (Object tab: show all, show only one). */
   onHiddenParts: (names: string[]) => void;
   /** The part selected in the Object tab (highlighted in the view). */
@@ -132,7 +134,7 @@ export function SidePanel(p: Props) {
               textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={(t) => openSection('decorate', t)} />
             : noModel('The parts appear here once a model is generated.')))}
           {section('params', 'Parameters', () => (shown
-            ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
+            ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
             : noModel('Parameters appear here once a model is generated.')))}
         </>}
         {tab === 'decorate' && <>
@@ -270,16 +272,23 @@ function CommitInput({ value, decimals, onCommit, suffix }: { value: number; dec
   );
 }
 
-function ParamsTab({ result, hiddenParts, onValue, onReset, fonts }: { result: EvalResult; hiddenParts: string[]; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
-  // A parameter of hidden parts only (its parts, or a group named after a part) is greyed out.
+function ParamsTab({ result, hiddenParts, owners, onValue, onReset, fonts }: { result: EvalResult; hiddenParts: string[]; owners?: Record<string, string[]>; onValue: Props['onValue']; onReset: () => void; fonts: FontEntry[] }) {
+  // A parameter is greyed out while every part it changes is hidden: the parts measured to change
+  // with it plus those the script names; before the measurement, a group named after a part. With
+  // every part hidden, all of them are.
   const names = result.parts.map((x) => x.name);
-  const ownersOf = (d: ParamDef) => {
-    const listed = (d.parts ?? []).filter((n) => names.includes(n));
-    if (listed.length) return listed;
+  const allHidden = names.length > 0 && names.every((n) => hiddenParts.includes(n));
+  const ownersOf = (k: string, d: ParamDef) => {
+    const known = [...new Set([...(d.parts ?? []), ...(owners?.[k] ?? [])])].filter((n) => names.includes(n));
+    if (known.length || owners) return known;
     const byGroup = d.group && names.find((n) => n.toLowerCase() === d.group!.toLowerCase());
     return byGroup ? [byGroup] : [];
   };
-  const hiddenOwners = (d: ParamDef) => { const o = ownersOf(d); return o.length && o.every((n) => hiddenParts.includes(n)) ? o : null; };
+  const hiddenOwners = (k: string, d: ParamDef) => {
+    if (allHidden) return names;
+    const o = ownersOf(k, d);
+    return o.length && o.every((n) => hiddenParts.includes(n)) ? o : null;
+  };
   const entries = Object.entries(result.params);
   if (!entries.length) return <div className="empty-note">This model has no parameters.</div>;
   const groups = new Map<string, [string, ParamDef][]>();
@@ -302,11 +311,11 @@ function ParamsTab({ result, hiddenParts, onValue, onReset, fonts }: { result: E
           <h4>{g}</h4>
           {(() => {
             // Said once per group: which hidden parts its greyed-out parameters belong to.
-            const off = [...new Set(items.flatMap(([, d]) => hiddenOwners(d) ?? []))];
-            return off.length ? <div className="hint-line param-hidden-note">{off.join(', ')} {off.length > 1 ? 'are' : 'is'} hidden: show {off.length > 1 ? 'them' : 'it'} in Parts to change {items.every(([, d]) => hiddenOwners(d)) ? 'these' : 'the greyed-out ones'}.</div> : null;
+            const off = [...new Set(items.flatMap(([k, d]) => hiddenOwners(k, d) ?? []))];
+            return off.length ? <div className="hint-line param-hidden-note">{off.join(', ')} {off.length > 1 ? 'are' : 'is'} hidden: show {off.length > 1 ? 'them' : 'it'} in Parts to change {items.every(([k, d]) => hiddenOwners(k, d)) ? 'these' : 'the greyed-out ones'}.</div> : null;
           })()}
           {items.map(([k, d]) => {
-            const off = hiddenOwners(d);
+            const off = hiddenOwners(k, d);
             return (
               <fieldset key={k} className="param-fieldset" disabled={!!off} title={off ? `${off.join(', ')} ${off.length > 1 ? 'are' : 'is'} hidden` : undefined}>
                 <ParamRow k={k} def={d} value={result.values[k]} onValue={onValue} fonts={fonts} />

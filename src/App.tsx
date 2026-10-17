@@ -152,6 +152,21 @@ export default function App() {
     return { ...d, values };
   });
   const toggleHidden = (n: string) => setHiddenParts(hiddenParts.includes(n) ? hiddenParts.filter((x) => x !== n) : [...hiddenParts, n]);
+  // Which parts each parameter changes, measured while parts are hidden (to grey out the
+  // parameters of hidden parts); kept for the code and values it was measured with.
+  const [paramOwners, setParamOwners] = useState<{ key: string; owners: Record<string, string[]> } | null>(null);
+  const ownersKey = JSON.stringify([design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))]);
+  useEffect(() => {
+    if (!hiddenParts.length || !design.code || paramOwners?.key === ownersKey) return;
+    let stale = false;
+    // After the preview has settled, so the measuring builds don't hold it up.
+    const t = setTimeout(() => {
+      geo.owners(design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))).then((owners) => {
+        if (!stale && owners) setParamOwners({ key: ownersKey, owners });
+      });
+    }, 600);
+    return () => { stale = true; clearTimeout(t); };
+  }, [hiddenParts.length > 0, ownersKey]);
   // The part selected in the Object tab, highlighted in the view.
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
@@ -900,6 +915,7 @@ export default function App() {
           onExport3mf={() => onExport('3mf')}
           blender={blender}
           hiddenParts={hiddenParts}
+          paramOwners={paramOwners?.key === ownersKey ? paramOwners.owners : undefined}
           onToggleHidden={toggleHidden}
           onHiddenParts={setHiddenParts}
           selectedPart={selectedPart}

@@ -10,18 +10,20 @@ interface Job {
   values: ParamValues;
   quality: Quality;
   solve?: { target: DimTarget; goal: number };
+  /** Find which parts each parameter changes (probeParamOwners). */
+  owners?: boolean;
   validate?: ValidateOptions;
   /** A live preview (superseded by the next one) rather than a job someone waits for. */
   preview?: boolean;
   /** Also prepare the viewer's mesh in the worker (PartMesh.display). */
   display?: boolean;
   timeoutMs: number;
-  resolve: (o: EvalOutcome | SolveResult | null) => void;
+  resolve: (o: EvalOutcome | SolveResult | Record<string, string[]> | null) => void;
   /** Set once the job has been re-run after a worker crash. */
   retried?: boolean;
 }
 
-interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean; oom?: boolean; built?: boolean }
+interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean; oom?: boolean; built?: boolean; owners?: Record<string, string[]> }
 
 // A live preview should be quick; an export or validation at high quality may take longer.
 const PREVIEW_TIMEOUT_MS = 30000;
@@ -62,7 +64,7 @@ export class GeometryClient {
     };
   }
 
-  private reply({ id, result, error, solve, report, crashed, oom, built }: Reply) {
+  private reply({ id, result, error, solve, report, crashed, oom, built, owners }: Reply) {
     if (!this.running || this.running.id !== id) return;
     clearTimeout(this.running.timer);
     if (built) {
@@ -85,7 +87,8 @@ export class GeometryClient {
       // An export or validation often needs far more memory than the previews that follow.
       this.recycle = true;
     }
-    if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
+    if (job.owners) job.resolve(owners ?? null);
+    else if (job.solve) job.resolve(solve ?? { ok: false, message: error?.message ?? 'Failed' });
     else job.resolve(result ? { result, report } : { error: error! });
     this.pump();
   }
@@ -134,6 +137,14 @@ export class GeometryClient {
     });
   }
 
+  /** Which parts each parameter changes (null if the model fails). */
+  owners(code: string, values: ParamValues): Promise<Record<string, string[]> | null> {
+    return new Promise((resolve) => {
+      this.queue.push({ code, values, quality: 'draft', owners: true, timeoutMs: JOB_TIMEOUT_MS, resolve: resolve as Job['resolve'] });
+      this.pump();
+    });
+  }
+
   /** Find the parameter value that makes a dimension hit `goal` mm. */
   solve(code: string, values: ParamValues, quality: Quality, target: DimTarget, goal: number): Promise<SolveResult> {
     return new Promise((resolve) => {
@@ -161,11 +172,13 @@ export class GeometryClient {
       this.running = null;
       this.restart();
       const message = `Evaluation timed out after ${job.timeoutMs / 1000} s – the script is too slow at this quality (or loops forever)`;
-      job.resolve(job.solve ? { ok: false, message } : { error: { message, stage: 'build' } });
+      job.resolve(job.owners ? null : job.solve ? { ok: false, message } : { error: { message, stage: 'build' } });
       this.pump();
     }, job.timeoutMs);
     this.running = { id, job, timer, started: performance.now() };
-    this.worker.postMessage(job.solve
+    this.worker.postMessage(job.owners
+      ? { id, kind: 'owners', code: job.code, values: job.values }
+      : job.solve
       ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }
       : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality, validate: job.validate, display: job.display });
   }
