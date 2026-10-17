@@ -133,13 +133,14 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .viewer-host { position: absolute; inset: 0; bottom: 28px; overflow: hidden; }
 .viewer-host canvas { display: block; outline: none; }
 .label-layer { position: absolute; inset: 0; pointer-events: none; }
-.viewer-toolbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
+.viewer-toolbar { position: absolute; top: 10px; left: 10px; right: 52px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
 .tb-group { display: flex; gap: 2px; padding: 3px; background: #191b1fd9; border: 1px solid var(--line); border-radius: 9px; backdrop-filter: blur(6px); pointer-events: auto; }
 .tb-btn { display: grid; place-items: center; min-width: 28px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); }
 .tb-btn.text { padding: 0 6px; font-size: 12px; }
 .tb-btn:hover { background: #ffffff12; color: var(--text); }
 .tb-btn.on { background: #e0a43c2e; color: var(--accent-2); }
 .tb-select { border: 0; background: transparent; }
+.tb-corner { position: absolute; top: 10px; right: 10px; }
 /* Overlays below the toolbar follow its real height (--toolbar-bottom, set by ViewerPanel), so a
    toolbar that wraps onto a second row in a narrow window is never covered. */
 .section-bar { position: absolute; top: calc(var(--toolbar-bottom, 42px) + 10px); left: 10px; max-width: calc(100% - 20px); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; background: #191b1fe6; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }

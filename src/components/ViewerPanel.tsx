@@ -217,7 +217,6 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
             <button key={k} className="tb-btn text" onClick={() => viewer.current?.setView(k)}>{l}</button>
           ))}
           <button className="tb-btn" title="Home view (Home key)" aria-label="Home view" onClick={() => viewer.current?.home()}><Icon name="home" /></button>
-          <button className="tb-btn" title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen – only the 3D view'} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}><Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} /></button>
         </div>
         <div className="tb-group">
           <Toggle on={options.ortho} onClick={() => set({ ortho: !options.ortho })} icon="ortho" title="Orthographic camera (no perspective distortion)" />
@@ -236,6 +235,12 @@ export function ViewerPanel({ result, error, busy, fitKey, options, onOptions, q
           </select>
         </div>
       </div>
+      {/* Top-right corner; in fullscreen the exit button sits with the other fullscreen controls (.fs-controls). */}
+      {!fullscreen && (
+        <div className="tb-group tb-corner">
+          <button className="tb-btn" title="Fullscreen – only the 3D view" aria-label="Fullscreen" onClick={toggleFullscreen}><Icon name="fullscreen" /></button>
+        </div>
+      )}
 
       {options.section.enabled && (
         <div className="section-bar" role="group" aria-label="Section view">
