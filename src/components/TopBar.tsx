@@ -39,10 +39,12 @@ export function TopBar(p: Props) {
   const listWrap = useRef<HTMLDivElement>(null);
   usePopover(showList, () => setShowList(false), listWrap);
   const open = (id: string) => { setShowList(false); p.onOpen(id); };
+  // A plain click starts a new design in place; a modified click or the context menu opens a new tab.
+  const newHere = (e: React.MouseEvent) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); p.onNew(); } };
   return (
     <header className="topbar">
-      {/* A real link, so it can be opened in a new tab; a plain click starts a new design in place. */}
-      <a className="brand" href="/" title="New design" onClick={(e) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); p.onNew(); } }}>
+      {/* Real links (logo and New), so they can be opened in a new tab. */}
+      <a className="brand" href="/" title="New design" onClick={newHere}>
         <span className="logo"><Icon name="cube" size={18} /></span> Jig
       </a>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
@@ -71,7 +73,7 @@ export function TopBar(p: Props) {
         </button>
       )}
       <ConnectionChip />
-      <button className="btn ghost" onClick={p.onNew}><Icon name="plus" size={14} /> New</button>
+      <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
         {showList && (
