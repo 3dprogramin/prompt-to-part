@@ -147,7 +147,7 @@ Exports contain the visible parts only; hide a part to leave it out (Object tab,
 
 ## Configuration
 
-Set these in the environment, or in a `.env` file next to `package.json` (copy `.env.sample`; git ignores `.env`). Values already in the environment win.
+Set these in the environment, or in a `.env` file next to `package.json` (copy `.env.sample`; git ignores `.env`). Values already in the environment win. The API server reads `.env` only when it starts, so restart `npm run dev` after changing it (Vite restarting itself on a `.env` change doesn't restart the API server).
 
 | Variable | Default | |
 |---|---|---|
