@@ -61,6 +61,9 @@ interface Props {
   onToggleHidden: (name: string) => void;
   /** Set which parts are hidden (Object tab: show all, show only one). */
   onHiddenParts: (names: string[]) => void;
+  /** The part selected in the Object tab (highlighted in the view). */
+  selectedPart: string | null;
+  onSelectPart: (name: string | null) => void;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   scale: number;
   onScale: (factor: number) => void;
@@ -76,7 +79,7 @@ interface Props {
 const PLA_DENSITY = 1.24; // g/cm³
 
 export function SidePanel(p: Props) {
-  const [tab, setTab] = useState<Tab>('params');
+  const [tab, setTab] = useState<Tab>('object');
   // Code edits not applied yet, per design, kept while other tabs or designs are open.
   const [drafts, setDrafts] = useState<Record<string, CodeDraft>>({});
   const draft = drafts[p.designId];
@@ -110,7 +113,7 @@ export function SidePanel(p: Props) {
       </div>
       <div className="tab-body" role="tabpanel">
         {tab === 'object' && (shown
-          ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport}
+          ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport} selected={p.selectedPart} onSelect={p.onSelectPart}
             textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={setTab} />
           : noModel('The parts appear here once a model is generated.'))}
         {tab === 'params' && shown && <OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} />}
@@ -128,7 +131,7 @@ export function SidePanel(p: Props) {
           ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
             result={p.cost.result} upToDate={p.cost.upToDate} error={p.cost.error} running={p.cost.running} bambu={!!p.bambu} onCalculate={p.cost.calculate} />
           : noModel('Costs appear once a model is generated.'))}
-        {tab === 'info' && (shown ? <InfoTab result={shown} sources={p.sources} onExport={p.onExport} hiddenParts={p.hiddenParts} onToggleHidden={p.onToggleHidden} /> : noModel('No model yet.'))}
+        {tab === 'info' && (shown ? <InfoTab result={shown} sources={p.sources} /> : noModel('No model yet.'))}
         {tab === 'code' && <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />}
       </div>
       <div className="export-bar">
@@ -397,7 +400,7 @@ function NumberControl({ id, label, def, value, onChange }: { id: string; label:
   );
 }
 
-function InfoTab({ result, sources, onExport, hiddenParts, onToggleHidden }: { result: EvalResult; sources?: DimensionSource[]; onExport: Props['onExport']; hiddenParts: string[]; onToggleHidden: (n: string) => void }) {
+function InfoTab({ result, sources }: { result: EvalResult; sources?: DimensionSource[] }) {
   const vol = result.parts.reduce((s, p) => s + p.volume, 0) / 1000;
   const area = result.parts.reduce((s, p) => s + p.surfaceArea, 0) / 100;
   const tris = result.parts.reduce((s, p) => s + p.triCount, 0);
@@ -424,16 +427,13 @@ function InfoTab({ result, sources, onExport, hiddenParts, onToggleHidden }: { r
       <h4>Parts</h4>
       <ul className="part-list">
         {result.parts.map((p) => {
-          const hidden = hiddenParts.includes(p.name);
           return (
             <li key={p.name}>
-              <button className="icon-btn" onClick={() => onToggleHidden(p.name)} title={hidden ? 'Show' : 'Hide'} aria-label={`${hidden ? 'Show' : 'Hide'} ${p.name}`} aria-pressed={hidden}><Icon name={hidden ? 'eyeOff' : 'eye'} size={14} /></button>
               <span className="swatch" style={{ background: p.color }} />
               <div className="part-meta">
                 <div>{p.name}</div>
                 <div className="mono dim small">{(p.bbox.max[0] - p.bbox.min[0]).toFixed(1)} × {(p.bbox.max[1] - p.bbox.min[1]).toFixed(1)} × {(p.bbox.max[2] - p.bbox.min[2]).toFixed(1)} mm · {(p.volume / 1000).toFixed(2)} cm³</div>
               </div>
-              <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${p.name} as STL`} onClick={() => onExport('stl', p.name)}><Icon name="download" size={14} /></button>
             </li>
           );
         })}

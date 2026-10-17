@@ -27,7 +27,11 @@ export interface ViewerOptions {
   pickText?: boolean;
   /** false = show every part in one neutral colour. */
   colors?: boolean;
+  /** The part selected in the Object tab: highlighted. */
+  selectedPart?: string | null;
 }
+
+const SELECTED_GLOW = new THREE.Color('#e0a43c').multiplyScalar(0.35);
 
 const NEUTRAL = new THREE.Color('#b9bcc2');
 
@@ -289,6 +293,7 @@ export class Viewer {
       const [front, back] = group.children as THREE.Mesh[];
       const base = (front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
       (front.material as THREE.MeshStandardMaterial).color.copy(colors ? base : NEUTRAL);
+      (front.material as THREE.MeshStandardMaterial).emissive.copy(group.name === this.opts.selectedPart ? SELECTED_GLOW : new THREE.Color(0));
       (back.material as THREE.MeshBasicMaterial).color.copy(colors ? base : NEUTRAL).multiplyScalar(0.45);
       group.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.Material | undefined;

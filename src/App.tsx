@@ -6,7 +6,7 @@ import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, t
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
-import { describeSettings, settingsChanged } from './lib/settings';
+import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
 import { GeometryClient } from './geometry/client';
@@ -118,6 +118,21 @@ export default function App() {
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
   // Model, effort and web search per design, in memory only: every new design (and every reload)
   // starts with Opus, High effort and web search on.
+  // Hidden parts are saved with the design (they stay hidden after a reload or a new version).
+  const hiddenParts = useMemo<string[]>(() => {
+    try {
+      const a = JSON.parse(String(design.values[HIDDEN_KEY] ?? '[]'));
+      return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
+    } catch { return []; }
+  }, [design.values]);
+  const setHiddenParts = (list: string[]) => setDesign((d) => {
+    const values = { ...d.values };
+    if (list.length) values[HIDDEN_KEY] = JSON.stringify([...new Set(list)]); else delete values[HIDDEN_KEY];
+    return { ...d, values };
+  });
+  const toggleHidden = (n: string) => setHiddenParts(hiddenParts.includes(n) ? hiddenParts.filter((x) => x !== n) : [...hiddenParts, n]);
+  // The part selected in the Object tab, highlighted in the view.
+  const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
   const chat = chatOpts[design.id] ?? DEFAULT_CHAT;
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? DEFAULT_CHAT), ...patch } }));
@@ -223,7 +238,8 @@ export default function App() {
       lastLoaded.current = live ?? next;
       return live ?? next;
     });
-    setViewOpts((o) => ({ ...o, hiddenParts: [], measure: false }));
+    setViewOpts((o) => ({ ...o, measure: false }));
+    setSelectedPart(null);
   }, []);
 
   // Open the last design on startup (guarded: hot reload re-runs effects).
@@ -342,7 +358,6 @@ export default function App() {
               messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
             };
           });
-          if (currentId.current === designId) setViewOpts((o) => ({ ...o, hiddenParts: [] }));
         } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
         else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
       }, abort.signal);
@@ -459,7 +474,7 @@ export default function App() {
   const cost = useCost(geo, {
     design,
     values: printLayout && layoutKey ? { ...design.values, [layoutKey]: printLayout } : design.values,
-    hiddenParts: viewOpts.hiddenParts,
+    hiddenParts,
     userPrint,
     onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
   });
@@ -488,7 +503,7 @@ export default function App() {
     if (!design.code || !shown) return;
     setValidating(true);
     try {
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: viewOpts.hiddenParts, ...printHints() } });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: hiddenParts, ...printHints() } });
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
       setValidation({ report: o.report, label: 'Validation' });
       setValidationOpen(true);
@@ -584,7 +599,7 @@ export default function App() {
       // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
       // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
       // or may be from other settings, and the file would not be what the user expects.
-      const choice = { exclude: viewOpts.hiddenParts, only: partName };
+      const choice = { exclude: hiddenParts, only: partName };
       const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
       if (!o.result) {
         setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
@@ -737,6 +752,9 @@ export default function App() {
     refreshList();
   }
 
+  // The viewer shows the design's hidden parts and the Object tab's selection.
+  const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart };
+
   return (
     <div className="app">
       <TopBar
@@ -788,8 +806,8 @@ export default function App() {
           error={error}
           busy={busy}
           fitKey={fitKey}
-          options={picking ? { ...viewOpts, pickText: true, measure: false } : viewOpts}
-          onOptions={setViewOpts}
+          options={picking ? { ...viewerOptions, pickText: true, measure: false } : viewerOptions}
+          onOptions={(o) => { if (o.hiddenParts !== viewerOptions.hiddenParts) setHiddenParts(o.hiddenParts); setViewOpts(o); }}
           quality={quality}
           onQuality={setQuality}
           onEditDimension={onEditDimension}
@@ -857,9 +875,11 @@ export default function App() {
           onThreeMf={setThreeMf}
           onExport3mf={() => onExport('3mf')}
           blender={blender}
-          hiddenParts={viewOpts.hiddenParts}
-          onToggleHidden={(n) => setViewOpts((o) => ({ ...o, hiddenParts: o.hiddenParts.includes(n) ? o.hiddenParts.filter((x) => x !== n) : [...o.hiddenParts, n] }))}
-          onHiddenParts={(hiddenParts) => setViewOpts((o) => ({ ...o, hiddenParts }))}
+          hiddenParts={hiddenParts}
+          onToggleHidden={toggleHidden}
+          onHiddenParts={setHiddenParts}
+          selectedPart={selectedPart}
+          onSelectPart={setSelectedPart}
         />
       </main>
       {pendingRestore != null && (

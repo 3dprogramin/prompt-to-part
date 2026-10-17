@@ -2,6 +2,9 @@ import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
 import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
+
+/** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
+export const HIDDEN_KEY = '$hidden';
 import { PRINT_KEY } from '../../shared/print';
 
 type Params = EvalResult['params'];
@@ -10,8 +13,8 @@ type Params = EvalResult['params'];
 function effective(values: ParamValues, params: Params): ParamValues {
   const out: ParamValues = {};
   for (const [k, v] of Object.entries(values)) {
-    // Attached drawings come with chat messages; they aren't settings to save as a version.
-    if (k === DRAWINGS_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
+    // Attached drawings come with chat messages and visibility is a view choice: neither is a setting to save as a version.
+    if (k === DRAWINGS_KEY || k === HIDDEN_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
     out[k] = v;
   }
   return out;

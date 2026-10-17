@@ -16,6 +16,9 @@ interface Props {
   onSvgFeatures: (f: SvgFeature[]) => void;
   /** Open the Text or SVG tab to edit a feature. */
   onEdit: (tab: 'text' | 'svg') => void;
+  /** The selected part (highlighted in the view); clicking it again clears the selection. */
+  selected: string | null;
+  onSelect: (name: string | null) => void;
 }
 
 /**
@@ -46,8 +49,8 @@ export function ObjectPanel(p: Props) {
           const open = children > 0 && !collapsed.includes(part.name);
           const b = part.bbox;
           return (
-            <li key={part.name} role="treeitem" aria-expanded={children ? open : undefined} aria-selected={false} className={hidden ? 'off' : ''}>
-              <div className="object-row">
+            <li key={part.name} role="treeitem" aria-expanded={children ? open : undefined} aria-selected={p.selected === part.name} className={hidden ? 'off' : ''}>
+              <div className={`object-row ${p.selected === part.name ? 'selected' : ''}`}>
                 {children
                   ? <button className="icon-btn tree-chev" aria-label={open ? `Collapse ${part.name}` : `Expand ${part.name}`} onClick={() => setCollapsed((c) => (open ? [...c, part.name] : c.filter((x) => x !== part.name)))}><span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={11} /></span></button>
                   : <span className="tree-chev" />}
@@ -55,10 +58,10 @@ export function ObjectPanel(p: Props) {
                   <Icon name={hidden ? 'eyeOff' : 'eye'} size={14} />
                 </button>
                 <span className="swatch" style={{ background: part.color }} />
-                <div className="object-meta">
+                <button className="object-meta" title={p.selected === part.name ? 'Selected (highlighted in the view) – click to clear' : 'Select: highlight it in the view'} onClick={() => p.onSelect(p.selected === part.name ? null : part.name)}>
                   <div className="object-name">{part.name}</div>
                   <div className="mono dim small">{(b.max[0] - b.min[0]).toFixed(1)} × {(b.max[1] - b.min[1]).toFixed(1)} × {(b.max[2] - b.min[2]).toFixed(1)} mm</div>
-                </div>
+                </button>
                 {names.length > 1 && <button className="icon-btn" title="Show only this part" aria-label={`Show only ${part.name}`} onClick={() => p.onHiddenParts(names.filter((n) => n !== part.name))}><Icon name="fit" size={14} /></button>}
                 <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${part.name} as STL`} onClick={() => p.onExport('stl', part.name)}><Icon name="download" size={14} /></button>
               </div>
