@@ -7,6 +7,9 @@ import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import { CONTENT_TYPES, colourSlots, esc, num } from './threeMf';
 
+/** Rough prime-tower depth per filament (mm), measured with Bambu Studio's slicer on the A1. */
+const TOWER_DEPTH_PER_FILAMENT = 12;
+
 const NS = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"';
 const ID = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
 
@@ -113,6 +116,13 @@ export function toBambuProject(
   settings.filament_colour = colours;
   settings.filament_self_index = colours.map((_, i) => String(i + 1));
   settings.filament_map = colours.map(() => '1');
+  // The prime tower gets deeper with every filament; the template's spot near the back edge only
+  // fits three (y = 220 on the 256 mm bed fails to slice with four). Move it forward so its
+  // estimated depth stays on the bed.
+  const bedY = Math.max(0, ...((tpl.settings.printable_area as string[] | undefined) ?? []).map((p) => Number(p.split('x')[1])).filter(Number.isFinite));
+  const towerY = Number((settings.wipe_tower_y as string[] | undefined)?.[0]);
+  const maxTowerY = bedY - 5 - TOWER_DEPTH_PER_FILAMENT * n;
+  if (n > 1 && bedY > 0 && Number.isFinite(towerY) && towerY > maxTowerY) settings.wipe_tower_y = [String(Math.max(0, Math.floor(maxTowerY)))];
   // Purge volumes between filaments: an n × n matrix (nothing on the diagonal) and two values per
   // filament; the slicer refuses a project whose matrix has a different size.
   const purge = (tpl.settings.flush_volumes_matrix as string[] | undefined)?.find((v) => v !== '0') ?? '280';

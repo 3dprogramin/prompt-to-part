@@ -23,6 +23,7 @@ import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
 import type { PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
+import { exportedParts } from './geometry/validate';
 import { A1_DEFAULTS, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
@@ -420,8 +421,7 @@ export default function App() {
     if (!design.code || !shown) return;
     setValidating(true);
     try {
-      const parts = shown.parts.map((p) => p.name).filter((n) => !viewOpts.hiddenParts.includes(n));
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, parts, ...printHints() } });
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: viewOpts.hiddenParts, ...printHints() } });
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
       setValidation({ report: o.report, label: 'Validation' });
       setValidationOpen(true);
@@ -487,13 +487,9 @@ export default function App() {
    * Everything needed to rebuild the model as the user has set it: the sliders as they are now
    * (not as last evaluated – a slow preview may still be running), uniform scale and text-tool text.
    */
-  const fullValues = (): ParamValues => {
-    const out: ParamValues = resolveValues((result ?? lastGood)?.params ?? {}, design.values);
-    const sc = design.values[SCALE_KEY];
-    if (sc != null && sc !== 1) out[SCALE_KEY] = sc;
-    if (design.values[TEXT_KEY] != null) out[TEXT_KEY] = design.values[TEXT_KEY];
-    return out;
-  };
+  // The runtime resolves values against the script it actually runs (defaults for anything new),
+  // so they are passed as they are, not resolved against a preview that may be of older code.
+  const fullValues = (): ParamValues => ({ ...design.values });
 
   const onEditDimension = async (target: DimTarget, goal: number): Promise<SolveResult | null> => {
     if (!design.code || !(result ?? lastGood)) return null;
@@ -514,23 +510,25 @@ export default function App() {
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
   const onExport = async (format: ExportFormat, partName?: string) => {
-    const base = result ?? lastGood;
-    if (!base) return;
+    if (!design.code) return;
     setExporting(true);
     setExportError(null);
     try {
       // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
       // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
       // or may be from other settings, and the file would not be what the user expects.
-      const names = partName ? [partName] : base.parts.map((p) => p.name).filter((n) => !viewOpts.hiddenParts.includes(n));
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, parts: names, ...printHints() } });
+      const choice = { exclude: viewOpts.hiddenParts, only: partName };
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
       if (!o.result) {
         setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
         return;
       }
       const r = o.result;
-      const parts = r.parts.filter((p) => names.includes(p.name));
-      if (!parts.length) return;
+      const parts = exportedParts(r, choice);
+      if (!parts.length) {
+        setNotice({ text: partName ? `Not exported: the model has no part "${partName}" any more.` : 'Not exported: every part is hidden in the viewer.', level: 'warning', details: false });
+        return;
+      }
       const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
       const file = `${name}.${format}`;
       const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {

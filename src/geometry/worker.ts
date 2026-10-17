@@ -84,6 +84,9 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
       return;
     }
     const result = await withFonts(() => evaluateScript(req.code, req.values, req.quality), loadFont);
+    // The script is done: preparing the viewer mesh below takes time of its own, which must not
+    // count against the script's time limit.
+    if (req.display) post({ id: req.id, built: true });
     // Validate before the buffers are transferred away.
     const report = req.validate ? validateResult(result, req.validate) : undefined;
     const transfer: Transferable[] = [];

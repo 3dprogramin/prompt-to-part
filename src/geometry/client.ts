@@ -21,7 +21,7 @@ interface Job {
   retried?: boolean;
 }
 
-interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean; oom?: boolean }
+interface Reply { id: number; result?: EvalResult; error?: ScriptErrorInfo; solve?: SolveResult; report?: ValidationReport; crashed?: boolean; oom?: boolean; built?: boolean }
 
 // A live preview should be quick; an export or validation at high quality may take longer.
 const PREVIEW_TIMEOUT_MS = 30000;
@@ -38,7 +38,8 @@ const BIG_JOB_TRIANGLES = 400_000;
 export class GeometryClient {
   private worker!: Worker;
   private seq = 0;
-  private running: { id: number; job: Job; timer: number; started: number } | null = null;
+  /** `built`: the script finished and the worker is preparing the viewer mesh (no time limit). */
+  private running: { id: number; job: Job; timer: number; started: number; built?: boolean } | null = null;
   private pending: Job | null = null;
   private queue: Job[] = [];
   private staleTimer = 0;
@@ -61,9 +62,13 @@ export class GeometryClient {
     };
   }
 
-  private reply({ id, result, error, solve, report, crashed, oom }: Reply) {
+  private reply({ id, result, error, solve, report, crashed, oom, built }: Reply) {
     if (!this.running || this.running.id !== id) return;
     clearTimeout(this.running.timer);
+    if (built) {
+      this.running.built = true;
+      return;
+    }
     const { job } = this.running;
     this.running = null;
     // A wasm trap leaves the heap unusable: replace the worker and run the job once more (not
@@ -110,7 +115,8 @@ export class GeometryClient {
   private dropStalePreview() {
     clearTimeout(this.staleTimer);
     const r = this.running;
-    if (!r?.job.preview || !this.pending) return;
+    // Once built, its mesh is nearly ready: dropping it now would only throw that work away.
+    if (!r?.job.preview || r.built || !this.pending) return;
     const wait = r.started + STALE_PREVIEW_MS - performance.now();
     if (wait > 0) { this.staleTimer = window.setTimeout(() => this.dropStalePreview(), wait); return; }
     clearTimeout(r.timer);

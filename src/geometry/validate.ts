@@ -189,18 +189,28 @@ const f1 = (n: number) => n.toFixed(1);
 
 export interface ValidateOptions {
   layoutValue?: string;
-  /** Check only these parts (the ones being exported); default: all. */
-  parts?: string[];
+  /** Parts left out (hidden in the viewer); they are not exported, so not checked. */
+  exclude?: string[];
+  /** Check only this part (exported on its own). */
+  only?: string;
   /** Parts that will print with supports / an explicit brim (from the print settings). */
   supportParts?: string[];
   brimParts?: string[];
+}
+
+/**
+ * The parts an export writes: the one named in `only`, or every part not excluded. Chosen from the
+ * build being exported, so parts that only exist at the current values are included.
+ */
+export function exportedParts<P extends { name: string }>(r: { parts: P[] }, opts: Pick<ValidateOptions, 'exclude' | 'only'>): P[] {
+  return r.parts.filter((p) => (opts.only != null ? p.name === opts.only : !opts.exclude?.includes(p.name)));
 }
 
 export function validateResult(all: EvalResult, opts: ValidateOptions = {}): ValidationReport {
   const t0 = performance.now();
   // Parts left out of the export (hidden, or another part exported alone) are not checked: the
   // size and overlap checks are about what is actually printed.
-  const keep = opts.parts ? all.parts.filter((p) => opts.parts!.includes(p.name)) : all.parts;
+  const keep = exportedParts(all, opts);
   const result = { ...all, parts: keep, bbox: boundsOf(keep) };
   const issues: ValidationIssue[] = [];
   const add = (severity: Severity, title: string, detail: string, part?: string) => issues.push({ severity, title, detail, part });

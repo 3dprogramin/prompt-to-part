@@ -2,7 +2,7 @@ import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
-import { validateResult } from '../src/geometry/validate';
+import { validateResult, exportedParts } from '../src/geometry/validate';
 
 const check = (code: string, opts = {}) => validateResult(evaluateScript(code, {}, 'normal'), opts).issues.map((i) => i.title);
 
@@ -25,7 +25,15 @@ test('a sealed cavity is not "pieces in mid-air"', () => {
 test('only the exported parts are checked', () => {
   const code = 'function build() { return [{ name: "A", shape: Manifold.cube([200, 20, 20]) }, { name: "B", shape: Manifold.cube([200, 20, 20]).translate([210, 0, 0]) }]; }';
   assert.ok(check(code).some((t) => /Too big/.test(t)));
-  assert.ok(!check(code, { parts: ['A'] }).some((t) => /Too big/.test(t)));
+  assert.ok(!check(code, { only: 'A' }).some((t) => /Too big/.test(t)));
+  assert.ok(!check(code, { exclude: ['B'] }).some((t) => /Too big/.test(t)));
+});
+
+test('exported parts come from the build being exported', () => {
+  const build = { parts: [{ name: 'Part 1' }, { name: 'Part 2' }, { name: 'Part 3' }, { name: 'Lid' }] };
+  assert.deepEqual(exportedParts(build, { exclude: ['Lid'] }).map((p) => p.name), ['Part 1', 'Part 2', 'Part 3']);
+  assert.deepEqual(exportedParts(build, { only: 'Part 3' }).map((p) => p.name), ['Part 3']);
+  assert.deepEqual(exportedParts(build, { only: 'Gone' }), []);
 });
 
 test('supports in the print settings turn the overhang warning into info', () => {
