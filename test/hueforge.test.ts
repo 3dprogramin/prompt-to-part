@@ -150,6 +150,12 @@ test('H.hueforge: border, the user\'s setup, scale, lite evaluations and errors'
   assert.deepEqual(lc.map((l) => l.color), FOUR.map((f) => f.color));
   assert.ok(Math.abs(lc[1].z - 2 * 0.56) < 1e-9, 'z scaled with the part');
   assert.ok(Math.abs(r.parts[0].bbox.max[2] - 3.2) < 1e-3);
+  // What the side panel needs for its preview: the picture and the options, scaled with the part.
+  const src = r.parts[0].hueforge!;
+  assert.equal(src.image, 'gradient.png');
+  assert.deepEqual([src.options.width, src.options.maxHeight, src.options.layerHeight, src.options.gamma].map((v) => +v.toFixed(9)), [200, 3.2, 0.16, 1]);
+  const sim = simulateImage(gradient, lc, src.options);
+  assert.ok(sim.rgba[(50 * 200 + 5) * 4] < sim.rgba[(50 * 200 + 195) * 4], 'scaled options still preview the print');
   // Swaps that don't fit the filaments fall back to automatic ones.
   const auto = evaluateScript(SCRIPT, { ...values, [HF_KEY]: JSON.stringify({ filaments: FOUR, swaps: [9, 6] }) }, 'draft').parts[0].layerColors!;
   assert.deepEqual(auto.map((l) => l.layer).slice(1), autoSwaps(gradient, FOUR, { width: 100 }));
