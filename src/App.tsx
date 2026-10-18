@@ -40,7 +40,7 @@ import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRI
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
-interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode }
+interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode; figureColor?: boolean }
 /** Most design tabs open at once in the top bar. */
 const MAX_TABS = 8;
 const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, imageMode: 'off' };
@@ -469,6 +469,7 @@ export default function App() {
         effort: chat.effort,
         webSearch: chat.webSearch,
         imageMode: chat.imageMode,
+        ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
         artwork: chat.imageMode === 'artwork',
         drawings: Object.keys(drawings).length ? drawings : undefined,
         // The design's pictures, meshes and LayerTone setup, so Claude has them even before a first version exists.
@@ -1041,6 +1042,8 @@ export default function App() {
           meshy={meshy}
           meshyCredits={meshy ? meshyCredits : null}
           onImageMode={(imageMode) => setChat({ imageMode })}
+          figureColor={!!chat.figureColor}
+          onFigureColor={(figureColor) => setChat({ figureColor })}
           defaultModel={chatDefaults.model}
           hasModel={!!design.code}
           dictation={dictation}
@@ -1123,6 +1126,11 @@ export default function App() {
           onResetValues={() => setDesign((d) => ({ ...d, values: keepAppValues(d.values) }))}
           values={design.values}
           onLayerTone={setLayerTone}
+          onMeshPalette={(name, palette) => setDesign((d) => {
+            const meshes = parseMeshes(d.values[MESHES_KEY]);
+            if (!meshes[name]) return d;
+            return { ...withMesh(d, name, { ...meshes[name], palette }), updatedAt: Date.now() };
+          })}
           onLayerToneImage={(name, image) => setDesign((d) => ({ ...withLayerToneImage(d, name, image), updatedAt: Date.now() }))}
           onEditDimension={onEditDimension}
           textFeatures={textFeatures}

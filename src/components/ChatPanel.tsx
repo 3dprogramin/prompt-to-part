@@ -13,7 +13,7 @@ import { activityOf, INTERRUPTED, wasInterrupted } from '../lib/activity';
 import { useEscape } from './useEscape';
 import { usePopover } from './usePopover';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../../shared/api';
-import { MESHY_CREDITS_PER_MODEL } from '../../shared/meshes';
+import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits } from '../../shared/meshes';
 import { meshFormat } from '../../shared/meshFormats';
 import { api } from '../lib/api';
 import { load, store } from '../lib/storage';
@@ -61,6 +61,9 @@ interface Props {
   /** The Meshy account's credits, once known. */
   meshyCredits: MeshyBalance | null;
   onImageMode: (mode: ImageMode) => void;
+  /** 3D figure mode's Colour: figures in colour, printed in up to 4 filaments (off by default). */
+  figureColor: boolean;
+  onFigureColor: (on: boolean) => void;
   /** The server's starting model (JIG_MODEL), offered even when it is a full model ID. */
   defaultModel: string;
   onWebSearch: (on: boolean) => void;
@@ -391,7 +394,20 @@ export function ChatPanel(p: Props) {
           >
             <Icon name="globe" size={14} />
           </button>
-          <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} onMode={p.onImageMode} />
+          <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} color={p.figureColor} onMode={p.onImageMode} />
+          {p.imageMode === 'figure' && p.meshy && (
+            <button
+              className={`web-toggle figure-color ${p.figureColor ? 'on' : ''}`}
+              aria-pressed={p.figureColor}
+              onClick={() => p.onFigureColor(!p.figureColor)}
+              title={p.figureColor
+                ? `Colour (4 filaments) is on: Jig draws the concept in colour, Meshy paints the model (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
+                : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}
+            >
+              <span className="figure-color-dots" aria-hidden><i /><i /><i /><i /></span>
+              <span className="mode-label">Colour</span>
+            </button>
+          )}
           <span className="spacer" />
           <button
             className={`icon-btn mic ${listening}`}
@@ -458,18 +474,18 @@ const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: strin
   { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
   { mode: 'figure', label: '3D figure (AI mesh)', short: 'Figure', icon: 'figure', hint: (art, meshy) => (!meshy
     ? 'Needs a Meshy API key: set MESHY_API_KEY in .env and restart Jig.'
-    : art ? 'Jig draws a concept picture of the person, character or animal for you to approve, then Meshy sculpts it as a real 3D model (1–3 min, Meshy credits); or attach a photo. Jig adds the base, name or mount.'
-    : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount.') },
+    : art ? 'Jig draws a concept picture of the person, character or animal for you to approve, then Meshy sculpts it as a real 3D model (1–3 min, Meshy credits); or attach a photo. Jig adds the base, name or mount. Turn on Colour next to it for a figure in up to 4 filaments.'
+    : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount. Turn on Colour next to it for a figure in up to 4 filaments.') },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */
-/** "1,200 Meshy credits left", with when the monthly ones renew. */
-function creditsText(c: MeshyBalance): string {
+/** "1,200 Meshy credits left", with when the monthly ones renew, and what a model costs (in colour or not). */
+function creditsText(c: MeshyBalance, color = false): string {
   const resets = c.monthly_resets_at ? ` (monthly credits renew ${new Date(c.monthly_resets_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })})` : '';
-  return `${c.balance.toLocaleString('en')} Meshy credits left${resets}; a model costs ${MESHY_CREDITS_PER_MODEL}.`;
+  return `${c.balance.toLocaleString('en')} Meshy credits left${resets}; a model costs ${meshyCredits(color)}${color ? ' in colour' : ''}.`;
 }
 
-function ImageModeMenu({ mode, artworkModel, meshy, credits, onMode }: { mode: ImageMode; artworkModel: string | null; meshy: boolean; credits: MeshyBalance | null; onMode: (m: ImageMode) => void }) {
+function ImageModeMenu({ mode, artworkModel, meshy, credits, color, onMode }: { mode: ImageMode; artworkModel: string | null; meshy: boolean; credits: MeshyBalance | null; color: boolean; onMode: (m: ImageMode) => void }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -503,11 +519,11 @@ function ImageModeMenu({ mode, artworkModel, meshy, credits, onMode }: { mode: I
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}
-        title={`Picture mode: ${current.label}. ${current.hint(artworkModel, meshy)}${mode === 'figure' && credits ? ` ${creditsText(credits)}` : ''} Click to choose.`}
+        title={`Picture mode: ${current.label}. ${current.hint(artworkModel, meshy)}${mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''} Click to choose.`}
       >
         <Icon name={current.icon} size={14} />
         {current.short && <span className="mode-label">{current.short}</span>}
-        {mode === 'figure' && credits && <span className={`mode-credits ${credits.balance < MESHY_CREDITS_PER_MODEL ? 'low' : ''}`} aria-label={creditsText(credits)}>{credits.balance.toLocaleString('en')}</span>}
+        {mode === 'figure' && credits && <span className={`mode-credits ${credits.balance < meshyCredits(color) ? 'low' : ''}`} aria-label={creditsText(credits, color)}>{credits.balance.toLocaleString('en')}</span>}
       </button>
       {open && (
         <div className="mode-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>
@@ -518,7 +534,7 @@ function ImageModeMenu({ mode, artworkModel, meshy, credits, onMode }: { mode: I
               <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} aria-disabled={off || undefined} className={`${m.mode === mode ? 'on' : ''} ${off ? 'unavailable' : ''}`} onClick={() => { if (!off) pick(m.mode); }}>
                 <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
                 <span className="mode-icon" aria-hidden><Icon name={m.icon} size={16} /></span>
-                <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.hint(artworkModel, meshy)}{m.mode === 'figure' && credits ? ` ${creditsText(credits)}` : ''}</span></span>
+                <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.hint(artworkModel, meshy)}{m.mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''}</span></span>
               </button>
             );
           })}

@@ -7,7 +7,7 @@
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -227,5 +227,46 @@ test('3D figure mode shows the Meshy credits left on its button', async () => {
   assert.match(await page.locator('.mode-btn').getAttribute('title') ?? '', /1,200 Meshy credits left .*a model costs 25/);
   assert.ok(asked >= 1);
   await page.screenshot({ path: path.join(shots, '7-meshy-credits.png') });
+  // Colour (4 filaments), off by default: a coloured model costs 35.
+  await page.keyboard.press('Escape');
+  const colour = page.locator('button.figure-color');
+  assert.equal(await colour.getAttribute('aria-pressed'), 'false');
+  await colour.click();
+  assert.equal(await colour.getAttribute('aria-pressed'), 'true');
+  assert.match(await page.locator('.mode-btn').getAttribute('title') ?? '', /a model costs 35 in colour/);
+  await page.close();
+});
+
+test('a coloured figure: its filaments in the Object tab, the STL hint says the colours are lost', async () => {
+  assert.ok(browser, 'runs after the first test');
+  // The mock's coloured figure, imported (in the geometry process) as generate_3d stores it.
+  const { geometry } = await import('../../server/geometry');
+  const imported = await geometry.importMesh(new Uint8Array(readFileSync(new URL('../fixtures/meshes/colour-figure.glb', import.meta.url))), 'figure.glb', { colors: true }, { colors: 4, mine: [] });
+  geometry.stop();
+  const palette = imported.palette!;
+  const fid = 'ui-smoke-00000003', bin = `${'ab'.repeat(16)}.bin`;
+  mkdirSync(path.join(dataDir, 'designs', fid, 'meshes'), { recursive: true });
+  writeFileSync(path.join(dataDir, 'designs', fid, 'meshes', bin), imported.bin);
+  const mesh = { indices: { length: imported.report.triangles * 3 } };
+  const black = palette.find((c) => c.filament.name === 'PLA Basic Black')!.filament.color;
+  const figCode = `function build() { return [{ name: 'Kid', color: '${black}', shape: H.mesh('kid', { height: 50 }).translate([0, 0, 2]).add(Manifold.cylinder(2.5, 16, 16, 40)) }]; }`;
+  const saved = await fetch(`${A}/api/designs/${fid}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    body: JSON.stringify({ id: fid, name: 'Coloured kid', createdAt: 1, updatedAt: 1000, code: figCode, messages: [], currentVersion: 0,
+      values: { $meshes: JSON.stringify({ kid: { file: `/api/designs/${fid}/meshes/${bin}`, triangles: mesh.indices.length / 3, size: [35, 35, 80], source: 'meshy', palette } }) },
+      versions: [{ code: figCode, summary: 'A coloured kid', createdAt: 1000, source: 'manual' }] }),
+  });
+  assert.equal(saved.status, 200, await saved.text());
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${fid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
+  const rows = page.locator('.mesh-colors-row');
+  await rows.first().waitFor();
+  assert.equal(await rows.count(), 4);
+  assert.match(await page.locator('.mesh-colors').textContent() ?? '', /4 of 4 AMS slots/);
+  assert.equal(await page.getByRole('button', { name: /PLA Basic Black.*change the filament/ }).count(), 1);
+  await page.screenshot({ path: path.join(shots, '8-coloured-figure.png') });
+  await page.getByRole('button', { name: 'More export formats' }).click();
+  await page.locator('.export-menu', { hasText: 'Geometry only: the figure\'s colours are lost' }).waitFor();
   await page.close();
 });

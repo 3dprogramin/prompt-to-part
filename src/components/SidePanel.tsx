@@ -6,6 +6,9 @@ import { TextPanel } from './TextPanel';
 import { PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
 import { ObjectPanel } from './ObjectPanel';
+import { MeshColorsPanel } from './MeshColorsPanel';
+import { MESHES_KEY, parseMeshes } from '../../shared/meshes';
+import type { MeshColor } from '../../shared/meshColors';
 import { SvgPanel } from './SvgPanel';
 import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
@@ -46,6 +49,8 @@ interface Props {
   /** The design's values (the LayerTone setup and pictures). */
   values: ParamValues;
   onLayerTone: (s: LayerToneSetup | null) => void;
+  /** A coloured mesh's colours and filaments changed (Object tab). */
+  onMeshPalette: (name: string, palette: MeshColor[]) => void;
   onLayerToneImage: (name: string, image: LayerToneImage) => void;
   onApplyCode: (code: string) => void;
   onExport: (format: ExportFormat, partName?: string) => void;
@@ -148,6 +153,7 @@ export function SidePanel(p: Props) {
             ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport} selected={p.selectedPart} onSelect={p.onSelectPart}
               textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={(t) => openSection('decorate', t)} />
             : noModel('The parts appear here once a model is generated.')))}
+          {shown && Object.values(parseMeshes(p.values[MESHES_KEY])).some((m) => m.palette?.length) && section('colors', 'Filament colours', () => <MeshColorsPanel result={shown} meshes={parseMeshes(p.values[MESHES_KEY])} onPalette={p.onMeshPalette} />)}
           {section('params', 'Parameters', () => (shown
             ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
             : noModel('Parameters appear here once a model is generated.')))}
@@ -187,7 +193,7 @@ export function SidePanel(p: Props) {
             <Icon name="check" size={14} /> {p.validating ? 'Checking…' : 'Validate'}
           </button>
           <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
-            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject}
+            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject} painted={!!shown?.parts.some((x) => x.paint)}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
         </div>
         {p.exportStage && <div className="size-note" role="status">Exporting project… {p.exportStage}</div>}
@@ -197,8 +203,10 @@ export function SidePanel(p: Props) {
   );
 }
 
-function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf, onExportProject }: {
+function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf, onExportProject, painted }: {
   disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: Props['blender']; count: number;
+  /** A part has a coloured mesh's colours, which only the 3MF keeps. */
+  painted: boolean;
   bambu: string | null; printChanges: number; threeMf: { colours: boolean; print: boolean };
   onThreeMf: (o: { colours: boolean; print: boolean }) => void; onExport3mf: () => void; onExportProject: () => void;
 }) {
@@ -210,13 +218,13 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
   const printOn = threeMf.print && !!bambu;
   return (
     <div className="export-split" ref={wrap}>
-      <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')} title={count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}>
+      <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')} title={`${count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}${painted ? ' (geometry only: the figure\'s colours are only in the 3MF)' : ''}`}>
         <Icon name="download" /> {exporting ? 'Exporting…' : 'Export STL'}
       </button>
       <button ref={more} className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats" aria-label="More export formats" aria-haspopup="menu" aria-expanded={!!open}><Icon name="chevron" size={14} /></button>
       {open === 'menu' && (
         <div className="export-menu">
-          <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
+          <button onClick={() => pick('stl')}><b>STL</b><span>{painted ? 'Geometry only: the figure\'s colours are lost – use 3MF for them' : 'Single mesh, works everywhere'}</span></button>
           <button onClick={() => setOpen('3mf')}><b>3MF…</b><span>For Bambu Studio – choose colours (AMS) and print settings</span></button>
           <button onClick={() => pick('blend')} disabled={!blender || !!blender.problem}><b>Blender (.blend)</b><span>{!blender ? 'Blender not found on this computer' : blender.problem ?? `One object per part, materials, dimensions, params · Blender ${blender.version}`}</span></button>
           <button onClick={() => { setOpen(false); onExportProject(); }}><b>Export project…</b><span>Model, STL, 3MF, .blend, pictures and a README in one folder (a zip in Firefox)</span></button>
@@ -227,7 +235,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
           <div className="tm-title">Export 3MF for Bambu Studio</div>
           <label className="check">
             <input type="checkbox" checked={threeMf.colours} onChange={(e) => onThreeMf({ ...threeMf, colours: e.target.checked })} />
-            <span><b>Colours (AMS)</b><small>One filament per part colour. Off = everything in one filament.</small></span>
+            <span><b>Colours (AMS)</b><small>One filament per part colour{painted ? '; a coloured figure comes painted with its filaments' : ''}. Off = everything in one filament.</small></span>
           </label>
           <label className={`check ${bambu ? '' : 'off'}`}>
             <input type="checkbox" disabled={!bambu} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />

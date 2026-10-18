@@ -57,7 +57,7 @@ export function ObjectPanel(p: Props) {
                 <button className="icon-btn" aria-pressed={!hidden} title={hidden ? 'Show (included in the view and exports)' : 'Hide (left out of the view and exports)'} aria-label={`${hidden ? 'Show' : 'Hide'} ${part.name}`} onClick={() => toggle(part.name)}>
                   <Icon name={hidden ? 'eyeOff' : 'eye'} size={14} />
                 </button>
-                <span className="swatch" style={{ background: part.color }} />
+                <span className="swatch" style={{ background: part.paint ? `conic-gradient(${part.paint.filaments.map((f, i, a) => `${f.color} ${(i / a.length) * 360}deg ${((i + 1) / a.length) * 360}deg`).join(', ')})` : part.color }} title={part.paint ? `Coloured: ${part.paint.filaments.map((f) => f.name ?? f.color).join(', ')}` : undefined} />
                 <button className="object-meta" title={p.selected === part.name ? 'Selected (highlighted in the view) – click to clear' : 'Select: highlight it in the view'} onClick={() => p.onSelect(p.selected === part.name ? null : part.name)}>
                   <div className="object-name">{part.name}</div>
                   <div className="mono dim small">{(b.max[0] - b.min[0]).toFixed(1)} × {(b.max[1] - b.min[1]).toFixed(1)} × {(b.max[2] - b.min[2]).toFixed(1)} mm</div>
