@@ -51,6 +51,18 @@ export interface PrintProfile extends PrintSettings {
 export const PRINT_KEY = '$print';
 
 /**
+ * "Print in one colour" (Print tab), per design: true prints everything in the design's main
+ * filament, a colour (#RRGGBB) in that one of its filaments. Unset: one filament per colour (AMS).
+ */
+export const ONE_COLOUR_KEY = '$oneColour';
+
+/** The design's one-colour choice: null (off), 'main', or the colour of the filament picked (#RRGGBB). */
+export function parseOneColour(v: unknown): null | 'main' | string {
+  if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) return v.toUpperCase();
+  return v === true || v === 'main' ? 'main' : null;
+}
+
+/**
  * Bambu Lab A1 · 0.20mm Standard @BBL A1 · Bambu PLA Basic (read from Bambu Studio 2.8 profiles).
  * Only a fallback: the baseline is read from the user's Bambu Studio template (defaultsFromTemplate)
  * once it has been built, so a Bambu Studio update that changes the profile changes it too.

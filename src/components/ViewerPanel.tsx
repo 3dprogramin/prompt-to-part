@@ -277,13 +277,18 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
         </div>
       )}
 
-      {parts.length > 1 && (
+      {(parts.length > 1 || !!options.oneColour) && (
         <div className="parts-legend">
-          {parts.map((p) => {
+          {options.oneColour && (
+            <div className="legend-item oc" role="note" title="“Print in one colour” is on (Print tab): the model shows in the one filament it prints with">
+              <span className="swatch" style={{ background: options.oneColour }} />Printing in one colour
+            </div>
+          )}
+          {parts.length > 1 && parts.map((p) => {
             const hidden = options.hiddenParts.includes(p.name);
             return (
               <button key={p.name} className={`legend-item ${hidden ? 'off' : ''}`} aria-pressed={!hidden} title={hidden ? `Show ${p.name}` : `Hide ${p.name}`} onClick={() => set({ hiddenParts: hidden ? options.hiddenParts.filter((n) => n !== p.name) : [...options.hiddenParts, p.name] })}>
-                <span className="swatch" style={{ background: p.color }} />{p.name}
+                <span className="swatch" style={{ background: options.oneColour ?? p.color }} />{p.name}
               </button>
             );
           })}

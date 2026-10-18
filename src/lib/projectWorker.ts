@@ -20,7 +20,7 @@ self.onmessage = async (e: MessageEvent<WorkerJob & { id: number }>) => {
     } else {
       buf = await (job.kind === 'bambu'
         ? toBambuProject(job.parts, job.title, job.tpl, job.opts)
-        : to3mf(job.parts, job.title, job.colours)).arrayBuffer();
+        : to3mf(job.parts, job.title, job.oneColour)).arrayBuffer();
     }
     (self as unknown as Worker).postMessage({ id, buf, meshes: lent(job.parts) }, [buf, ...lent(job.parts).flat().map((a) => a.buffer)]);
   } catch (err) {

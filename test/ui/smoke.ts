@@ -2,7 +2,8 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, Export project… (as a zip), a reply that was cut short and the Meshy credits on the 3D figure button. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
+// import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure
+// and "Print in one colour" in the Print tab. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
@@ -268,5 +269,36 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
   await page.screenshot({ path: path.join(shots, '8-coloured-figure.png') });
   await page.getByRole('button', { name: 'More export formats' }).click();
   await page.locator('.export-menu', { hasText: 'Geometry only: the figure\'s colours are lost' }).waitFor();
+  await page.close();
+});
+
+test('"Print in one colour" in the Print tab: the view shows one filament, saved with the design', async () => {
+  assert.ok(browser, 'runs after the coloured figure');
+  const fid = 'ui-smoke-00000003';
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${fid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
+  await page.getByRole('tab', { name: /Print/ }).click();
+  const toggle = page.getByRole('checkbox', { name: 'Print in one colour' });
+  assert.equal(await toggle.isChecked(), false);
+  await toggle.check({ force: true });
+  await page.getByRole('note').filter({ hasText: 'Printing in one colour' }).waitFor();
+  assert.equal(await page.getByRole('combobox', { name: 'Filament to print with' }).inputValue(), 'main');
+  await page.screenshot({ path: path.join(shots, '9-one-colour.png') });
+  // Saved with the design (autosave), so it is still on after a reload, and Export ▸ 3MF… follows it.
+  const until = Date.now() + 10_000;
+  for (;;) {
+    const d = await (await fetch(`${A}/api/designs/${fid}`)).json();
+    if (d.values?.$oneColour === true) break;
+    assert.ok(Date.now() < until, 'the switch is saved with the design');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  await page.reload();
+  await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
+  await page.getByRole('tab', { name: /Print/ }).click();
+  assert.equal(await page.getByRole('checkbox', { name: 'Print in one colour' }).isChecked(), true);
+  await page.getByRole('button', { name: 'More export formats' }).click();
+  await page.getByRole('button', { name: /^3MF…/ }).click();
+  assert.equal(await page.getByRole('checkbox', { name: /Colours \(AMS\)/ }).isChecked(), false);
   await page.close();
 });

@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { filamentPlan, paintColor, toBambuProject } from '../src/lib/bambu3mf';
+import { filamentPlan, oneColourFilament, paintColor, printFilaments, toBambuProject } from '../src/lib/bambu3mf';
+import { ONE_COLOUR_KEY, parseOneColour } from '../shared/print';
+import { costKey } from '../shared/cost';
+import { describeSettings } from '../src/lib/settings';
 import { to3mf } from '../src/lib/export';
 import { DATA_DIR } from '../server/config';
 import { findBambuBinary } from '../server/bambu';
@@ -65,7 +68,7 @@ test('Bambu project: a painted part is one solid with its triangles painted, and
   assert.deepEqual(plan.paint, [[1, 2, 3, 4], []]);
   assert.deepEqual(plan.ams, [1, 2, 3, 4]);
 
-  const files = await unzip(toBambuProject([cube, base], 'paint', fakeTpl, { colours: true, print: null }));
+  const files = await unzip(toBambuProject([cube, base], 'paint', fakeTpl, { print: null }));
   const objects = Object.keys(files).filter((f) => f.startsWith('3D/Objects/'));
   assert.equal(objects.length, 2);
   const cubeXml = strFromU8(files['3D/Objects/object_1.model']);
@@ -81,18 +84,78 @@ test('Bambu project: a painted part is one solid with its triangles painted, and
   assert.deepEqual(settings.filament_colour, ['#FF0000', '#00FF00', '#0000FF', '#FFFF00']);
   assert.deepEqual(settings.filament_type, ['PLA', 'PLA', 'PLA', 'PLA']);
 
-  // "Colours (AMS)" off: everything in one filament, no painting.
-  const plain = await unzip(toBambuProject([cube, base], 'paint', fakeTpl, { colours: false, print: null }));
+  // In one colour: everything in one filament, no painting.
+  const plain = await unzip(toBambuProject([cube, base], 'paint', fakeTpl, { oneColour: '#00AE42', print: null }));
   assert.ok(paints(strFromU8(plain['3D/Objects/object_1.model'])).every((c) => c === ''));
   assert.doesNotMatch(strFromU8(plain['3D/Objects/object_1.model']), /paint_color/);
   assert.deepEqual(JSON.parse(strFromU8(plain['Metadata/project_settings.config'])).filament_colour, ['#00AE42']);
 
-  // The plain 3MF: each triangle its filament's colour (the Materials extension), or none without colours.
+  // The plain 3MF: each triangle its filament's colour (the Materials extension), or all one in one colour.
   const flat = strFromU8((await unzip(to3mf([cube], 'paint')))['3D/3dmodel.model']);
   assert.match(flat, /<m:colorgroup id="1"><m:color color="#FF0000FF"\/><m:color color="#00FF00FF"\/><m:color color="#0000FFFF"\/><m:color color="#FFFF00FF"\/><\/m:colorgroup>/);
   const p1 = [...flat.matchAll(/<triangle [^>]*p1="(\d)"/g)].map((m) => Number(m[1]));
   assert.deepEqual(p1, [...cube.paint!.tri]);
-  assert.doesNotMatch(strFromU8((await unzip(to3mf([cube], 'paint', false)))['3D/3dmodel.model']), /p1=/);
+  const one = strFromU8((await unzip(to3mf([cube], 'paint', '#0000ff')))['3D/3dmodel.model']);
+  assert.match(one, /<m:colorgroup id="1"><m:color color="#0000FFFF"\/><\/m:colorgroup>/);
+  assert.doesNotMatch(one, /p1="[1-9]/);
+});
+
+// ---------------------------------------------------------------------------
+// "Print in one colour" (the design's $oneColour)
+// ---------------------------------------------------------------------------
+
+/** The cube's shape again as a LayerTone relief (four filament changes) beside it, and a plain block. */
+function mixedPrint(): PartMesh[] {
+  const shifted = (dx: number) => bandedCube().part.positions.map((v, i) => (i % 3 === 0 ? v + dx : v));
+  const relief: PartMesh = { ...bandedCube().part, name: 'Relief', color: '#161616', positions: shifted(30), bbox: { min: [30, 0, 0], max: [50, 20, 20] },
+    layerColors: [{ z: 0, layer: 0, color: '#161616', td: 1, name: 'Black' }, { z: 5, layer: 25, color: '#ffffff', td: 1, name: 'White' }, { z: 10, layer: 50, color: '#ff0000', td: 1, name: 'Red' }] };
+  const block: PartMesh = { ...bandedCube().part, name: 'Block', color: '#336699', positions: shifted(60), bbox: { min: [60, 0, 0], max: [80, 20, 20] }, volume: 100 };
+  return [paintedCube(), relief, block];
+}
+
+test('one colour: off, the main filament, or a picked one of the design\'s filaments', () => {
+  assert.equal(parseOneColour(undefined), null);
+  assert.equal(parseOneColour(false), null);
+  assert.equal(parseOneColour(true), 'main');
+  assert.equal(parseOneColour('#00ae42'), '#00AE42');
+  assert.equal(parseOneColour('nonsense'), null);
+  const parts = mixedPrint();
+  assert.deepEqual(printFilaments(parts).map((f) => f.colour), ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#161616', '#FFFFFF', '#336699']);
+  // The main filament is the biggest part's (the painted cube's most used); a picked colour wins while the design has it.
+  assert.equal(oneColourFilament(parts, 'main').colour, '#FFFF00');
+  assert.deepEqual(oneColourFilament(parts, '#336699'), { colour: '#336699' });
+  assert.equal(oneColourFilament(parts, '#123456').colour, '#FFFF00');
+  assert.equal(describeSettings({}, { [ONE_COLOUR_KEY]: true }, {}), 'Settings: one colour');
+});
+
+test('one colour: the Bambu project has one filament, no paint_color and no LayerTone filament changes', async () => {
+  const parts = mixedPrint();
+  const print = { ai: { layerHeight: 0.2 }, user: { walls: 4 } };
+  // In colour: painted triangles and LayerTone height ranges in seven filaments.
+  const multi = await unzip(toBambuProject(parts, 'mixed', fakeTpl, { print }));
+  assert.match(strFromU8(multi['3D/Objects/object_1.model']), /paint_color/);
+  assert.ok(multi['Metadata/layer_config_ranges.xml']);
+  assert.equal(JSON.parse(strFromU8(multi['Metadata/project_settings.config'])).filament_colour.length, 7);
+
+  const colour = oneColourFilament(parts, 'main').colour;
+  const one = await unzip(toBambuProject(parts, 'mixed', fakeTpl, { oneColour: colour, print }));
+  for (const f of Object.keys(one).filter((f) => f.startsWith('3D/Objects/'))) assert.doesNotMatch(strFromU8(one[f]), /paint_color/);
+  assert.ok(!one['Metadata/layer_config_ranges.xml'] && !one['Metadata/custom_gcode_per_layer.xml'], 'no filament changes or pauses');
+  const settings = JSON.parse(strFromU8(one['Metadata/project_settings.config']));
+  assert.deepEqual(settings.filament_colour, ['#FFFF00']);
+  assert.deepEqual(settings.filament_type, ['PLA']);
+  assert.deepEqual(settings.flush_volumes_matrix, ['0']);
+  const cfg = strFromU8(one['Metadata/model_settings.config']);
+  assert.deepEqual([...new Set([...cfg.matchAll(/key="extruder" value="(\d+)"/g)].map((m) => m[1]))], ['1']);
+  // The print settings are kept.
+  assert.equal(settings.wall_loops, '4');
+});
+
+test('one colour: the cost is out of date when the switch changes', () => {
+  const key = (c: null | 'main' | string) => costKey('code', { a: 1 }, [], {}, c);
+  assert.notEqual(key(null), key('main'));
+  assert.notEqual(key('main'), key('#336699'));
+  assert.equal(key('main'), key('main'));
 });
 
 // ---------------------------------------------------------------------------
@@ -121,7 +184,7 @@ const used = (info: string) => [...info.matchAll(/<filament id="(\d)"[^>]*color=
 test('Bambu Studio slices paint_color triangles with four filaments (a hand-made project)', { skip }, async () => {
   const tpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
   const { part, band, side } = bandedCube();
-  const files = unzipSync(new Uint8Array(await toBambuProject([part], 'paint', tpl, { colours: true, print: null }).arrayBuffer()));
+  const files = unzipSync(new Uint8Array(await toBambuProject([part], 'paint', tpl, { print: null }).arrayBuffer()));
   // Painted band by band by hand; one side of band 1 with filament 4.
   const obj = '3D/Objects/object_1.model';
   let k = 0;
@@ -152,7 +215,7 @@ test('Bambu Studio slices paint_color triangles with four filaments (a hand-made
 test('Bambu Studio slices Jig\'s painted cube and a coloured figure on a base with their filaments', { skip }, async () => {
   const tpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
   // The cube through Jig's writer: four filaments, each band its own.
-  const cube = await slicedProject(new Uint8Array(await toBambuProject([paintedCube()], 'paint', tpl, { colours: true, print: null }).arrayBuffer()));
+  const cube = await slicedProject(new Uint8Array(await toBambuProject([paintedCube()], 'paint', tpl, { print: null }).arrayBuffer()));
   const info = strFromU8(cube['Metadata/slice_info.config']);
   assert.deepEqual(used(info), [[1, '#FF0000', true], [2, '#00FF00', true], [3, '#0000FF', true], [4, '#FFFF00', true]]);
   assert.deepEqual([...info.matchAll(/filament_list="([^"]+)" layer_ranges="(\d+) /g)].map((m) => [m[1], Number(m[2])] as const).sort((a, b) => a[1] - b[1]).map((l) => l[0]), ['0', '1 3', '2', '3']);
@@ -166,10 +229,18 @@ test('Bambu Studio slices Jig\'s painted cube and a coloured figure on a base wi
   const black = palette.find((c) => c.filament.name === 'PLA Basic Black')!.filament.color;
   const r = evaluateScript(`function build() { return [{ name: 'Figure', color: '${black}', shape: H.mesh('fig', { height: 40 }).translate([0, 0, 2]).add(Manifold.cylinder(2.4, 14, 14, 48)) }]; }`,
     { [MESHES_KEY]: JSON.stringify({ fig: { file: url, triangles: 1, size: [1, 1, 1], source: 'meshy', palette } }) }, 'normal');
-  const project = toBambuProject(r.parts, 'figure', tpl, { colours: true, print: null });
+  const project = toBambuProject(r.parts, 'figure', tpl, { print: null });
   const fig = await slicedProject(new Uint8Array(await project.arrayBuffer()));
   const figInfo = strFromU8(fig['Metadata/slice_info.config']);
   assert.deepEqual(used(figInfo).map((f) => f[2]), [true, true, true, true]);
   assert.deepEqual(used(figInfo).map((f) => f[1]).sort(), palette.map((c) => c.filament.color.toUpperCase()).sort());
   assert.ok(toolChanges(strFromU8(fig['Metadata/plate_1.gcode'])).length >= 3);
+});
+
+test('Bambu Studio slices a painted figure printed in one colour with exactly one filament', { skip }, async () => {
+  const tpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
+  const sliced = await slicedProject(new Uint8Array(await toBambuProject([paintedCube()], 'paint', tpl, { oneColour: '#FF0000', print: null }).arrayBuffer()));
+  const info = strFromU8(sliced['Metadata/slice_info.config']);
+  assert.deepEqual(used(info), [[1, '#FF0000', true]]);
+  assert.deepEqual(toolChanges(strFromU8(sliced['Metadata/plate_1.gcode'])).filter((t) => !t.endsWith(':T0')), []);
 });

@@ -1,6 +1,9 @@
 // What a print costs: filament from Bambu Studio's slice (the grams it will extrude, purge and prime
 // tower included) and, only when the user has measured their printer, electricity.
 
+import type { ParamValues } from './types';
+import type { PrintProfile } from './print';
+
 /** Costs are in Romanian lei. */
 export const CURRENCY = 'RON';
 
@@ -11,6 +14,14 @@ export interface SliceStats {
   /** Filament used, in grams (all filaments, purge and prime tower included). */
   grams: number;
   filaments: { color: string; grams: number }[];
+}
+
+/**
+ * What a cost calculation is made from (the script, values, hidden parts, print settings and
+ * "Print in one colour"): a result with another key is out of date.
+ */
+export function costKey(code: string, values: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string): string {
+  return JSON.stringify([code, values, hiddenParts, userPrint, oneColour]);
 }
 
 /** The user's prices, and their printer's measured average power. Unset values are left out of the cost. */

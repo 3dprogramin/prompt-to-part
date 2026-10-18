@@ -23,8 +23,9 @@ export type ExportFormat = 'stl' | '3mf' | 'blend';
  * (coloured pieces of one figurine stay attached); the whole model is only lifted onto the
  * plate and centred on the printer's bed. Each part is a named object with its colour.
  */
-export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
-  const { colours: palette, slot: colourIdx } = colourSlots(parts);
+export function to3mf(parts: PartMesh[], title: string, oneColour: string | null = null): Blob {
+  // In one colour ("Print in one colour"): one colour for every part, no painting.
+  const { colours: palette, slot: colourIdx } = oneColour ? { colours: [oneColour.toUpperCase()], slot: parts.map(() => 0) } : colourSlots(parts);
   // One translation for the whole model: rest on the plate, centred on the bed.
   const shift = bedShift(parts.map((p) => p.bbox));
 
@@ -34,12 +35,12 @@ export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
     for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k] + dx)}" y="${num(p.positions[k + 1] + dy)}" z="${num(p.positions[k + 2] + dz)}"/>`);
     const t: string[] = [];
     const ci = colourIdx[i];
-    const pid = colours ? ` pid="1" p1="${ci}"` : '';
+    const pid = ` pid="1" p1="${ci}"`;
     // A painted part: each triangle its filament's colour.
-    const painted = colours && p.paint?.tri.length === p.indices.length / 3 ? p.paint : undefined;
+    const painted = !oneColour && p.paint?.tri.length === p.indices.length / 3 ? p.paint : undefined;
     const paintIdx = painted?.filaments.map((f) => colourIndex(palette, f.color));
     for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${painted ? ` pid="1" p1="${paintIdx![painted.tri[k / 3]]}"` : pid}/>`);
-    return `<object id="${i + 2}" name="${esc(p.name)}" type="model"${colours ? ` pid="1" pindex="${ci}"` : ''}><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
+    return `<object id="${i + 2}" name="${esc(p.name)}" type="model" pid="1" pindex="${ci}"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
   });
   const resources = objects.join('');
   const build = parts.map((_, i) => `<item objectid="${i + 2}"/>`).join('');
@@ -47,7 +48,7 @@ export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
 <metadata name="Title">${esc(title)}</metadata>
 <metadata name="Application">Jig</metadata>
-<resources>${colours ? `<m:colorgroup id="1">${palette.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>` : ''}${resources}</resources>
+<resources><m:colorgroup id="1">${palette.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>${resources}</resources>
 <build>${build}</build>
 </model>`;
   const zip = zipSync({
@@ -92,24 +93,25 @@ export async function toBlend(result: EvalResult, parts: PartMesh[], title: stri
 }
 
 export interface ThreeMfOptions {
-  colours: boolean;
+  /** Everything in this one filament colour (#RRGGBB, "Print in one colour"); null = one filament per colour (AMS). */
+  oneColour: string | null;
   /** Print settings to embed (Bambu project format); null = plain 3MF. */
   print: { ai: PrintProfile; user: PrintProfile } | null;
   /** Gets the Bambu template the project was built on (it may have just been built). */
   onTemplate?: (tpl: BambuTemplate) => void;
 }
 
-export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { colours: true, print: null }): Promise<Blob> {
+export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { oneColour: null, print: null }): Promise<Blob> {
   if (format === '3mf') {
     // A LayerTone print's filament changes and layer heights only exist in a Bambu project: without
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
-    // So does a coloured mesh's painting (Bambu Studio's paint_color).
-    const layerTone = threeMf.colours && parts.some((p) => p.layerColors?.length || p.paint);
-    if (!threeMf.print && !layerTone) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
+    // So does a coloured mesh's painting (Bambu Studio's paint_color). In one colour there are neither.
+    const layerTone = !threeMf.oneColour && parts.some((p) => p.layerColors?.length || p.paint);
+    if (!threeMf.print && !layerTone) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
     const tpl = threeMf.print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
-    if (!tpl) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
+    if (!tpl) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
     threeMf.onTemplate?.(tpl);
-    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { colours: threeMf.colours, print: threeMf.print ?? { ai: result.print, user: {} } } });
+    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { oneColour: threeMf.oneColour, print: threeMf.print ?? { ai: result.print, user: {} } } });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
   return toBinaryStl(parts, title);

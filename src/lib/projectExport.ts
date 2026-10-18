@@ -42,6 +42,8 @@ export interface ProjectSource {
   title: string;
   base: string;
   print: { ai: PrintProfile; user: PrintProfile; base: Required<PrintSettings> };
+  /** "Print in one colour": the one filament everything prints in (the 3MF has only it); null = one filament per colour. */
+  oneColour: { colour: string; name?: string } | null;
   /** Bambu Studio is installed (the 3MF can be a Bambu project). */
   bambu: boolean;
   /** Blender is usable, or why not (null: not installed). */
@@ -158,14 +160,14 @@ export async function exportProject(src: ProjectSource, target: ProjectTarget, o
       case '3mf': {
         if (src.bambu) {
           try {
-            const blob = await exportParts('3mf', r, parts, title, design.code, { colours: true, print: { ai: src.print.ai, user: src.print.user }, onTemplate: src.onTemplate });
+            const blob = await exportParts('3mf', r, parts, title, design.code, { oneColour: src.oneColour?.colour ?? null, print: { ai: src.print.ai, user: src.print.user }, onTemplate: src.onTemplate });
             bambuProject = true;
             return blob;
           } catch (e) {
             notes.push(`The 3MF has no print settings: the Bambu Studio project could not be made (${(e as Error).message}).`);
           }
         }
-        return exportParts('3mf', r, parts, title, design.code, { colours: true, print: null });
+        return exportParts('3mf', r, parts, title, design.code, { oneColour: src.oneColour?.colour ?? null, print: null });
       }
       case 'image': return (await request(`/api/designs/${design.id}/images/${f.source}`)).blob();
       case 'mesh': return (await request(`/api/designs/${design.id}/meshes/${f.source}`)).blob();
@@ -196,7 +198,7 @@ export async function exportProject(src: ProjectSource, target: ProjectTarget, o
     versionNo: design.currentVersion + 1, versions: design.versions.length, summary: v?.summary,
     size: sizeOf(parts), parts: parts.map((p) => p.name),
     params: paramRows(r.params, r.values), print: printRows(src.print.ai, src.print.user, src.print.base, parts.map((p) => p.name)),
-    sources: v?.sources ?? [], meshes: parseMeshes(design.values[MESHES_KEY]), check: src.check, bambuProject,
+    sources: v?.sources ?? [], meshes: parseMeshes(design.values[MESHES_KEY]), check: src.check, bambuProject, oneColour: src.oneColour,
     files: [...written, 'README.md'], notes, problems,
   });
   await sink.put('README.md', readme);

@@ -3,7 +3,7 @@ import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ParamVal
 import { Icon } from './Icon';
 import { load, store } from '../lib/storage';
 import { TextPanel } from './TextPanel';
-import { PrintPanel } from './PrintPanel';
+import { OneColourSwitch, PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
 import { ObjectPanel } from './ObjectPanel';
 import { MeshColorsPanel } from './MeshColorsPanel';
@@ -72,8 +72,11 @@ interface Props {
   bambu: string | null;
   /** Number of print-setting changes that would be written to a 3MF. */
   printChanges: number;
-  threeMf: { colours: boolean; print: boolean };
-  onThreeMf: (o: { colours: boolean; print: boolean }) => void;
+  threeMf: { print: boolean };
+  onThreeMf: (o: { print: boolean }) => void;
+  /** "Print in one colour" (parseOneColour), saved with the design. */
+  oneColour: null | 'main' | string;
+  onOneColour: (c: null | 'main' | string) => void;
   onExport3mf: () => void;
   hiddenParts: string[];
   onToggleHidden: (name: string) => void;
@@ -167,6 +170,7 @@ export function SidePanel(p: Props) {
             : noModel('SVG drawings can be added once a model is generated.')))}
         </>}
         {tab === 'print' && <>
+          {shown && <OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />}
           {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
           {section('print', 'Print settings', () => (shown
@@ -193,7 +197,7 @@ export function SidePanel(p: Props) {
             <Icon name="check" size={14} /> {p.validating ? 'Checking…' : 'Validate'}
           </button>
           <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
-            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject} painted={!!shown?.parts.some((x) => x.paint)}
+            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} oneColour={!!p.oneColour} onOneColour={(on) => p.onOneColour(on ? 'main' : null)} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject} painted={!!shown?.parts.some((x) => x.paint)}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
         </div>
         {p.exportStage && <div className="size-note" role="status">Exporting project… {p.exportStage}</div>}
@@ -203,12 +207,14 @@ export function SidePanel(p: Props) {
   );
 }
 
-function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf, onExportProject, painted }: {
+function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, oneColour, onOneColour, onExport3mf, onExportProject, painted }: {
   disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: Props['blender']; count: number;
   /** A part has a coloured mesh's colours, which only the 3MF keeps. */
   painted: boolean;
-  bambu: string | null; printChanges: number; threeMf: { colours: boolean; print: boolean };
-  onThreeMf: (o: { colours: boolean; print: boolean }) => void; onExport3mf: () => void; onExportProject: () => void;
+  bambu: string | null; printChanges: number; threeMf: { print: boolean };
+  onThreeMf: (o: { print: boolean }) => void;
+  /** The design prints in one colour (the Print tab's switch; "Colours (AMS)" is its opposite). */
+  oneColour: boolean; onOneColour: (on: boolean) => void; onExport3mf: () => void; onExportProject: () => void;
 }) {
   const [open, setOpen] = useState<false | 'menu' | '3mf'>(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -234,8 +240,8 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
         <div className="export-menu threemf">
           <div className="tm-title">Export 3MF for Bambu Studio</div>
           <label className="check">
-            <input type="checkbox" checked={threeMf.colours} onChange={(e) => onThreeMf({ ...threeMf, colours: e.target.checked })} />
-            <span><b>Colours (AMS)</b><small>One filament per part colour{painted ? '; a coloured figure comes painted with its filaments' : ''}. Off = everything in one filament.</small></span>
+            <input type="checkbox" checked={!oneColour} onChange={(e) => onOneColour(!e.target.checked)} />
+            <span><b>Colours (AMS)</b><small>One filament per part colour{painted ? '; a coloured figure comes painted with its filaments' : ''}. Off = everything in one filament (“Print in one colour” in the Print tab, saved with the design).</small></span>
           </label>
           <label className={`check ${bambu ? '' : 'off'}`}>
             <input type="checkbox" disabled={!bambu} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />

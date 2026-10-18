@@ -36,7 +36,8 @@ import { summarize, type ValidationState } from './components/ValidationPanel';
 import { exportedParts } from './geometry/parts';
 import { pageKey } from '../shared/sources';
 import { formatReset } from '../shared/usage';
-import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
+import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
+import { oneColourFilament } from './lib/bambu3mf';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -237,7 +238,8 @@ export default function App() {
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<{ version: string; problem: string | null } | null>(null);
   const [bambu, setBambu] = useState<string | null>(null);
-  const [threeMf, setThreeMf] = useState<{ colours: boolean; print: boolean }>(() => load('threeMf', { colours: true, print: true }));
+  // Export ▸ 3MF…: print settings in the 3MF or not (colours follow the design's "Print in one colour").
+  const [threeMf, setThreeMf] = useState<{ print: boolean }>(() => ({ print: load('threeMf', { print: true }).print !== false }));
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
   // What "Export project…" is making ("3MF"), while it runs.
@@ -588,6 +590,13 @@ export default function App() {
     if (Object.keys(p).length) values[PRINT_KEY] = JSON.stringify(p); else delete values[PRINT_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
+  // "Print in one colour" (per design): one filament for the 3MF, the slice and the 3D view.
+  const oneColour = parseOneColour(design.values[ONE_COLOUR_KEY]);
+  const setOneColour = (choice: null | 'main' | string) => setDesign((d) => {
+    const values = { ...d.values };
+    if (choice) values[ONE_COLOUR_KEY] = choice === 'main' ? true : choice; else delete values[ONE_COLOUR_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
   const partNames = (result ?? lastGood)?.parts.map((p) => p.name) ?? [];
   // Number of print settings (as shown in the Print tab) that differ from the profile on any part.
   const printChanges = useMemo(() => {
@@ -632,6 +641,7 @@ export default function App() {
     values: printLayout && layoutKey ? { ...design.values, [layoutKey]: printLayout } : design.values,
     hiddenParts,
     userPrint,
+    oneColour,
     onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
   });
 
@@ -770,7 +780,7 @@ export default function App() {
       const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
       const file = `${name}.${format}`;
       const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
-        colours: threeMf.colours,
+        oneColour: oneColour ? oneColourFilament(parts, oneColour).colour : null,
         print: threeMf.print && bambu ? { ai: r.print, user: userPrint } : null,
         // The template's profile becomes the baseline shown in the Print tab.
         onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
@@ -833,6 +843,7 @@ export default function App() {
       const out = await exportProject({
         design, designJson, result: r, parts, title, base: slug(title),
         print: { ai: r.print, user: userPrint, base: printBase }, bambu: !!bambu,
+        oneColour: oneColour ? oneColourFilament(parts, oneColour) : null,
         blender: blender && !blender.problem ? { ok: true } : { ok: false, why: blender?.problem ?? null },
         check: sum ? sum.text : 'could not validate',
         onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
@@ -988,7 +999,10 @@ export default function App() {
   }
 
   // The viewer shows the design's hidden parts and the Object tab's selection.
-  const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart };
+  // A print in one colour shows in its one filament (of the parts shown, as they would be exported).
+  const viewParts = shown?.parts.filter((p) => !hiddenParts.includes(p.name)) ?? [];
+  const viewColour = oneColour && viewParts.length ? oneColourFilament(viewParts, oneColour).colour : null;
+  const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart, oneColour: viewColour };
 
   return (
     <div className="app">
@@ -1158,6 +1172,8 @@ export default function App() {
           printChanges={printChanges}
           threeMf={threeMf}
           onThreeMf={setThreeMf}
+          oneColour={oneColour}
+          onOneColour={setOneColour}
           onExport3mf={() => onExport('3mf')}
           blender={blender}
           hiddenParts={hiddenParts}

@@ -6,7 +6,7 @@ import type { toBambuProject } from './bambu3mf';
 
 export type ProjectJob =
   | { kind: 'bambu'; parts: PartMesh[]; title: string; tpl: BambuTemplate; opts: Parameters<typeof toBambuProject>[3] }
-  | { kind: '3mf'; parts: PartMesh[]; title: string; colours: boolean };
+  | { kind: '3mf'; parts: PartMesh[]; title: string; oneColour: string | null };
 
 /** Files for a zip, by path in it; `compress` false stores them as they are (pictures, 3MF). */
 export type ZipFiles = Record<string, { data: Uint8Array; compress: boolean }>;
