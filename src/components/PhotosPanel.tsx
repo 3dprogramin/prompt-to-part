@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, sceneById, suggestScene, type PhotoAspect, type PhotoRequest } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, sceneById, suggestScene, type PhotoAspect, type PhotoRequest } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { api } from '../lib/api';
 import { dataUrlToImage, download, slug, uid } from '../lib/files';
@@ -61,6 +61,7 @@ export function PhotosPanel(p: Props) {
   const id = useId();
   // The scene is chosen per design (the suggested one until then); format and camera are remembered.
   const [scenes, setScenes] = useState<Record<string, { scene: string; notes: string }>>({});
+  const [allScenes, setAllScenes] = useState(false);
   const [aspect, setAspect] = useState<PhotoAspect>(() => load('photoAspect', '4:5'));
   const [camera, setCamera] = useState<'best' | 'current'>(() => load('photoCamera', 'best'));
   useEffect(() => store('photoAspect', aspect), [aspect]);
@@ -89,6 +90,9 @@ export function PhotosPanel(p: Props) {
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
   const custom = choice.scene === CUSTOM_SCENE;
   const preset = sceneById(choice.scene);
+  // The scenes after the first few show on "More scenes", or right away when one of them is picked or suggested.
+  const expanded = allScenes || [choice.scene, suggested].some((x) => PHOTO_SCENES.findIndex((sc) => sc.id === x) >= MAIN_SCENES);
+  const shownScenes = expanded ? PHOTO_SCENES : PHOTO_SCENES.slice(0, MAIN_SCENES);
   // A flat print (wall art, a sign) goes on the wall face-on; anything else from a 3/4 angle.
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
   const faceOn = camera === 'best' && !!preset?.wall && flat;
@@ -142,7 +146,7 @@ export function PhotosPanel(p: Props) {
 
       <div className="ph-label" id={`${id}-scene`}>Scene</div>
       <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
-        {[...PHOTO_SCENES, { id: CUSTOM_SCENE, label: 'Custom…', icon: 'pen' }].map((s) => (
+        {[...shownScenes, { id: CUSTOM_SCENE, label: 'Custom…', icon: 'pen' }].map((s) => (
           <button key={s.id} role="radio" aria-checked={choice.scene === s.id} className={choice.scene === s.id ? 'on' : ''} onClick={() => setChoice({ scene: s.id })}
             title={s.id === suggested ? `${s.label} – suggested for this design` : s.label}>
             <Icon name={s.icon} size={18} />
@@ -151,6 +155,9 @@ export function PhotosPanel(p: Props) {
           </button>
         ))}
       </div>
+      {!expanded && (
+        <button className="ph-more" onClick={() => setAllScenes(true)}>More scenes ({PHOTO_SCENES.length - MAIN_SCENES} more)</button>
+      )}
       <textarea className="text-param ph-notes" rows={custom ? 3 : 2} maxLength={MAX_NOTES_CHARS} value={choice.notes} onChange={(e) => setChoice({ notes: e.target.value })}
         aria-label={custom ? 'Describe the scene' : 'Extra details (optional)'}
         placeholder={custom ? 'Describe the scene, e.g. "on a bedside table next to a book, warm evening lamp light"' : 'Extra details (optional), e.g. "autumn leaves around it", "evening light"'} />

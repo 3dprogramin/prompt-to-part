@@ -838,6 +838,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-scenes button:hover { border-color: #4a505b; color: var(--text); }
 .ph-scenes button.on { border-color: var(--accent); background: #e0a43c1f; color: var(--text); }
 .ph-scenes button.on svg { color: var(--accent-2); }
+.ph-more { margin-top: -4px; padding: 5px 9px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2); color: var(--text-2); font-size: 11.5px; font-weight: 500; text-align: center; }
+.ph-more:hover { border-color: #4a505b; background: #ffffff0a; color: var(--text); }
 .ph-suggested { position: absolute; top: 2px; right: 5px; font-style: normal; font-size: 10px; color: var(--accent-2); }
 .ph-notes { font-size: 12.5px; padding: 6px 8px; }
 .ph-row { display: flex; align-items: center; gap: 8px; }

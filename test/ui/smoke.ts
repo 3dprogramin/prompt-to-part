@@ -81,6 +81,15 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
 
+  // Product photos: 9 scenes and Custom…, the other 9 after "More scenes".
+  await page.getByRole('button', { name: 'Product photos' }).click();
+  const scenes = page.locator('.ph-scenes [role=radio]');
+  await page.getByRole('button', { name: 'More scenes (9 more)' }).waitFor();
+  assert.equal(await scenes.count(), 10);
+  await page.getByRole('button', { name: 'More scenes (9 more)' }).click();
+  assert.equal(await scenes.count(), 19);
+  await page.screenshot({ path: path.join(shots, '2-scenes.png') });
+
   assert.deepEqual(errors, []);
   console.log(`screenshots: ${shots}`);
 });

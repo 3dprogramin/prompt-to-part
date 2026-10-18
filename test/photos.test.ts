@@ -51,6 +51,12 @@ test('the suggested scene follows what the design is', () => {
   assert.equal(suggestScene('Name keychain'), 'hand');
   assert.equal(suggestScene('Widget', [30, 20, 10]), 'hand', 'small things in a hand');
   assert.equal(suggestScene('Widget', [150, 80, 60]), 'table');
+  assert.equal(suggestScene('NFC fridge magnet'), 'fridge');
+  assert.equal(suggestScene('Toothbrush holder'), 'bathroom');
+  assert.equal(suggestScene('Pegboard wrench holder'), 'workshop');
+  assert.equal(suggestScene('Controller stand'), 'gaming');
+  assert.equal(suggestScene('Car vent phone mount'), 'wall', 'a mount still goes on the wall first');
+  assert.equal(suggestScene('Restaurant table number'), 'restaurant');
 });
 
 test('photo requests are checked', () => {
