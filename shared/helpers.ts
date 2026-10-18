@@ -24,6 +24,11 @@ export interface HelperRuntime {
  * one from 300k triangles takes about half a second, moving the kept one a few milliseconds.
  */
 const meshCache = new Map<string, Manifold>();
+/**
+ * The mesh ID of each coloured mesh in meshCache (by URL): its triangles carry it, and their index in
+ * the stored mesh as faceID, through every boolean, so the runtime finds each output triangle's colour.
+ */
+const colorIds = new Map<string, number>();
 /** Most triangles kept in meshCache. */
 const MESH_CACHE_TRIANGLES = 1_500_000;
 const gone = (m: Manifold) => (m as unknown as { isDeleted(): boolean }).isDeleted();
@@ -67,7 +72,11 @@ export interface LayerToneInput {
   setup: LayerToneSetup;
 }
 
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}) {
+/** A coloured mesh an evaluation used: its triangles in the output have this mesh ID (MeshGL.runOriginalID). */
+export interface PaintedMesh { id: number; name: string; url: string }
+
+/** `painted` collects the coloured meshes H.mesh gave out (see PaintedMesh). */
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[]) {
   const { wasm } = rt;
   // Meshes this evaluation uses: they stay in meshCache until it is over.
   const meshesInUse = new Set<string>();
@@ -141,26 +150,31 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
   }
 
   /** The stored mesh at `url` as a kept Manifold (MeshMissingError while it still has to be loaded). */
-  function meshSolid(url: string): Manifold {
+  function meshSolid(url: string): { solid: Manifold; colorId?: number } {
     meshesInUse.add(url);
     const hit = meshCache.get(url);
     if (hit && !gone(hit)) {
       meshCache.delete(url);
       meshCache.set(url, hit);
-      return hit;
+      return { solid: hit, colorId: colorIds.get(url) };
     }
     const data = getMeshData(url);
     // The untracked constructor: this one outlives the evaluation (when it can be kept).
     const make = rt.keep ? wasm.Manifold : M;
-    const m = new make(new wasm.Mesh({ numProp: 3, vertProperties: data.positions, triVerts: data.indices })) as Manifold;
+    // A coloured mesh gets an ID of its own and its triangles' indices as faceIDs (see colorIds).
+    const n = data.indices.length / 3;
+    const colorId = data.colors ? wasm.Manifold.reserveIDs(1) : undefined;
+    const ids = colorId != null ? { faceID: Uint32Array.from({ length: n }, (_, i) => i), runIndex: new Uint32Array([0, n * 3]), runOriginalID: new Uint32Array([colorId]) } : {};
+    const m = new make(new wasm.Mesh({ numProp: 3, vertProperties: data.positions, triVerts: data.indices, ...ids })) as Manifold;
     // Kept before its first method call, which would otherwise put it in this evaluation's registry.
     rt.keep?.(m);
     const st = m.status();
     if (st !== 'NoError') { if (rt.keep) m.delete(); throw new Error(`H.mesh: the stored mesh is not a valid solid (${st})`); }
-    if (!rt.keep) return m;
+    if (!rt.keep) return { solid: m, colorId };
     // Shared with later evaluations; scripts only ever get copies of it, and it can't be changed either.
     Object.freeze(m);
     meshCache.set(url, m);
+    if (colorId != null) colorIds.set(url, colorId); else colorIds.delete(url);
     // Over budget: drop the least recently used meshes this evaluation doesn't use.
     let total = [...meshCache.values()].reduce((s, x) => s + (gone(x) ? 0 : x.numTri()), 0);
     for (const [u, x] of meshCache) {
@@ -169,8 +183,9 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       total -= gone(x) ? 0 : x.numTri();
       if (!gone(x)) x.delete();
       meshCache.delete(u);
+      colorIds.delete(u);
     }
-    return m;
+    return { solid: m, colorId };
   }
 
   const H = {
@@ -554,7 +569,10 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       const sizes = (['height', 'width', 'depth', 'size', 'scale'] as const).filter((k) => opts[k] != null);
       if (sizes.length > 1) throw new Error(`H.mesh: give one of height, width, depth, size or scale (got ${sizes.join(', ')})`);
       for (const k of sizes) if (!(Number(opts[k]) > 0)) throw new Error(`H.mesh: ${k} must be > 0`);
-      let m = meshSolid(entry.file).translate([0, 0, 0]);
+      const { solid, colorId } = meshSolid(entry.file);
+      // Its colours follow its triangles through the script (the runtime looks them up).
+      if (colorId != null && entry.palette?.length && painted && !painted.some((x) => x.id === colorId)) painted.push({ id: colorId, name, url: entry.file });
+      let m = solid.translate([0, 0, 0]);
       const rot = opts.rotate;
       if (rot != null) {
         if (!Array.isArray(rot) || rot.length !== 3 || !rot.every((x) => Number.isFinite(x))) throw new Error('H.mesh: rotate must be [x, y, z] in degrees');

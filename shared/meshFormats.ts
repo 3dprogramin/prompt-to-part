@@ -1,6 +1,7 @@
-// Mesh file parsers (STL, OBJ, glTF/GLB, 3MF): positions and triangles only. Materials, normals,
-// UVs and textures are ignored (Jig prints one colour; a preview picture comes separately). Runs in
-// the server's locked-down geometry worker (the files are untrusted) and in tests.
+// Mesh file parsers (STL, OBJ, glTF/GLB, 3MF): positions and triangles. Normals are ignored, and
+// so are materials, UVs and textures unless colours are asked for (a coloured Meshy figure): then a
+// glTF's base colour (its texture through the UVs, times the material's factor) gives each triangle
+// a colour. Runs in the server's locked-down geometry worker (the files are untrusted) and in tests.
 import { strFromU8, unzipSync } from 'fflate';
 
 export type MeshFormat = 'stl' | 'obj' | 'glb' | 'gltf' | '3mf';
@@ -16,6 +17,16 @@ export interface RawMesh {
   /** Millimetres per file unit when the format says (3MF, glTF metres), or null when unknown. */
   mmPerUnit: number | null;
   warnings: string[];
+  /** sRGB colour per triangle (3 bytes each), when colours were asked for and the file has them (glTF base colour). */
+  colors?: Uint8Array;
+}
+
+/** RGBA pixels of a texture, row by row from the top. */
+export interface Raster { width: number; height: number; data: Uint8Array | Uint8ClampedArray }
+
+export interface ParseOptions {
+  /** Read each triangle's colour; `decode` turns an embedded PNG or JPEG into pixels (throws on others). */
+  colors?: { decode: (bytes: Uint8Array, mimeType: string) => Raster };
 }
 
 /** Most triangles a file may have (about 120 MB of positions). */
@@ -28,14 +39,14 @@ export function meshFormat(filename: string): MeshFormat | null {
   return MESH_FORMATS.includes(ext as MeshFormat) ? (ext as MeshFormat) : null;
 }
 
-export function parseMeshFile(bytes: Uint8Array, filename: string): RawMesh {
+export function parseMeshFile(bytes: Uint8Array, filename: string, opts: ParseOptions = {}): RawMesh {
   const format = meshFormat(filename);
   if (!format) throw new MeshFormatError(`${filename}: not a mesh file Jig reads (STL, OBJ, GLB/glTF or 3MF)`);
   let out: RawMesh;
   if (format === 'stl') out = parseStl(bytes);
   else if (format === 'obj') out = parseObj(bytes);
   else if (format === '3mf') out = parse3mf(bytes);
-  else out = parseGltf(bytes);
+  else out = parseGltf(bytes, opts.colors?.decode);
   if (!out.indices.length) throw new MeshFormatError(`${filename}: the file has no triangles`);
   return out;
 }
@@ -158,7 +169,10 @@ interface Gltf {
   scene?: number;
   scenes?: { nodes?: number[] }[];
   nodes?: { mesh?: number; children?: number[]; matrix?: number[]; translation?: number[]; rotation?: number[]; scale?: number[] }[];
-  meshes?: { primitives: { attributes: Record<string, number>; indices?: number; mode?: number; extensions?: Record<string, unknown> }[] }[];
+  meshes?: { primitives: { attributes: Record<string, number>; indices?: number; mode?: number; material?: number; extensions?: Record<string, unknown> }[] }[];
+  materials?: { pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: { index: number; texCoord?: number } } }[];
+  textures?: { source?: number }[];
+  images?: { bufferView?: number; mimeType?: string; uri?: string }[];
   accessors?: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string; normalized?: boolean; sparse?: unknown }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
   buffers?: { uri?: string; byteLength: number }[];
@@ -167,7 +181,20 @@ interface Gltf {
 
 const COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
 
-function parseGltf(bytes: Uint8Array): RawMesh {
+class Bytes {
+  a = new Uint8Array(3 * 1024);
+  n = 0;
+  push3(x: number, y: number, z: number) {
+    if (this.n + 3 > this.a.length) { const b = new Uint8Array(this.a.length * 2); b.set(this.a); this.a = b; }
+    this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z;
+  }
+  done() { return this.a.slice(0, this.n); }
+}
+
+/** linear 0–1 → sRGB 0–1 (glTF colour factors are linear). */
+const srgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+
+function parseGltf(bytes: Uint8Array, decode?: (bytes: Uint8Array, mimeType: string) => Raster): RawMesh {
   let json: Gltf;
   const buffers: Uint8Array[] = [];
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -197,7 +224,7 @@ function parseGltf(bytes: Uint8Array): RawMesh {
     else if (b.uri) throw new MeshFormatError('This .gltf refers to a separate .bin file: upload the .glb version instead');
   });
 
-  const read = (ai: number, what: 'positions' | 'indices'): Float64Array => {
+  const read = (ai: number, what: 'positions' | 'indices' | 'UVs'): Float64Array => {
     const a = json.accessors?.[ai];
     if (!a) throw new MeshFormatError(`glTF accessor ${ai} is missing`);
     if (a.sparse) throw new MeshFormatError('Sparse glTF accessors are not supported');
@@ -237,6 +264,28 @@ function parseGltf(bytes: Uint8Array): RawMesh {
   const idx = new Ints();
   const warnings: string[] = [];
   let skipped = 0;
+  // Colours: each material's base colour texture (decoded once) and factor.
+  const cols = decode ? new Bytes() : null;
+  const rasters = new Map<number, Raster | null>();
+  const raster = (ii: number): Raster | null => {
+    if (rasters.has(ii)) return rasters.get(ii)!;
+    let r: Raster | null = null;
+    try {
+      const img = json.images?.[ii];
+      let data: Uint8Array | undefined, mime = img?.mimeType ?? '';
+      if (img?.bufferView != null) {
+        const bv = json.bufferViews?.[img.bufferView];
+        const buf = bv && buffers[bv.buffer];
+        if (bv && buf) data = buf.subarray(bv.byteOffset ?? 0, (bv.byteOffset ?? 0) + bv.byteLength);
+      } else if (img?.uri) {
+        const m = /^data:([^;,]*);base64,(.*)$/.exec(img.uri);
+        if (m) { data = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)); mime ||= m[1]; }
+      }
+      if (data) r = decode!(data, mime);
+    } catch (e) { warnings.push(`A texture couldn't be read (${(e as Error).message}): its triangles are grey`); }
+    rasters.set(ii, r);
+    return r;
+  };
   const addMesh = (mi: number, m: Mat4) => {
     for (const prim of json.meshes?.[mi]?.primitives ?? []) {
       const mode = prim.mode ?? 4;
@@ -252,9 +301,35 @@ function parseGltf(bytes: Uint8Array): RawMesh {
       const ix = prim.indices != null ? read(prim.indices, 'indices') : Float64Array.from({ length: nv }, (_, i) => i);
       // A mirrored node transform turns the triangles inside out: flip them back.
       const det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+      // The triangle's colour: the texture at its centre and three points towards its corners (averaged), times the factor.
+      let color: ((a: number, b: number, c: number) => void) | null = null;
+      if (cols) {
+        const pbr = prim.material != null ? json.materials?.[prim.material]?.pbrMetallicRoughness : undefined;
+        const f = (pbr?.baseColorFactor ?? [1, 1, 1, 1]).slice(0, 3).map((x) => srgb(Math.min(1, Math.max(0, Number(x) || 0))));
+        const tex = pbr?.baseColorTexture;
+        const src = tex ? json.textures?.[tex.index]?.source : undefined;
+        const img = src != null ? raster(src) : null;
+        const uvAttr = prim.attributes[`TEXCOORD_${tex?.texCoord ?? 0}`];
+        const uv = img && uvAttr != null ? read(uvAttr, 'UVs') : null;
+        const flat = f.map((x) => Math.round(x * 255));
+        const W = [[1 / 3, 1 / 3, 1 / 3], [2 / 3, 1 / 6, 1 / 6], [1 / 6, 2 / 3, 1 / 6], [1 / 6, 1 / 6, 2 / 3]];
+        color = (a, b, c) => {
+          if (!img || !uv || uv.length < nv * 2) return cols.push3(flat[0], flat[1], flat[2]);
+          let r = 0, g = 0, bl = 0;
+          for (const [wa, wb, wc] of W) {
+            const u = wa * uv[2 * a] + wb * uv[2 * b] + wc * uv[2 * c], v = wa * uv[2 * a + 1] + wb * uv[2 * b + 1] + wc * uv[2 * c + 1];
+            // Repeat wrapping; glTF's UV origin is the image's top left.
+            const x = Math.min(img.width - 1, Math.floor((u - Math.floor(u)) * img.width)), y = Math.min(img.height - 1, Math.floor((v - Math.floor(v)) * img.height));
+            const o = (y * img.width + x) * 4;
+            r += img.data[o]; g += img.data[o + 1]; bl += img.data[o + 2];
+          }
+          cols.push3(Math.round((r / 4) * f[0]), Math.round((g / 4) * f[1]), Math.round((bl / 4) * f[2]));
+        };
+      }
       const tri = (a: number, b: number, c: number) => {
         if (a >= nv || b >= nv || c >= nv) return;
         if (det < 0) idx.push3(first + a, first + c, first + b); else idx.push3(first + a, first + b, first + c);
+        color?.(a, b, c);
       };
       if (mode === 4) for (let i = 0; i + 2 < ix.length; i += 3) tri(ix[i], ix[i + 1], ix[i + 2]);
       else if (mode === 5) for (let i = 0; i + 2 < ix.length; i++) (i % 2 ? tri(ix[i + 1], ix[i], ix[i + 2]) : tri(ix[i], ix[i + 1], ix[i + 2]));
@@ -273,7 +348,7 @@ function parseGltf(bytes: Uint8Array): RawMesh {
   if (scene?.nodes?.length) for (const ni of scene.nodes) visit(ni, IDENTITY, 0);
   else (json.meshes ?? []).forEach((_, mi) => addMesh(mi, IDENTITY));
   if (skipped) warnings.push(`${skipped} parts that aren't triangles (points or lines) were skipped`);
-  return { positions: pos.done(), indices: idx.done(), format: 'glb', up: 'y', mmPerUnit: 1000, warnings };
+  return { positions: pos.done(), indices: idx.done(), format: 'glb', up: 'y', mmPerUnit: 1000, warnings, ...(cols ? { colors: cols.done() } : {}) };
 }
 
 // ---------------------------------------------------------------------------- 3MF

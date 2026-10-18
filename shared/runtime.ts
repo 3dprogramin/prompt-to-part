@@ -3,15 +3,16 @@
 import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { FontMissingError, takeFontSubstitutions } from './text';
 import { compile, locate, ScriptError } from './compile';
-import { makeHelpers } from './helpers';
+import { makeHelpers, type PaintedMesh } from './helpers';
+import { colorSlots, sameFilament, type PaintFilament } from './meshColors';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import { cleanProfile } from './print';
-import { MESHES_KEY, MeshMissingError, parseMeshes, type MeshData } from './meshes';
-import { parseMeshFile } from './meshFormats';
+import { getMeshData, MESHES_KEY, MeshMissingError, parseMeshes, type MeshData, type MeshEntry } from './meshes';
+import { parseMeshFile, type Raster } from './meshFormats';
 import { repairMesh, type ImportOptions, type ImportReport } from './meshRepair';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
@@ -292,9 +293,12 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   takeFontSubstitutions();
   heapAtStart = heapSize();
   try {
+    const meshes = parseMeshes(inputValues?.[MESHES_KEY]);
+    // The coloured meshes the script used (H.mesh): their triangles keep their colours (paintOf).
+    const painted: PaintedMesh[] = [];
     const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
       images: parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]), setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
-    }, parseMeshes(inputValues?.[MESHES_KEY]));
+    }, meshes, painted);
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
@@ -406,6 +410,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         for (let v = 0; v < nv; v++) thickness[v] = vp[v * np + 3] * scale;
         litColors = lithoVertexColors(thickness, lithophane.options);
       }
+      const paint = painted.length && !layerColors && !lithophane ? paintOf(mesh, painted, meshes, color) : undefined;
       parts.push({
         name, color, positions, indices: new Uint32Array(mesh.triVerts),
         bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase,
@@ -415,6 +420,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         ...(layerColors ? { layerColors, vertexColors: vertexColors(positions, layerColors) } : {}),
         ...(layerTone ? { layerTone } : {}),
         ...(lithophane ? { lithophane, ...(litColors ? { vertexColors: litColors } : {}) } : {}),
+        ...(paint ? { paint } : {}),
       });
     });
 
@@ -466,16 +472,59 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   }
 }
 
+/** Each stored triangle's palette index, per coloured mesh and palette (a few kept: meshes are big). */
+const slotCache = new Map<string, Uint8Array>();
+
+/**
+ * A part's colours per triangle: a triangle from a coloured mesh (its run's mesh ID is one H.mesh gave
+ * out) prints with the filament of its colour, found through its faceID (the triangle's index in the
+ * stored mesh); the script's own triangles in the part's colour. Undefined when no triangle came from one.
+ */
+function paintOf(mesh: { triVerts: Uint32Array; runIndex: Uint32Array; runOriginalID: Uint32Array; faceID: Uint32Array }, painted: PaintedMesh[], meshes: Record<string, MeshEntry>, partColor: string): PartMesh['paint'] {
+  const nt = mesh.triVerts.length / 3;
+  if (mesh.faceID?.length !== nt || !mesh.runOriginalID?.length) return undefined;
+  const filaments: PaintFilament[] = [];
+  const indexOf = (f: PaintFilament) => { let i = filaments.findIndex((g) => sameFilament(g, f)); if (i < 0) i = filaments.push(f) - 1; return i; };
+  const tri = new Uint8Array(nt);
+  const ownRuns: [number, number][] = [];
+  for (let r = 0; r < mesh.runOriginalID.length; r++) {
+    const from = mesh.runIndex[r] / 3, to = (r + 1 < mesh.runIndex.length ? mesh.runIndex[r + 1] : mesh.triVerts.length) / 3;
+    if (to <= from) continue;
+    const pm = painted.find((p) => p.id === mesh.runOriginalID[r]);
+    const entry = pm && meshes[pm.name];
+    const data = pm && entry?.palette ? getMeshData(pm.url) : undefined;
+    if (!pm || !entry?.palette || !data?.colors) { ownRuns.push([from, to]); continue; }
+    const key = `${pm.url}|${entry.palette.map((c) => c.color).join()}`;
+    let slots = slotCache.get(key);
+    if (!slots) {
+      slots = colorSlots(data.colors, entry.palette.map((c) => c.color));
+      slotCache.set(key, slots);
+      while (slotCache.size > 8) slotCache.delete(slotCache.keys().next().value!);
+    }
+    const map = entry.palette.map((c) => indexOf(c.filament));
+    for (let t = from; t < to; t++) tri[t] = map[slots[mesh.faceID[t]] ?? 0] ?? 0;
+  }
+  if (!filaments.length) return undefined;
+  if (ownRuns.length) {
+    // The part's colour: one of the figure's filaments when it is that colour (a base in the figure's black).
+    let own = filaments.findIndex((f) => f.color.toLowerCase() === partColor.toLowerCase());
+    if (own < 0) own = filaments.push({ color: partColor.toLowerCase() }) - 1;
+    for (const [from, to] of ownRuns) tri.fill(own, from, to);
+  }
+  return { filaments, tri };
+}
+
 /**
  * Reads a mesh file (STL, OBJ, GLB/glTF, 3MF) and makes it a printable solid: millimetres, Z up,
- * watertight, on the bed and centred (shared/meshRepair.ts). Throws on a file it can't read.
+ * watertight, on the bed and centred (shared/meshRepair.ts). Throws on a file it can't read. With
+ * opts.colors, `decode` reads the textures (shared/imageDecode.ts, kept out of the browser's bundle).
  */
-export function importMeshFile(bytes: Uint8Array, filename: string, opts: ImportOptions = {}): { mesh: MeshData; report: ImportReport } {
+export function importMeshFile(bytes: Uint8Array, filename: string, opts: ImportOptions = {}, decode?: (bytes: Uint8Array, mimeType: string) => Raster): { mesh: MeshData; report: ImportReport } {
   if (!runtime) throw new Error('runtime not initialised');
   const rt = runtime;
   heapAtStart = heapSize();
   try {
-    return repairMesh(rt.wasm, parseMeshFile(bytes, filename), opts);
+    return repairMesh(rt.wasm, parseMeshFile(bytes, filename, opts.colors && decode ? { colors: { decode } } : {}), opts);
   } catch (e) {
     noteTrap(e);
     if (runtimeOutOfMemory()) throw new Error('Ran out of memory importing the mesh: it is too big. Simplify it first (e.g. Blender\'s Decimate) or upload a smaller file.');

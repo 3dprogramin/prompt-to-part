@@ -2,11 +2,22 @@
 // report) see, so the two are always told the same thing.
 import { fitProblem } from './printer';
 import type { Box3 } from './types';
+import { filamentLabel, MAX_MESH_COLORS, type PaintFilament } from './meshColors';
 
 interface Evaluated {
   bbox: Box3 | null;
   warnings: string[];
-  parts: { name: string; components: number }[];
+  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] } }[];
+}
+
+/** The filaments a design with coloured meshes prints with: each painted part's, and the colour of every other part (one per colour). */
+export function designFilaments(parts: Evaluated['parts']): PaintFilament[] {
+  const out: PaintFilament[] = [];
+  for (const p of parts) for (const f of p.paint?.filaments ?? (p.color ? [{ color: p.color }] : [])) {
+    const same = out.findIndex((g) => g.color.toLowerCase() === f.color.toLowerCase());
+    if (same < 0) out.push(f); else if (!out[same].name && f.name) out[same] = f;
+  }
+  return out;
 }
 
 /** The script's own warnings plus build-volume, plate-contact and disconnected-piece checks. */
@@ -15,6 +26,11 @@ export function modelWarnings(r: Evaluated): string[] {
   const fit = fitProblem(r.bbox);
   if (fit) out.push(fit);
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) out.push(`Model does not rest on the build plate: min Z = ${r.bbox.min[2].toFixed(2)} mm (should be 0)`);
+  // A coloured figure prints in the AMS lite's 4 filaments, together with the design's other parts.
+  if (r.parts.some((p) => p.paint)) {
+    const all = designFilaments(r.parts);
+    if (all.length > MAX_MESH_COLORS) out.push(`The design needs ${all.length} filaments (${all.map(filamentLabel).join(', ')}), but the AMS lite holds ${MAX_MESH_COLORS}: give the other parts one of the figure's filament colours, or give the figure fewer colours`);
+  }
   for (const p of r.parts) {
     if (p.components > 1) out.push(`Part "${p.name}" consists of ${p.components} disconnected pieces – if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);
   }

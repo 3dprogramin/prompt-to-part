@@ -2,6 +2,7 @@ import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
 import type { LayerToneSource, LayerColor } from './layertone';
 import type { LithophaneSource } from './lithophane';
+import type { PaintFilament } from './meshColors';
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -111,6 +112,11 @@ export interface PartMesh {
   layerTone?: LayerToneSource;
   /** Lithophane part (H.lithophane): the picture and options it was built with (lengths scaled with the part), for simulateLithophane. */
   lithophane?: LithophaneSource;
+  /**
+   * A part coloured per triangle (it has a coloured mesh, H.mesh): its filaments and each triangle's
+   * index into them. Triangles of the script's own geometry are in the part's colour.
+   */
+  paint?: { filaments: PaintFilament[]; tri: Uint8Array };
 }
 
 export interface PartDisplay {

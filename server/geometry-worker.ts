@@ -17,6 +17,9 @@ import { renderIso, renderSheet } from './render';
 import { withFonts } from '../shared/text';
 import { decodeMesh, encodeMesh, withMeshes, type MeshData } from '../shared/meshes';
 import type { ImportOptions } from '../shared/meshRepair';
+import { decodeTexture } from '../shared/imageDecode';
+import { colorSlots, meshPalette, triangleAreas, type PaintFilament } from '../shared/meshColors';
+import type { LayerToneFilament } from '../shared/layertone';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
 import type { LayerColor } from '../shared/layertone';
 import type { LithophaneSource } from '../shared/lithophane';
@@ -105,7 +108,18 @@ export interface EvalSummary {
   dimensions: EvalResult['dimensions'];
   assembly: EvalResult['assembly'];
   print: EvalResult['print'];
-  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; lithophane?: LithophaneSource }[];
+  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; lithophane?: LithophaneSource; paint?: PaintSummary }[];
+}
+/** A part coloured per triangle: its filaments and each one's share of the part's surface. */
+export interface PaintSummary { filaments: PaintFilament[]; share: number[] }
+
+function paintSummary(p: EvalResult['parts'][number]): PaintSummary | undefined {
+  if (!p.paint) return undefined;
+  const areas = triangleAreas(p.positions, p.indices);
+  const sums = p.paint.filaments.map(() => 0);
+  let total = 0;
+  areas.forEach((a, t) => { sums[p.paint!.tri[t]] += a; total += a; });
+  return { filaments: p.paint.filaments, share: sums.map((x) => (total ? +(x / total).toFixed(3) : 0)) };
 }
 export interface EvalFailure { ok: false; error: ReturnType<typeof formatScriptError> }
 
@@ -113,7 +127,11 @@ function summarize(r: EvalResult): EvalSummary {
   return {
     ok: true, meta: r.meta, params: r.params, values: r.values, bbox: r.bbox, timeMs: r.timeMs,
     warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly, print: r.print,
-    parts: r.parts.map(({ name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, lithophane }) => ({ name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(lithophane ? { lithophane } : {}) })),
+    parts: r.parts.map((p) => {
+      const { name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, lithophane } = p;
+      const paint = paintSummary(p);
+      return { name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(lithophane ? { lithophane } : {}), ...(paint ? { paint } : {}) };
+    }),
   };
 }
 
@@ -131,7 +149,7 @@ type Req =
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues }
-  | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions };
+  | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions; palette?: { colors: number; mine: LayerToneFilament[] } };
 
 type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
 type MeshReply = { meshReply: number; bytes?: Uint8Array; error?: string; transient?: boolean };
@@ -175,10 +193,13 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
       post({ data: { ...out, png } });
     } else if (req.cmd === 'importMesh') {
       // The file is untrusted: parsed and repaired here, in the locked-down process.
-      const { mesh, report } = importMeshFile(new Uint8Array(req.bytes), req.filename, req.options);
+      const { mesh, report } = importMeshFile(new Uint8Array(req.bytes), req.filename, req.options, decodeTexture);
+      // A coloured mesh: its colours (at most palette.colors) and their filaments; the picture shows them.
+      const palette = mesh.colors && req.palette ? meshPalette(mesh.colors, triangleAreas(mesh.positions, mesh.indices), req.palette.colors, req.palette.mine) : undefined;
       const part = { name: 'Mesh', color: '#b0b7c3', positions: mesh.positions, indices: mesh.indices, bbox: { min: [-report.size[0] / 2, -report.size[1] / 2, 0], max: [report.size[0] / 2, report.size[1] / 2, report.size[2]] }, volume: report.volume, surfaceArea: 0, triCount: report.triangles, genus: 0, components: report.components } as EvalResult['parts'][number];
+      if (palette && mesh.colors) part.paint = { filaments: palette.map((c) => c.filament), tri: colorSlots(mesh.colors, palette.map((c) => c.color)) };
       const { png, gridStep } = renderSheet([part]);
-      post({ data: { bin: encodeMesh(mesh), report, png: png.toString('base64'), gridStep } });
+      post({ data: { bin: encodeMesh(mesh), report, png: png.toString('base64'), gridStep, ...(palette ? { palette } : {}) } });
     } else if (req.cmd === 'stress') {
       post({ data: await stress(req.code, req.budgetMs ?? 20000, req.extra) });
     }

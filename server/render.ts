@@ -102,7 +102,11 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
       // Mostly the colour itself (it is what the print looks like), with a little shading for the relief.
       const vc = (v: number, shade: number): Vec3 => { const s = 0.8 + 0.2 * Math.min(1, shade); return [VC![v * 3] * 255 * s, VC![v * 3 + 1] * 255 * s, VC![v * 3 + 2] * 255 * s]; };
       if (VC) flatParts.add(partIdx);
+      // A coloured mesh: each triangle in its filament's colour.
+      const paint = part.paint?.tri.length === I.length / 3 ? part.paint : undefined;
+      const paintRgb = paint?.filaments.map((f) => hexToRgb(f.color));
       for (let t = 0; t < I.length; t += 3) {
+        const tc = paintRgb ? paintRgb[paint!.tri[t / 3]] ?? base : base;
         const a: Vec3 = [P[I[t] * 3], P[I[t] * 3 + 1], P[I[t] * 3 + 2]];
         const b: Vec3 = [P[I[t + 1] * 3], P[I[t + 1] * 3 + 1], P[I[t + 1] * 3 + 2]];
         const c: Vec3 = [P[I[t + 2] * 3], P[I[t + 2] * 3 + 1], P[I[t + 2] * 3 + 2]];
@@ -110,7 +114,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
         const facing = dot(n, viewer);
         const lam = Math.max(0, dot(n, light1)) * 0.6 + Math.max(0, facing) * 0.3 + 0.18;
         const shade = facing < 0 ? 0.35 : Math.min(1.1, lam);
-        const r = Math.min(255, base[0] * shade), g = Math.min(255, base[1] * shade), bl = Math.min(255, base[2] * shade);
+        const r = Math.min(255, tc[0] * shade), g = Math.min(255, tc[1] * shade), bl = Math.min(255, tc[2] * shade);
         const ca = VC && vc(I[t], shade), cb = VC && vc(I[t + 1], shade), cc = VC && vc(I[t + 2], shade);
         const A = toScreen(a), B = toScreen(b), Cc = toScreen(c);
         const minX = Math.max(0, Math.floor(Math.min(A[0], B[0], Cc[0])));

@@ -3,6 +3,7 @@
 // and the values keep a light index under MESHES_KEY. Evaluation is synchronous, so a mesh that
 // isn't loaded yet throws MeshMissingError and the caller loads it and retries (like fonts).
 import type { Vec3 } from './types';
+import { cleanPalette, type MeshColor } from './meshColors';
 
 /** Values key: the design's meshes, as JSON Record<name, MeshEntry>. */
 export const MESHES_KEY = '$meshes';
@@ -28,6 +29,8 @@ export interface MeshEntry {
   preview?: string;
   /** What the import had to fix, for Claude and the user. */
   repairs?: string[];
+  /** A coloured mesh (a textured Meshy model): its colours and the filament of each (shared/meshColors.ts); the stored file has each triangle's colour. */
+  palette?: MeshColor[];
 }
 
 export function parseMeshes(raw: unknown): Record<string, MeshEntry> {
@@ -46,6 +49,8 @@ export function parseMeshes(raw: unknown): Record<string, MeshEntry> {
       ...(typeof m.preview === 'string' ? { preview: m.preview.slice(0, 300) } : {}),
       ...(Array.isArray(m.repairs) ? { repairs: m.repairs.filter((r): r is string => typeof r === 'string').slice(0, 20).map((r) => r.slice(0, 300)) } : {}),
     };
+    const palette = cleanPalette(m.palette);
+    if (palette) out[name].palette = palette;
   }
   return out;
 }
@@ -70,12 +75,17 @@ export function rehomeMeshes(raw: unknown, designId: string): string | undefined
 }
 
 // ---------------------------------------------------------------------------- concept pictures
-// In 3D figure mode the image model first draws the subject as a grey clay render (generate_concept)
-// for the user to approve; generate_3d then builds it from that picture (image to 3D). The picture
-// is stored with the meshes; the values keep an index of them under CONCEPTS_KEY.
+// In 3D figure mode the image model first draws the subject as a grey clay render, or in flat
+// colours for a coloured figure (generate_concept), for the user to approve; generate_3d then builds
+// it from that picture (image to 3D). The picture is stored with the meshes; the values keep an
+// index of them under CONCEPTS_KEY.
 
 /** What one Meshy model costs (meshy-7.1, untextured, 2k geometry). */
 export const MESHY_CREDITS_PER_MODEL = 25;
+/** What one coloured (textured) Meshy model costs: image to 3D textured 30 + 5 for 2k geometry; text to 3D preview 25 + refine 10. */
+export const MESHY_CREDITS_PER_COLOR_MODEL = 35;
+/** Credits of a model, in colour or not. */
+export const meshyCredits = (color: boolean) => (color ? MESHY_CREDITS_PER_COLOR_MODEL : MESHY_CREDITS_PER_MODEL);
 /** Values key: the design's concept pictures, as JSON Record<name, ConceptEntry>. */
 export const CONCEPTS_KEY = '$concepts';
 /** Most concept pictures kept (the oldest go first). */
@@ -89,6 +99,8 @@ export interface ConceptEntry {
   /** What the image model was asked to show. */
   subject: string;
   createdAt: number;
+  /** Drawn in colour, for a coloured figure. */
+  color?: boolean;
 }
 
 export function parseConcepts(raw: unknown): Record<string, ConceptEntry> {
@@ -99,7 +111,7 @@ export function parseConcepts(raw: unknown): Record<string, ConceptEntry> {
   for (const [name, e] of Object.entries(o).slice(-MAX_CONCEPTS)) {
     const c = e as Partial<ConceptEntry>;
     if (!MESH_NAME.test(name) || typeof c?.image !== 'string' || !CONCEPT_URL.test(c.image)) continue;
-    out[name] = { image: c.image, subject: typeof c.subject === 'string' ? c.subject.slice(0, 2000) : '', createdAt: Number(c.createdAt) || 0 };
+    out[name] = { image: c.image, subject: typeof c.subject === 'string' ? c.subject.slice(0, 2000) : '', createdAt: Number(c.createdAt) || 0, ...(c.color === true ? { color: true } : {}) };
   }
   return out;
 }
@@ -120,18 +132,24 @@ export function rehomeConcepts(raw: unknown, designId: string): string | undefin
 
 // ---------------------------------------------------------------------------- stored format
 // "JIGM", header length (uint32), JSON header padded to 4 bytes, float32 xyz per vertex, uint32
-// vertex indices per triangle. The mesh is already repaired: welded, watertight and oriented.
+// vertex indices per triangle, and for a coloured mesh (header colors: "rgb") an sRGB colour per
+// triangle (3 bytes, padded to 4). The mesh is already repaired: welded, watertight and oriented.
 const MAGIC = 0x4d47494a; // "JIGM" little-endian
 
 export interface MeshData {
   positions: Float32Array;
   indices: Uint32Array;
+  /** sRGB colour per triangle (3 bytes each), for a coloured mesh. */
+  colors?: Uint8Array;
 }
 
+const pad4 = (n: number) => Math.ceil(n / 4) * 4;
+
 export function encodeMesh(m: MeshData, header: Record<string, unknown> = {}): Uint8Array {
-  const json = new TextEncoder().encode(JSON.stringify({ version: 1, vertices: m.positions.length / 3, triangles: m.indices.length / 3, ...header }));
+  const colors = m.colors?.length === m.indices.length ? m.colors : undefined;
+  const json = new TextEncoder().encode(JSON.stringify({ version: 1, vertices: m.positions.length / 3, triangles: m.indices.length / 3, ...(colors ? { colors: 'rgb' } : {}), ...header }));
   const hl = Math.ceil(json.length / 4) * 4;
-  const out = new Uint8Array(8 + hl + m.positions.byteLength + m.indices.byteLength);
+  const out = new Uint8Array(8 + hl + m.positions.byteLength + m.indices.byteLength + (colors ? pad4(colors.length) : 0));
   const dv = new DataView(out.buffer);
   dv.setUint32(0, MAGIC, true);
   dv.setUint32(4, hl, true);
@@ -139,6 +157,7 @@ export function encodeMesh(m: MeshData, header: Record<string, unknown> = {}): U
   out.set(json, 8);
   out.set(new Uint8Array(m.positions.buffer, m.positions.byteOffset, m.positions.byteLength), 8 + hl);
   out.set(new Uint8Array(m.indices.buffer, m.indices.byteOffset, m.indices.byteLength), 8 + hl + m.positions.byteLength);
+  if (colors) out.set(colors, 8 + hl + m.positions.byteLength + m.indices.byteLength);
   return out;
 }
 
@@ -149,12 +168,14 @@ export function decodeMesh(bytes: Uint8Array): MeshData & { header: Record<strin
   const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + hl))) as Record<string, unknown>;
   const nv = Number(header.vertices), nt = Number(header.triangles);
   const start = 8 + hl;
-  if (!Number.isInteger(nv) || !Number.isInteger(nt) || start + nv * 12 + nt * 12 !== bytes.length) throw new Error('Damaged Jig mesh file');
+  const colored = header.colors === 'rgb';
+  if (!Number.isInteger(nv) || !Number.isInteger(nt) || start + nv * 12 + nt * 12 + (colored ? pad4(nt * 3) : 0) !== bytes.length) throw new Error('Damaged Jig mesh file');
   // Copied: the views must be aligned, and the caller may keep the buffer.
   const positions = new Float32Array(bytes.slice(start, start + nv * 12).buffer);
-  const indices = new Uint32Array(bytes.slice(start + nv * 12).buffer);
+  const indices = new Uint32Array(bytes.slice(start + nv * 12, start + nv * 12 + nt * 12).buffer);
   for (let i = 0; i < indices.length; i++) if (indices[i] >= nv) throw new Error('Damaged Jig mesh file');
-  return { positions, indices, header };
+  const colors = colored ? bytes.slice(start + nv * 12 + nt * 12, start + nv * 12 + nt * 12 + nt * 3) : undefined;
+  return { positions, indices, ...(colors ? { colors } : {}), header };
 }
 
 // ---------------------------------------------------------------------------- loaded meshes

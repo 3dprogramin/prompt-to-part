@@ -2,8 +2,12 @@
 // triangles, consistent orientation, then Manifold. A mesh that still isn't a closed surface
 // (holes, non-manifold edges, overlapping shells) is rebuilt as a watertight solid from a signed
 // distance grid (inside/outside by rays along three axes, a majority vote) with Manifold.levelSet.
-// Very heavy meshes are simplified, and the result stands on z = 0, centred in X and Y.
+// Very heavy meshes are simplified, and the result stands on z = 0, centred in X and Y. A coloured
+// mesh's colours (one per triangle) are carried over to the repaired triangles, each taking the
+// colour of the nearest point of the original surface.
 import type { Manifold, ManifoldToplevel } from 'manifold-3d';
+import { BufferAttribute, BufferGeometry, Vector3 } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 import type { RawMesh } from './meshFormats';
 import type { MeshData } from './meshes';
 import type { Vec3 } from './types';
@@ -17,6 +21,8 @@ export interface ImportOptions {
   resolution?: number;
   /** Rebuild it on the grid even if it could be repaired (self-intersecting meshes; tests). */
   rebuild?: boolean;
+  /** Keep the file's colours (glTF base colour), one per triangle of the result. */
+  colors?: boolean;
 }
 
 export interface ImportReport {
@@ -32,6 +38,8 @@ export interface ImportReport {
   timeMs: number;
   /** Milliseconds per stage. */
   stages: Record<string, number>;
+  /** The result has a colour per triangle (MeshData.colors). */
+  colored?: boolean;
 }
 
 export const DEFAULT_MAX_TRIANGLES = 200_000;
@@ -54,6 +62,8 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
 
   // ---- units and up axis, so every tolerance below is in mm
   const pos = new Float32Array(raw.positions.length);
+  const rawColors = opts.colors && raw.colors?.length === raw.indices.length ? raw.colors : undefined;
+  if (opts.colors && !rawColors) repairs.push('The file has no colours: it prints in one');
   if (raw.up === 'y') {
     // Y-up (glTF, OBJ) to Z-up: their front (+Z) becomes Jig's front (−Y).
     for (let i = 0; i < pos.length; i += 3) { pos[i] = raw.positions[i]; pos[i + 1] = -raw.positions[i + 2]; pos[i + 2] = raw.positions[i + 1]; }
@@ -183,15 +193,52 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
     for (let v = 0; v < positions.length / 3; v++) for (let k = 0; k < 3; k++) positions[v * 3 + k] = out.vertProperties[v * np + k];
   }
   const indices = Uint32Array.from(out.triVerts);
+  // Colours: each new triangle takes the colour of the original surface nearest to its centre.
+  const colors = rawColors ? transferColors(pos, raw.indices, rawColors, positions, indices, [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, bb.min[2]]) : undefined;
+  if (rawColors) stage('colors');
   const fb = solid.boundingBox();
   const report: ImportReport = {
     format: raw.format, inputTriangles, triangles: indices.length / 3,
     size: [fb.max[0] - fb.min[0], fb.max[1] - fb.min[1], fb.max[2] - fb.min[2]],
     volume: solid.volume(), components: solid.decompose().filter((p) => p.volume() > 0).length,
-    repairs, rebuilt, timeMs: Math.round(performance.now() - t0), stages,
+    repairs, rebuilt, timeMs: Math.round(performance.now() - t0), stages, ...(colors ? { colored: true } : {}),
   };
   stage('output');
-  return { mesh: { positions, indices }, report };
+  return { mesh: { positions, indices, ...(colors ? { colors } : {}) }, report };
+}
+
+/**
+ * The colour of each triangle of the repaired mesh (`positions`/`indices`, moved by −`shift` from
+ * where the original was): that of the original triangle nearest to its centre, found with a BVH
+ * over the original triangles (each with corners of its own, so its index survives the BVH's
+ * reordering of the triangles).
+ */
+export function transferColors(srcPos: Float32Array, srcTris: Uint32Array, srcColors: Uint8Array, positions: Float32Array, indices: Uint32Array, shift: Vec3 = [0, 0, 0]): Uint8Array {
+  const keep: number[] = [];
+  for (let t = 0; t < srcTris.length / 3; t++) {
+    let ok = true;
+    for (let k = 0; k < 9 && ok; k++) ok = Number.isFinite(srcPos[srcTris[3 * t + Math.floor(k / 3)] * 3 + (k % 3)]);
+    if (ok) keep.push(t);
+  }
+  const out = new Uint8Array(indices.length);
+  if (!keep.length) return out.fill(128);
+  const soup = new Float32Array(keep.length * 9);
+  keep.forEach((t, i) => { for (let k = 0; k < 9; k++) soup[i * 9 + k] = srcPos[srcTris[3 * t + Math.floor(k / 3)] * 3 + (k % 3)]; });
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(soup, 3));
+  g.setIndex(new BufferAttribute(Uint32Array.from({ length: keep.length * 3 }, (_, i) => i), 1));
+  const bvh = new MeshBVH(g);
+  const order = g.index!.array;
+  const p = new Vector3();
+  const hit = { point: new Vector3(), distance: 0, faceIndex: 0 };
+  for (let t = 0; t < indices.length / 3; t++) {
+    const a = indices[3 * t] * 3, b = indices[3 * t + 1] * 3, c = indices[3 * t + 2] * 3;
+    p.set((positions[a] + positions[b] + positions[c]) / 3 + shift[0], (positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3 + shift[1], (positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3 + shift[2]);
+    const r = bvh.closestPointToPoint(p, hit as never) as typeof hit | null;
+    const src = keep[r ? Math.floor(order[3 * r.faceIndex] / 3) : 0];
+    out[3 * t] = srcColors[3 * src]; out[3 * t + 1] = srcColors[3 * src + 1]; out[3 * t + 2] = srcColors[3 * src + 2];
+  }
+  return out;
 }
 
 function bounds(pos: Float32Array, tris: Uint32Array): { min: Vec3; max: Vec3 } | null {

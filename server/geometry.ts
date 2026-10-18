@@ -1,4 +1,6 @@
 import { modelWarnings } from '../shared/modelWarnings';
+import { filamentLabel, type MeshColor } from '../shared/meshColors';
+import type { LayerToneFilament } from '../shared/layertone';
 import { PRINTER } from '../shared/printer';
 import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -151,7 +153,11 @@ function call<T>(msg: Record<string, unknown>, timeoutMs: number): Promise<T> {
   return job;
 }
 
-export interface ImportedMesh { bin: Uint8Array; report: ImportReport; png: string; gridStep: number }
+export interface ImportedMesh {
+  bin: Uint8Array; report: ImportReport; png: string; gridStep: number;
+  /** A coloured mesh's colours and their filaments (importMesh with `palette`). */
+  palette?: MeshColor[];
+}
 
 export type RenderResult = (EvalSummary | EvalFailure) & { png?: string; gridStep?: number };
 export interface StressResult { failures: { case: string; error: string }[]; tested: number; skipped: number }
@@ -165,7 +171,8 @@ export const geometry = {
   /** One large iso picture (used for assembled / exploded views). */
   iso: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'iso', code, values }, 45000),
   /** Parse, repair and normalise an uploaded mesh file in the locked-down worker (a stored .bin, a report and a four-view render). */
-  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options }, 120000),
+  /** With options.colors and `palette`: its colours, at most palette.colors, each with the closest filament (the user's own, `mine`, first). */
+  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions, palette?: { colors: number; mine: LayerToneFilament[] }) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options, palette }, 120000),
   warmup: () => { getWorker(); },
   /** Stop the worker process (tests: it would keep the event loop alive). */
   stop: () => { if (worker) dropWorker(worker); },
@@ -199,6 +206,9 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
     lines.push(`  - "${p.name}": ${f(b.max[0] - b.min[0])} × ${f(b.max[1] - b.min[1])} × ${f(b.max[2] - b.min[2])} mm, Z[${f(b.min[2])}, ${f(b.max[2])}], volume ${f(p.volume / 1000, 3)} cm³, ${p.triCount} triangles, ${p.components} connected piece(s), genus ${p.genus}`);
     if (p.layerColors?.length) {
       lines.push(`    LayerTone stack, bottom → top: ${p.layerColors.map((l, i) => `${l.brand ? `${l.brand} ` : ''}${l.name ?? l.color} (${l.color}, TD ${l.td}) ${i ? `from layer ${l.layer} (z ${f(l.z)} mm)` : 'from the bed'}`).join('; ')}`);
+    }
+    if (p.paint) {
+      lines.push(`    Coloured (its coloured mesh's filaments, painted on the triangles; the script's own geometry in the part's colour): ${p.paint.filaments.map((x, i) => `${filamentLabel(x)} ${x.color} ${Math.round(p.paint!.share[i] * 100)} %`).join('; ')}`);
     }
     if (p.lithophane) {
       const o = p.lithophane.options;
