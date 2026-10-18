@@ -8,7 +8,7 @@ import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../sha
 import { buildGrid, buildPlate, updatePlate } from './stage';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
-import { linearColors, usableColors } from '../geometry/vertexColors';
+import { linearColors, paintedGeometry, usableColors } from '../geometry/vertexColors';
 import { vertexColors, type LayerColor } from '../../shared/layertone';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -221,20 +221,25 @@ export class Viewer {
           edgeGeom = new THREE.BufferGeometry();
           edgeGeom.setAttribute('position', new THREE.BufferAttribute(part.display.edges, 3));
         } else {
-          const g = new THREE.BufferGeometry();
-          g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
-          const colors = usableColors(part.vertexColors, part.positions);
-          if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
-          g.setIndex(new THREE.BufferAttribute(part.indices, 1));
+          let g = paintedGeometry(part);
+          if (!g) {
+            g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+            const colors = usableColors(part.vertexColors, part.positions);
+            if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
+            g.setIndex(new THREE.BufferAttribute(part.indices, 1));
+          }
           geom = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
           g.dispose();
           geom.computeBoundsTree();
           edgeGeom = new THREE.EdgesGeometry(geom, 30);
         }
-        // A part coloured per vertex (LayerTone) shows those colours (times white) instead of its own.
+        // A part coloured per vertex (LayerTone) shows those colours (times white) instead of its own,
+        // and so does one coloured per triangle (a coloured mesh, `painted`: plain PLA, lit as usual).
         const perVertex = !!geom.getAttribute('color');
-        // No feature lines on them either: every layer step of the relief would draw one.
-        if (perVertex) { edgeGeom.dispose(); edgeGeom = new THREE.BufferGeometry(); }
+        const painted = perVertex && !!part.paint;
+        // No feature lines on a relief: every layer step would draw one.
+        if (perVertex && !painted) { edgeGeom.dispose(); edgeGeom = new THREE.BufferGeometry(); }
         const color = perVertex ? new THREE.Color(0xffffff) : new THREE.Color(part.color);
         const front = new THREE.MeshStandardMaterial({
           color, roughness: 0.55, metalness: 0.05, side: THREE.FrontSide, vertexColors: perVertex,
@@ -243,7 +248,7 @@ export class Viewer {
         // Per-vertex colours are what the print will look like: mostly shown as they are (emissive),
         // with a little lighting so the relief still reads. A lithophane is lit from behind, so it
         // glows almost entirely by its own colours.
-        if (perVertex) {
+        if (perVertex && !painted) {
           const glow = part.lithophane ? '0.95' : '0.7';
           color.setScalar(part.lithophane ? 0.12 : 0.35);
           // Matte: a glossy highlight would turn the black areas grey.
@@ -263,6 +268,7 @@ export class Viewer {
         mesh.userData.part = part.name;
         mesh.userData.color = color;
         mesh.userData.perVertex = perVertex;
+        mesh.userData.painted = painted;
         const backMesh = new THREE.Mesh(geom, back);
         backMesh.raycast = () => {};
         const edges = new THREE.LineSegments(
@@ -801,8 +807,8 @@ export class Viewer {
       bm.color.copy(front.userData.color as THREE.Color).multiplyScalar(0.45);
       fm.vertexColors = bm.vertexColors = perVertex;
       fm.emissive.setScalar(0);
-      // Matte PLA (per-vertex parts are matte already).
-      if (!perVertex) { looks.push([fm, fm.roughness, fm.metalness]); fm.roughness = 0.7; fm.metalness = 0; }
+      // Matte PLA (per-vertex reliefs are matte already).
+      if (!perVertex || front.userData.painted) { looks.push([fm, fm.roughness, fm.metalness]); fm.roughness = 0.7; fm.metalness = 0; }
       group.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
         if (mat) { mat.clippingPlanes = []; mat.needsUpdate = true; }
@@ -897,7 +903,7 @@ function framingDistance(box: THREE.Box3, center: THREE.Vector3, dir: THREE.Vect
 function photoBackground(parts: EvalResult['parts']): THREE.Color {
   let sum = 0, weight = 0;
   for (const p of parts) {
-    const c = new THREE.Color(p.vertexColors ? '#808080' : p.color);
+    const c = new THREE.Color(p.vertexColors || p.paint ? '#808080' : p.color);
     sum += (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * p.surfaceArea;
     weight += p.surfaceArea;
   }

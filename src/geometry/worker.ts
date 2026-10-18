@@ -11,7 +11,7 @@ import { probeParamOwners } from '../../shared/paramOwners';
 import { withFonts } from '../../shared/text';
 import { decodeMesh, withMeshes, type MeshData } from '../../shared/meshes';
 import { validateResult, type ValidateOptions } from './validate';
-import { linearColors, usableColors } from './vertexColors';
+import { linearColors, paintedGeometry, usableColors } from './vertexColors';
 import { api, HttpError, request } from '../lib/api';
 import type { DimTarget, ParamValues, PartDisplay, PartMesh, Quality } from '../../shared/types';
 
@@ -59,12 +59,16 @@ const ready = Promise.race([
  * coloured per vertex (LayerTone), their colours on the same unshared vertices as the positions.
  */
 function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transferable[] } {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
-  const colors = usableColors(part.vertexColors, part.positions);
-  // toNonIndexed (inside toCreasedNormals) unshares every attribute, so the colours follow the positions.
-  if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
-  g.setIndex(new THREE.BufferAttribute(part.indices, 1));
+  // A coloured mesh's part: unshared triangles, each in its filament's colour.
+  let g = paintedGeometry(part);
+  const colors = g ? undefined : usableColors(part.vertexColors, part.positions);
+  if (!g) {
+    g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+    // toNonIndexed (inside toCreasedNormals) unshares every attribute, so the colours follow the positions.
+    if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
+    g.setIndex(new THREE.BufferAttribute(part.indices, 1));
+  }
   const creased = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
   const edges = new THREE.EdgesGeometry(creased, 30);
   const bvh = MeshBVH.serialize(new MeshBVH(creased));
@@ -74,7 +78,7 @@ function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transfer
     edges: edges.getAttribute('position').array as Float32Array,
     bvh,
   };
-  if (colors) display.colors = creased.getAttribute('color').array as Float32Array;
+  if (creased.getAttribute('color')) display.colors = creased.getAttribute('color').array as Float32Array;
   const transfer: Transferable[] = [display.positions.buffer, display.normals.buffer, display.edges.buffer, ...bvh.roots];
   if (display.colors) transfer.push(display.colors.buffer);
   if (bvh.index) transfer.push(bvh.index.buffer);

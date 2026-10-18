@@ -121,7 +121,8 @@ export function PhotosPanel(p: Props) {
       product: {
         name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn, lithophane,
         // Per-vertex (LayerTone) parts are many colours: the render shows them.
-        colors: [...new Set(parts.filter((x) => !x.vertexColors).map((x) => x.color.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
+        // A coloured mesh's part: its filaments' colours.
+        colors: [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
       },
     });
   };
