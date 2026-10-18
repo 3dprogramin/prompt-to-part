@@ -107,3 +107,34 @@ test('the Designs menu exports every design as a zip and imports one', async () 
   await page.screenshot({ path: path.join(shots, '3-import.png') });
   await page.close();
 });
+
+test('the Designs menu lists 10 designs at a time and marks starred ones', async () => {
+  assert.ok(browser, 'runs after the first test');
+  // 12 more designs (14 in all), the oldest first.
+  for (let i = 1; i <= 12; i++) {
+    const n = `ui-smoke-1${String(i).padStart(7, '0')}`;
+    const r = await fetch(`${A}/api/designs/${n}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+      body: JSON.stringify({ id: n, name: `Cube ${i}`, createdAt: 1, updatedAt: 2000 + i, messages: [], code, values: {}, currentVersion: -1, versions: [] }) });
+    assert.equal(r.status, 200, await r.text());
+  }
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.getByRole('button', { name: 'Designs' }).click();
+  const menu = page.locator('.menu');
+  await menu.getByText('Load more (4 more)').waitFor();
+  assert.equal(await menu.locator('.menu-item').count(), 10);
+
+  // Starring the oldest marks it where it is, and it stays starred after a reload.
+  await menu.getByText('Load more (4 more)').click();
+  assert.equal(await menu.locator('.menu-item').count(), 14);
+  await menu.getByRole('button', { name: 'Star Smoke cube' }).click();
+  await menu.locator('.menu-item.starred', { hasText: 'Smoke cube' }).waitFor();
+  assert.equal(await menu.locator('.menu-item.starred').count(), 1);
+  await page.screenshot({ path: path.join(shots, '4-starred.png') });
+  await page.reload();
+  await page.getByRole('button', { name: 'Designs' }).click();
+  await menu.getByText('Load more (4 more)').click();
+  await menu.getByRole('button', { name: 'Unstar Smoke cube' }).waitFor();
+  await page.close();
+});

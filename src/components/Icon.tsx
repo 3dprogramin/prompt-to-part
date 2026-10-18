@@ -57,6 +57,7 @@ const PATHS: Record<string, string> = {
   tree: 'M12 3l6 9h-3l4 6H5l4-6H6zM12 18v3',
   hand: 'M8 13V6.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6 7-2.5 0-4-1.2-5.3-3L3.5 13.5a1.4 1.4 0 0 1 2.2-1.7L8 14',
   pen: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }) {

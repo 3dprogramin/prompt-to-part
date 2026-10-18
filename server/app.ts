@@ -33,6 +33,10 @@ import { MAX_ZIP_BYTES, openZip, writeZip, ZipError, zipSizeBound, type ZipEntry
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
 const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
+/** The starred designs' ids, apart from the designs so starring doesn't change one (or its place in the list). */
+const STARRED_FILE = path.join(DATA_DIR, 'starred.json');
+const cleanStarred = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))] : []);
+const readStarred = async () => cleanStarred((JSON.parse(await readFile(STARRED_FILE, 'utf8').catch(() => '{}')) as { ids?: unknown }).ids);
 
 /** The fields every saved design has; anything else would break the list or the app. */
 function isDesign(d: unknown): d is Design {
@@ -51,7 +55,7 @@ const IMAGE_NAME = /^[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
 const MAX_RENDER_BYTES = 15 * 1024 * 1024;
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
-const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments' };
+const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'starred.json': 'starred designs' };
 const MAX_BACKUP_ENTRIES = 100_000;
 const BACKUP_LIMITS = { settings: 1024 * 1024, design: 80 * 1024 * 1024, image: 25 * 1024 * 1024, mesh: 2 * MAX_MESH_BYTES };
 
@@ -155,11 +159,12 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   app.get('/api/designs', async (_req, res) => {
     await mkdir(DESIGNS, { recursive: true });
     const out: DesignSummary[] = [];
+    const starred = new Set(await readStarred().catch(() => []));
     for (const f of await readdir(DESIGNS)) {
       if (!f.endsWith('.json')) continue;
       try {
         const d = JSON.parse(await readFile(path.join(DESIGNS, f), 'utf8')) as Design;
-        out.push({ id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, versions: Array.isArray(d.versions) ? d.versions.length : 0 });
+        out.push({ id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, versions: Array.isArray(d.versions) ? d.versions.length : 0, ...(starred.has(d.id) && { starred: true }) });
       } catch { /* skip corrupt */ }
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -193,6 +198,20 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
       await writeAtomically(file, JSON.stringify({ ...d, rev }));
       res.json({ ok: true, rev });
     });
+  });
+
+  // Star or unstar a design. One change at a time, so two quick clicks can't lose one.
+  let starring = Promise.resolve();
+  app.put('/api/designs/:id/star', json('1kb'), (req, res) => {
+    const id = req.params.id;
+    if (!ID_RE.test(id) || typeof req.body?.starred !== 'boolean') return void res.status(400).json({ error: 'Expected { starred: true | false }' });
+    starring = starring.then(async () => {
+      const ids = (await readStarred()).filter((x) => x !== id);
+      if (req.body.starred) ids.push(id);
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeAtomically(STARRED_FILE, JSON.stringify({ ids }));
+      res.json({ starred: req.body.starred });
+    }).catch((e: Error) => { res.status(500).json({ error: e.message }); });
   });
 
   app.delete('/api/designs/:id', async (req, res) => {
@@ -525,7 +544,8 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
         try {
           const v = JSON.parse(Buffer.from(await entry.read()).toString('utf8')) as { filaments?: unknown };
           if (entry.name === 'filaments.json' && myFilamentsProblem(v?.filaments)) continue;
-          await writeAtomically(file, JSON.stringify(entry.name === 'cost.json' ? cleanCostSettings(v) : { filaments: cleanMyFilaments(v.filaments) }));
+          await writeAtomically(file, JSON.stringify(entry.name === 'cost.json' ? cleanCostSettings(v)
+            : entry.name === 'starred.json' ? { ids: cleanStarred((v as { ids?: unknown }).ids) } : { filaments: cleanMyFilaments(v.filaments) }));
           out.settings.push(BACKUP_SETTINGS[entry.name]);
         } catch { /* a damaged settings file is left out */ }
       }

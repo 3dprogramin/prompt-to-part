@@ -256,4 +256,6 @@ export interface DesignSummary {
   name: string;
   updatedAt: number;
   versions: number;
+  /** Starred in the Designs menu (listed first). */
+  starred?: boolean;
 }

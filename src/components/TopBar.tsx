@@ -36,12 +36,37 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+/** Recent designs the Designs menu lists before "Load more". */
+const PAGE = 10;
+
 /** Logo, design name, versions, open designs and the Designs menu. */
 export function TopBar(p: Props) {
   const [showList, setShowList] = useState(false);
   const listWrap = useRef<HTMLDivElement>(null);
   usePopover(showList, () => setShowList(false), listWrap);
   const open = (id: string) => { setShowList(false); p.onOpen(id); };
+  // The most recent designs, PAGE at a time; starred ones (the important ones) are marked. A star
+  // shows at once and stays until the refreshed list arrives.
+  const [shown, setShown] = useState(PAGE);
+  const [starNow, setStarNow] = useState<Record<string, boolean>>({});
+  useEffect(() => setStarNow({}), [p.designs]);
+  const isStarred = (d: DesignSummary) => starNow[d.id] ?? !!d.starred;
+  const star = (d: DesignSummary) => {
+    const on = !isStarred(d);
+    setStarNow((s) => ({ ...s, [d.id]: on }));
+    api.starDesign(d.id, on).catch(() => {}).finally(p.onRefreshList);
+  };
+  const row = (d: DesignSummary) => (
+    <div key={d.id} className={`menu-item ${d.id === p.design.id ? 'on' : ''} ${isStarred(d) ? 'starred' : ''}`}>
+      <button className="menu-open" onClick={() => open(d.id)}>
+        <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name}</span>
+        <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
+      </button>
+      <button className={`icon-btn menu-star ${isStarred(d) ? 'on' : ''}`} title={isStarred(d) ? 'Unstar' : 'Star: mark it as important'}
+        aria-label={`${isStarred(d) ? 'Unstar' : 'Star'} ${d.name}`} aria-pressed={isStarred(d)} onClick={() => star(d)}><Icon name="star" size={14} /></button>
+      <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => p.onDelete(d.id)}><Icon name="trash" size={14} /></button>
+    </div>
+  );
   // Backups: "Export all designs" is a download link; an import's result stays in the menu.
   const backupInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -99,21 +124,16 @@ export function TopBar(p: Props) {
       <ConnectionChip generating={p.generating} />
       <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>
       <div className="menu-wrap" ref={listWrap}>
-        <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
+        <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShown(PAGE); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
         {showList && (
           <div className="menu">
             {p.listError
               ? <div className="menu-empty">Could not load your designs: {p.listError} <button className="link" onClick={p.onRefreshList}>Try again</button></div>
               : p.designs.length === 0 && <div className="menu-empty">No saved designs yet</div>}
-            {p.designs.map((d) => (
-              <div key={d.id} className={`menu-item ${d.id === p.design.id ? 'on' : ''}`}>
-                <button className="menu-open" onClick={() => open(d.id)}>
-                  <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name}</span>
-                  <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
-                </button>
-                <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => p.onDelete(d.id)}><Icon name="trash" size={14} /></button>
-              </div>
-            ))}
+            {p.designs.slice(0, shown).map(row)}
+            {p.designs.length > shown && (
+              <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({p.designs.length - shown} more)</button>
+            )}
             <div className="menu-foot">
               {backupNote && (
                 <div className={`menu-note ${backupNote.error ? 'error' : ''}`} role="status">

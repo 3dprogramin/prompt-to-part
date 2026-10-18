@@ -67,6 +67,7 @@ async function withStoredImages(d: Design): Promise<Design> {
 export const api = {
   listFonts: () => getJson<FontEntry[]>('/api/fonts'),
   listDesigns: () => getJson<DesignSummary[]>('/api/designs'),
+  starDesign: (id: string, starred: boolean) => getJson<{ starred: boolean }>(`/api/designs/${id}/star`, { method: 'PUT', body: JSON.stringify({ starred }) }),
   /** null if there is no such design; throws if the server can't be reached. */
   async getDesign(id: string): Promise<Design | null> {
     try {
