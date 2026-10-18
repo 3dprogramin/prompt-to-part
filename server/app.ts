@@ -704,7 +704,7 @@ function generateProblem(b: GenerateRequest): string | null {
   for (const v of [b.values, b.renderValues, b.pictures]) if (v != null && (typeof v !== 'object' || Array.isArray(v))) return 'bad values';
   if (b.drawings != null && (typeof b.drawings !== 'object' || Array.isArray(b.drawings))) return 'bad drawings';
   if (b.meshes != null && (!Array.isArray(b.meshes) || b.meshes.length > MAX_MESHES || !b.meshes.every((n) => typeof n === 'string' && MESH_NAME.test(n)))) return 'bad meshes';
-  if (b.imageMode != null && !['off', 'artwork', 'hueforge', 'lithophane', 'figure'].includes(b.imageMode)) return 'bad imageMode';
+  if (b.imageMode != null && !['off', 'artwork', 'layertone', 'lithophane', 'figure'].includes(b.imageMode)) return 'bad imageMode';
   if (!parseScadFiles(b.scad)) return `up to ${MAX_SCAD_FILES} .scad files of up to ${MAX_SCAD_CHARS.toLocaleString('en')} characters`;
   if (b.history != null && (!Array.isArray(b.history) || b.history.length > 40 || !b.history.every((h) => h && typeof h.text === 'string' && (h.role === 'user' || h.role === 'assistant')))) return 'bad history';
   return null;

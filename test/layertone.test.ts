@@ -3,9 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import {
-  autoSwaps, DEFAULT_FILAMENTS, fromBase64, HF_IMAGES_KEY, HF_KEY, hexToRgb, hfLuma, luma, MAX_HF_IMAGE_SIDE,
-  resolveHfOptions, simulateColor, simulateImage, toBase64, toHfImage, type HfFilament, type LayerColor,
-} from '../shared/hueforge';
+  autoSwaps, DEFAULT_FILAMENTS, fromBase64, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, hexToRgb, layerToneLuma, luma, MAX_LAYERTONE_IMAGE_SIDE,
+  resolveLayerToneOptions, simulateColor, simulateImage, toBase64, toLayerToneImage, type LayerToneFilament, type LayerColor,
+} from '../shared/layertone';
 
 /** RGBA pixels from a function of (x, y) → grey level. */
 function picture(w: number, h: number, grey: (x: number, y: number) => number, alpha = 255): Uint8Array {
@@ -18,7 +18,7 @@ function picture(w: number, h: number, grey: (x: number, y: number) => number, a
   return rgba;
 }
 
-const FOUR: HfFilament[] = [
+const FOUR: LayerToneFilament[] = [
   { name: 'Black', color: DEFAULT_FILAMENTS[0].color, td: 0.6 }, { name: 'Blue', color: '#0a5fb4', td: 1.2 },
   { name: 'Yellow', color: '#f4d03f', td: 2.2 }, { name: 'White', color: '#ffffff', td: 3 },
 ];
@@ -32,25 +32,25 @@ test('base64 round-trips every length', () => {
   assert.equal(fromBase64('a$b='), null);
 });
 
-test('toHfImage: luminance, transparency, and scaling down to the longest side', () => {
-  const red = toHfImage('red.png', 2, 1, [255, 0, 0, 255, 0, 0, 0, 0]);
-  assert.deepEqual([...hfLuma(red)], [Math.round(0.2126 * 255), 255]); // Rec. 709; transparent = white paper
+test('toLayerToneImage: luminance, transparency, and scaling down to the longest side', () => {
+  const red = toLayerToneImage('red.png', 2, 1, [255, 0, 0, 255, 0, 0, 0, 0]);
+  assert.deepEqual([...layerToneLuma(red)], [Math.round(0.2126 * 255), 255]); // Rec. 709; transparent = white paper
   // 1600 × 400, left half black, right half white: half the size, the edge stays sharp.
-  const big = toHfImage('big.png', 1600, 400, picture(1600, 400, (x) => (x < 800 ? 0 : 255)));
-  assert.deepEqual([big.width, big.height], [MAX_HF_IMAGE_SIDE, 200]);
-  const l = hfLuma(big);
+  const big = toLayerToneImage('big.png', 1600, 400, picture(1600, 400, (x) => (x < 800 ? 0 : 255)));
+  assert.deepEqual([big.width, big.height], [MAX_LAYERTONE_IMAGE_SIDE, 200]);
+  const l = layerToneLuma(big);
   assert.equal(l.length, 800 * 200);
   assert.deepEqual([l[0], l[399], l[400], l[799], l[200 * 800 - 1]], [0, 0, 255, 255, 255]);
   // Box filter: a 1-pixel checkerboard halved averages to mid-grey.
-  const check = toHfImage('check.png', 1600, 1600, picture(1600, 1600, (x, y) => ((x + y) % 2 ? 255 : 0)));
+  const check = toLayerToneImage('check.png', 1600, 1600, picture(1600, 1600, (x, y) => ((x + y) % 2 ? 255 : 0)));
   assert.equal(check.width, 800);
-  assert.ok(hfLuma(check).every((v) => v === 127 || v === 128), 'averaged');
+  assert.ok(layerToneLuma(check).every((v) => v === 127 || v === 128), 'averaged');
   // Small pictures keep their size.
-  const small = toHfImage('s.png', 30, 20, picture(30, 20, () => 100));
-  assert.deepEqual([small.width, small.height, hfLuma(small)[0]], [30, 20, 100]);
+  const small = toLayerToneImage('s.png', 30, 20, picture(30, 20, () => 100));
+  assert.deepEqual([small.width, small.height, layerToneLuma(small)[0]], [30, 20, 100]);
 });
 
-const stack = (filaments: HfFilament[], swaps: number[]): LayerColor[] =>
+const stack = (filaments: LayerToneFilament[], swaps: number[]): LayerColor[] =>
   filaments.map((f, i) => ({ z: i ? 0.16 + (swaps[i - 1] - 1) * 0.08 : 0, layer: i ? swaps[i - 1] : 0, color: f.color, td: f.td, name: f.name }));
 
 test('simulateColor: the base shows alone, then the light filament takes over steadily', () => {
@@ -75,8 +75,8 @@ test('simulateColor: the base shows alone, then the light filament takes over st
 });
 
 test('autoSwaps: ascending layers inside the relief, every filament with room to show', () => {
-  const img = toHfImage('g.png', 256, 16, picture(256, 16, (x) => x));
-  const r = resolveHfOptions({ width: 100 });
+  const img = toLayerToneImage('g.png', 256, 16, picture(256, 16, (x) => x));
+  const r = resolveLayerToneOptions({ width: 100 });
   assert.deepEqual(autoSwaps(img, DEFAULT_FILAMENTS, { width: 100 }), [r.nBase]); // white right above the base
   assert.deepEqual(autoSwaps(img, DEFAULT_FILAMENTS.slice(0, 1), { width: 100 }), []);
   const swaps = autoSwaps(img, FOUR, { width: 100 });
@@ -93,13 +93,13 @@ test('autoSwaps: ascending layers inside the relief, every filament with room to
 });
 
 // A gradient from black (left) to white (right) with a white bar along the top.
-const gradient = toHfImage('gradient.png', 200, 100, picture(200, 100, (x, y) => (y < 10 ? 255 : Math.round((x / 199) * 255))));
-const values = { [HF_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }) };
+const gradient = toLayerToneImage('gradient.png', 200, 100, picture(200, 100, (x, y) => (y < 10 ? 255 : Math.round((x / 199) * 255))));
+const values = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }) };
 const SCRIPT = `
 const params = { width: { value: 100, min: 40, max: 200 }, border: { value: 0, min: 0, max: 10 } };
-function build(p) { return { name: 'Picture', ...H.hueforge('gradient.png', { width: p.width, border: p.border }) }; }`;
+function build(p) { return { name: 'Picture', ...H.layertone('gradient.png', { width: p.width, border: p.border }) }; }`;
 
-test('H.hueforge: a watertight relief of the picture, heights on layer boundaries, with its colours', () => {
+test('H.layertone: a watertight relief of the picture, heights on layer boundaries, with its colours', () => {
   const r = evaluateScript(SCRIPT, values, 'draft');
   const p = r.parts[0];
   assert.equal(p.name, 'Picture');
@@ -138,32 +138,32 @@ test('H.hueforge: a watertight relief of the picture, heights on layer boundarie
   assert.ok(left < 0.15 && right > 0.6, `left ${left}, right ${right}`);
 });
 
-test('H.hueforge: border, the user\'s setup, scale, lite evaluations and errors', () => {
+test('H.layertone: border, the user\'s setup, scale, lite evaluations and errors', () => {
   const framed = evaluateScript(SCRIPT, { ...values, border: 5 }, 'draft').parts[0];
   assert.ok(Math.abs(framed.bbox.max[0] - 55) < 1e-4 && Math.abs(framed.bbox.max[1] - 30) < 1e-4);
   assert.equal(framed.components, 1);
   // The side panel's filaments and swaps win over the script's.
   const setup = { filaments: FOUR, swaps: [6, 9, 13] };
-  const r = evaluateScript(SCRIPT, { ...values, [HF_KEY]: JSON.stringify(setup), $scale: 2 }, 'draft');
+  const r = evaluateScript(SCRIPT, { ...values, [LAYERTONE_KEY]: JSON.stringify(setup), $scale: 2 }, 'draft');
   const lc = r.parts[0].layerColors!;
   assert.deepEqual(lc.map((l) => l.layer), [0, 6, 9, 13]);
   assert.deepEqual(lc.map((l) => l.color), FOUR.map((f) => f.color));
   assert.ok(Math.abs(lc[1].z - 2 * 0.56) < 1e-9, 'z scaled with the part');
   assert.ok(Math.abs(r.parts[0].bbox.max[2] - 3.2) < 1e-3);
   // What the side panel needs for its preview: the picture and the options, scaled with the part.
-  const src = r.parts[0].hueforge!;
+  const src = r.parts[0].layerTone!;
   assert.equal(src.image, 'gradient.png');
   assert.deepEqual([src.options.width, src.options.maxHeight, src.options.layerHeight, src.options.gamma].map((v) => +v.toFixed(9)), [200, 3.2, 0.16, 1]);
   const sim = simulateImage(gradient, lc, src.options);
   assert.ok(sim.rgba[(50 * 200 + 5) * 4] < sim.rgba[(50 * 200 + 195) * 4], 'scaled options still preview the print');
   // Swaps that don't fit the filaments fall back to automatic ones.
-  const auto = evaluateScript(SCRIPT, { ...values, [HF_KEY]: JSON.stringify({ filaments: FOUR, swaps: [9, 6] }) }, 'draft').parts[0].layerColors!;
+  const auto = evaluateScript(SCRIPT, { ...values, [LAYERTONE_KEY]: JSON.stringify({ filaments: FOUR, swaps: [9, 6] }) }, 'draft').parts[0].layerColors!;
   assert.deepEqual(auto.map((l) => l.layer).slice(1), autoSwaps(gradient, FOUR, { width: 100 }));
   const lite = evaluateScript(SCRIPT, values, 'draft', { lite: true }).parts[0];
   assert.equal(lite.layerColors?.length, 2);
   assert.equal(lite.vertexColors, undefined);
-  assert.throws(() => evaluateScript("function build() { return H.hueforge('cat.jpg', { width: 50 }).shape; }", values, 'draft'), /no picture named "cat.jpg" \(pictures: "gradient.png"\)/);
-  assert.throws(() => evaluateScript("function build() { return H.hueforge('gradient.png', {}).shape; }", values, 'draft'), /width must be > 0/);
+  assert.throws(() => evaluateScript("function build() { return H.layertone('cat.jpg', { width: 50 }).shape; }", values, 'draft'), /no picture named "cat.jpg" \(pictures: "gradient.png"\)/);
+  assert.throws(() => evaluateScript("function build() { return H.layertone('gradient.png', {}).shape; }", values, 'draft'), /width must be > 0/);
 });
 
 test('simulateImage: the picture as printed, frame included', () => {

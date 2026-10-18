@@ -4,7 +4,7 @@ import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
-import type { HfImage, HueforgeSetup } from './hueforge';
+import type { LayerToneImage, LayerToneSetup } from './layertone';
 import type { PrintSettings } from './print';
 import type { MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
@@ -31,7 +31,7 @@ export interface GenerateRequest {
   currentView?: ImageData;
   /** Follow-ups: full values to render the current state exactly ($scale, $text included). */
   renderValues?: ParamValues;
-  /** The design's pictures ($images), meshes ($meshes) and LayerTone setup ($hueforge), with every request (renderValues comes only with follow-ups on a finished version). */
+  /** The design's pictures ($images), meshes ($meshes) and LayerTone setup ($layertone), with every request (renderValues comes only with follow-ups on a finished version). */
   pictures?: ParamValues;
   /** Uniform scale the user applied in the app (1 = none). */
   scale?: number;
@@ -47,12 +47,12 @@ export interface GenerateRequest {
   artwork?: boolean;
   /**
    * The chat's picture mode (the palette menu): 'artwork' = flat AI artwork traced into colour
-   * shapes (H.svg); 'hueforge' = a LayerTone filament painting (H.hueforge) from the attached
+   * shapes (H.svg); 'layertone' = a LayerTone filament painting (H.layertone) from the attached
    * photo or an AI picture; 'lithophane' = a backlit white-PLA panel (H.lithophane) from one;
    * 'figure' = a 3D figure: an AI mesh from Meshy (generate_3d, H.mesh) from a description or the
    * attached photo; 'off' (default) = Claude models subjects as 3D objects.
    */
-  imageMode?: 'off' | 'artwork' | 'hueforge' | 'lithophane' | 'figure';
+  imageMode?: 'off' | 'artwork' | 'layertone' | 'lithophane' | 'figure';
   /** Names (in the design's MESHES_KEY index, sent in `pictures`) of meshes attached with this message: Claude gets a render and report of each. */
   meshes?: string[];
   /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */
@@ -69,12 +69,12 @@ export type AgentEvent =
   | { type: 'error'; message: string; resetsAt?: number }
   /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
-  /** A picture for H.hueforge or H.lithophane (an attached photo or one the image model drew), kept with the design under HF_IMAGES_KEY. */
-  | { type: 'hfImage'; name: string; image: HfImage }
+  /** A picture for H.layertone or H.lithophane (an attached photo or one the image model drew), kept with the design under LAYERTONE_IMAGES_KEY. */
+  | { type: 'layerToneImage'; name: string; image: LayerToneImage }
   /** A mesh Claude had made (generate_3d), kept in the design's MESHES_KEY index for H.mesh. */
   | { type: 'mesh'; name: string; entry: MeshEntry }
-  /** Claude changed the LayerTone setup (set_hueforge): the design's HF_KEY value, or null to clear it. */
-  | { type: 'hfSetup'; setup: HueforgeSetup | null }
+  /** Claude changed the LayerTone setup (set_layertone): the design's LAYERTONE_KEY value, or null to clear it. */
+  | { type: 'layerToneSetup'; setup: LayerToneSetup | null }
   /** Transient one-line status (throttled), replaced by the next one. */
   | { type: 'live'; text: string }
   /** Live transcript: a content block starts, its text grows, or a tool call's input fields are re-sent as they stream. */

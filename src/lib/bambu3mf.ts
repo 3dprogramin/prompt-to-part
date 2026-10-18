@@ -257,15 +257,15 @@ export function toBambuProject(
  * same layer as a tool change the pause comes first.
  */
 function filamentChangeFiles(parts: PartMesh[], groups: number[][], plan: FilamentPlan, layerHeight: number, pauseGcode: string): Record<string, Uint8Array> {
-  const hf = groups.map((g) => (g.length === 1 && plan.changes[g[0]].length ? g[0] : -1));
-  if (hf.every((i) => i < 0)) return {};
+  const changing = groups.map((g) => (g.length === 1 && plan.changes[g[0]].length ? g[0] : -1));
+  if (changing.every((i) => i < 0)) return {};
   const key = (i: number) => JSON.stringify([plan.slot[i], plan.changes[i]]);
-  const onSlider = hf.every((i) => i >= 0) && new Set(hf.map(key)).size === 1;
+  const onSlider = changing.every((i) => i >= 0) && new Set(changing.map(key)).size === 1;
   const label = (f: number) => plan.filaments[f - 1].name || plan.filaments[f - 1].colour;
   // Slider marks by top_z (one pause and one tool change at most per layer).
   const pauses = new Map<number, string>(), toolChanges = new Map<number, string>();
   const ranges: string[] = [];
-  hf.forEach((i, gi) => {
+  changing.forEach((i, gi) => {
     if (i < 0 || (onSlider && gi > 0)) return; // on the slider, the first object's changes are everyone's
     const list = plan.changes[i];
     list.forEach((c, k) => {

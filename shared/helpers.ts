@@ -4,7 +4,7 @@ import { layoutText, type TextLayoutOptions } from './text';
 import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
-import { hueforgeLayers, hueforgeMesh, resolveHfOptions, type HfImage, type HueforgeOptions, type HueforgePart, type HueforgeSetup } from './hueforge';
+import { layerToneLayers, layerToneMesh, resolveLayerToneOptions, type LayerToneImage, type LayerToneOptions, type LayerTonePart, type LayerToneSetup } from './layertone';
 import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
 import { getMeshData, type MeshEntry } from './meshes';
 
@@ -62,12 +62,12 @@ function checkPoints(pts: unknown, what: string, min = 3): Vec2[] {
 }
 
 /** LayerTone input from the design's values: its pictures and the user's filament setup. */
-export interface HueforgeInput {
-  images: Record<string, HfImage>;
-  setup: HueforgeSetup;
+export interface LayerToneInput {
+  images: Record<string, LayerToneImage>;
+  setup: LayerToneSetup;
 }
 
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, hf: HueforgeInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}) {
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}) {
   const { wasm } = rt;
   // Meshes this evaluation uses: they stay in meshCache until it is over.
   const meshesInUse = new Set<string>();
@@ -499,23 +499,23 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
      * wide (bottom at z = 0, centred), whose height at each point sets how much light filament
      * covers the dark ones below. Filaments and swap layers come from the user's side panel, else
      * `opts.filaments` (default black and white) with automatic swaps. Return it as a part,
-     * `{ name: 'Picture', ...H.hueforge(...) }`: its layerColors colour the preview, its print
-     * settings (0.08 mm layers, 100 % infill) go with it, and `hueforge` (picture and options)
+     * `{ name: 'Picture', ...H.layertone(...) }`: its layerColors colour the preview, its print
+     * settings (0.08 mm layers, 100 % infill) go with it, and `layerTone` (picture and options)
      * lets the side panel show the print as it will look.
      */
-    hueforge(imageName: string, opts: HueforgeOptions): HueforgePart {
-      const image = hf.images[imageName];
-      if (!image) throw new Error(`H.hueforge: no picture named "${imageName}" (pictures: ${Object.keys(hf.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
-      const r = resolveHfOptions(opts, quality);
-      const layerColors = hueforgeLayers(image, opts, hf.setup, quality);
-      const { vertProperties, triVerts } = hueforgeMesh(image, layerColors, r);
+    layertone(imageName: string, opts: LayerToneOptions): LayerTonePart {
+      const image = layerToneInput.images[imageName];
+      if (!image) throw new Error(`H.layertone: no picture named "${imageName}" (pictures: ${Object.keys(layerToneInput.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
+      const r = resolveLayerToneOptions(opts, quality);
+      const layerColors = layerToneLayers(image, opts, layerToneInput.setup, quality);
+      const { vertProperties, triVerts } = layerToneMesh(image, layerColors, r);
       const shape = new M(new wasm.Mesh({ numProp: 3, vertProperties, triVerts })) as Manifold;
       const st = shape.status();
-      if (st !== 'NoError') throw new Error(`H.hueforge: the relief mesh is invalid (${st})`);
+      if (st !== 'NoError') throw new Error(`H.layertone: the relief mesh is invalid (${st})`);
       const { nBase: _b, nMax: _m, ...options } = r;
       return {
         shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' },
-        hueforge: { image: imageName, options },
+        layerTone: { image: imageName, options },
       };
     },
 
@@ -529,8 +529,8 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
      * viewer and the side panel show it lit.
      */
     lithophane(imageName: string, opts: LithophaneOptions): LithophanePart {
-      const image = hf.images[imageName];
-      if (!image) throw new Error(`H.lithophane: no picture named "${imageName}" (pictures: ${Object.keys(hf.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
+      const image = layerToneInput.images[imageName];
+      if (!image) throw new Error(`H.lithophane: no picture named "${imageName}" (pictures: ${Object.keys(layerToneInput.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
       const r = resolveLithoOptions(opts, quality);
       const { vertProperties, triVerts } = lithophaneMesh(image, r);
       // The fourth property is the thickness, which colours the panel lit from behind; Manifold

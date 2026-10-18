@@ -2,7 +2,7 @@ import type { Design, DesignSummary } from '../../shared/types';
 import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
-import type { HfFilament } from '../../shared/hueforge';
+import type { LayerToneFilament } from '../../shared/layertone';
 import type { PhotoRequest, PhotoResponse } from '../../shared/photos';
 import { dataUrlToImage } from './files';
 
@@ -98,8 +98,8 @@ export const api = {
   costSettings: () => getJson<CostSettings>('/api/cost/settings'),
   saveCostSettings: (s: CostSettings) => getJson<CostSettings>('/api/cost/settings', { method: 'PUT', body: JSON.stringify(s) }),
   /** The user's own LayerTone filaments (data/filaments.json). */
-  myFilaments: () => getJson<{ filaments: HfFilament[] }>('/api/filaments/mine').then((r) => r.filaments),
-  saveMyFilaments: (filaments: HfFilament[]) => getJson<{ filaments: HfFilament[] }>('/api/filaments/mine', { method: 'PUT', body: JSON.stringify({ filaments }) }).then((r) => r.filaments),
+  myFilaments: () => getJson<{ filaments: LayerToneFilament[] }>('/api/filaments/mine').then((r) => r.filaments),
+  saveMyFilaments: (filaments: LayerToneFilament[]) => getJson<{ filaments: LayerToneFilament[] }>('/api/filaments/mine', { method: 'PUT', body: JSON.stringify({ filaments }) }).then((r) => r.filaments),
   /** Slice a Bambu Studio project in the user's Bambu Studio: grams and print time. */
   slice: (project: Blob) => getJson<SliceStats>('/api/slice', { method: 'POST', body: project, headers: { 'Content-Type': 'application/octet-stream' } }),
   suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),

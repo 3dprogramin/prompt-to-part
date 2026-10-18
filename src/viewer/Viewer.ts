@@ -9,7 +9,7 @@ import { buildGrid, buildPlate, updatePlate } from './stage';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
 import { linearColors, usableColors } from '../geometry/vertexColors';
-import { vertexColors, type LayerColor } from '../../shared/hueforge';
+import { vertexColors, type LayerColor } from '../../shared/layertone';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;

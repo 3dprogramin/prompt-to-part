@@ -1,6 +1,6 @@
 import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
-import type { HueforgeSource, LayerColor } from './hueforge';
+import type { LayerToneSource, LayerColor } from './layertone';
 import type { LithophaneSource } from './lithophane';
 
 export type Vec2 = [number, number];
@@ -103,12 +103,12 @@ export interface PartMesh {
   triCount: number;
   genus: number;
   components: number;
-  /** LayerTone part (H.hueforge): the filament stack by height, for the viewer's colours and the 3MF's filament swaps. */
+  /** LayerTone part (H.layertone): the filament stack by height, for the viewer's colours and the 3MF's filament swaps. */
   layerColors?: LayerColor[];
   /** RGB 0–1 per vertex (LayerTone parts: the simulated print colour; lithophanes: lit from behind); the viewer uses it instead of `color`. */
   vertexColors?: Float32Array;
   /** LayerTone part: the picture and options it was built with (lengths scaled with the part), for simulateImage. */
-  hueforge?: HueforgeSource;
+  layerTone?: LayerToneSource;
   /** Lithophane part (H.lithophane): the picture and options it was built with (lengths scaled with the part), for simulateLithophane. */
   lithophane?: LithophaneSource;
 }

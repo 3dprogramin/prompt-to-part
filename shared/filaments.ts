@@ -1,11 +1,11 @@
 // Filament library for LayerTone prints: brands, colours and TD (transmission distance) values.
 //
-// CONTRACT (feat/hueforge): the side panel uses FILAMENT_LIBRARY and searchFilaments; the server
+// CONTRACT (LayerTone): the side panel uses FILAMENT_LIBRARY and searchFilaments; the server
 // answers POST /api/filaments/lookup { brand, name } with FilamentLookup (TD found on the web),
 // which the page calls through lookupFilament() in src/lib/api.ts.
-import { hexToRgb, type HfFilament } from './hueforge';
+import { hexToRgb, type LayerToneFilament } from './layertone';
 
-export interface LibraryFilament extends HfFilament {
+export interface LibraryFilament extends LayerToneFilament {
   brand: string;
   /** Product line, e.g. "PLA Basic", "PLA Matte", "PLA+". */
   line?: string;
@@ -56,9 +56,9 @@ export function myFilamentsProblem(raw: unknown): string | undefined {
  * The user's filaments as stored: valid ones only (as myFilamentsProblem checks), trimmed, colour in
  * lower case, one per brand and name (the last wins), at most MAX_MY_FILAMENTS.
  */
-export function cleanMyFilaments(raw: unknown): HfFilament[] {
+export function cleanMyFilaments(raw: unknown): LayerToneFilament[] {
   if (!Array.isArray(raw)) return [];
-  const out = new Map<string, HfFilament>();
+  const out = new Map<string, LayerToneFilament>();
   for (const f of raw) {
     if (myFilamentsProblem([f])) continue;
     const name = f.name.trim(), brand = typeof f.brand === 'string' ? f.brand.trim() : '';
@@ -326,7 +326,7 @@ export function libraryFilament(f: { brand?: string; name: string }): LibraryFil
 }
 
 /** The filament's TD is the library's estimate (unverified), not a published or the user's own value. */
-export function estimatedTd(f: HfFilament): boolean {
+export function estimatedTd(f: LayerToneFilament): boolean {
   const l = libraryFilament(f);
   return !!l?.unverified && Math.abs(l.td - f.td) < 1e-6;
 }
@@ -337,7 +337,7 @@ export function pickerFilaments(query: string, line?: string): LibraryFilament[]
 }
 
 /** The user's filaments matching a query: every word in the brand, the name or the colour's family. */
-export function searchMyFilaments(list: HfFilament[], query: string): HfFilament[] {
+export function searchMyFilaments(list: LayerToneFilament[], query: string): LayerToneFilament[] {
   const q = words(query);
   return list.filter((f) => {
     const ws = [...words(`${f.brand ?? ''} ${f.name}`), ...colourFamilies(f.color)];

@@ -11,12 +11,12 @@ import { DATA_DIR } from '../server/config';
 import { findBambuBinary } from '../server/bambu';
 import { slicedProject, sliceProject } from '../server/slicer';
 import { evaluateScript } from '../shared/runtime';
-import { HF_IMAGES_KEY, HF_KEY, toHfImage, type LayerColor } from '../shared/hueforge';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, toLayerToneImage, type LayerColor } from '../shared/layertone';
 import type { BambuTemplate } from '../shared/api';
 import type { PartMesh } from '../shared/types';
 
 // LayerTone layers: 0.16 mm first layer, then 0.08 mm; layer i (≥ 1) starts at 0.16 + (i - 1) × 0.08.
-const HF_PRINT = { ai: { layerHeight: 0.08, firstLayerHeight: 0.16, parts: { Relief: { infill: 100 } } }, user: {} };
+const LAYERTONE_PRINT = { ai: { layerHeight: 0.08, firstLayerHeight: 0.16, parts: { Relief: { infill: 100 } } }, user: {} };
 const lc = (layer: number, color: string, name: string): LayerColor => ({ z: layer ? +(0.16 + (layer - 1) * 0.08).toFixed(2) : 0, layer, color, td: 1, name });
 const FOUR = [lc(0, '#161616', 'Black'), lc(5, '#808080', 'Grey'), lc(9, '#ff0000', 'Red'), lc(13, '#ffffff', 'White')];
 const SIX = [lc(0, '#161616', 'Black'), lc(5, '#808080', 'Grey'), lc(7, '#ff0000', 'Red'), lc(9, '#ffffff', 'White'), lc(12, '#0000ff', 'Blue'), lc(15, '#ffff00', 'Yellow')];
@@ -82,12 +82,12 @@ test('filament plan: beyond 4 filaments, a pause and the AMS slot of a filament 
 });
 
 // The engine's own output: a gradient picture with four filaments swapped at layers 6, 9 and 13.
-const gradient = toHfImage('gradient.png', 200, 100, Uint8Array.from({ length: 200 * 100 * 4 }, (_, i) => (i % 4 === 3 ? 255 : Math.round(((i >> 2) % 200) / 199 * 255))));
+const gradient = toLayerToneImage('gradient.png', 200, 100, Uint8Array.from({ length: 200 * 100 * 4 }, (_, i) => (i % 4 === 3 ? 255 : Math.round(((i >> 2) % 200) / 199 * 255))));
 const ENGINE_VALUES = {
-  [HF_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }),
-  [HF_KEY]: JSON.stringify({ filaments: [['Black', '#161616', 0.6], ['Blue', '#1f4fd1', 1.2], ['Red', '#d12f1f', 1.5], ['White', '#ffffff', 3]].map(([name, color, td]) => ({ name, color, td })), swaps: [6, 9, 13] }),
+  [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }),
+  [LAYERTONE_KEY]: JSON.stringify({ filaments: [['Black', '#161616', 0.6], ['Blue', '#1f4fd1', 1.2], ['Red', '#d12f1f', 1.5], ['White', '#ffffff', 3]].map(([name, color, td]) => ({ name, color, td })), swaps: [6, 9, 13] }),
 };
-const ENGINE_SCRIPT = "function build() { return { name: 'Picture', ...H.hueforge('gradient.png', { width: 100 }) }; }";
+const ENGINE_SCRIPT = "function build() { return { name: 'Picture', ...H.layertone('gradient.png', { width: 100 }) }; }";
 
 test("filament plan: the engine's layers and print settings", () => {
   const r = evaluateScript(ENGINE_SCRIPT, ENGINE_VALUES, 'draft');
@@ -109,7 +109,7 @@ const tpl: BambuTemplate = {
 const unzip = async (b: Blob) => unzipSync(new Uint8Array(await b.arrayBuffer()));
 
 test('Bambu project: a LayerTone print alone gets "change filament" marks on the layer slider', async () => {
-  const files = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', SIX)], 't', tpl, { colours: true, print: HF_PRINT }));
+  const files = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', SIX)], 't', tpl, { colours: true, print: LAYERTONE_PRINT }));
   const xml = strFromU8(files['Metadata/custom_gcode_per_layer.xml']);
   const marks = [...xml.matchAll(/<layer top_z="([^"]+)" type="(\d)" extruder="(\d+)" color="([^"]*)" extra="([^"]*)"/g)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3]), m[4], m[5]]);
   assert.deepEqual(marks, [
@@ -133,17 +133,17 @@ test('Bambu project: a LayerTone print alone gets "change filament" marks on the
   assert.match(cfg, /value="Relief"\/><metadata key="extruder" value="1"\/><metadata key="sparse_infill_density" value="100%"\/>/);
 
   // Ordinary multi-colour parts keep the prime tower.
-  const normal = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Lid', 20, 40, 5, '#ff0000')], 't', tpl, { colours: true, print: HF_PRINT }));
+  const normal = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Lid', 20, 40, 5, '#ff0000')], 't', tpl, { colours: true, print: LAYERTONE_PRINT }));
   assert.notEqual(JSON.parse(strFromU8(normal['Metadata/project_settings.config'])).enable_prime_tower, '0');
 
   // Without colours: one filament, no changes.
-  const plain = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { colours: false, print: HF_PRINT }));
+  const plain = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { colours: false, print: LAYERTONE_PRINT }));
   assert.ok(!plain['Metadata/custom_gcode_per_layer.xml'] && !plain['Metadata/layer_config_ranges.xml']);
 });
 
 test('Bambu project: next to other objects, a LayerTone print gets height ranges in its filaments', async () => {
   // The block touches the relief but stays its own object, after it.
-  const files = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { colours: true, print: HF_PRINT }));
+  const files = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { colours: true, print: LAYERTONE_PRINT }));
   const ranges = strFromU8(files['Metadata/layer_config_ranges.xml']);
   assert.match(ranges, /^<\?xml[^]*<objects>\n <object id="2">\n {2}<range min_z="0.48" max_z="0.8">\n {3}<option opt_key="extruder">3<\/option>\n {3}<option opt_key="layer_height">0.08<\/option>\n {2}<\/range>/);
   assert.deepEqual([...ranges.matchAll(/min_z="([^"]+)" max_z="([^"]+)">\n {3}<option opt_key="extruder">(\d)/g)].map((m) => m.slice(1).map(Number)), [[0.48, 0.8, 3], [0.8, 1.12, 4], [1.12, 1.6, 5]]);
@@ -196,7 +196,7 @@ test('Bambu Studio slices the filament changes on the intended layers', { skip: 
   assert.match(strFromU8(picture['Metadata/slice_info.config']), /<filament id="4"[^>]*color="#FFFFFF"/);
 
   const relief = { ...(await steps([0.48, 0.8, 1.12, 1.6])), layerColors: SIX };
-  const project = async (parts: PartMesh[]) => new Uint8Array(await toBambuProject(parts, 'LayerTone test', realTpl, { colours: true, print: HF_PRINT }).arrayBuffer());
+  const project = async (parts: PartMesh[]) => new Uint8Array(await toBambuProject(parts, 'LayerTone test', realTpl, { colours: true, print: LAYERTONE_PRINT }).arrayBuffer());
 
   // Alone: slider marks. Each change happens at the start of the layer whose top is topZ; the pauses just before.
   const alone = await slicedProject(await project([relief]));

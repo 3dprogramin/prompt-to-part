@@ -1,9 +1,9 @@
 // Lithophanes: a photo printed in white PLA as a panel of varying thickness – thick where the
 // photo is dark, thin where it is bright – that shows the picture when lit from behind (night
 // lights, lamp shades, window panels, frames). The panel is flat, an arc of a lamp shade or a full
-// cylinder, built straight from the picture as one closed mesh (like hueforgeMesh), standing up
-// as it prints best. Pictures are the design's HfImages ($images), shared with H.hueforge.
-import { hfLuma, pictureSampler, toLinear, toSrgb, type HfImage } from './hueforge';
+// cylinder, built straight from the picture as one closed mesh (like layerToneMesh), standing up
+// as it prints best. Pictures are the design's LayerToneImages ($images), shared with H.layertone.
+import { layerToneLuma, pictureSampler, toLinear, toSrgb, type LayerToneImage } from './layertone';
 import type { Brim, Seam } from './print';
 import type { Quality } from './types';
 
@@ -43,7 +43,7 @@ export interface LithoResolved extends Required<Omit<LithophaneOptions, 'stand'>
   stand: number;
 }
 
-/** The picture (key in HF_IMAGES_KEY) and the options a lithophane part was built with, defaults filled in. */
+/** The picture (key in LAYERTONE_IMAGES_KEY) and the options a lithophane part was built with, defaults filled in. */
 export interface LithophaneSource {
   image: string;
   options: LithoResolved;
@@ -209,7 +209,7 @@ const DEG = Math.PI / 180;
  * centred on XY. A curved panel or cylinder bends around the Z axis with the relief outside, the
  * light inside. The foot is part of the same mesh, so no boolean is needed.
  */
-export function lithophaneMesh(image: HfImage, r: LithoResolved): { vertProperties: Float32Array; triVerts: Uint32Array } {
+export function lithophaneMesh(image: LayerToneImage, r: LithoResolved): { vertProperties: Float32Array; triVerts: Uint32Array } {
   const iw = image.width, ih = image.height;
   const W = r.width, Hh = (W * ih) / iw, B = r.border;
   const cyl = r.shape === 'cylinder', flat = r.shape === 'flat';
@@ -360,9 +360,9 @@ export function lithophaneMesh(image: HfImage, r: LithoResolved): { vertProperti
 // ---------------------------------------------------------------------------
 
 /** The lithophane lit from behind, as RGBA pixels (for the side panel's preview); a cylinder shows unrolled. */
-export function simulateLithophane(image: HfImage, o: LithophaneOptions): { width: number; height: number; rgba: Uint8ClampedArray } {
+export function simulateLithophane(image: LayerToneImage, o: LithophaneOptions): { width: number; height: number; rgba: Uint8ClampedArray } {
   const r = resolveLithoOptions(o);
-  const lum = hfLuma(image);
+  const lum = layerToneLuma(image);
   const colours = Array.from({ length: 256 }, (_, b) => backlitRgb(lithoThickness(b / 255, r), r.minThickness).map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255)));
   const frame = backlitRgb(r.maxThickness, r.minThickness).map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255));
   const bp = Math.round((r.border / r.width) * image.width);

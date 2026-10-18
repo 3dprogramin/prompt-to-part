@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { hexToRgb, luma, type HfFilament } from '../../shared/hueforge';
+import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
 import { COMMON_FILAMENTS, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, type FilamentLookup, type LibraryFilament } from '../../shared/filaments';
 import { api, lookupFilament } from '../lib/api';
 import { Icon } from './Icon';
@@ -17,7 +17,7 @@ const CONFIDENCE: Record<FilamentLookup['confidence'], [string, 'high' | 'medium
 };
 
 /** A swatch in the grid: a library filament or one of the user's own. */
-type Option = HfFilament & { unverified?: boolean };
+type Option = LayerToneFilament & { unverified?: boolean };
 
 const sameFilament = (a: { brand?: string; name: string }, b: { brand?: string; name: string }) => (a.brand ?? '') === (b.brand ?? '') && a.name === b.name;
 const optionKey = (group: string, f: Option) => `${group}:${f.brand ?? ''} ${f.name}`;
@@ -25,10 +25,10 @@ const describe = (f: Option) => `${f.name}${f.brand ? `, ${f.brand}` : ''}, TD $
 
 // The user's own filaments (GET/PUT /api/filaments/mine), shared by every open picker. Fetched each
 // time a picker opens, so a change made in another tab shows up.
-const mine = { list: [] as HfFilament[], subs: new Set<(l: HfFilament[]) => void>() };
-const setMine = (list: HfFilament[]) => { mine.list = list; mine.subs.forEach((f) => f(list)); };
-const saveMine = async (list: HfFilament[]) => setMine(await api.saveMyFilaments(list));
-function useMyFilaments(): HfFilament[] {
+const mine = { list: [] as LayerToneFilament[], subs: new Set<(l: LayerToneFilament[]) => void>() };
+const setMine = (list: LayerToneFilament[]) => { mine.list = list; mine.subs.forEach((f) => f(list)); };
+const saveMine = async (list: LayerToneFilament[]) => setMine(await api.saveMyFilaments(list));
+function useMyFilaments(): LayerToneFilament[] {
   const [list, setList] = useState(mine.list);
   useEffect(() => {
     mine.subs.add(setList);
@@ -40,11 +40,11 @@ function useMyFilaments(): HfFilament[] {
 
 interface Props {
   /** The filament being changed; none when adding one. */
-  current?: HfFilament;
+  current?: LayerToneFilament;
   /** The control that opened the picker: pressing it again closes it, and the focus goes back to it. */
   trigger: RefObject<HTMLElement | null>;
   /** A library filament or a custom one: replace `current` with it, or add it. */
-  onPick: (f: HfFilament) => void;
+  onPick: (f: LayerToneFilament) => void;
   onClose: () => void;
 }
 
@@ -81,7 +81,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose }: Props) {
   const shown: Option | undefined = hover ?? focused ?? selected;
 
   // The custom colour being made; `original` = the key of the saved filament it edits.
-  const [custom, setCustom] = useState<(HfFilament & { original?: string }) | null>(null);
+  const [custom, setCustom] = useState<(LayerToneFilament & { original?: string }) | null>(null);
   const openCustom = () => setCustom(current ? { ...stackFields(current) } : { name: query.trim(), brand: '', color: '#808080', td: 1 });
 
   // Under the anchor, or over it when it doesn't fit below but does above; then scrolled into view.
@@ -100,7 +100,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose }: Props) {
   // The current filament in view in the grid.
   useEffect(() => { grid.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, []);
 
-  const pick = (f: HfFilament) => onPick({ name: f.name, brand: f.brand, color: f.color, td: f.td });
+  const pick = (f: LayerToneFilament) => onPick({ name: f.name, brand: f.brand, color: f.color, td: f.td });
   const focusOption = (el: HTMLElement | undefined) => {
     if (!el) return;
     setActive(el.dataset.key ?? null);
@@ -151,52 +151,52 @@ export function FilamentPicker({ current, trigger, onPick, onClose }: Props) {
   };
 
   return (
-    <div ref={pop} className={`hf-picker ${up ? 'up' : ''}`} role="dialog" aria-label={current ? `Change ${current.name}` : 'Add a filament'} onKeyDown={onKey}>
+    <div ref={pop} className={`layertone-picker ${up ? 'up' : ''}`} role="dialog" aria-label={current ? `Change ${current.name}` : 'Add a filament'} onKeyDown={onKey}>
       <input ref={search} className="text-param" autoFocus value={query} placeholder='Search, e.g. "matte black", "esun red"' aria-label="Search the filaments" aria-controls={`${id}-grid`}
         onChange={(e) => { setQuery(e.target.value); setActive(null); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); focusOption(grid.current?.querySelector<HTMLElement>('[tabindex="0"]') ?? undefined); }
           if (e.key === 'Enter' && query.trim() && options[0]) { e.preventDefault(); pick(options[0].f); }
         }} />
-      <div className="seg hf-lines" role="tablist" aria-label="Filament lines" onKeyDown={onTabsKey}>
+      <div className="seg layertone-lines" role="tablist" aria-label="Filament lines" onKeyDown={onTabsKey}>
         {[{ key: '', label: 'All', title: 'Every filament' }, ...LINES.map((l) => ({ key: l.key, label: short(l), title: l.key }))].map((t) => (
           <button key={t.key} role="tab" className={line === t.key ? 'on' : ''} aria-selected={line === t.key} tabIndex={line === t.key ? 0 : -1} aria-controls={`${id}-grid`} title={t.title}
             onClick={() => { setLine(t.key); setActive(null); }}>{t.label}</button>
         ))}
       </div>
-      <div ref={grid} id={`${id}-grid`} className="hf-grid" role="listbox" aria-label={query.trim() ? `Filaments matching "${query.trim()}"` : 'Filaments'} onKeyDown={onGridKey} onMouseLeave={() => setHover(null)}>
+      <div ref={grid} id={`${id}-grid`} className="layertone-grid" role="listbox" aria-label={query.trim() ? `Filaments matching "${query.trim()}"` : 'Filaments'} onKeyDown={onGridKey} onMouseLeave={() => setHover(null)}>
         {groups.map((g) => (
           <div key={g.key} role="group" aria-labelledby={g.label ? `${id}-${g.key}` : undefined}>
-            {g.label && <div className="hf-grid-head" id={`${id}-${g.key}`}>{g.label}</div>}
-            <div className="hf-swatches">
+            {g.label && <div className="layertone-grid-head" id={`${id}-${g.key}`}>{g.label}</div>}
+            <div className="layertone-swatches">
               {g.filaments.map((f) => {
                 const key = optionKey(g.key, f);
                 const on = !!selected && sameFilament(f, selected);
                 return (
                   <div key={key} data-key={key} role="option" aria-selected={on} aria-label={describe(f)} title={describe(f)} tabIndex={key === activeKey ? 0 : -1}
-                    className="hf-option" style={{ background: f.color }}
+                    className="layertone-option" style={{ background: f.color }}
                     onClick={() => pick(f)} onMouseEnter={() => setHover(f)} onFocus={() => setActive(key)}>
                     {on && <span className={luma(hexToRgb(f.color)) > 0.55 ? 'ink-dark' : 'ink-light'}><Icon name="check" size={13} /></span>}
-                    {f.unverified && <span className="hf-est-mark" aria-hidden>~</span>}
+                    {f.unverified && <span className="layertone-est-mark" aria-hidden>~</span>}
                   </div>
                 );
               })}
             </div>
           </div>
         ))}
-        {!options.length && <div className="hf-grid-empty dim small">No filament in the library matches: use a custom colour.</div>}
+        {!options.length && <div className="layertone-grid-empty dim small">No filament in the library matches: use a custom colour.</div>}
       </div>
       {myFilaments.length > 0 && !query.trim() && !line && (
         <MyFilamentsEdit list={myFilaments} editing={editing} onEditing={setEditing} onEdit={(f) => setCustom({ ...f, brand: f.brand ?? '', original: myFilamentKey(f) })} />
       )}
-      <div className="hf-pick-detail small" aria-hidden>
+      <div className="layertone-pick-detail small" aria-hidden>
         {shown
-          ? <><span className="swatch" style={{ background: shown.color }} /><span className="hf-title">{shown.name}</span><span className="dim">{shown.brand}</span><span className="mono">TD {shown.td}{shown.unverified ? '~' : ''}</span></>
+          ? <><span className="swatch" style={{ background: shown.color }} /><span className="layertone-title">{shown.name}</span><span className="dim">{shown.brand}</span><span className="mono">TD {shown.td}{shown.unverified ? '~' : ''}</span></>
           : <span className="dim">{current ? `${current.name} is not in the library` : 'Pick a colour'}</span>}
       </div>
-      <div className="dim small"><span className="hf-est">~</span> TD estimated, not measured</div>
+      <div className="dim small"><span className="layertone-est">~</span> TD estimated, not measured</div>
       {!custom
-        ? <button className="link hf-custom-open" onClick={openCustom}><Icon name="pen" size={12} /> Custom colour…</button>
+        ? <button className="link layertone-custom-open" onClick={openCustom}><Icon name="pen" size={12} /> Custom colour…</button>
         : <CustomFilament value={custom} onChange={setCustom} adding={!current} onDone={pick} mine={myFilaments} />}
     </div>
   );
@@ -204,9 +204,9 @@ export function FilamentPicker({ current, trigger, onPick, onClose }: Props) {
 
 /** A colour and name of the user's own, with a TD to type or look up (library, then the web). */
 function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
-  value: HfFilament & { original?: string }; onChange: (f: HfFilament & { original?: string }) => void; adding: boolean; onDone: (f: HfFilament) => void;
+  value: LayerToneFilament & { original?: string }; onChange: (f: LayerToneFilament & { original?: string }) => void; adding: boolean; onDone: (f: LayerToneFilament) => void;
   /** The user's saved filaments, which "Save as mine" adds to (or, editing one, changes). */
-  mine: HfFilament[];
+  mine: LayerToneFilament[];
 }) {
   const [lookup, setLookup] = useState<{ busy: boolean; result?: FilamentLookup; error?: string } | null>(null);
   const [saved, setSaved] = useState<{ busy?: boolean; ok?: boolean; error?: string } | null>(null);
@@ -239,15 +239,15 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
     }
   };
   return (
-    <div className="hf-custom-box">
+    <div className="layertone-custom-box">
       {value.original && <div className="dim small">Editing a saved filament: “Save changes” keeps it for every design.</div>}
-      <div className="hf-custom">
-        <label className="hf-swatch big" style={{ background: value.color }} title={value.color}>
+      <div className="layertone-custom">
+        <label className="layertone-swatch big" style={{ background: value.color }} title={value.color}>
           <input type="color" value={value.color} aria-label="Colour" onChange={(e) => onChange({ ...value, color: e.target.value })} />
         </label>
         <input className="text-param" autoFocus value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} placeholder="Name, e.g. PLA Matte Ivory White" aria-label="Filament name" />
         <input className="text-param" value={value.brand ?? ''} onChange={(e) => onChange({ ...value, brand: e.target.value })} placeholder="Brand, e.g. Bambu Lab" aria-label="Brand" />
-        <label className="hf-td" title="Transmission distance: the thickness at which this filament hides what is under it">
+        <label className="layertone-td" title="Transmission distance: the thickness at which this filament hides what is under it">
           <span className="dim small">TD</span>
           <NumBox value={value.td} min={MY_TD_RANGE[0]} max={MY_TD_RANGE[1]} label="TD" onCommit={(td) => onChange({ ...latest.current, td })} />
         </label>
@@ -255,7 +255,7 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
       {lookup?.result && <LookupNote r={lookup.result} />}
       {lookup?.error && <div className="bad-note small" role="alert">{lookup.error}</div>}
       {saved?.error && <div className="bad-note small" role="alert">{saved.error}</div>}
-      <div className="hf-add-actions">
+      <div className="layertone-add-actions">
         <button className="btn ghost" disabled={!name || lookup?.busy} onClick={() => void look()} title="Find this filament's TD and colour (library and the web)">
           {lookup?.busy ? <><span className="spinner" /> Looking up…</> : 'Look up TD'}
         </button>
@@ -272,10 +272,10 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
 }
 
 /** Name, brand, colour and TD only. */
-const stackFields = (f: HfFilament): HfFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
+const stackFields = (f: LayerToneFilament): LayerToneFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
 
 /** The user's saved filaments while they are edited: change one, or remove it (a second click confirms). */
-function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: HfFilament[]; editing: boolean; onEditing: (on: boolean) => void; onEdit: (f: HfFilament) => void }) {
+function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: LayerToneFilament[]; editing: boolean; onEditing: (on: boolean) => void; onEdit: (f: LayerToneFilament) => void }) {
   const [confirm, setConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const remove = async (key: string) => {
@@ -287,17 +287,17 @@ function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: HfFilamen
     }
     setConfirm(null);
   };
-  if (!editing) return <button className="link hf-mine-edit" onClick={() => onEditing(true)}><Icon name="sliders" size={12} /> Edit my filaments…</button>;
+  if (!editing) return <button className="link layertone-mine-edit" onClick={() => onEditing(true)}><Icon name="sliders" size={12} /> Edit my filaments…</button>;
   return (
-    <div className="hf-mine">
-      <div className="hf-grid-head">My filaments <button className="link" onClick={() => onEditing(false)}>Done</button></div>
+    <div className="layertone-mine">
+      <div className="layertone-grid-head">My filaments <button className="link" onClick={() => onEditing(false)}>Done</button></div>
       <ul>
         {list.map((f) => {
           const key = myFilamentKey(f);
           return (
             <li key={key}>
               <span className="swatch" style={{ background: f.color }} />
-              <span className="hf-title" title={f.name}>{f.name}</span>
+              <span className="layertone-title" title={f.name}>{f.name}</span>
               <span className="mono small dim">TD {f.td}</span>
               <button className="icon-btn" onClick={() => onEdit(f)} aria-label={`Edit ${f.name}`} title="Edit"><Icon name="pen" size={12} /></button>
               <button className={`icon-btn ${confirm === key ? 'confirm' : ''}`} onClick={() => (confirm === key ? void remove(key) : setConfirm(key))} onBlur={() => setConfirm((c) => (c === key ? null : c))}
@@ -318,7 +318,7 @@ function LookupNote({ r }: { r: FilamentLookup }) {
   const src = (r.filament as LibraryFilament).source;
   const link = src && /^https?:\/\//.test(src) ? src : undefined;
   return (
-    <div className="hf-lookup small" role="status">
+    <div className="layertone-lookup small" role="status">
       <span className={`src-kind ${trust}`}>{label}</span>
       <span>TD <span className="mono">{r.filament.td} mm</span>{r.filament.brand ? ` · ${r.filament.brand} ${r.filament.name}` : ''}</span>
       {link ? <a href={link} target="_blank" rel="noopener noreferrer">{new URL(link).hostname.replace(/^www\./, '')}</a> : src ? <span className="dim">{src}</span> : null}

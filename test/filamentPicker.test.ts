@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanMyFilaments, colourFamilies, COMMON_FILAMENTS, estimatedTd, FILAMENT_LIBRARY, filamentLines, libraryFilament, myFilamentKey, myFilamentsProblem, pickerFilaments, searchMyFilaments } from '../shared/filaments';
-import { replaceFilament, type HfFilament } from '../shared/hueforge';
+import { replaceFilament, type LayerToneFilament } from '../shared/layertone';
 
 const id = (f: { brand?: string; name: string }) => `${f.brand} ${f.name}`;
 
@@ -47,7 +47,7 @@ test('picker: colour families', () => {
 });
 
 test('picker: the library filament a stack filament is, and estimated TDs', () => {
-  const black: HfFilament = { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.2 };
+  const black: LayerToneFilament = { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.2 };
   assert.equal(libraryFilament(black)?.td, 0.2);
   assert.equal(id(libraryFilament({ name: 'pla basic jade white', brand: 'bambu lab' })!), 'Bambu Lab PLA Basic Jade White');
   assert.equal(id(libraryFilament({ name: 'Black', brand: 'eSUN' })!), 'eSUN PLA+ Black');
@@ -61,7 +61,7 @@ test('picker: the library filament a stack filament is, and estimated TDs', () =
 });
 
 test('picker: a filament is replaced in place, with only the stack\'s fields', () => {
-  const list: HfFilament[] = [
+  const list: LayerToneFilament[] = [
     { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.2 },
     { name: 'Mine', color: '#123456', td: 1 },
     { name: 'PLA Basic Jade White', brand: 'Bambu Lab', color: '#ffffff', td: 5.9 },

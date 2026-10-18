@@ -99,8 +99,8 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
   if (format === '3mf') {
     // A LayerTone print's filament changes and layer heights only exist in a Bambu project: without
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
-    const hueforge = threeMf.colours && parts.some((p) => p.layerColors?.length);
-    if (!threeMf.print && !hueforge) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
+    const layerTone = threeMf.colours && parts.some((p) => p.layerColors?.length);
+    if (!threeMf.print && !layerTone) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
     const tpl = threeMf.print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
     if (!tpl) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
     threeMf.onTemplate?.(tpl);

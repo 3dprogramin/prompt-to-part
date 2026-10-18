@@ -7,7 +7,7 @@ import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
 import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from './artwork';
-import { checkSwaps, cleanFilaments, HF_IMAGES_KEY, HF_KEY, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, toHfImage, type HueforgeSetup } from '../shared/hueforge';
+import { checkSwaps, cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, toLayerToneImage, type LayerToneSetup } from '../shared/layertone';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
 interface AiImages { references: string[]; signal?: AbortSignal }
@@ -33,17 +33,17 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * The `cad` MCP server for one generation, working on `file`. `state.submitted` tells whether
  * Claude got a model accepted. `opened` holds the pages Claude read (pageKey), so a source can be
  * marked as actually opened. With `artwork`, Claude can also have artwork drawn (generate_artwork),
- * and with `pictures` a picture made for H.hueforge, or with `lithophane` for H.lithophane
+ * and with `pictures` a picture made for H.layertone, or with `lithophane` for H.lithophane
  * (generate_picture), from the user's `references` photos if it likes.
  */
 export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: {
-  artwork?: AiImages; pictures?: AiImages; hueforge?: boolean; lithophane?: boolean;
+  artwork?: AiImages; pictures?: AiImages; layerTone?: boolean; lithophane?: boolean;
   /** 3D models from Meshy (generate_3d), stored with this design. */
   meshy?: AiImages & { client: MeshyClient; designId: string };
 } = {}) {
-  const { artwork, pictures, hueforge, lithophane, meshy } = extra;
+  const { artwork, pictures, layerTone, lithophane, meshy } = extra;
   // What generate_picture's pictures are for.
-  const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.hueforge', what: 'a LayerTone filament painting (H.hueforge)' };
+  const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.layertone', what: 'a LayerTone filament painting (H.layertone)' };
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   const state = { submitted: false };
@@ -94,19 +94,19 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-      ...(hueforge ? [tool('set_hueforge', 'Change the LayerTone setup – the same one the user edits in the LayerTone panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Applies at once (no submit_model needed); to change filaments after the first version use this, not the script. Check the result with render_model (the report lists the stack used).', {
+      ...(layerTone ? [tool('set_layertone', 'Change the LayerTone setup – the same one the user edits in the LayerTone panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Applies at once (no submit_model needed); to change filaments after the first version use this, not the script. Check the result with render_model (the report lists the stack used).', {
         filaments: z.array(z.object({
           name: z.string().max(120).describe('e.g. "PLA Basic Black"'),
           brand: z.string().max(60).optional().describe('e.g. "Bambu Lab", "eSUN"'),
           color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('#rrggbb'),
           td: z.number().min(0.05).max(20).describe('Transmission distance, mm'),
-        })).min(1).max(MAX_HF_FILAMENTS).optional().describe('All filaments, bottom (printed first) → top'),
-        swaps: z.union([z.array(z.number().int().min(1)).max(MAX_HF_FILAMENTS - 1), z.literal('auto')]).optional()
+        })).min(1).max(MAX_LAYERTONE_FILAMENTS).optional().describe('All filaments, bottom (printed first) → top'),
+        swaps: z.union([z.array(z.number().int().min(1)).max(MAX_LAYERTONE_FILAMENTS - 1), z.literal('auto')]).optional()
           .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts – one ascending number per filament after the first; "auto" lets Jig choose'),
         reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
       }, async (a) => {
-        const now = parseHueforgeSetup(base[HF_KEY]);
-        let setup: HueforgeSetup = a.reset ? {} : { ...now };
+        const now = parseLayerToneSetup(base[LAYERTONE_KEY]);
+        let setup: LayerToneSetup = a.reset ? {} : { ...now };
         if (a.filaments) setup.filaments = cleanFilaments(a.filaments);
         if (a.swaps === 'auto') delete setup.swaps;
         else if (a.swaps) setup.swaps = a.swaps;
@@ -122,8 +122,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         }
         if (!setup.filaments) delete setup.filaments;
         if (!Object.keys(setup).length) setup = {};
-        if (Object.keys(setup).length) base[HF_KEY] = JSON.stringify(setup); else delete base[HF_KEY];
-        emit({ type: 'hfSetup', setup: Object.keys(setup).length ? setup : null });
+        if (Object.keys(setup).length) base[LAYERTONE_KEY] = JSON.stringify(setup); else delete base[LAYERTONE_KEY];
+        emit({ type: 'layerToneSetup', setup: Object.keys(setup).length ? setup : null });
         const text = !Object.keys(setup).length ? 'The LayerTone setup is cleared: the script\'s filaments and automatic swaps apply.'
           : `LayerTone setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}.`;
         emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
@@ -140,21 +140,21 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
         try {
           const references = a.use_attached_photos ? pictures.references : undefined;
-          const prompt = picturePrompt({ subject: a.subject, style: a.style, references, use: lithophane ? 'lithophane' : 'hueforge' });
+          const prompt = picturePrompt({ subject: a.subject, style: a.style, references, use: lithophane ? 'lithophane' : 'layertone' });
           const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
           const raster = decodeImage(Buffer.from(image.data, 'base64'));
-          const hf = toHfImage(a.name, raster.width, raster.height, raster.data);
-          base[HF_IMAGES_KEY] = JSON.stringify({ ...parseHfImages(base[HF_IMAGES_KEY]), [a.name]: hf });
-          emit({ type: 'hfImage', name: a.name, image: hf });
+          const picture = toLayerToneImage(a.name, raster.width, raster.height, raster.data);
+          base[LAYERTONE_IMAGES_KEY] = JSON.stringify({ ...parseLayerToneImages(base[LAYERTONE_IMAGES_KEY]), [a.name]: picture });
+          emit({ type: 'layerToneImage', name: a.name, image: picture });
           emit({ type: 'step', step: {
             kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
             text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for ${use.helper} as ${hf.width}×${hf.height} pixels.`,
+            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for ${use.helper} as ${picture.width}×${picture.height} pixels.`,
           } });
           return {
             content: [
               { type: 'image', data: image.data, mimeType: image.mediaType },
-              { type: 'text', text: `Picture "${a.name}" is ready for ${use.helper}("${a.name}", { width, … }) (${hf.width}×${hf.height} pixels, ${(hf.width / hf.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
+              { type: 'text', text: `Picture "${a.name}" is ready for ${use.helper}("${a.name}", { width, … }) (${picture.width}×${picture.height} pixels, ${(picture.width / picture.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
             ],
           };
         } catch (e) {

@@ -2,7 +2,7 @@ import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
-import { HF_IMAGES_KEY, luma, toHfImage, toLinear, toSrgb } from '../shared/hueforge';
+import { LAYERTONE_IMAGES_KEY, luma, toLayerToneImage, toLinear, toSrgb } from '../shared/layertone';
 import {
   backlitRgb, cleanLithophaneSource, isLithophane, LITHO_MU, lithophaneMesh, lithoPrint, lithoThickness, lithoVertexColors,
   resolveLithoOptions, simulateLithophane, type LithophaneOptions,
@@ -20,8 +20,8 @@ function picture(w: number, h: number, grey: (x: number, y: number) => number): 
 }
 
 // A gradient from black (left) to white (right), 2:1.
-const gradient = toHfImage('gradient.png', 200, 100, picture(200, 100, (x) => Math.round((x / 199) * 255)));
-const values = { [HF_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }) };
+const gradient = toLayerToneImage('gradient.png', 200, 100, picture(200, 100, (x) => Math.round((x / 199) * 255)));
+const values = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }) };
 const script = (opts: string) => `
 const params = { width: { value: 100, min: 40, max: 200 } };
 function build(p) { return { name: 'Lithophane', ...H.lithophane('gradient.png', { width: p.width${opts ? `, ${opts}` : ''} }) }; }`;
@@ -85,7 +85,7 @@ function watertight(triVerts: Uint32Array): boolean {
 }
 
 test('lithophaneMesh: closed for every shape, with and without frame and foot', () => {
-  const small = toHfImage('s.png', 12, 8, picture(12, 8, (x, y) => (x * 37 + y * 91) % 256));
+  const small = toLayerToneImage('s.png', 12, 8, picture(12, 8, (x, y) => (x * 37 + y * 91) % 256));
   for (const shape of ['flat', 'curved', 'cylinder'] as const) {
     for (const border of [0, 2]) {
       for (const stand of [0, 12]) {
@@ -220,6 +220,6 @@ test('print settings, and recognising a lithophane script', () => {
   assert.equal(lithoPrint(resolveLithoOptions({ width: 100, maxThickness: 4 })).print.walls, 5);
   assert.match(lithoPrint(resolveLithoOptions({ width: 100 })).note, /white PLA, standing up/);
   assert.ok(isLithophane("function build() { return { name: 'L', ...H.lithophane('photo-1', { width: 80 }) }; }"));
-  assert.ok(!isLithophane("function build() { return { name: 'P', ...H.hueforge('photo-1', { width: 80 }) }; }"));
+  assert.ok(!isLithophane("function build() { return { name: 'P', ...H.layertone('photo-1', { width: 80 }) }; }"));
   assert.ok(!isLithophane(undefined));
 });

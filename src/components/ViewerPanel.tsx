@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Viewer, type Measurement, type PhotoView, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
-import type { LayerColor } from '../../shared/hueforge';
+import type { LayerColor } from '../../shared/layertone';
 import { Icon } from './Icon';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
 

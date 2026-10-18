@@ -4,8 +4,8 @@ import { resolveValues, SCALE_KEY } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
-import { HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, type HfImage, type HueforgeSetup } from '../shared/hueforge';
-import { hueforgePart } from './components/HueforgePanel';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
+import { findLayerTonePart } from './components/LayerTonePanel';
 import { freeMeshName, MESHES_KEY, parseMeshes, rehomeMeshes, type MeshEntry } from '../shared/meshes';
 import type { MeshUpload } from '../shared/api';
 import type { FontEntry } from './lib/api';
@@ -265,16 +265,16 @@ export default function App() {
   // Changed LayerTone filaments show in the 3D view at once, on the layers the shown model was built
   // with, until the rebuild (whose heights can shift a little with the new filaments) replaces it.
   const recolor = useMemo(() => {
-    const part = hueforgePart(result ?? lastGood);
-    const want = parseHueforgeSetup(design.values[HF_KEY]).filaments;
+    const part = findLayerTonePart(result ?? lastGood);
+    const want = parseLayerToneSetup(design.values[LAYERTONE_KEY]).filaments;
     if (!part || !want || want.length !== part.layerColors.length) return null;
     if (want.every((f, i) => f.color.toLowerCase() === part.layerColors[i].color.toLowerCase() && f.td === part.layerColors[i].td)) return null;
     return { part: part.name, layers: part.layerColors.map((l, i) => ({ ...l, color: want[i].color, td: want[i].td, name: want[i].name, brand: want[i].brand })) };
-  }, [result, lastGood, design.values[HF_KEY]]);
+  }, [result, lastGood, design.values[LAYERTONE_KEY]]);
 
-  const setHueforge = (setup: HueforgeSetup | null) => setDesign((d) => {
+  const setLayerTone = (setup: LayerToneSetup | null) => setDesign((d) => {
     const values = { ...d.values };
-    if (setup) values[HF_KEY] = JSON.stringify(setup); else delete values[HF_KEY];
+    if (setup) values[LAYERTONE_KEY] = JSON.stringify(setup); else delete values[LAYERTONE_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
 
@@ -473,11 +473,11 @@ export default function App() {
       }, (ev) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
-        else if (ev.type === 'hfImage') update((d) => withHfImage(d, ev.name, ev.image));
+        else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
         else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
-        else if (ev.type === 'hfSetup') update((d) => {
-          const { [HF_KEY]: _old, ...rest } = d.values;
-          return { ...d, values: ev.setup ? { ...rest, [HF_KEY]: JSON.stringify(ev.setup) } : rest };
+        else if (ev.type === 'layerToneSetup') update((d) => {
+          const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
+          return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
         });
         else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
@@ -866,7 +866,7 @@ export default function App() {
     const values: ParamValues = { ...v.values };
     // Drawings, pictures and meshes attached later in the chat may be what this version's script uses.
     if (!values[DRAWINGS_KEY] && design.values[DRAWINGS_KEY]) values[DRAWINGS_KEY] = design.values[DRAWINGS_KEY];
-    if (!values[HF_IMAGES_KEY] && design.values[HF_IMAGES_KEY]) values[HF_IMAGES_KEY] = design.values[HF_IMAGES_KEY];
+    if (!values[LAYERTONE_IMAGES_KEY] && design.values[LAYERTONE_IMAGES_KEY]) values[LAYERTONE_IMAGES_KEY] = design.values[LAYERTONE_IMAGES_KEY];
     if (!values[MESHES_KEY] && design.values[MESHES_KEY]) values[MESHES_KEY] = design.values[MESHES_KEY];
     const d = newDesign();
     // Mesh files live next to a design: the new one gets copies, so deleting either keeps the other whole.
@@ -1105,8 +1105,8 @@ export default function App() {
           onValue={onValue}
           onResetValues={() => setDesign((d) => ({ ...d, values: keepAppValues(d.values) }))}
           values={design.values}
-          onHueforge={setHueforge}
-          onHfImage={(name, image) => setDesign((d) => ({ ...withHfImage(d, name, image), updatedAt: Date.now() }))}
+          onLayerTone={setLayerTone}
+          onLayerToneImage={(name, image) => setDesign((d) => ({ ...withLayerToneImage(d, name, image), updatedAt: Date.now() }))}
           onEditDimension={onEditDimension}
           textFeatures={textFeatures}
           onTextFeatures={setTextFeatures}
@@ -1164,7 +1164,7 @@ function keepAppValues(values: ParamValues): ParamValues {
 /** The design's pictures, meshes and LayerTone setup, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [HF_IMAGES_KEY, HF_KEY, MESHES_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -1173,8 +1173,8 @@ function withMesh(d: Design, name: string, entry: MeshEntry): Design {
   return { ...d, values: { ...d.values, [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), [name]: entry }) } };
 }
 
-function withHfImage(d: Design, name: string, image: HfImage): Design {
-  return { ...d, values: { ...d.values, [HF_IMAGES_KEY]: JSON.stringify({ ...parseHfImages(d.values[HF_IMAGES_KEY]), [name]: image }) } };
+function withLayerToneImage(d: Design, name: string, image: LayerToneImage): Design {
+  return { ...d, values: { ...d.values, [LAYERTONE_IMAGES_KEY]: JSON.stringify({ ...parseLayerToneImages(d.values[LAYERTONE_IMAGES_KEY]), [name]: image }) } };
 }
 
 /** A message written while Claude was working, sent after its reply. */
