@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { runGeneration, steerGeneration, workspaceDir } from './agent';
+import { runGeneration, steerGeneration, UsageLimitError, workspaceDir } from './agent';
 import type { AgentEvent, BackupImport, BlendRequest, Capabilities, GenerateRequest, ImageData, SpeechToken, PriceRequest } from '../shared/api';
 import { authMode, claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
@@ -27,6 +27,7 @@ import { freeMeshName, MAX_MESHES, MESH_NAME } from '../shared/meshes';
 import { meshFormat } from '../shared/meshFormats';
 import { meshyAvailable } from './meshy';
 import { checkConnection } from './connection';
+import { limitResetsAt } from './usage';
 import type { MeshUpload } from '../shared/api';
 import { MAX_ZIP_BYTES, openZip, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from './backup';
 
@@ -606,7 +607,8 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
       if (!abort.signal.aborted) {
         const msg = (e as Error).message ?? String(e);
         console.error('[generate]', msg);
-        send({ type: 'error', message: friendlyError(msg) });
+        const limited = e instanceof UsageLimitError || USAGE_LIMIT.test(msg);
+        send({ type: 'error', message: friendlyError(msg, limited), ...(limited && { resetsAt: limitResetsAt() }) });
       }
     } finally {
       generatingDesigns.delete(body.designId);
@@ -648,12 +650,14 @@ function generateProblem(b: GenerateRequest): string | null {
   return null;
 }
 
-function friendlyError(msg: string) {
+const USAGE_LIMIT = /rate.?limit|429|usage limit|hit your limit/i;
+
+function friendlyError(msg: string, limited: boolean) {
+  if (limited) return `${authMode() === 'subscription' ? 'Your Claude subscription\'s usage limit is reached' : 'Claude usage limit reached for now'}. (${msg})`;
   if (/auth|login|credential|401|oauth/i.test(msg)) {
     if (authMode() === 'subscription' && process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed – the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart Jig. (${msg})`;
     return `Claude authentication failed – run \`claude\` in a terminal and log in (/login) with your subscription. (${msg})`;
   }
-  if (/rate.?limit|429|usage limit/i.test(msg)) return `Claude usage limit reached for now. (${msg})`;
   return msg;
 }
 

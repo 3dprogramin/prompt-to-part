@@ -34,6 +34,7 @@ import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import { exportedParts } from './geometry/parts';
 import { pageKey } from '../shared/sources';
+import { formatReset } from '../shared/usage';
 import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
 
 const UNTITLED = 'Untitled design';
@@ -492,7 +493,7 @@ export default function App() {
             };
           });
         } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
-        else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.message })); }
+        else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
       }, abort.signal);
       if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Please send the request again.' }));
     } catch (e) {
@@ -926,6 +927,7 @@ export default function App() {
         listError={listError}
         onRefreshList={refreshList}
         isRunning={(id) => !!running[id] || remoteRunning[id] != null}
+        generating={Object.keys(running).length}
         onDelete={deleteDesign}
       />
       <main ref={workspace} className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}

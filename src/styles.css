@@ -79,6 +79,8 @@ a.btn { color: inherit; text-decoration: none; }
 .conn-chip.ok .conn-dot { background: #4caf7a; }
 .conn-chip.bad { border-color: #d0505088; color: #f0a0a0; }
 .conn-chip.bad .conn-dot { background: #e05050; }
+.conn-chip.warn { border-color: #d0a03088; color: #f0c870; }
+.conn-chip.warn .conn-dot { background: #e0a030; }
 .conn-chip.checking .conn-dot { animation: pulse 1.2s ease-in-out infinite; }
 .chip { border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 6px; padding: 2px 9px; font-size: 12px; }
 .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
