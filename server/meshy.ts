@@ -3,6 +3,8 @@
 // mesh only (25 credits a model at 2k geometry); the preview picture is only for the chat. The key stays on the
 // server. MESHY_BASE_URL points it at the mock (`npm run mock:meshy`, server/meshyMock.ts).
 
+import type { MeshyBalance } from '../shared/api';
+
 export const MESHY_DEFAULT_BASE = 'https://api.meshy.ai/openapi';
 export const meshyAvailable = () => !!process.env.MESHY_API_KEY?.trim();
 export const meshyBaseUrl = () => (process.env.MESHY_BASE_URL?.trim() || MESHY_DEFAULT_BASE).replace(/\/+$/, '');
@@ -10,6 +12,13 @@ export const meshyBaseUrl = () => (process.env.MESHY_BASE_URL?.trim() || MESHY_D
 const MAX_DOWNLOAD = 100 * 1024 * 1024;
 /** Longest prompt Meshy takes. */
 export const MAX_MESHY_PROMPT = 800;
+export { MESHY_CREDITS_PER_MODEL } from '../shared/meshes';
+/** Most generate_3d calls in one reply (JIG_MESHY_MAX_PER_REPLY); the user's next message gets a fresh allowance. */
+export const MESHY_MAX_PER_REPLY = 2;
+export const meshyMaxPerReply = () => {
+  const n = Number(process.env.JIG_MESHY_MAX_PER_REPLY);
+  return process.env.JIG_MESHY_MAX_PER_REPLY?.trim() && Number.isInteger(n) && n >= 0 ? n : MESHY_MAX_PER_REPLY;
+};
 
 export type MeshyKind = 'text-to-3d' | 'image-to-3d';
 const PATHS: Record<MeshyKind, string> = { 'text-to-3d': '/v2/text-to-3d', 'image-to-3d': '/v1/image-to-3d' };
@@ -76,6 +85,35 @@ async function call<T>(c: MeshyClient, method: string, path: string, body: unkno
   }
   return { data: data as T, headers: r.headers };
 }
+
+/** The account's credits (free to ask). */
+export async function getBalance(c: MeshyClient, signal?: AbortSignal): Promise<MeshyBalance> {
+  const { data } = await call<MeshyBalance>(c, 'GET', '/v1/balance', undefined, 15000, signal);
+  if (!Number.isFinite(data?.balance)) throw new MeshyError('Meshy returned no balance');
+  return {
+    balance: data.balance,
+    ...(Number.isFinite(data.monthly_credits) ? { monthly_credits: data.monthly_credits } : {}),
+    ...(Number.isFinite(data.permanent_credits) ? { permanent_credits: data.permanent_credits } : {}),
+    ...(Number.isFinite(data.monthly_resets_at) ? { monthly_resets_at: data.monthly_resets_at } : {}),
+  };
+}
+
+/** How long a balance is shown before Meshy is asked again. */
+export const BALANCE_CACHE_MS = 60_000;
+let balanceCache: { at: number; key: string; value: Promise<MeshyBalance> } | null = null;
+
+/** The balance, asked at most once a minute (a failed answer isn't kept). */
+export function cachedBalance(c: MeshyClient): Promise<MeshyBalance> {
+  const key = `${c.baseUrl} ${c.key}`;
+  if (balanceCache && balanceCache.key === key && Date.now() - balanceCache.at < BALANCE_CACHE_MS) return balanceCache.value;
+  const entry = { at: Date.now(), key, value: getBalance(c) };
+  balanceCache = entry;
+  entry.value.catch(() => { if (balanceCache === entry) balanceCache = null; });
+  return entry.value;
+}
+
+/** Credits were spent: the next balance asks Meshy. */
+export function forgetBalance() { balanceCache = null; }
 
 /** Starts a model from a description; returns the task id. Each call costs credits: never retry it blindly. */
 export async function createTextTo3d(c: MeshyClient, prompt: string, signal?: AbortSignal): Promise<string> {
@@ -176,16 +214,16 @@ export interface MeshyResult {
   /** The model file and its name (for its format). */
   model: { bytes: Uint8Array; filename: string };
   picture?: { bytes: Uint8Array; ext: 'png' | 'jpg' | 'webp' };
-  /** What was sent: the description, or that it was the photo. */
+  /** What was sent: the description, or which picture it was. */
   prompt: string;
 }
 
 /** A whole Meshy model: start the task, wait for it, download the model and its preview picture. */
-export async function generateMeshyModel(c: MeshyClient, input: { prompt: string } | { image: string }, opts: {
+export async function generateMeshyModel(c: MeshyClient, input: { prompt: string } | { image: string; label?: string }, opts: {
   signal?: AbortSignal; onProgress?: (t: MeshyTask) => void; onStarted?: (id: string) => void; timeoutMs?: number;
 } = {}): Promise<MeshyResult> {
   const kind: MeshyKind = 'prompt' in input ? 'text-to-3d' : 'image-to-3d';
-  const prompt = 'prompt' in input ? meshyPrompt(input.prompt) : 'From the attached photo';
+  const prompt = 'prompt' in input ? meshyPrompt(input.prompt) : input.label ?? 'From the attached photo';
   const id = 'prompt' in input ? await createTextTo3d(c, prompt, opts.signal) : await createImageTo3d(c, input.image, opts.signal);
   opts.onStarted?.(id);
   const task = await waitForTask(c, kind, id, opts);

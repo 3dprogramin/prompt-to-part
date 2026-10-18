@@ -125,6 +125,106 @@ test('generate_3d: Meshy (the mock) makes a model, Jig repairs and stores it, Cl
   assert.match(failed.content[0].text!, /too complex/);
 });
 
+type Tools = Record<string, { handler: (a: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[]; isError?: boolean }> }>;
+const toolsOf = (cad: { instance: unknown }) => (cad.instance as { _registeredTools: Tools })._registeredTools;
+const mockBase = () => `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`;
+/** A Meshy client on the mock that records what Jig creates (and fails a request as if offline). */
+function recordingClient() {
+  const created: { path: string; body: Record<string, unknown> }[] = [];
+  const client = {
+    key: 'msy_test', baseUrl: mockBase(), sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 50))),
+    fetch: (async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (String(body.prompt ?? '').includes('OFFLINE')) throw new TypeError('fetch failed');
+        created.push({ path: new URL(url).pathname, body });
+      }
+      return fetch(url, init);
+    }) as typeof fetch,
+  };
+  return { client, created };
+}
+
+test('3D figure: a concept picture first, then image to 3D from exactly that picture once the user approves', async () => {
+  const events: AgentEvent[] = [];
+  const base: Record<string, string> = {};
+  const { client, created } = recordingClient();
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('a grey clay figure')]);
+  const asked: { prompt: string; aspect: string }[] = [];
+  const image = async (prompt: string, aspect: string) => { asked.push({ prompt, aspect }); return { image: { data: png.toString('base64'), mediaType: 'image/png' }, model: 'test/image-model', cost: 0.04 }; };
+  const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000005', references: [], concepts: true }, image });
+  const tools = toolsOf(cad);
+  const out = await tools.generate_concept.handler({ name: 'hero', subject: 'a superhero crouching, one hand on the ground' }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.match(asked[0].prompt, /Subject: a superhero crouching/);
+  assert.match(asked[0].prompt, /grey clay[\s\S]*plain pure white/);
+  assert.equal(asked[0].aspect, '3:4');
+  assert.match(out.content[1].text!, /end your reply[\s\S]*Don't call generate_3d now/);
+  const concept = events.find((e) => e.type === 'concept') as Extract<AgentEvent, { type: 'concept' }>;
+  assert.match(concept.entry.image, /^\/api\/designs\/test-mesh-00000005\/meshes\/[0-9a-f]{32}\.png$/);
+  assert.deepEqual(new Uint8Array(await (await fetch(A + concept.entry.image)).arrayBuffer()), new Uint8Array(png));
+  assert.equal(JSON.parse(base.$concepts).hero.image, concept.entry.image);
+  assert.ok(events.some((e) => e.type === 'step' && e.step.kind === 'render' && e.step.image === `data:image/png;base64,${png.toString('base64')}`));
+  // Not in the reply that drew it: the user approves first.
+  const early = await tools.generate_3d.handler({ name: 'hero', from_concept: 'hero' }, {});
+  assert.ok(early.isError);
+  assert.match(early.content[0].text!, /hasn't approved/);
+  assert.ok((await tools.generate_3d.handler({ name: 'hero', from_concept: 'nope' }, {})).isError);
+  assert.equal(created.length, 0);
+  // The user's next message approves it: Meshy gets exactly that picture (image to 3D).
+  newUserMessage();
+  const built = await tools.generate_3d.handler({ name: 'hero', from_concept: 'hero' }, {});
+  assert.ok(!built.isError, JSON.stringify(built));
+  assert.equal(created.length, 1);
+  assert.equal(created[0].path, '/openapi/v1/image-to-3d');
+  assert.equal(created[0].body.image_url, `data:image/png;base64,${png.toString('base64')}`);
+  const mesh = events.find((e) => e.type === 'mesh') as Extract<AgentEvent, { type: 'mesh' }>;
+  assert.match(mesh.entry.prompt!, /^From concept picture "hero": a superhero crouching/);
+});
+
+test('at most 2 generate_3d calls per reply; a call that never reached Meshy does not count; the next message gets a fresh allowance', async () => {
+  const events: AgentEvent[] = [];
+  const { client, created } = recordingClient();
+  const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), {}, { meshy: { client, designId: 'test-mesh-00000006', references: [] } });
+  const tools = toolsOf(cad);
+  assert.ok((await tools.generate_3d.handler({ name: 'x', prompt: 'a cat OFFLINE' }, {})).isError);
+  assert.ok(!(await tools.generate_3d.handler({ name: 'cat', prompt: 'a cat' }, {})).isError);
+  assert.ok(!(await tools.generate_3d.handler({ name: 'dog', prompt: 'a dog' }, {})).isError);
+  const third = await tools.generate_3d.handler({ name: 'gargoyle', prompt: 'a gargoyle' }, {});
+  assert.ok(third.isError);
+  assert.match(third.content[0].text!, /already had Meshy make 2 models in this reply[\s\S]*ask the user[\s\S]*25 Meshy credits/);
+  assert.equal(created.length, 2);
+  assert.ok(events.some((e) => e.type === 'step' && /at most 2 models per reply/.test(e.step.text)));
+  newUserMessage();
+  assert.ok(!(await tools.generate_3d.handler({ name: 'fox', prompt: 'a fox' }, {})).isError);
+  assert.equal(created.length, 3);
+});
+
+test('GET /api/meshy/balance: Meshy\'s balance, cached for a minute, asked again after a model; 404 without a key', async () => {
+  const { forgetBalance } = await import('../server/meshy');
+  delete process.env.MESHY_API_KEY;
+  assert.equal((await fetch(`${A}/api/meshy/balance`)).status, 404);
+  Object.assign(process.env, { MESHY_API_KEY: 'msy_test', MESHY_BASE_URL: mockBase() });
+  try {
+    const get = async () => (await (await fetch(`${A}/api/meshy/balance`)).json()) as { balance: number; monthly_credits: number; permanent_credits: number; monthly_resets_at: number };
+    const first = await get();
+    assert.ok(Number.isFinite(first.balance) && Number.isFinite(first.monthly_credits) && Number.isFinite(first.permanent_credits) && first.monthly_resets_at > Date.now(), JSON.stringify(first));
+    // Spent elsewhere: the cached answer stays for a minute, unless Jig spent it (forgetBalance).
+    await fetch(`${mockBase()}/v2/text-to-3d`, { method: 'POST', headers: { Authorization: 'Bearer msy_x', 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'preview', prompt: 'a cat' }) });
+    assert.equal((await get()).balance, first.balance);
+    forgetBalance();
+    assert.equal((await get()).balance, first.balance - 20);
+    process.env.MESHY_API_KEY = 'sk-wrong';
+    const bad = await fetch(`${A}/api/meshy/balance`);
+    assert.equal(bad.status, 502);
+    assert.match((await bad.json()).error, /refused the API key/);
+  } finally {
+    delete process.env.MESHY_API_KEY;
+    delete process.env.MESHY_BASE_URL;
+    forgetBalance();
+  }
+});
+
 function readdirNames(id: string) {
   return readdirSync(path.join(dataDir, 'designs', id, 'meshes'));
 }

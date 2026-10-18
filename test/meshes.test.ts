@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { evaluateScript, importMeshFile, ScriptError } from '../shared/runtime';
-import { freeMeshName, MeshMissingError, MESHES_KEY, parseMeshes, registerMesh, rehomeMeshes, withMeshes, type MeshEntry } from '../shared/meshes';
+import { freeMeshName, MAX_CONCEPTS, MeshMissingError, MESHES_KEY, parseConcepts, parseMeshes, registerMesh, rehomeConcepts, rehomeMeshes, withConcept, withMeshes, type MeshEntry } from '../shared/meshes';
 
 const fixture = (name: string) => new Uint8Array(readFileSync(path.join(import.meta.dirname, 'fixtures', 'meshes', name)));
 const URL_A = '/api/designs/test-mesh-0000001/meshes/0123456789abcdef0123456789abcdef.bin';
@@ -82,4 +82,17 @@ test('the mesh index is checked; names and fork copies', () => {
   assert.equal(moved.pug.file, '/api/designs/new-design-00000002/meshes/0123456789abcdef0123456789abcdef.bin');
   assert.equal(moved.pug.preview, '/api/designs/new-design-00000002/meshes/0123456789abcdef0123456789abcdef.png');
   assert.equal(rehomeMeshes(undefined, 'new-design-00000002'), undefined);
+});
+
+test('the concept picture index: checked, newest last, at most MAX_CONCEPTS, fork copies', () => {
+  const pic = (n: number) => ({ image: `/api/designs/test-mesh-0000001/meshes/${n.toString(16).padStart(32, '0')}.png`, subject: `figure ${n}`, createdAt: n });
+  assert.deepEqual(Object.keys(parseConcepts(JSON.stringify({ a: pic(1), b: { ...pic(2), image: '/etc/passwd' }, c: { ...pic(3), image: pic(3).image.replace('.png', '.bin') } }))), ['a']);
+  let raw = '';
+  for (let i = 0; i < MAX_CONCEPTS + 2; i++) raw = withConcept(raw, `c${i}`, pic(i));
+  raw = withConcept(raw, 'c5', pic(99));
+  const names = Object.keys(parseConcepts(raw));
+  assert.equal(names.length, MAX_CONCEPTS);
+  assert.equal(names.at(-1), 'c5');
+  assert.ok(!names.includes('c0') && !names.includes('c1'));
+  assert.match(parseConcepts(rehomeConcepts(raw, 'new-design-00000002')).c5.image, /^\/api\/designs\/new-design-00000002\/meshes\/0{30}63\.png$/);
 });

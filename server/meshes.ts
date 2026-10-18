@@ -66,6 +66,15 @@ export async function storeMesh(designId: string, imported: ImportedMesh, origin
   };
 }
 
+/** Stores a concept picture (generate_concept) with the design's meshes; returns its URL. */
+export async function storeConceptPicture(designId: string, picture: { bytes: Uint8Array; ext: 'png' | 'jpg' | 'webp' }): Promise<string> {
+  const dir = meshDir(designId);
+  const name = `${hash(picture.bytes)}.${picture.ext}`;
+  await mkdir(dir, { recursive: true });
+  await writeOnce(dir, name, picture.bytes);
+  return `/api/designs/${designId}/meshes/${name}`;
+}
+
 /** Copies every mesh file of one design to another (a design started from a version of it). */
 export async function copyMeshes(from: string, to: string): Promise<number> {
   const names = (await readdir(meshDir(from)).catch(() => [] as string[])).filter((n) => MESH_FILE.test(n));

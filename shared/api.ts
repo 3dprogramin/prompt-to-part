@@ -6,7 +6,7 @@ import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
 import type { LayerToneImage, LayerToneSetup } from './layertone';
 import type { PrintSettings } from './print';
-import type { MeshEntry } from './meshes';
+import type { ConceptEntry, MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
 import type { UsageWindow } from './usage';
 
@@ -31,7 +31,7 @@ export interface GenerateRequest {
   currentView?: ImageData;
   /** Follow-ups: full values to render the current state exactly ($scale, $text included). */
   renderValues?: ParamValues;
-  /** The design's pictures ($images), meshes ($meshes) and LayerTone setup ($layertone), with every request (renderValues comes only with follow-ups on a finished version). */
+  /** The design's pictures ($images), meshes ($meshes), concept pictures ($concepts) and LayerTone setup ($layertone), with every request (renderValues comes only with follow-ups on a finished version). */
   pictures?: ParamValues;
   /** Uniform scale the user applied in the app (1 = none). */
   scale?: number;
@@ -73,6 +73,8 @@ export type AgentEvent =
   | { type: 'layerToneImage'; name: string; image: LayerToneImage }
   /** A mesh Claude had made (generate_3d), kept in the design's MESHES_KEY index for H.mesh. */
   | { type: 'mesh'; name: string; entry: MeshEntry }
+  /** A concept picture of a 3D figure (generate_concept), kept in the design's CONCEPTS_KEY index for generate_3d's from_concept. */
+  | { type: 'concept'; name: string; entry: ConceptEntry }
   /** Claude changed the LayerTone setup (set_layertone): the design's LAYERTONE_KEY value, or null to clear it. */
   | { type: 'layerToneSetup'; setup: LayerToneSetup | null }
   /** Transient one-line status (throttled), replaced by the next one. */
@@ -125,6 +127,16 @@ export interface Connection {
   credit?: number;
   /** The Claude subscription's usage windows, as far as Jig knows them (subscription mode). */
   usage?: UsageWindow[];
+}
+
+/** GET /api/meshy/balance: the Meshy account's credits (404 when Jig has no Meshy key). */
+export interface MeshyBalance {
+  /** Credits left in all. */
+  balance: number;
+  monthly_credits?: number;
+  permanent_credits?: number;
+  /** When the monthly credits renew (ms). */
+  monthly_resets_at?: number;
 }
 
 /** POST /api/designs/:id/meshes: an attached mesh file, imported and stored with the design. */

@@ -69,6 +69,55 @@ export function rehomeMeshes(raw: unknown, designId: string): string | undefined
   return JSON.stringify(meshes);
 }
 
+// ---------------------------------------------------------------------------- concept pictures
+// In 3D figure mode the image model first draws the subject as a grey clay render (generate_concept)
+// for the user to approve; generate_3d then builds it from that picture (image to 3D). The picture
+// is stored with the meshes; the values keep an index of them under CONCEPTS_KEY.
+
+/** What one Meshy model costs (meshy-7.1, untextured, 2k geometry). */
+export const MESHY_CREDITS_PER_MODEL = 25;
+/** Values key: the design's concept pictures, as JSON Record<name, ConceptEntry>. */
+export const CONCEPTS_KEY = '$concepts';
+/** Most concept pictures kept (the oldest go first). */
+export const MAX_CONCEPTS = 12;
+/** A concept picture's URL: /api/designs/<design>/meshes/<content hash>.png|jpg|webp */
+export const CONCEPT_URL = /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/meshes\/([0-9a-f]{32}\.(?:png|jpg|webp))$/;
+
+export interface ConceptEntry {
+  /** URL of the stored picture (CONCEPT_URL). */
+  image: string;
+  /** What the image model was asked to show. */
+  subject: string;
+  createdAt: number;
+}
+
+export function parseConcepts(raw: unknown): Record<string, ConceptEntry> {
+  let o: unknown = raw;
+  if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch { return {}; } }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+  const out: Record<string, ConceptEntry> = {};
+  for (const [name, e] of Object.entries(o).slice(-MAX_CONCEPTS)) {
+    const c = e as Partial<ConceptEntry>;
+    if (!MESH_NAME.test(name) || typeof c?.image !== 'string' || !CONCEPT_URL.test(c.image)) continue;
+    out[name] = { image: c.image, subject: typeof c.subject === 'string' ? c.subject.slice(0, 2000) : '', createdAt: Number(c.createdAt) || 0 };
+  }
+  return out;
+}
+
+/** The index with `name` added (or replaced, then it moves to the end), the oldest dropped past MAX_CONCEPTS. */
+export function withConcept(raw: unknown, name: string, entry: ConceptEntry): string {
+  const { [name]: _old, ...rest } = parseConcepts(raw);
+  return JSON.stringify(Object.fromEntries([...Object.entries(rest), [name, entry]].slice(-MAX_CONCEPTS)));
+}
+
+/** Rewrites the design id in concept picture URLs (a forked design gets its own copies). */
+export function rehomeConcepts(raw: unknown, designId: string): string | undefined {
+  const concepts = parseConcepts(raw);
+  if (!Object.keys(concepts).length) return undefined;
+  for (const c of Object.values(concepts)) c.image = c.image.replace(/^\/api\/designs\/[a-zA-Z0-9-]{8,64}\//, `/api/designs/${designId}/`);
+  return JSON.stringify(concepts);
+}
+
 // ---------------------------------------------------------------------------- stored format
 // "JIGM", header length (uint32), JSON header padded to 4 bytes, float32 xyz per vertex, uint32
 // vertex indices per triangle. The mesh is already repaired: welded, watertight and oriented.

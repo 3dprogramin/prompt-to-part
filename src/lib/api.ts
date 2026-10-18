@@ -1,5 +1,5 @@
 import type { Design, DesignSummary } from '../../shared/types';
-import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, MeshyBalance, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
@@ -98,6 +98,8 @@ export const api = {
   },
   capabilities: () => getJson<Capabilities>('/api/capabilities'),
   connection: (fresh = false) => getJson<Connection>(`/api/connection${fresh ? '?fresh=1' : ''}`),
+  /** The Meshy account's credits (only when the server has a Meshy key). */
+  meshyBalance: () => getJson<MeshyBalance>('/api/meshy/balance'),
   /** The Bambu Studio project template (built from the user's Bambu Studio the first time: minutes). */
   bambuTemplate: () => getJson<BambuTemplate>('/api/bambu/template', { method: 'POST' }),
   costSettings: () => getJson<CostSettings>('/api/cost/settings'),

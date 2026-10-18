@@ -6,8 +6,8 @@ import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
 import { findLayerTonePart } from './components/LayerTonePanel';
-import { freeMeshName, MESHES_KEY, parseMeshes, rehomeMeshes, type MeshEntry } from '../shared/meshes';
-import type { MeshUpload } from '../shared/api';
+import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
+import type { MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError, steer } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
@@ -212,6 +212,10 @@ export default function App() {
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatDefaults), ...patch } }));
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
   const [meshy, setMeshy] = useState(false);
+  // The Meshy account's credits, shown on the 3D figure button: asked when the mode is turned on and after a reply that used Meshy.
+  const [meshyCredits, setMeshyCredits] = useState<MeshyBalance | null>(null);
+  const refreshMeshyCredits = () => { api.meshyBalance().then(setMeshyCredits).catch(() => {}); };
+  useEffect(() => { if (meshy && chat.imageMode === 'figure') refreshMeshyCredits(); }, [meshy, chat.imageMode]);
   const [viewOpts, setViewOpts] = useState<ViewerOptions>(() => ({
     showBBox: true, showAnnotations: true, showEdges: true, ortho: false, measure: false, hiddenParts: [],
     section: { enabled: false, axis: 'z', position: 0, flip: false },
@@ -447,6 +451,8 @@ export default function App() {
     let finished = false;
     // Messages queued meanwhile go out only after a reply that ended normally.
     let completed = false;
+    // Meshy started a model in this reply: the credits changed.
+    let usedMeshy = false;
     try {
       await generate({
         designId: design.id,
@@ -476,11 +482,16 @@ export default function App() {
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
         else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
+        else if (ev.type === 'concept') update((d) => ({ ...d, values: { ...d.values, [CONCEPTS_KEY]: withConcept(d.values[CONCEPTS_KEY], ev.name, ev.entry) } }));
         else if (ev.type === 'layerToneSetup') update((d) => {
           const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
           return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
         });
-        else if (ev.type === 'step') patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
+        else if (ev.type === 'step') {
+          // Meshy started a task (credits spent, even if it fails later).
+          if (ev.step.text.startsWith('Meshy task ')) usedMeshy = true;
+          patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
+        }
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
         else if (ev.type === 'model') {
@@ -510,6 +521,7 @@ export default function App() {
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
       if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
       tell({ type: 'running', id: designId, on: false });
+      if (usedMeshy && meshy) refreshMeshyCredits();
       // A design that finished in the background is persisted, then dropped from memory (by
       // onSaved; a failed save keeps it, so "Retry" still has the changes).
       setTimeout(() => {
@@ -869,9 +881,10 @@ export default function App() {
     if (!values[DRAWINGS_KEY] && design.values[DRAWINGS_KEY]) values[DRAWINGS_KEY] = design.values[DRAWINGS_KEY];
     if (!values[LAYERTONE_IMAGES_KEY] && design.values[LAYERTONE_IMAGES_KEY]) values[LAYERTONE_IMAGES_KEY] = design.values[LAYERTONE_IMAGES_KEY];
     if (!values[MESHES_KEY] && design.values[MESHES_KEY]) values[MESHES_KEY] = design.values[MESHES_KEY];
+    if (!values[CONCEPTS_KEY] && design.values[CONCEPTS_KEY]) values[CONCEPTS_KEY] = design.values[CONCEPTS_KEY];
     const d = newDesign();
-    // Mesh files live next to a design: the new one gets copies, so deleting either keeps the other whole.
-    if (values[MESHES_KEY]) {
+    // Mesh files (and concept pictures) live next to a design: the new one gets copies, so deleting either keeps the other whole.
+    if (values[MESHES_KEY] || values[CONCEPTS_KEY]) {
       try {
         await api.copyMeshes(d.id, design.id);
       } catch (e) {
@@ -880,6 +893,8 @@ export default function App() {
       }
       const moved = rehomeMeshes(values[MESHES_KEY], d.id);
       if (moved) values[MESHES_KEY] = moved; else delete values[MESHES_KEY];
+      const concepts = rehomeConcepts(values[CONCEPTS_KEY], d.id);
+      if (concepts) values[CONCEPTS_KEY] = concepts; else delete values[CONCEPTS_KEY];
     }
     const forked: Design = {
       ...d,
@@ -1024,6 +1039,7 @@ export default function App() {
           imageMode={chat.imageMode}
           artworkModel={artworkModel}
           meshy={meshy}
+          meshyCredits={meshy ? meshyCredits : null}
           onImageMode={(imageMode) => setChat({ imageMode })}
           defaultModel={chatDefaults.model}
           hasModel={!!design.code}
@@ -1162,10 +1178,10 @@ function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }
 
-/** The design's pictures, meshes and LayerTone setup, for the server (undefined when there are none). */
+/** The design's pictures, meshes, concept pictures and LayerTone setup, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 

@@ -2,7 +2,7 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, Export project… (as a zip), and a reply that was cut short. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
+// import, Export project… (as a zip), a reply that was cut short and the Meshy credits on the 3D figure button. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
@@ -203,5 +203,29 @@ test('a reply saved while Jig was working shows as interrupted, with its thinkin
   await page.locator('.activity-panel', { hasText: 'chamfered edges' }).waitFor();
   assert.equal(await page.locator('.chat-panel textarea').isEnabled(), true);
   await page.screenshot({ path: path.join(shots, '6-interrupted.png') });
+  await page.close();
+});
+
+test('3D figure mode shows the Meshy credits left on its button', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  // As if Jig had a Meshy key; the balance is a stand-in (the real one would ask Meshy).
+  await page.route('**/api/capabilities', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), meshy: true } });
+  });
+  let asked = 0;
+  await page.route('**/api/meshy/balance', (route) => { asked++; return route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200, monthly_resets_at: 1795034540000 } }); });
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  assert.equal(await page.locator('.mode-credits').count(), 0);
+  await page.getByRole('button', { name: /^Picture mode:/ }).click();
+  await page.getByRole('menuitemradio', { name: /3D figure/ }).click();
+  const badge = page.locator('.mode-btn .mode-credits');
+  await badge.waitFor();
+  assert.equal(await badge.textContent(), '1,200');
+  assert.match(await page.locator('.mode-btn').getAttribute('title') ?? '', /1,200 Meshy credits left .*a model costs 25/);
+  assert.ok(asked >= 1);
+  await page.screenshot({ path: path.join(shots, '7-meshy-credits.png') });
   await page.close();
 });

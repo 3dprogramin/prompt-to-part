@@ -717,6 +717,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .mode-label { display: none; font-size: 11.5px; font-weight: 500; }
 /* The mode's name only where it fits on the composer's one row (with "Lithophane", the longest). */
 @container (min-width: 500px) { .mode-label { display: inline; } }
+/* The Meshy credits left, on the 3D figure button. */
+.mode-credits { font: 500 10.5px/1 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 4px; }
+.mode-credits.low { color: var(--bad); border-color: var(--bad); }
 .mode-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 -10px 40px #000a; padding: 4px; z-index: 30; }
 .mode-menu button { display: flex; align-items: flex-start; gap: 6px; width: 100%; background: none; border: 0; border-radius: 6px; padding: 7px 10px 7px 6px; text-align: left; }
 .mode-menu button:hover, .mode-menu button:focus-visible { background: #ffffff0d; outline: none; }

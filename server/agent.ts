@@ -23,9 +23,9 @@ import { cachedPrintDefaults } from './bambu';
 import { readMyFilaments } from './myFilaments';
 import { A1_DEFAULTS } from '../shared/print';
 import type { ParamValues } from '../shared/types';
-import { MESHES_KEY, parseMeshes } from '../shared/meshes';
+import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
-import { meshyClient } from './meshy';
+import { MESHY_CREDITS_PER_MODEL, meshyClient } from './meshy';
 import { recordRateLimit } from './usage';
 
 const MODEL_FILE = 'model.js';
@@ -44,6 +44,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__generate_artwork: 'Generating artwork',
   mcp__cad__generate_picture: 'Generating a picture',
   mcp__cad__set_layertone: 'Changing the LayerTone filaments',
+  mcp__cad__generate_concept: 'Drawing a concept picture',
   mcp__cad__generate_3d: 'Making a 3D model with Meshy',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
@@ -202,22 +203,27 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const attachedMeshes = (req.meshes ?? []).filter((n) => meshes[n]);
   const figure = mode === 'figure';
   const meshy = meshyClient();
-  // generate_3d: in 3D figure mode, and in follow-ups on designs that have meshes.
-  const meshTools = !!meshy && (figure || Object.keys(meshes).length > 0);
+  // Concept pictures drawn earlier (generate_concept), for generate_3d's from_concept.
+  const concepts = parseConcepts(pictureValues[CONCEPTS_KEY]);
+  // generate_3d: in 3D figure mode, and in follow-ups on designs that have meshes or concepts.
+  const meshTools = !!meshy && (figure || Object.keys(meshes).length > 0 || Object.keys(concepts).length > 0);
+  // With the image model, a figure starts as a concept picture the user approves (no credits spent on a wrong one).
+  const conceptTools = meshTools && artworkAvailable();
   const base: ParamValues = {
     ...(Object.keys(meshes).length ? { [MESHES_KEY]: JSON.stringify(meshes) } : {}),
+    ...(Object.keys(concepts).length ? { [CONCEPTS_KEY]: JSON.stringify(concepts) } : {}),
     ...(Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
     ...(Object.keys(layerToneImages).length ? { [LAYERTONE_IMAGES_KEY]: JSON.stringify(layerToneImages) } : {}),
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
   };
   // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
   const myFilaments = layerTone ? await readMyFilaments() : [];
-  const { server: cad, state } = cadTools(file, emit, opened, base, {
+  const { server: cad, state, newUserMessage } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
     pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
     layerTone,
     lithophane,
-    meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal } : undefined,
+    meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools } : undefined,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -309,8 +315,13 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (Object.keys(meshes).length && !attachedMeshes.length) {
     parts.push(`Meshes in this design (H.mesh): ${Object.entries(meshes).map(([n, m]) => `"${n}" (${m.source === 'meshy' ? `made with generate_3d${m.prompt ? `: ${m.prompt.slice(0, 120)}` : ''}` : `from ${m.original ?? 'a file'}`}; ${m.size.map((x) => x.toFixed(0)).join(' × ')} mm as stored, ${m.triangles.toLocaleString('en')} triangles)`).join(', ')}.`);
   }
+  if (meshTools && Object.keys(concepts).length) {
+    parts.push(`Concept pictures in this design (generate_3d from_concept builds one; the newest is last): ${Object.entries(concepts).map(([n, c]) => `"${n}" (${c.subject.slice(0, 160)})`).join(', ')}.`);
+  }
   if (figure && !meshy) parts.push('3D figure mode is on, but Jig has no Meshy key (MESHY_API_KEY), so generate_3d is not available.');
-  else if (figure) parts.push(`3D figure mode is on: make the subject with generate_3d${references.length ? ' (from_photo: true builds it from the attached photo)' : ''} and build the design around it with H.mesh.`);
+  else if (figure && references.length) parts.push('3D figure mode is on: make the subject with generate_3d (from_photo: true builds it from the attached photo) and build the design around it with H.mesh.');
+  else if (figure && conceptTools) parts.push(`3D figure mode is on: if the user is approving a concept picture, build it with generate_3d({ name, from_concept }) and the design around it with H.mesh; if they want it changed, draw a new one with generate_concept. For a new figure, draw a concept picture with generate_concept and end your reply asking the user to approve it (no generate_3d in this reply) – unless they said to skip the picture and go straight to 3D. Each Meshy model costs ${MESHY_CREDITS_PER_MODEL} credits.`);
+  else if (figure) parts.push('3D figure mode is on: make the subject with generate_3d and build the design around it with H.mesh.');
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {
@@ -355,7 +366,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       prompt: messages(),
       options: {
         systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
-          figure || Object.keys(meshes).length ? { figure, meshy: meshTools } : undefined),
+          figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
@@ -485,6 +496,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         // A user message Claude has just read: the request, then any the user sent mid-reply.
         if (prompts++ > 0) {
           inbox.read++;
+          newUserMessage();
           emit({ type: 'step', step: { kind: 'status', verbose: true, text: 'Jig read your message' } });
           pushLive('Jig is reading your message…');
         }
@@ -645,7 +657,8 @@ function describeToolInput(name: string, input: Record<string, unknown> | undefi
   }
   if (name === 'Read') return 'Reading model.js';
   if (name === 'mcp__cad__generate_picture' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
-  if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_photo ? 'from the attached photo' : String(input.prompt ?? '').slice(0, 200)}`;
+  if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_concept ? `from concept picture "${String(input.from_concept)}"` : input.from_photo ? 'from the attached photo' : String(input.prompt ?? '').slice(0, 200)}`;
+  if (name === 'mcp__cad__generate_concept' && typeof input.subject === 'string') return `Concept "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
   if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {

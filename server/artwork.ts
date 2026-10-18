@@ -159,6 +159,22 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
   ].filter(Boolean).join('\n');
 }
 
+/**
+ * The prompt for a concept picture (generate_concept): the subject alone as a grey clay sculpture,
+ * the way image-to-3D reads a picture best – one subject, whole, lit evenly, on plain white.
+ */
+export function conceptPrompt(subject: string): string {
+  return [
+    'A concept picture for an AI image-to-3D generator, which will sculpt a 3D-printable figure from it: the picture must show the shape only.',
+    `Subject: ${subject.trim()}`,
+    'Rules:',
+    '- the single subject only, full body, in the pose described, three-quarter front view, the whole subject in frame with a margin around it (nothing cut off)',
+    '- rendered as a neutral grey clay / sculpture render: one matte grey material, no colours, no textures painted on, no text, logos or markings',
+    '- soft, even studio light with gentle shading that shows the form; no hard shadows, no dramatic lighting',
+    '- a plain pure white (#FFFFFF) background; nothing else in the scene (only what the subject wears or holds): no ground, base, props, scenery or other figures, no frame, signature or watermark',
+  ].join('\n');
+}
+
 interface Raster { width: number; height: number; data: Uint8Array | Uint8ClampedArray }
 
 /** PNG or JPEG to RGBA pixels. */

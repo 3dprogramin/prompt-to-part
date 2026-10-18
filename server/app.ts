@@ -25,10 +25,10 @@ import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
 import { freeMeshName, MAX_MESHES, MESH_NAME } from '../shared/meshes';
 import { meshFormat } from '../shared/meshFormats';
-import { meshyAvailable } from './meshy';
+import { cachedBalance, meshyAvailable, meshyClient } from './meshy';
 import { checkConnection } from './connection';
 import { limitResetsAt } from './usage';
-import type { DesignFiles, MeshUpload } from '../shared/api';
+import type { DesignFiles, MeshUpload, MeshyBalance } from '../shared/api';
 import { MAX_ZIP_BYTES, openZip, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from './backup';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -386,6 +386,17 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   app.get('/api/capabilities', async (_req, res) => {
     const blender = await blenderInfo();
     res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort() } satisfies Capabilities);
+  });
+
+  // The Meshy account's credits, for the 3D figure button (free to ask; asked at most once a minute).
+  app.get('/api/meshy/balance', async (_req, res) => {
+    const c = meshyClient();
+    if (!c) return void res.status(404).json({ error: 'Jig has no Meshy key (MESHY_API_KEY)' });
+    try {
+      res.json((await cachedBalance(c)) satisfies MeshyBalance);
+    } catch (e) {
+      res.status(502).json({ error: (e as Error).message });
+    }
   });
 
   app.get('/api/connection', async (req, res) => {
