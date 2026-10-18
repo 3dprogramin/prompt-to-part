@@ -131,6 +131,15 @@ export interface MeshUpload {
   report: ImportReport;
 }
 
+/** POST /api/backup/import: what a backup zip (GET /api/backup) brought back. */
+export interface BackupImport {
+  imported: { id: string; name: string }[];
+  /** Designs not imported: one with the same id is already here (it is kept as it is), or the zip's copy is damaged. */
+  skipped: { id: string; name: string; reason: string }[];
+  /** Settings restored from the zip ('cost settings', 'My filaments'): only those not saved here yet. */
+  settings: string[];
+}
+
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */
 export interface BambuTemplate {
   version: string;
