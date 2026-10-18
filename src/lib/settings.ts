@@ -6,7 +6,7 @@ import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
-import { PRINT_KEY } from '../../shared/print';
+import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
 
 type Params = EvalResult['params'];
 
@@ -41,6 +41,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === SVG_KEY) return 'SVG';
     if (k === DRAWINGS_KEY) return 'attached drawings';
     if (k === PRINT_KEY) return 'print settings';
+    if (k === ONE_COLOUR_KEY) return v ? 'one colour' : 'colours (AMS)';
     if (k === LAYERTONE_KEY) return 'LayerTone filaments';
     const d = params[k];
     return `${d?.label ?? k} ${fmt(v, d)}`;

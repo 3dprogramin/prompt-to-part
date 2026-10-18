@@ -171,6 +171,7 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .section-bar input[type='range'] { flex: 1 1 120px; width: 220px; min-width: 80px; }
 .parts-legend { position: absolute; left: 10px; bottom: 40px; display: flex; flex-direction: column; gap: 3px; }
 .legend-item { display: flex; align-items: center; gap: 7px; background: #191b1fd9; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; font-size: 12px; }
+.legend-item.oc { color: var(--text-2); }
 .legend-item.off { opacity: 0.45; text-decoration: line-through; }
 .swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
 .viewer-empty { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
@@ -481,6 +482,12 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 /* ---------- print settings ---------- */
 .print-panel { display: flex; flex-direction: column; gap: 10px; }
 .pp-profile { display: flex; flex-direction: column; gap: 3px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+/* "Print in one colour", at the top of the Print tab */
+.one-colour { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.one-colour.on { border-color: var(--accent); }
+.oc-filament { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+.oc-filament select { flex: 1; min-width: 0; }
+.oc-filament .swatch { width: 12px; height: 12px; border: 1px solid var(--line-2); }
 .pp-scope { display: flex; flex-wrap: wrap; gap: 4px; }
 .pp-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 5px; vertical-align: 1px; }
 .pp-row { display: flex; flex-direction: column; gap: 4px; }

@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Design, EvalResult, ParamValues } from '../../shared/types';
 import type { BambuTemplate } from '../../shared/api';
 import type { PrintProfile } from '../../shared/print';
-import type { CostSettings, SliceStats } from '../../shared/cost';
+import { costKey, type CostSettings, type SliceStats } from '../../shared/cost';
 import { api } from '../lib/api';
 import { buildProject } from '../lib/projects';
+import { oneColourFilament } from '../lib/bambu3mf';
 import { exportedParts } from '../geometry/parts';
 import type { GeometryClient } from '../geometry/client';
 
@@ -32,6 +33,8 @@ interface Inputs {
   values: ParamValues;
   hiddenParts: string[];
   userPrint: PrintProfile;
+  /** "Print in one colour" (parseOneColour): the project is sliced with that one filament. */
+  oneColour: null | 'main' | string;
   onTemplate: (tpl: BambuTemplate) => void;
 }
 
@@ -40,7 +43,7 @@ interface Inputs {
  * Bambu Studio project as the 3MF export and sliced by the user's Bambu Studio. Results are kept per
  * design; one calculation at a time.
  */
-export function useCost(geo: GeometryClient, { design, values, hiddenParts, userPrint, onTemplate }: Inputs) {
+export function useCost(geo: GeometryClient, { design, values, hiddenParts, userPrint, oneColour, onTemplate }: Inputs) {
   const [settings, setSettings] = useState<CostSettings>({});
   const [running, setRunning] = useState<{ designId: string; stage: CostStage; since: number } | null>(null);
   const [results, setResults] = useState<Record<string, CostResult>>({});
@@ -48,12 +51,12 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
   const busy = useRef(false);
   useEffect(() => { api.costSettings().then(setSettings).catch(() => {}); }, []);
 
-  const key = JSON.stringify([design.code, values, hiddenParts, userPrint]);
-  const latest = useRef({ design, values, hiddenParts, userPrint, onTemplate, key });
-  latest.current = { design, values, hiddenParts, userPrint, onTemplate, key };
+  const key = costKey(design.code, values, hiddenParts, userPrint, oneColour);
+  const latest = useRef({ design, values, hiddenParts, userPrint, oneColour, onTemplate, key });
+  latest.current = { design, values, hiddenParts, userPrint, oneColour, onTemplate, key };
 
   const calculate = useCallback(async () => {
-    const { design: d, values: v, hiddenParts: hidden, userPrint: user, onTemplate: gotTemplate, key: k } = latest.current;
+    const { design: d, values: v, hiddenParts: hidden, userPrint: user, oneColour: single, onTemplate: gotTemplate, key: k } = latest.current;
     if (busy.current || !d.code) return;
     busy.current = true;
     // One clock for the whole calculation: a new stage isn't a restart.
@@ -69,10 +72,12 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
       stage('template');
       const tpl = await api.bambuTemplate();
       gotTemplate(tpl);
-      const project = await buildProject({ kind: 'bambu', parts, title: o.result.meta.name || d.name, tpl, opts: { colours: true, print: { ai: o.result.print, user } } });
+      const colour = single ? oneColourFilament(parts, single).colour : null;
+      const colours = colour ? 1 : new Set(parts.map((p) => p.color.toLowerCase())).size;
+      const project = await buildProject({ kind: 'bambu', parts, title: o.result.meta.name || d.name, tpl, opts: { oneColour: colour, print: { ai: o.result.print, user } } });
       stage('slicing');
       const stats = await api.slice(project);
-      setResults((r) => ({ ...r, [d.id]: { key: k, stats, result: o.result, parts: parts.length, colours: new Set(parts.map((p) => p.color.toLowerCase())).size } }));
+      setResults((r) => ({ ...r, [d.id]: { key: k, stats, result: o.result, parts: parts.length, colours } }));
       setErrors((e) => { const next = { ...e }; delete next[d.id]; return next; });
     } catch (e) {
       fail((e as Error).message);

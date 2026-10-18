@@ -155,6 +155,25 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
   return { filaments, slot, paint, changes, ams, ...(problem ? { problem } : {}) };
 }
 
+/** The design's filaments, as the Bambu project gets them (the same colour and name share one). */
+export function printFilaments(parts: PartMesh[]): FilamentPlan['filaments'] {
+  return parts.length ? filamentPlan(parts, { layerHeight: 0.2, firstLayerHeight: 0.2 }).filaments : [];
+}
+
+/**
+ * The one filament of a print in one colour ("Print in one colour", parseOneColour): the picked
+ * colour when the design still has a filament in it, else the main filament, the one the biggest
+ * part prints with (a painted part's most used, a LayerTone part's first).
+ */
+export function oneColourFilament(parts: PartMesh[], choice: 'main' | string): { colour: string; name?: string } {
+  if (!parts.length) return { colour: FALLBACK_COLOUR };
+  const plan = filamentPlan(parts, { layerHeight: 0.2, firstLayerHeight: 0.2 });
+  const picked = plan.filaments.find((f) => f.colour === choice.toUpperCase());
+  if (picked) return picked;
+  const main = parts.reduce((a, _, b) => (parts[b].volume > parts[a].volume ? b : a), 0);
+  return plan.filaments[plan.slot[main] - 1];
+}
+
 /**
  * Bambu Studio's colour painting of a whole (unsplit) triangle with a filament (1-based), its
  * paint_color attribute: the triangle's TriangleSelector state, written as hex digits last first.
@@ -182,7 +201,11 @@ export function toBambuProject(
   parts: PartMesh[],
   title: string,
   tpl: BambuTemplate,
-  opts: { colours: boolean; print: { ai: PrintProfile; user: PrintProfile } | null },
+  opts: {
+    /** Print everything in this one filament colour (#RRGGBB): no painting, no LayerTone filament changes. */
+    oneColour?: string | null;
+    print: { ai: PrintProfile; user: PrintProfile } | null;
+  },
 ): Blob {
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
   // The template's own profile is the baseline: only real changes from it are written.
@@ -195,8 +218,9 @@ export function toBambuProject(
 
   // Filament slots (1-based): one per distinct colour and LayerTone filament, or a single filament.
   const plan = filamentPlan(parts, globalSettings);
-  const colours = opts.colours ? plan.filaments.map((f) => f.colour) : [String((tpl.settings.filament_colour as string[] | undefined)?.[0] ?? '#00AE42')];
-  const slot = parts.map((_, i) => (opts.colours ? plan.slot[i] : 1));
+  const multi = !opts.oneColour;
+  const colours = multi ? plan.filaments.map((f) => f.colour) : [hex(opts.oneColour!)];
+  const slot = parts.map((_, i) => (multi ? plan.slot[i] : 1));
 
   // Whole model moved as one onto the plate (same placement as the viewer).
   const shift = bedShift(parts.map((p) => p.bbox));
@@ -216,8 +240,8 @@ export function toBambuProject(
     const file = `3D/Objects/object_${gi + 1}.model`;
     const meshIds = group.map(() => nextId++);
     const objId = nextId++;
-    // A painted part (a coloured mesh): its triangles painted with their filaments, with colours on only.
-    const painting = (i: number) => (opts.colours && plan.paint[i].length ? { filament: plan.paint[i], own: plan.slot[i] } : undefined);
+    // A painted part (a coloured mesh): its triangles painted with their filaments, unless it prints in one colour.
+    const painting = (i: number) => (multi && plan.paint[i].length ? { filament: plan.paint[i], own: plan.slot[i] } : undefined);
     files[file] = strToU8(`${header}<resources>${group.map((i, k) => `<object id="${meshIds[k]}" type="model">${meshXml(parts[i], c, painting(i))}</object>`).join('')}</resources>\n<build/>\n</model>`);
     rels.push(`<Relationship Target="/${file}" Id="rel-${gi + 1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
     resources.push(`<object id="${objId}" type="model"><components>${meshIds.map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
@@ -236,7 +260,7 @@ export function toBambuProject(
     instances.push(`<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`);
   });
 
-  if (opts.colours) Object.assign(files, filamentChangeFiles(parts, groups, plan, globalSettings.layerHeight, String(tpl.settings.machine_pause_gcode ?? 'M400 U1')));
+  if (multi) Object.assign(files, filamentChangeFiles(parts, groups, plan, globalSettings.layerHeight, String(tpl.settings.machine_pause_gcode ?? 'M400 U1')));
 
   // Project settings: the user's A1 + PLA + 0.20 Standard, with one filament per colour.
   const settings: Record<string, unknown> = structuredClone(tpl.settings);

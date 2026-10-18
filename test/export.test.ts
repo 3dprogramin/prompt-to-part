@@ -27,13 +27,16 @@ test('3MF: one escaped object per part, centred on the bed', async () => {
   assert.match(model, /name="A &amp; &lt;B&gt;"/);
   const xs = [...model.matchAll(/<vertex x="([^"]+)"/g)].map((m) => Number(m[1]));
   assert.equal((Math.min(...xs) + Math.max(...xs)) / 2, PRINTER.bed[0] / 2);
-  assert.ok(!/pid=/.test(strFromU8((await unzip(to3mf([cube('A', 0, 10, '#ff0000')], 't', false)))['3D/3dmodel.model'])));
+  // In one colour: that colour for every part.
+  const one = strFromU8((await unzip(to3mf([cube('A', 0, 10, '#ff0000'), cube('C', 10, 10, '#00ff00')], 't', '#336699')))['3D/3dmodel.model']);
+  assert.match(one, /<m:colorgroup id="1"><m:color color="#336699FF"\/><\/m:colorgroup>/);
+  assert.deepEqual([...new Set([...one.matchAll(/ p(?:index|1)="(\d+)"/g)].map((m) => m[1]))], ['0']);
 });
 
 test('Bambu project: per-part settings, object-only settings and filaments', async () => {
   const tpl = { version: '02.08.04.57', settings: { filament_colour: ['#00AE42'], filament_type: ['PLA'], different_settings_to_system: ['', '', ''], flush_volumes_matrix: ['0', '280', '280', '0'], flush_volumes_vector: ['140', '140'] }, perFilament: ['filament_colour', 'filament_type'], perFilamentPlus2: [] };
   const parts = [cube('Body', 0, 20, '#d9a441'), cube('Hook', 20, 10, '#5b9bd5')];
-  const files = await unzip(toBambuProject(parts, 't', tpl, { colours: true, print: { ai: {}, user: { walls: 3, parts: { Hook: { walls: 4, supports: 'tree' } } } } }));
+  const files = await unzip(toBambuProject(parts, 't', tpl, { print: { ai: {}, user: { walls: 3, parts: { Hook: { walls: 4, supports: 'tree' } } } } }));
   const cfg = strFromU8(files['Metadata/model_settings.config']);
   const hook = cfg.slice(cfg.indexOf('value="Hook"'));
   assert.match(hook, /key="wall_loops" value="4"/);

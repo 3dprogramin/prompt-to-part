@@ -30,6 +30,8 @@ export interface ViewerOptions {
   pickText?: boolean;
   /** false = show every part in one neutral colour. */
   colors?: boolean;
+  /** The design prints in one colour ("Print in one colour"): every part in this filament colour, without per-part or per-triangle colours. */
+  oneColour?: string | null;
   /** The part selected in the Object tab: highlighted. */
   selectedPart?: string | null;
 }
@@ -347,14 +349,15 @@ export class Viewer {
     this.clipPlane.constant = section.flip ? -section.position : section.position;
     const planes = section.enabled ? [this.clipPlane] : [];
     const colors = this.opts.colors !== false;
+    const single = this.opts.oneColour ? new THREE.Color(this.opts.oneColour) : null;
     for (const group of this.modelGroup.children) {
       group.visible = !hiddenParts.includes(group.name);
-      // Part colours, or one neutral colour to judge the bare shape.
+      // Part colours (or the one filament of a print in one colour), or one neutral colour to judge the bare shape.
       const [front, back] = group.children as THREE.Mesh[];
-      const base = (front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
+      const base = single ?? (front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
       if (front.userData.perVertex) {
-        (front.material as THREE.MeshStandardMaterial).vertexColors = colors;
-        (back.material as THREE.MeshBasicMaterial).vertexColors = colors;
+        (front.material as THREE.MeshStandardMaterial).vertexColors = colors && !single;
+        (back.material as THREE.MeshBasicMaterial).vertexColors = colors && !single;
       }
       (front.material as THREE.MeshStandardMaterial).color.copy(colors ? base : NEUTRAL);
       (front.material as THREE.MeshStandardMaterial).emissive.copy(group.name === this.opts.selectedPart ? SELECTED_GLOW : new THREE.Color(0));
@@ -802,9 +805,11 @@ export class Viewer {
     for (const group of this.modelGroup.children) {
       const [front, back] = group.children as THREE.Mesh[];
       const fm = front.material as THREE.MeshStandardMaterial, bm = back.material as THREE.MeshBasicMaterial;
-      const perVertex = !!front.userData.perVertex;
-      fm.color.copy(front.userData.color as THREE.Color);
-      bm.color.copy(front.userData.color as THREE.Color).multiplyScalar(0.45);
+      // A print in one colour is photographed in its one filament.
+      const single = this.opts.oneColour ? new THREE.Color(this.opts.oneColour) : null;
+      const perVertex = !!front.userData.perVertex && !single;
+      fm.color.copy(single ?? front.userData.color as THREE.Color);
+      bm.color.copy(single ?? front.userData.color as THREE.Color).multiplyScalar(0.45);
       fm.vertexColors = bm.vertexColors = perVertex;
       fm.emissive.setScalar(0);
       // Matte PLA (per-vertex reliefs are matte already).

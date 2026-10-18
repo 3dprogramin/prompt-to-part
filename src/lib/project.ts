@@ -111,6 +111,8 @@ export interface ReadmeInfo {
   meshes: Record<string, MeshEntry>;
   /** The 3MF is a Bambu Studio project (with the print settings), not a plain 3MF. */
   bambuProject: boolean;
+  /** Printed in one colour ("Print in one colour"): its one filament; null/undefined = one filament per colour. */
+  oneColour?: { colour: string; name?: string } | null;
   /** The validation of the exported mesh ("No problems found", "1 warning"). */
   check?: string;
   /** The files written (paths in the folder). */
@@ -152,6 +154,7 @@ export function projectReadme(i: ReadmeInfo): string {
   } else {
     out.push('Bambu Lab A1, PLA, 0.20 mm Standard, no changes.');
   }
+  if (i.oneColour) out.push('', `Printed in one colour: everything in one filament (${i.oneColour.name ? `${i.oneColour.name}, ` : ''}${i.oneColour.colour}).`);
   out.push('');
 
   if (i.sources.length) {
@@ -178,7 +181,7 @@ export function projectReadme(i: ReadmeInfo): string {
   };
   for (const f of i.files.filter((p) => !p.includes('/') && p !== 'README.md')) {
     const what = about[f] ?? (f.endsWith('.stl') ? `${i.parts.length > 1 ? 'all parts' : 'the model'} as one mesh`
-      : f.endsWith('.3mf') ? (i.bambuProject ? 'a Bambu Studio project with the print settings and colours' : 'the parts with their colours, for any slicer')
+      : f.endsWith('.3mf') ? (i.bambuProject ? `a Bambu Studio project with the print settings${i.oneColour ? ', printed in one colour' : ' and colours'}` : i.oneColour ? 'the parts in one colour, for any slicer' : 'the parts with their colours, for any slicer')
         : f.endsWith('.blend') ? 'for Blender: one object per part, materials, dimensions' : '');
     out.push(`- \`${f}\`${what ? ` – ${what}` : ''}`);
   }

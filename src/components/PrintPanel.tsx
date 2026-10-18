@@ -3,6 +3,8 @@ import {
   bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, LAYER_HEIGHTS, SEAMS, SETTING_LABELS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
+import type { PartMesh } from '../../shared/types';
+import { oneColourFilament, printFilaments } from '../lib/bambu3mf';
 import { Icon } from './Icon';
 import { useReleaseSlider } from './useReleaseSlider';
 
@@ -160,6 +162,40 @@ function InfillSlider({ value, onChange }: { value: number; onChange: (v: number
     <div className="num-control">
       <input type="range" aria-label="Infill" min={0} max={100} step={5} {...s.inputProps} />
       <span className="mono pp-pct">{Math.round(s.shown)} %</span>
+    </div>
+  );
+}
+
+/**
+ * "Print in one colour" (top of the Print tab, saved with the design): everything in one filament,
+ * the main one or one the user picks from the design's filaments. `parts` are the parts shown.
+ */
+export function OneColourSwitch({ parts, choice, onChange }: { parts: PartMesh[]; choice: null | 'main' | string; onChange: (c: null | 'main' | string) => void }) {
+  // One entry per colour: the same colour under two names (LayerTone) is one filament here.
+  const filaments = printFilaments(parts).filter((f, i, all) => all.findIndex((g) => g.colour === f.colour) === i);
+  const main = oneColourFilament(parts, 'main');
+  const single = choice ? oneColourFilament(parts, choice) : null;
+  const label = (f: { colour: string; name?: string }) => f.name ?? f.colour;
+  return (
+    <div className={`one-colour ${choice ? 'on' : ''}`}>
+      <label className="switch">
+        <input type="checkbox" checked={!!choice} onChange={(e) => onChange(e.target.checked ? 'main' : null)} />
+        <span className="track" />
+        <span className="switch-label"><b>Print in one colour</b></span>
+      </label>
+      <span className="dim small">Everything in one filament – keeps the print settings. Off: one filament per colour (AMS).</span>
+      {single && (
+        <div className="oc-filament">
+          <span className="swatch" style={{ background: single.colour }} aria-hidden />
+          {filaments.length > 1
+            ? <select aria-label="Filament to print with" value={choice === 'main' ? 'main' : single.colour} onChange={(e) => onChange(e.target.value)}>
+              <option value="main">Main filament ({label(main)})</option>
+              {filaments.map((f) => <option key={f.colour} value={f.colour}>{label(f)}</option>)}
+            </select>
+            : <span>{label(single)}</span>}
+        </div>
+      )}
+      {single && <span className="dim small">The 3D view, the 3MF and the cost show this filament only.</span>}
     </div>
   );
 }
