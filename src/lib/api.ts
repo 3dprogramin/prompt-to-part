@@ -1,5 +1,5 @@
 import type { Design, DesignSummary } from '../../shared/types';
-import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { HfFilament } from '../../shared/hueforge';
@@ -109,6 +109,8 @@ export const api = {
   uploadMesh: (designId: string, file: File) => getJson<MeshUpload>(`/api/designs/${designId}/meshes?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } }),
   /** Restores the designs (and unsaved settings) in a backup zip from GET /api/backup. */
   importBackup: (file: File) => getJson<BackupImport>('/api/backup/import', { method: 'POST', body: file, headers: { 'Content-Type': 'application/zip' } }),
+  /** The images and mesh files stored with a design. */
+  designFiles: (id: string) => getJson<DesignFiles>(`/api/designs/${id}/files`),
   /** Copies one design's mesh files to another (a design started from a version). */
   copyMeshes: (to: string, from: string) => getJson<{ copied: number }>(`/api/designs/${to}/meshes/copy`, { method: 'POST', body: JSON.stringify({ from }) }),
   /** Font files (base64) for the text tool and font previews. */

@@ -49,6 +49,10 @@ interface Props {
   onHfImage: (name: string, image: HfImage) => void;
   onApplyCode: (code: string) => void;
   onExport: (format: ExportFormat, partName?: string) => void;
+  /** "Export project…": everything about the design in one folder (or zip). */
+  onExportProject: () => void;
+  /** What the project export is making ("3MF"), while it runs. */
+  exportStage: string | null;
   exporting: boolean;
   exportError: string | null;
   /** Installed Blender, and why .blend export can't use it (too old). */
@@ -183,19 +187,20 @@ export function SidePanel(p: Props) {
             <Icon name="check" size={14} /> {p.validating ? 'Checking…' : 'Validate'}
           </button>
           <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
-            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} onExport3mf={p.onExport3mf}
+            bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
         </div>
+        {p.exportStage && <div className="size-note" role="status">Exporting project… {p.exportStage}</div>}
         {p.exportError && <div className="size-note bad">{p.exportError}</div>}
       </div>
     </div>
   );
 }
 
-function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf }: {
+function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, onExport3mf, onExportProject }: {
   disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: Props['blender']; count: number;
   bambu: string | null; printChanges: number; threeMf: { colours: boolean; print: boolean };
-  onThreeMf: (o: { colours: boolean; print: boolean }) => void; onExport3mf: () => void;
+  onThreeMf: (o: { colours: boolean; print: boolean }) => void; onExport3mf: () => void; onExportProject: () => void;
 }) {
   const [open, setOpen] = useState<false | 'menu' | '3mf'>(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -214,6 +219,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
           <button onClick={() => pick('stl')}><b>STL</b><span>Single mesh, works everywhere</span></button>
           <button onClick={() => setOpen('3mf')}><b>3MF…</b><span>For Bambu Studio – choose colours (AMS) and print settings</span></button>
           <button onClick={() => pick('blend')} disabled={!blender || !!blender.problem}><b>Blender (.blend)</b><span>{!blender ? 'Blender not found on this computer' : blender.problem ?? `One object per part, materials, dimensions, params · Blender ${blender.version}`}</span></button>
+          <button onClick={() => { setOpen(false); onExportProject(); }}><b>Export project…</b><span>Model, STL, 3MF, .blend, pictures and a README in one folder (a zip in Firefox)</span></button>
         </div>
       )}
       {open === '3mf' && (
