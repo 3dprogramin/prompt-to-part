@@ -5,12 +5,12 @@ import { strToU8 } from 'fflate';
 import type { Design, EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import type { BambuTemplate } from '../../shared/api';
 import type { PrintProfile, PrintSettings } from '../../shared/print';
-import { HF_IMAGES_KEY, parseHfImages } from '../../shared/hueforge';
+import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../../shared/layertone';
 import { MESHES_KEY, parseMeshes } from '../../shared/meshes';
 import { api, request } from './api';
 import { exportParts, toBlend } from './export';
 import { toBinaryStl } from './files';
-import { hfImageToDataUrl } from './hfImage';
+import { layerToneImageToDataUrl } from './layerToneImage';
 import { zipFiles, type ZipFiles } from './projects';
 import { paramRows, planProject, printRows, projectReadme, safeName, type PlannedFile } from './project';
 
@@ -141,7 +141,7 @@ export async function exportProject(src: ProjectSource, target: ProjectTarget, o
     problems.push(`The pictures and meshes: ${e.message}`);
     return { images: [], meshes: [] };
   });
-  const pictures = parseHfImages(design.values[HF_IMAGES_KEY]);
+  const pictures = parseLayerToneImages(design.values[LAYERTONE_IMAGES_KEY]);
   if (!src.blender.ok) notes.push(`No \`.blend\` file: ${src.blender.why ?? 'Blender is not installed on the computer Jig runs on'}.`);
   if (!src.bambu) notes.push('The 3MF has no print settings: Bambu Studio is not installed on the computer Jig runs on.');
   const plan = planProject({ base: src.base, blend: src.blender.ok, images: stored.images, meshes: stored.meshes, pictures: Object.keys(pictures) });
@@ -169,7 +169,7 @@ export async function exportProject(src: ProjectSource, target: ProjectTarget, o
       }
       case 'image': return (await request(`/api/designs/${design.id}/images/${f.source}`)).blob();
       case 'mesh': return (await request(`/api/designs/${design.id}/meshes/${f.source}`)).blob();
-      case 'picture': return (await fetch(hfImageToDataUrl(pictures[f.source!]))).blob();
+      case 'picture': return (await fetch(layerToneImageToDataUrl(pictures[f.source!]))).blob();
       case 'readme': throw new Error('the README is written last');
     }
   };
