@@ -2,8 +2,9 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure
-// and "Print in one colour" in the Print tab. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
+// import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure,
+// "Print in one colour" in the Print tab, and the chat's "Send my view" and "Wait for my OK" switches with a concept
+// picture's countdown. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
@@ -300,5 +301,95 @@ test('"Print in one colour" in the Print tab: the view shows one filament, saved
   await page.getByRole('button', { name: 'More export formats' }).click();
   await page.getByRole('button', { name: /^3MF…/ }).click();
   assert.equal(await page.getByRole('checkbox', { name: /Colours \(AMS\)/ }).isChecked(), false);
+  await page.close();
+});
+
+test('"Send my view" and "Wait for my OK": saved after a reload; a concept picture is built after a countdown unless stopped', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const fid = 'ui-smoke-00000004';
+  const saved = await fetch(`${A}/api/designs/${fid}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    body: JSON.stringify({ id: fid, name: 'Knight', createdAt: 1, updatedAt: 1000, code, messages: [], values: {}, currentVersion: 0,
+      versions: [{ code, summary: 'A 20 mm cube', createdAt: 1000, source: 'manual' }] }),
+  });
+  assert.equal(saved.status, 200, await saved.text());
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  // As if Jig had a Meshy key and an image model; the replies are stand-ins: a concept picture, or
+  // (for an approval) a short answer.
+  await page.route('**/api/capabilities', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), meshy: true, artwork: 'Image model' } });
+  });
+  await page.route('**/api/meshy/balance', (route) => route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200 } }));
+  const sent: { prompt: string; currentView?: unknown; renderValues?: unknown }[] = [];
+  const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+  await page.route('**/api/generate', (route) => {
+    const body = route.request().postDataJSON();
+    sent.push(body);
+    const events = body.prompt.startsWith('Approved') ? [{ type: 'done', durationMs: 900, turns: 1, submitted: false, text: 'Building it.' }] : [
+      { type: 'concept', name: 'knight', entry: { image: `/api/designs/${fid}/meshes/${'cd'.repeat(16)}.png`, subject: 'a knight', createdAt: 1 } },
+      { type: 'step', step: { kind: 'render', ok: true, text: 'Concept "knight"', image: `data:image/png;base64,${pixel}` } },
+      { type: 'done', durationMs: 1200, turns: 1, submitted: false, text: 'Here is the concept for your knight: approve it or say what to change.' },
+    ];
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
+  });
+  await page.goto(`${A}/?design=${fid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Knight');
+  const view = page.getByRole('button', { name: 'Send my view' });
+  assert.equal(await view.getAttribute('aria-pressed'), 'true');
+  assert.match(await view.getAttribute('title') ?? '', /what you mean by "this"/);
+  await page.locator('.composer').screenshot({ path: path.join(shots, '10-chat-bar.png') });
+  const figureMode = async () => {
+    await page.getByRole('button', { name: /^Picture mode:/ }).click();
+    await page.getByRole('menuitemradio', { name: /3D figure/ }).click();
+    await page.keyboard.press('Escape');
+  };
+  await figureMode();
+  const wait = page.getByRole('button', { name: 'Wait for my OK' });
+  assert.equal(await wait.getAttribute('aria-pressed'), 'true');
+  await wait.click();
+  await view.click();
+  assert.match(await wait.getAttribute('title') ?? '', /Wait for my OK is off: 10 s after/);
+  await page.reload();
+  await page.waitForFunction(() => document.title === 'Jig - Knight');
+  assert.equal(await view.getAttribute('aria-pressed'), 'false');
+  await figureMode();
+  assert.equal(await wait.getAttribute('aria-pressed'), 'false');
+  await page.screenshot({ path: path.join(shots, '10-chat-switches.png') });
+
+  const box = page.locator('.chat-panel textarea');
+  const card = page.locator('.auto-build');
+  const ask = async (text: string) => { await box.fill(text); await box.press('Enter'); await card.waitFor(); };
+  // Send my view off: neither the screenshot nor the four-view render goes.
+  await ask('A knight figure');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].currentView, undefined);
+  assert.equal(sent[0].renderValues, undefined);
+  assert.match(await card.innerText(), /Building with Meshy in \d+ s · 25 credits/);
+  await page.screenshot({ path: path.join(shots, '11-countdown.png') });
+  // Stop: the countdown is gone and nothing is sent.
+  await card.getByRole('button', { name: 'Stop' }).click();
+  await card.waitFor({ state: 'detached' });
+  // Typing a change stops it too.
+  await view.click();
+  await ask('Another knight');
+  assert.ok(sent[1].currentView, 'with Send my view on, the view goes');
+  await box.fill('make the sword longer');
+  await card.waitFor({ state: 'detached' });
+  await box.fill('');
+  // Build now: the approval goes at once, without the view (it only approves the picture).
+  await ask('A third knight');
+  await card.getByRole('button', { name: 'Build now' }).click();
+  await page.locator('.msg.user .bubble', { hasText: 'Approved – build it.' }).waitFor();
+  assert.equal(sent.length, 4);
+  assert.equal(sent[3].prompt, 'Approved – build it.');
+  assert.equal(sent[3].currentView, undefined);
+  assert.equal(sent[3].renderValues, undefined);
+  // Left alone, the countdown sends the approval by itself (the one 10 s wait).
+  await ask('A fourth knight');
+  await page.waitForFunction(() => document.querySelectorAll('.msg.user .bubble').length === 6, undefined, { timeout: 15_000 });
+  assert.equal(sent.length, 6);
+  assert.equal(sent[5].prompt, 'Approved – build it.');
+  assert.equal(await card.count(), 0);
   await page.close();
 });

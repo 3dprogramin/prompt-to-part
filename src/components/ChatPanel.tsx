@@ -18,6 +18,7 @@ import { meshFormat } from '../../shared/meshFormats';
 import { api } from '../lib/api';
 import { load, store } from '../lib/storage';
 import { startDictation, type Dictation } from '../lib/dictation';
+import { AUTO_BUILD_SECONDS, autoBuildText, type AutoBuild } from '../lib/autoBuild';
 import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../shared/sources';
 
 interface Props {
@@ -64,6 +65,16 @@ interface Props {
   /** 3D figure mode's Colour: figures in colour, printed in up to 4 filaments (off by default). */
   figureColor: boolean;
   onFigureColor: (on: boolean) => void;
+  /** 3D figure mode: concept pictures wait for the user's approval (on by default); off, they are built after a countdown. */
+  waitForOk: boolean;
+  onWaitForOk: (on: boolean) => void;
+  /** Follow-ups bring Jig the user's current view and a four-view render at their settings (on by default). */
+  sendView: boolean;
+  onSendView: (on: boolean) => void;
+  /** The countdown under the last reply ("Wait for my OK" off), null when there is none. */
+  autoBuild: AutoBuild | null;
+  onBuildNow: () => void;
+  onStopAutoBuild: () => void;
   /** The server's starting model (JIG_MODEL), offered even when it is a full model ID. */
   defaultModel: string;
   onWebSearch: (on: boolean) => void;
@@ -86,7 +97,7 @@ export function ChatPanel(p: Props) {
     const added = p.messages.length !== count.current;
     count.current = p.messages.length;
     if (el && (atBottom.current || added)) el.scrollTop = el.scrollHeight;
-  }, [p.messages]);
+  }, [p.messages, !!p.autoBuild]);
 
   // Photos dropped anywhere in the window come here (App forwards them): never let the browser
   // open a dropped file in place of Jig.
@@ -165,6 +176,8 @@ export function ChatPanel(p: Props) {
   };
 
   const hasDraft = !!text.trim() || images.length > 0 || scad.length > 0 || readyMeshes.length > 0;
+  // Typing (or dictating) an answer to the concept pictures stops their countdown.
+  useEffect(() => { if (text.trim() && p.autoBuild) p.onStopAutoBuild(); }, [text]);
   const send = (message = text, later = false) => {
     if (p.busyElsewhere || p.claudeProblem || importing || (!message.trim() && !images.length && !scad.length && !readyMeshes.length)) return;
     // While Claude works the message goes into the reply now, or waits for its end ("Later").
@@ -294,6 +307,7 @@ export function ChatPanel(p: Props) {
           <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
             followed={followedMsgs.some((f) => f.id === m.id)} onFollow={(on) => follow(m.id, on)} />
         ))}
+        {p.autoBuild && <AutoBuildCard key={p.autoBuild.messageId} a={p.autoBuild} onBuildNow={p.onBuildNow} onStop={p.onStopAutoBuild} />}
       </div>
 
       <div className="composer">
@@ -371,44 +385,72 @@ export function ChatPanel(p: Props) {
           rows={3}
         />
         <div className="composer-bar">
-          <button className="icon-btn" title="Attach photos, SVG, OpenSCAD (.scad) or 3D models (STL, 3MF, OBJ, GLB)" aria-label="Attach photos, SVG, OpenSCAD files or 3D models" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
-          <input ref={fileInput} type="file" accept="image/*,.svg,.scad,.stl,.3mf,.obj,.glb,.gltf" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
-          <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
-            <option value="opus">Opus</option>
-            <option value="sonnet">Sonnet</option>
-            <option value="haiku">Haiku</option>
-            {!['opus', 'sonnet', 'haiku'].includes(p.defaultModel) && <option value={p.defaultModel}>{modelLabel(p.defaultModel)}</option>}
-          </select>
-          <select value={p.effort} onChange={(e) => p.onEffort(e.target.value)} title="Reasoning effort" aria-label="Reasoning effort">
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="xhigh">X-High</option>
-            <option value="max">Max</option>
-          </select>
-          <button
-            className={`web-toggle ${p.webSearch ? 'on' : ''}`}
-            aria-label="Web search"
-            aria-pressed={p.webSearch}
-            onClick={() => p.onWebSearch(!p.webSearch)}
-            title={p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products'}
-          >
-            <Icon name="globe" size={14} />
-          </button>
-          <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} color={p.figureColor} onMode={p.onImageMode} />
-          {p.imageMode === 'figure' && p.meshy && (
+          {/* The options wrap onto a second row in a narrow chat; the microphone and send stay at the right. */}
+          <div className="composer-tools">
+            <button className="icon-btn" title="Attach photos, SVG, OpenSCAD (.scad) or 3D models (STL, 3MF, OBJ, GLB)" aria-label="Attach photos, SVG, OpenSCAD files or 3D models" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
+            <input ref={fileInput} type="file" accept="image/*,.svg,.scad,.stl,.3mf,.obj,.glb,.gltf" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
+            <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+              {!['opus', 'sonnet', 'haiku'].includes(p.defaultModel) && <option value={p.defaultModel}>{modelLabel(p.defaultModel)}</option>}
+            </select>
+            <select value={p.effort} onChange={(e) => p.onEffort(e.target.value)} title="Reasoning effort" aria-label="Reasoning effort">
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="xhigh">X-High</option>
+              <option value="max">Max</option>
+            </select>
             <button
-              className={`web-toggle figure-color ${p.figureColor ? 'on' : ''}`}
-              aria-pressed={p.figureColor}
-              onClick={() => p.onFigureColor(!p.figureColor)}
-              title={p.figureColor
-                ? `Colour (4 filaments) is on: Jig draws the concept in colour, Meshy paints the model (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
-                : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}
+              className={`web-toggle ${p.webSearch ? 'on' : ''}`}
+              aria-label="Web search"
+              aria-pressed={p.webSearch}
+              onClick={() => p.onWebSearch(!p.webSearch)}
+              title={p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products'}
             >
-              <span className="figure-color-dots" aria-hidden><i /><i /><i /><i /></span>
-              <span className="mode-label">Colour</span>
+              <Icon name="globe" size={14} />
             </button>
-          )}
-          <span className="spacer" />
+            <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} color={p.figureColor} onMode={p.onImageMode} />
+            {p.imageMode === 'figure' && p.meshy && (
+              <button
+                className={`web-toggle figure-color ${p.figureColor ? 'on' : ''}`}
+                aria-pressed={p.figureColor}
+                onClick={() => p.onFigureColor(!p.figureColor)}
+                title={p.figureColor
+                  ? `Colour (4 filaments) is on: Jig draws the concept in colour, Meshy paints the model (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
+                  : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}
+              >
+                <span className="figure-color-dots" aria-hidden><i /><i /><i /><i /></span>
+                <span className="mode-label">Colour</span>
+              </button>
+            )}
+            {p.imageMode === 'figure' && p.meshy && p.artworkModel && (
+              <button
+                className={`web-toggle wait-ok ${p.waitForOk ? 'on' : ''}`}
+                aria-label="Wait for my OK"
+                aria-pressed={p.waitForOk}
+                onClick={() => p.onWaitForOk(!p.waitForOk)}
+                title={p.waitForOk
+                  ? `Wait for my OK is on: Jig draws a concept picture of the figure and waits for you to approve it before Meshy builds it. Click to have it built by itself ${AUTO_BUILD_SECONDS} s after the picture, unless you stop it or type a change (${MESHY_CREDITS_PER_MODEL} Meshy credits a figure, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour).`
+                  : `Wait for my OK is off: ${AUTO_BUILD_SECONDS} s after Jig draws a concept picture, Meshy builds it (${MESHY_CREDITS_PER_MODEL} credits, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour) unless you click Stop or type a change. Click to approve each picture yourself.`}
+              >
+                <Icon name="hand" size={14} />
+              </button>
+            )}
+            {p.hasModel && (
+              <button
+                className={`web-toggle send-view ${p.sendView ? 'on' : ''}`}
+                aria-label="Send my view"
+                aria-pressed={p.sendView}
+                onClick={() => p.onSendView(!p.sendView)}
+                title={p.sendView
+                  ? 'Send my view is on: with each change you ask for, Jig gets a screenshot of your 3D view and a four-view render at your settings – it lets Jig see what you mean by "this". Click to send only your words (Jig can still render the model itself).'
+                  : 'Send my view is off: Jig gets only your words (it can still render the model itself). Click to send a screenshot of your 3D view and a four-view render at your settings with each change – it lets Jig see what you mean by "this".'}
+              >
+                <Icon name={p.sendView ? 'eye' : 'eyeOff'} size={14} />
+              </button>
+            )}
+          </div>
           <button
             className={`icon-btn mic ${listening}`}
             aria-label={listening === 'off' ? 'Dictate' : 'Stop dictating'}
@@ -657,6 +699,30 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
           {currentVersion !== m.versionIndex && <button className="link" onClick={() => onRestore(m.versionIndex!)}><Icon name="restore" size={12} /> restore</button>}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The countdown under a reply that ended with new concept pictures: Build now, Stop, or the approval goes out by itself. */
+function AutoBuildCard({ a, onBuildNow, onStop }: { a: AutoBuild; onBuildNow: () => void; onStop: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+  const left = Math.max(0, Math.ceil((a.until - now) / 1000));
+  return (
+    <div className="auto-build" role="group" aria-label="Automatic build of the concept pictures">
+      <div className="auto-build-head">
+        <span className="auto-build-count" aria-hidden>{left}</span>
+        <span className="auto-build-text">{autoBuildText(a.concepts, left)}</span>
+      </div>
+      <div className="auto-build-bar" aria-hidden><i style={{ animationDuration: `${AUTO_BUILD_SECONDS}s` }} /></div>
+      <div className="auto-build-actions">
+        <button className="btn primary" onClick={onBuildNow}><Icon name="cube" size={13} /> Build now</button>
+        <button className="btn" onClick={onStop}><Icon name="stop" size={13} /> Stop</button>
+        <span className="dim small">or type a change</span>
+      </div>
     </div>
   );
 }

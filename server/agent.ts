@@ -236,27 +236,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 
   // Follow-ups: show Claude exactly what the user is looking at before they describe the change.
   if (isFollowUp) {
-    emit({ type: 'live', text: 'Jig is capturing the current model…' });
-    const sent: string[] = [];
-    if (req.currentView && IMAGE_TYPES.has(req.currentView.mediaType)) {
-      content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
-      content.push({ type: 'image', source: { type: 'base64', media_type: req.currentView.mediaType as 'image/jpeg', data: req.currentView.data } });
-      sent.push('your current view');
-      emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got your current view', image: `data:${req.currentView.mediaType};base64,${req.currentView.data}` } });
-    }
-    if (req.renderValues) {
-      try {
-        const r = await geometry.render(req.code!, req.renderValues);
-        if (r.ok && r.png) {
-          content.push({ type: 'text', text: `CURRENT MODEL – four-view render at the user's exact current settings (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP; grid ${r.gridStep} mm):` });
-          content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
-          parts.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
-          sent.push('a four-view render with measurements');
-          emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
-        }
-      } catch { /* the request still works without the render */ }
-    }
-    if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got ${sent.join(' and ')} of the current model` } });
+    const view = await currentModelContext(req, emit);
+    content.push(...view.content);
+    parts.push(...view.notes);
   }
 
   const refs = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType));
@@ -581,6 +563,45 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 }
 
 /** A reply that failed because the Claude subscription's usage limit is reached. */
+type UserContent = Exclude<SDKUserMessage['message']['content'], string>[number];
+
+/**
+ * A follow-up's view of the model: the user's screenshot (currentView) and a four-view render at
+ * their settings (renderValues), each only when the request brings it. Without either ("Send my
+ * view" off, an approval of concept pictures, or no model on screen) Claude is told so instead.
+ */
+export async function currentModelContext(req: GenerateRequest, emit: (e: AgentEvent) => void, render = (code: string, values: ParamValues) => geometry.render(code, values)): Promise<{ content: UserContent[]; notes: string[] }> {
+  const content: UserContent[] = [];
+  const notes: string[] = [];
+  const view = req.currentView && IMAGE_TYPES.has(req.currentView.mediaType) ? req.currentView : undefined;
+  if (!view && !req.renderValues) {
+    notes.push('No picture of the current model came with this message: render_model shows it if you need to see it.');
+    return { content, notes };
+  }
+  emit({ type: 'live', text: 'Jig is capturing the current model…' });
+  const sent: string[] = [];
+  if (view) {
+    content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
+    content.push({ type: 'image', source: { type: 'base64', media_type: view.mediaType as 'image/jpeg', data: view.data } });
+    sent.push('your current view');
+    emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got your current view', image: `data:${view.mediaType};base64,${view.data}` } });
+  }
+  if (req.renderValues) {
+    try {
+      const r = await render(req.code!, req.renderValues);
+      if (r.ok && r.png) {
+        content.push({ type: 'text', text: `CURRENT MODEL – four-view render at the user's exact current settings (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP; grid ${r.gridStep} mm):` });
+        content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
+        notes.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
+        sent.push('a four-view render with measurements');
+        emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
+      }
+    } catch { /* the request still works without the render */ }
+  }
+  if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got ${sent.join(' and ')} of the current model` } });
+  return { content, notes };
+}
+
 export class UsageLimitError extends Error {}
 
 /** The user's messages for one running reply, handed to Claude Code as it asks for them. */

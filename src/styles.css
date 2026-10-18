@@ -131,10 +131,11 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .composer textarea { resize: none; background: var(--bg); border: 1px solid var(--input-line); border-radius: var(--radius); padding: 9px 10px; outline: none; min-height: 64px; max-height: 220px; }
 .composer textarea:focus { border-color: var(--accent); }
 .composer { container-type: inline-size; }
-.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-/* The menus give way first, so the send button always fits the chat column. */
-.composer-bar select { max-width: 92px; min-width: 0; flex: 0 1 auto; }
-.composer-bar > button { flex-shrink: 0; }
+.composer-bar { display: flex; align-items: center; gap: 4px; }
+.composer-tools { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+/* The menus give way first (down to their shortest names), so the switches stay on the first row as long as they can. */
+.composer-tools select { flex: 100 1 0; min-width: 60px; max-width: 92px; }
+.composer-bar > button, .composer-tools > button { flex-shrink: 0; }
 @container (max-width: 320px) { .composer-bar .btn-label { display: none; } }
 .composer-bar .btn { padding: 6px 10px; }
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -736,6 +737,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .web-toggle.figure-color.on .figure-color-dots i:nth-child(2) { background: #3a6fd8; opacity: 1; }
 .web-toggle.figure-color.on .figure-color-dots i:nth-child(3) { background: #f0c08b; opacity: 1; }
 .web-toggle.figure-color.on .figure-color-dots i:nth-child(4) { background: #222; opacity: 1; box-shadow: 0 0 0 0.5px #888; }
+/* 3D figure mode's "Wait for my OK" and the follow-ups' "Send my view": icon switches. */
+.web-toggle.wait-ok.on { background: #e0a43c22; border-color: var(--accent); color: var(--accent-2); }
+/* The countdown under a reply with new concept pictures ("Wait for my OK" off). */
+.auto-build { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: #e0a43c14; }
+.auto-build-head { display: flex; align-items: center; gap: 10px; }
+.auto-build-count { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--accent); color: var(--accent-2); font: 600 13px/1 var(--mono); }
+.auto-build-text { font-weight: 500; }
+.auto-build-bar { height: 3px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+.auto-build-bar i { display: block; height: 100%; background: var(--accent); animation: auto-build-left linear forwards; }
+@keyframes auto-build-left { from { width: 100%; } to { width: 0; } }
+.auto-build-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.auto-build-actions .btn { padding: 4px 10px; }
 .mode-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 -10px 40px #000a; padding: 4px; z-index: 30; }
 .mode-menu button { display: flex; align-items: flex-start; gap: 6px; width: 100%; background: none; border: 0; border-radius: 6px; padding: 7px 10px 7px 6px; text-align: left; }
 .mode-menu button:hover, .mode-menu button:focus-visible { background: #ffffff0d; outline: none; }

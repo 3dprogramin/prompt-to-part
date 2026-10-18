@@ -7,10 +7,11 @@ import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, t
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
 import { findLayerTonePart } from './components/LayerTonePanel';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
-import type { MeshUpload, MeshyBalance } from '../shared/api';
+import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError, steer } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
+import { approvalText, autoBuildAfter, withView, type AutoBuild, type DrawnConcept } from './lib/autoBuild';
 import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
@@ -211,6 +212,16 @@ export default function App() {
   const [chatDefaults, setChatDefaults] = useState<ChatOptions>(DEFAULT_CHAT);
   const chat = chatOpts[design.id] ?? chatDefaults;
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatDefaults), ...patch } }));
+  // Chat switches kept for this browser: "Wait for my OK" (3D figure mode: you approve each concept
+  // picture; off, it is built after a countdown) and "Send my view" (follow-ups bring Jig your view).
+  const [waitForOk, setWaitForOk] = useState<boolean>(() => load('waitForOk', true));
+  useEffect(() => store('waitForOk', waitForOk), [waitForOk]);
+  const waitForOkRef = useRef(waitForOk);
+  waitForOkRef.current = waitForOk;
+  const [sendView, setSendView] = useState<boolean>(() => load('sendView', true));
+  useEffect(() => store('sendView', sendView), [sendView]);
+  // The countdown under a reply that ended with new concept pictures ("Wait for my OK" off).
+  const [autoBuild, setAutoBuild] = useState<AutoBuild | null>(null);
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
   const [meshy, setMeshy] = useState(false);
   // The Meshy account's credits, shown on the 3D figure button: asked when the mode is turned on and after a reply that used Meshy.
@@ -411,8 +422,11 @@ export default function App() {
   // Re-fit the camera only when a new script version arrives.
   const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
 
-  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = [], meshUploads: MeshUpload[] = []) => {
+  /** `approval`: the approval of concept pictures (the countdown or Build now), sent without the user's view. */
+  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = [], meshUploads: MeshUpload[] = [], { approval = false } = {}) => {
     const now = Date.now();
+    // Any message answers the concept pictures: no countdown any more.
+    setAutoBuild(null);
     // Attached mesh files join the design's meshes (H.mesh), each under a name of its own.
     const meshes = parseMeshes(design.values[MESHES_KEY]);
     const meshNames = meshUploads.map((u) => {
@@ -426,8 +440,9 @@ export default function App() {
     // Saved as it grows, marked pending until it ends (a reply still pending on load was interrupted).
     const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now, pending: true };
     const designId = design.id;
-    // For follow-ups, capture exactly what the user is looking at before the chat changes anything.
-    const current = followUpContext();
+    // For follow-ups, capture exactly what the user is looking at before the chat changes anything
+    // (unless "Send my view" is off, or this only approves concept pictures).
+    const current = followUpContext(sendView && !approval);
     // Attached SVG drawings are kept with the design, so scripts can use them (H.svg) everywhere.
     const drawings = withDrawings(parseDrawings(design.values[DRAWINGS_KEY]), attached);
     const sentValues: ParamValues = {
@@ -455,6 +470,9 @@ export default function App() {
     let completed = false;
     // Meshy started a model in this reply: the credits changed.
     let usedMeshy = false;
+    // Concept pictures drawn in this reply, and whether it failed (for the countdown).
+    const drawn: DrawnConcept[] = [];
+    let failed = false;
     try {
       await generate({
         designId: design.id,
@@ -485,7 +503,10 @@ export default function App() {
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
         else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
-        else if (ev.type === 'concept') update((d) => ({ ...d, values: { ...d.values, [CONCEPTS_KEY]: withConcept(d.values[CONCEPTS_KEY], ev.name, ev.entry) } }));
+        else if (ev.type === 'concept') {
+          drawn.push({ name: ev.name, color: !!ev.entry.color });
+          update((d) => ({ ...d, values: { ...d.values, [CONCEPTS_KEY]: withConcept(d.values[CONCEPTS_KEY], ev.name, ev.entry) } }));
+        }
         else if (ev.type === 'layerToneSetup') update((d) => {
           const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
           return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
@@ -511,7 +532,7 @@ export default function App() {
             };
           });
         } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
-        else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
+        else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
       }, abort.signal);
       if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
     } catch (e) {
@@ -525,6 +546,10 @@ export default function App() {
       if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
       tell({ type: 'running', id: designId, on: false });
       if (usedMeshy && meshy) refreshMeshyCredits();
+      // "Wait for my OK" off: new concept pictures on the design open here are built after a countdown.
+      const next = autoBuildAfter({ designId, messageId: asst.id, concepts: drawn, completed, error: failed, openDesignId: currentId.current,
+        waitForOk: waitForOkRef.current, queued: !!queuesRef.current[designId]?.items.length, now: Date.now() });
+      if (next) setAutoBuild(next);
       // A design that finished in the background is persisted, then dropped from memory (by
       // onSaved; a failed save keeps it, so "Retry" still has the changes).
       setTimeout(() => {
@@ -540,6 +565,8 @@ export default function App() {
   // ---- messages sent while Claude works: queued per design, sent together once the reply is done
   const [queues, setQueues] = useState<Record<string, { items: QueuedMessage[]; paused: boolean }>>({});
   const queue = queues[design.id];
+  const queuesRef = useRef(queues);
+  queuesRef.current = queues;
   // While Claude works, a message goes into the running reply (Claude reads it at its next step);
   // files Claude can only take with a new request, or a reply that has just ended, queue it instead.
   const steerOrQueue = async (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => {
@@ -559,6 +586,23 @@ export default function App() {
     setQueues((s) => { const next = { ...s }; delete next[design.id]; return next; });
     void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings), q.items.flatMap((m) => m.scad).slice(0, MAX_SCAD_FILES), q.items.flatMap((m) => m.meshes));
   };
+  // The countdown ends (or Build now): the approval goes out as the user's message, only on the
+  // design it was for, still open here and idle, with that reply still the last message.
+  const buildConcepts = useRef(() => {});
+  buildConcepts.current = () => {
+    const a = autoBuild;
+    setAutoBuild(null);
+    if (!a || a.designId !== design.id || design.messages.at(-1)?.id !== a.messageId || running[design.id] || remoteRunning[design.id] != null || claudeProblem) return;
+    void onSend(approvalText(a.concepts), [], [], [], [], { approval: true });
+  };
+  useEffect(() => {
+    if (!autoBuild) return;
+    const t = setTimeout(() => buildConcepts.current(), Math.max(0, autoBuild.until - Date.now()));
+    return () => clearTimeout(t);
+  }, [autoBuild]);
+  // Opening another design, or turning "Wait for my OK" back on, ends the countdown.
+  useEffect(() => { setAutoBuild((a) => (a && a.designId !== design.id ? null : a)); }, [design.id]);
+  useEffect(() => { if (waitForOk) setAutoBuild(null); }, [waitForOk]);
   // When the open design's reply is done (and its new model is on screen), the queue goes out.
   useEffect(() => {
     if (queue?.items.length && !queue.paused && !running[design.id] && remoteRunning[design.id] == null && !busy) sendQueued();
@@ -713,12 +757,12 @@ export default function App() {
     }
   };
 
-  /** What Claude needs to see the model exactly as the user does (follow-ups only). */
-  const followUpContext = () => {
+  /** What Claude needs to see the model exactly as the user does (follow-ups only); `view`: with the screenshot and the four-view render. */
+  const followUpContext = (view: boolean): Pick<GenerateRequest, 'currentView' | 'renderValues' | 'scale' | 'versionNote'> => {
     if (!design.code || !(result ?? lastGood)) return {};
     let currentView: { mediaType: string; data: string } | undefined;
     try {
-      const shot = snapshotRef.current?.();
+      const shot = view ? snapshotRef.current?.() : null;
       if (shot) currentView = dataUrlToImage(shot);
     } catch { /* screenshot is optional */ }
     const renderValues: ParamValues = fullValues();
@@ -728,7 +772,7 @@ export default function App() {
     const versionNote = design.currentVersion >= 0 && design.currentVersion < latest
       ? `The user restored version ${design.currentVersion + 1} of ${latest + 1} ("${cur.summary}"). The current script is that version, not your latest one – work from it.`
       : cur?.source === 'manual' ? 'The user edited the script by hand after your last version – keep their edits.' : undefined;
-    return { currentView, renderValues, scale: scale !== 1 ? scale : undefined, versionNote };
+    return withView({ currentView, renderValues, scale: scale !== 1 ? scale : undefined, versionNote }, view);
   };
 
   /**
@@ -1058,6 +1102,13 @@ export default function App() {
           onImageMode={(imageMode) => setChat({ imageMode })}
           figureColor={!!chat.figureColor}
           onFigureColor={(figureColor) => setChat({ figureColor })}
+          waitForOk={waitForOk}
+          onWaitForOk={setWaitForOk}
+          sendView={sendView}
+          onSendView={setSendView}
+          autoBuild={autoBuild && autoBuild.designId === design.id && design.messages.at(-1)?.id === autoBuild.messageId ? autoBuild : null}
+          onBuildNow={() => buildConcepts.current()}
+          onStopAutoBuild={() => setAutoBuild(null)}
           defaultModel={chatDefaults.model}
           hasModel={!!design.code}
           dictation={dictation}
