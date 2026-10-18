@@ -85,6 +85,21 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // three.js and React in files of their own: they change only with an upgrade, so after a Jig
+    // update the browser keeps them cached and fetches just Jig's code.
+    chunkSizeWarningLimit: 800,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'three', test: /node_modules[\\/](three|three-mesh-bvh)[\\/]/ },
+            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   worker: { format: 'es', plugins: () => [collect] },
   optimizeDeps: { exclude: ['manifold-3d'] },
 });

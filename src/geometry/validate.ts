@@ -4,6 +4,8 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { fitProblem, PRINTER } from '../../shared/printer';
 import { overlapVolume } from '../../shared/runtime';
 import type { EvalResult, PartMesh, Vec3 } from '../../shared/types';
+import { exportedParts } from './parts';
+export { exportedParts };
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -198,13 +200,6 @@ export interface ValidateOptions {
   brimParts?: string[];
 }
 
-/**
- * The parts an export writes: the one named in `only`, or every part not excluded. Chosen from the
- * build being exported, so parts that only exist at the current values are included.
- */
-export function exportedParts<P extends { name: string }>(r: { parts: P[] }, opts: Pick<ValidateOptions, 'exclude' | 'only'>): P[] {
-  return r.parts.filter((p) => (opts.only != null ? p.name === opts.only : !opts.exclude?.includes(p.name)));
-}
 
 export function validateResult(all: EvalResult, opts: ValidateOptions = {}): ValidationReport {
   const t0 = performance.now();

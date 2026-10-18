@@ -32,7 +32,7 @@ import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import { summarize, type ValidationState } from './components/ValidationPanel';
-import { exportedParts } from './geometry/validate';
+import { exportedParts } from './geometry/parts';
 import { pageKey } from '../shared/sources';
 import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
 

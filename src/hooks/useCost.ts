@@ -5,7 +5,7 @@ import type { PrintProfile } from '../../shared/print';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import { api } from '../lib/api';
 import { buildProject } from '../lib/projects';
-import { exportedParts } from '../geometry/validate';
+import { exportedParts } from '../geometry/parts';
 import type { GeometryClient } from '../geometry/client';
 
 /** What a cost calculation is doing; shown with the time since the calculation started. */
