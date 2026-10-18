@@ -80,7 +80,10 @@ COPY --from=blender /opt/blender /opt/blender
 RUN if [ "$WITH_BLENDER" = 1 ]; then ln -s /opt/blender/blender /usr/local/bin/blender; else rmdir /opt/blender; fi
 
 WORKDIR /app
+# UV_THREADPOOL_SIZE: name lookups and file reads share Node's thread pool (4 threads by default), so
+# a slow DNS server would otherwise hold up every file read and stall the whole server.
 ENV NODE_ENV=production \
+    UV_THREADPOOL_SIZE=16 \
     JIG_HOST=0.0.0.0 \
     PORT=8787 \
     JIG_DATA=/data \
