@@ -90,9 +90,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
     const nbuf = new Float32Array(VIEW * VIEW * 3);
     const col = new Uint8Array(VIEW * VIEW * 3);
     const pid = new Int16Array(VIEW * VIEW).fill(-1);
-    // Parts drawn without crease lines: LayerTone reliefs (every layer step would draw one) and
-    // sculpted meshes whose triangles are mostly smaller than a pixel here (a Meshy figure's noisy
-    // surface would turn every pixel into a crease). Outlines and part borders are still drawn.
+    // LayerTone reliefs are drawn without crease lines: every layer step would draw one.
     const flatParts = new Set<number>();
     const light1 = norm([-view.dir[0] + view.up[0] * 0.6 - view.right[0] * 0.4, -view.dir[1] + view.up[1] * 0.6 - view.right[1] * 0.4, -view.dir[2] + view.up[2] * 0.6 - view.right[2] * 0.4]);
     const viewer: Vec3 = [-view.dir[0], -view.dir[1], -view.dir[2]];
@@ -104,7 +102,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
       const VC = part.vertexColors?.length === P.length ? part.vertexColors : undefined;
       // Mostly the colour itself (it is what the print looks like), with a little shading for the relief.
       const vc = (v: number, shade: number): Vec3 => { const s = 0.8 + 0.2 * Math.min(1, shade); return [VC![v * 3] * 255 * s, VC![v * 3 + 1] * 255 * s, VC![v * 3 + 2] * 255 * s]; };
-      if (VC || sculpted(P, I, k)) flatParts.add(partIdx);
+      if (VC) flatParts.add(partIdx);
       // A coloured mesh: each triangle in its filament's colour.
       const paint = part.paint?.tri.length === I.length / 3 ? part.paint : undefined;
       const paintRgb = paint?.filaments.map((f) => hexToRgb(f.color));
@@ -150,6 +148,30 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
       }
     });
 
+    // Crease pixels per part first: where over a tenth of a part's pixels would be creases (a sculpted mesh,
+    // whose fine triangles make creases everywhere at any zoom, or a fine thread), they hide the shape
+    // instead of outlining it, so that part is drawn without them in this view.
+    const crease = new Uint8Array(VIEW * VIEW);
+    const shown = new Uint32Array(parts.length), creased = new Uint32Array(parts.length);
+    for (let y = 0; y < VIEW; y++) {
+      for (let x = 0; x < VIEW; x++) {
+        const idx = y * VIEW + x;
+        if (pid[idx] < 0) continue;
+        shown[pid[idx]]++;
+        if (flatParts.has(pid[idx])) continue;
+        for (const [dx, dy] of [[1, 0], [0, 1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= VIEW || ny >= VIEW) continue;
+          const j = ny * VIEW + nx;
+          if (pid[j] !== pid[idx]) continue;
+          const d = nbuf[idx * 3] * nbuf[j * 3] + nbuf[idx * 3 + 1] * nbuf[j * 3 + 1] + nbuf[idx * 3 + 2] * nbuf[j * 3 + 2];
+          if (d < 0.82) { crease[idx] = crease[j] = 1; }
+        }
+      }
+    }
+    for (let i = 0; i < VIEW * VIEW; i++) if (crease[i]) creased[pid[i]]++;
+    const noisy = (part: number) => creased[part] > 0.1 * shown[part];
+
     // background + grid
     const gridPx = gridStep * k;
     for (let y = 0; y < VIEW; y++) {
@@ -176,9 +198,8 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
             const j = ny * VIEW + nx;
             if (pid[j] !== pid[idx]) { edge = true; break; }
             if (Math.abs(depth[j] - depth[idx]) * k > 2.5) { edge = true; break; }
-            const d = nbuf[idx * 3] * nbuf[j * 3] + nbuf[idx * 3 + 1] * nbuf[j * 3 + 1] + nbuf[idx * 3 + 2] * nbuf[j * 3 + 2];
-            if (d < 0.82 && !flatParts.has(pid[idx])) { edge = true; break; }
           }
+          if (crease[idx] && !noisy(pid[idx])) edge = true;
           if (edge) out = [out[0] * 0.35, out[1] * 0.35, out[2] * 0.35];
         }
         const o = ((oy + y) * W + ox + x) * 3;
@@ -217,16 +238,3 @@ function encodePng(rgb: Uint8Array, w: number, h: number): Buffer {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw, { level: 6 })), chunk('IEND', Buffer.alloc(0))]);
 }
 
-/** Whether a part's triangles average under ~2 pixels in area at `k` pixels per mm (a sculpted mesh, not CAD faces). */
-function sculpted(P: ArrayLike<number>, I: ArrayLike<number>, k: number): boolean {
-  const tris = I.length / 3;
-  if (tris < 5000) return false;
-  let area = 0;
-  for (let t = 0; t < I.length; t += 3) {
-    const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
-    const u = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]];
-    const v = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
-    area += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2;
-  }
-  return (area / tris) * k * k < 2;
-}
