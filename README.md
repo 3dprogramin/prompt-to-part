@@ -59,14 +59,14 @@ In subscription mode Claude never runs through OpenRouter or an API key, even wh
 | `jig_claude` | `/home/node/.claude` | Claude Code's sessions (follow-up messages continue the conversation) and settings |
 | `jig_cache` | `/app/node_modules/.cache` | The OpenSCAD engine (downloaded and hash-checked the first time a `.scad` file is used) and Jig's bundled workers |
 
-Back up `jig_data` (the others can be rebuilt; without `jig_claude`, a design's next message starts a fresh Claude session with a summary of the conversation):
+**Backing up your designs.** `docker compose down -v` deletes the volumes, and with them every design, so keep a backup. In the **Designs** menu, **Export all designs** downloads one zip (`jig-designs-<date>.zip`) with every design, its chat images and meshes, your cost settings and your filaments. **Import designs…** adds the designs from such a zip, in this Jig or another one (it works outside Docker too). A design that is already there is kept as it is, never overwritten, even by a newer copy: delete it first to take the zip's. Settings are restored only where none are saved yet. Workspaces, Claude sessions and the Bambu caches are not in the zip.
+
+To back up the whole `jig_data` volume instead (the others can be rebuilt; without `jig_claude`, a design's next message starts a fresh Claude session with a summary of the conversation):
 
 ```sh
 docker compose run --rm --no-deps -v "$PWD:/backup" jig tar czf /backup/jig-data.tgz -C /data .    # back up
 docker compose run --rm --no-deps -v "$PWD:/backup:ro" jig tar xzf /backup/jig-data.tgz -C /data   # restore
 ```
-
-`docker compose down -v` deletes the volumes, and with them every design.
 
 **Moving a local install's designs into Docker.** From the folder whose `data/` holds them (or point the first path at your `JIG_DATA`):
 
@@ -119,7 +119,7 @@ The container runs as a non-root user with a read-only file system (only the vol
 - **Follow-ups** resume the same Claude session and send what you are looking at: a screenshot of the viewer and a four-view render with your current slider values, scale, text and SVG drawings, plus a note if you restored an older version or edited the code.
 - **System prompt**: `server/systemPrompt.ts` covers conventions (mm, Z-up, on the bed), the API reference, the helper library, printability rules, where to take real-world dimensions from and the clearances for parts that must fit purchased ones, and print-setting suggestions (with your Bambu Studio profile as the baseline).
 - **Helpers** (`shared/helpers.ts`): helical sweep (springs, corkscrews), ISO threads and threaded-hole cutters, radial surfaces (knurling), sweeps/tubes, lofts, rounded boxes, arrays, text, SVG drawings attached in the chat (`H.svg`) and imported or AI-made meshes (`H.mesh`).
-- **Designs** are saved as JSON in `data/designs/`, with chat history, versions and slider values. Chat images (your photos, renders, assembly pictures) are stored once each in `data/designs/<id>/`, imported meshes in `data/designs/<id>/meshes/`.
+- **Designs** are saved as JSON in `data/designs/`, with chat history, versions and slider values. Chat images (your photos, renders, assembly pictures) are stored once each in `data/designs/<id>/`, imported meshes in `data/designs/<id>/meshes/`. **Export all designs** (Designs menu) puts them all in one zip, and **Import designs…** brings them back (see [Backing up your designs](#docker)).
 
 ## Designs and versions
 

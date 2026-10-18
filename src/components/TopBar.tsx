@@ -39,6 +39,26 @@ export function TopBar(p: Props) {
   const listWrap = useRef<HTMLDivElement>(null);
   usePopover(showList, () => setShowList(false), listWrap);
   const open = (id: string) => { setShowList(false); p.onOpen(id); };
+  // Backups: "Export all designs" is a download link; an import's result stays in the menu.
+  const backupInput = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [backupNote, setBackupNote] = useState<{ text: string; detail?: string; error?: boolean } | null>(null);
+  const importBackup = async (file: File) => {
+    setImporting(true);
+    setBackupNote(null);
+    try {
+      const r = await api.importBackup(file);
+      const settings = r.settings.length ? `, restored your ${r.settings.join(' and ')}` : '';
+      const skipped = r.skipped.map((s) => `${s.name} (${s.reason})`);
+      setBackupNote({ text: `Imported ${r.imported.length}, skipped ${r.skipped.length}${settings}`, detail: skipped.length ? `Skipped: ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? ` and ${skipped.length - 3} more` : ''}` : undefined });
+      p.onRefreshList();
+    } catch (e) {
+      setBackupNote({ text: `Not imported: ${(e as Error).message}`, error: true });
+    } finally {
+      setImporting(false);
+      if (backupInput.current) backupInput.current.value = '';
+    }
+  };
   // A plain click starts a new design in place; a modified click or the context menu opens a new tab.
   const newHere = (e: React.MouseEvent) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); p.onNew(); } };
   return (
@@ -76,7 +96,7 @@ export function TopBar(p: Props) {
       <ConnectionChip />
       <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>
       <div className="menu-wrap" ref={listWrap}>
-        <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
+        <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
         {showList && (
           <div className="menu">
             {p.listError
@@ -91,6 +111,20 @@ export function TopBar(p: Props) {
                 <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => p.onDelete(d.id)}><Icon name="trash" size={14} /></button>
               </div>
             ))}
+            <div className="menu-foot">
+              {backupNote && (
+                <div className={`menu-note ${backupNote.error ? 'error' : ''}`} role="status">
+                  {backupNote.text}{backupNote.detail && <div className="dim small">{backupNote.detail}</div>}
+                </div>
+              )}
+              <a className="menu-action" href="/api/backup" download title="Download every design (with its images and meshes) and your cost settings and filaments as one zip">
+                <Icon name="download" size={13} /> Export all designs
+              </a>
+              <button className="menu-action" disabled={importing} onClick={() => backupInput.current?.click()} title="Add the designs from a Jig backup zip (designs already here are kept as they are)">
+                {importing ? <span className="spinner" /> : <Icon name="restore" size={13} />} {importing ? 'Importing…' : 'Import designs…'}
+              </button>
+              <input ref={backupInput} type="file" accept=".zip,application/zip" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void importBackup(f); }} />
+            </div>
           </div>
         )}
       </div>
