@@ -1,8 +1,8 @@
 // UI smoke test (`npm run test:ui`): the built app in one headless Chromium against a throwaway
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
-// view, the Print tab (which must not start a slice by itself) and the Designs menu's export and
-// import. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
+// view, the Print tab (which must not start a slice by itself), the Designs menu's export and
+// import, and Export project… (as a zip). A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
@@ -138,5 +138,37 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', async
   await page.getByRole('button', { name: 'Designs' }).click();
   await menu.getByText('Load more (4 more)').click();
   await menu.getByRole('button', { name: 'Unstar Smoke cube' }).waitFor();
+  await page.close();
+});
+
+test('Export project… downloads the design as one zip where there is no folder picker', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  // Playwright has no folder picker: the zip, as in Firefox.
+  await page.addInitScript(() => { delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker; });
+  // As if Blender and Bambu Studio weren't installed (they would make the test slow): no .blend, a plain 3MF.
+  await page.route('**/api/capabilities', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), blender: null, blenderProblem: null, bambu: null } });
+  });
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.getByRole('button', { name: 'More export formats' }).click();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Export project…/ }).click()]);
+  assert.equal(download.suggestedFilename(), 'Smoke cube.zip');
+  const zip = readFileSync((await download.path())!);
+  const files = unzipSync(new Uint8Array(zip));
+  assert.deepEqual(Object.keys(files).sort(), ['README.md', 'design.jig.json', 'model.js', 'smoke-cube.3mf', 'smoke-cube.stl', 'values.json'].map((f) => `Smoke cube/${f}`));
+  assert.equal(strFromU8(files['Smoke cube/model.js']), code);
+  assert.equal(JSON.parse(strFromU8(files['Smoke cube/design.jig.json'])).id, id);
+  const readme = strFromU8(files['Smoke cube/README.md']);
+  for (const want of ['# Smoke cube', 'A 20 mm cube', '20.00 × 20.00 × 20.00 mm', `Jig ${version}`, 'No `.blend` file', 'The 3MF has no print settings']) assert.ok(readme.includes(want), `README: ${want}\n${readme}`);
+  await page.getByText('Exported Smoke cube.zip').waitFor();
+  await page.screenshot({ path: path.join(shots, '5-project.png') });
+
+  // Import designs… reads the zip as it is (the design is here already, so it is kept).
+  await page.getByRole('button', { name: 'Designs' }).click();
+  await page.locator('.menu input[type=file]').setInputFiles({ name: 'Smoke cube.zip', mimeType: 'application/zip', buffer: zip });
+  await page.locator('.menu').getByText('Imported 0, skipped 1').waitFor();
   await page.close();
 });

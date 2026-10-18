@@ -144,6 +144,12 @@ export interface BackupImport {
   settings: string[];
 }
 
+/** GET /api/designs/:id/files: the images and mesh files stored with a design (file names). */
+export interface DesignFiles {
+  images: string[];
+  meshes: string[];
+}
+
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */
 export interface BambuTemplate {
   version: string;

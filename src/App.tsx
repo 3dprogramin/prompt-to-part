@@ -14,6 +14,7 @@ import { addStep, applyBlock } from './lib/activity';
 import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
+import { chooseTarget, exportProject, type ProjectTarget } from './lib/projectExport';
 import { GeometryClient } from './geometry/client';
 import { ChatPanel, type ImageMode } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
@@ -235,6 +236,8 @@ export default function App() {
   const [threeMf, setThreeMf] = useState<{ colours: boolean; print: boolean }>(() => load('threeMf', { colours: true, print: true }));
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
+  // What "Export project…" is making ("3MF"), while it runs.
+  const [exportStage, setExportStage] = useState<string | null>(null);
   const [dictation, setDictation] = useState(false);
   // Why Claude can't run (no API key and no subscription mode), from the server.
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
@@ -777,6 +780,69 @@ export default function App() {
     }
   };
 
+  // Everything about the design in one folder or zip (lib/projectExport.ts).
+  const onExportProject = async () => {
+    if (!design.code) return;
+    // The folder picker first: the browser only shows it right after the click.
+    let target: ProjectTarget;
+    try {
+      target = await chooseTarget();
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') setExportError(`Project not exported: ${(e as Error).message}`);
+      return;
+    }
+    setExporting(true);
+    setExportError(null);
+    setExportStage('model');
+    try {
+      // Built and validated at high resolution, like any export.
+      const choice = { exclude: hiddenParts };
+      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
+      if (!o.result) {
+        setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
+        return;
+      }
+      const r = o.result;
+      const parts = exportedParts(r, choice);
+      if (!parts.length) {
+        setNotice({ text: 'Not exported: every part is hidden in the viewer.', level: 'warning', details: false });
+        return;
+      }
+      // design.jig.json is the design as the server stores it (what Import designs… reads): the
+      // latest changes are saved first. Should that fail, this tab's copy is written instead.
+      setExportStage('design');
+      if (isUnsaved(design.id)) await saveNow(design).catch(() => {});
+      const stored = await api.getDesign(design.id).catch(() => null);
+      const designJson = JSON.stringify(stored ?? design, (k, v) => (k === 'activity' ? undefined : v));
+      const sum = o.report ? summarize(o.report.issues) : null;
+      const title = r.meta.name || design.name;
+      const out = await exportProject({
+        design, designJson, result: r, parts, title, base: slug(title),
+        print: { ai: r.print, user: userPrint, base: printBase }, bambu: !!bambu,
+        blender: blender && !blender.problem ? { ok: true } : { ok: false, why: blender?.problem ?? null },
+        check: sum ? sum.text : 'could not validate',
+        onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
+      }, target, setExportStage, download);
+      const where = target.kind === 'folder' ? `the folder "${out.name}"` : `${out.name}.zip`;
+      if (o.report) {
+        setValidation({ report: o.report, label: `Exported ${where}` });
+        setValidationOpen(false);
+      }
+      if (out.problems.length) {
+        setNotice({ text: `Exported ${where}, without ${out.problems.length === 1 ? 'one file' : `${out.problems.length} files`} (see its README): ${out.problems[0].replace(/`/g, '')}`, level: 'warning', details: !!o.report });
+      } else {
+        setNotice(!sum || sum.level !== 'ok'
+          ? { text: `Exported ${where} · ${sum ? `${sum.text} found` : 'could not validate'}`, level: sum?.level === 'error' ? 'error' : 'warning', details: !!o.report }
+          : { text: `Exported ${where} · checked, no problems found`, level: 'ok', details: true });
+      }
+    } catch (e) {
+      setExportError(`Project not exported: ${(e as Error).message}`);
+    } finally {
+      setExporting(false);
+      setExportStage(null);
+    }
+  };
+
   const openDesign = async (id: string) => {
     if (id === design.id) return;
     try {
@@ -1053,6 +1119,8 @@ export default function App() {
           onScale={onScale}
           onApplyCode={onApplyCode}
           onExport={onExport}
+          onExportProject={onExportProject}
+          exportStage={exportStage}
           exporting={exporting}
           exportError={exportError}
           onValidate={onValidate}
