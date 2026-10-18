@@ -140,3 +140,41 @@ test('import: damaged zips and designs', async () => {
   assert.equal((await fetch(`${A}/api/designs/${id}`)).status, 404);
   assert.equal(existsSync(path.join(dataDir, 'designs', id, 'meshes', MESH_NAME)), false);
 });
+
+test('a zipped project ("Export project…") brings back its design, pictures and meshes; nothing else in it is written', async () => {
+  const id = 'test-bkp-00000007', other = 'test-bkp-00000008';
+  const IMG = `${'cd'.repeat(16)}.png`;
+  const project = (dir: string, extra: Zippable = {}): Uint8Array => zipSync({
+    [`${dir}design.jig.json`]: strToU8(JSON.stringify(design({ id, name: 'Project hook' }))),
+    [`${dir}images/${IMG}`]: PNG,
+    [`${dir}images/picture-photo.png`]: PNG,
+    [`${dir}meshes/${MESH_NAME}`]: MESH,
+    [`${dir}model.js`]: strToU8('x'),
+    [`${dir}project-hook.stl`]: strToU8('solid'),
+    [`${dir}README.md`]: strToU8('# Project hook'),
+    [`${dir}images/../../evil.json`]: strToU8('{}'),
+    [`${dir}meshes/sub/${MESH_NAME}`]: MESH,
+    [`${dir}designs/${other}.json`]: strToU8(JSON.stringify(design({ id: other }))),
+    'evil.json': strToU8('{}'),
+    ...extra,
+  });
+  const r = await importZip(project('Project hook/'));
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).imported, [{ id, name: 'Project hook' }]);
+  assert.equal((await getDesign(id)).name, 'Project hook');
+  assert.deepEqual(await (await fetch(`${A}/api/designs/${id}/files`)).json(), { images: [IMG], meshes: [MESH_NAME] });
+  assert.equal((await fetch(`${A}/api/designs/${id}/images/${IMG}`)).status, 200);
+  assert.equal((await fetch(`${A}/api/designs/${other}`)).status, 404, 'a project is one design');
+  for (const f of [path.join(root, 'evil.json'), path.join(dataDir, 'evil.json'), path.join(dataDir, 'designs', 'evil.json')]) assert.equal(existsSync(f), false, f);
+
+  // Zipped without its folder too; a design already here is kept.
+  const again = await (await importZip(project(''))).json();
+  assert.deepEqual(again.skipped.map((s: { id: string }) => s.id), [id]);
+  // Two projects in one zip are neither a project nor a backup.
+  assert.equal((await importZip(project('a/', { 'b/design.jig.json': strToU8('{}') }))).status, 400);
+  // The design's own id must be a valid one.
+  const bad = await (await importZip(zipSync({ 'x/design.jig.json': strToU8(JSON.stringify(design({ id: '../../evil' }))) }))).json();
+  assert.deepEqual(bad.imported, []);
+  assert.equal(bad.skipped[0].reason, 'not a complete design');
+  assert.equal((await fetch(`${A}/api/designs/bad!id/files`)).status, 400);
+});

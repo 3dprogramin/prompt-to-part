@@ -28,7 +28,7 @@ import { meshFormat } from '../shared/meshFormats';
 import { meshyAvailable } from './meshy';
 import { checkConnection } from './connection';
 import { limitResetsAt } from './usage';
-import type { MeshUpload } from '../shared/api';
+import type { DesignFiles, MeshUpload } from '../shared/api';
 import { MAX_ZIP_BYTES, openZip, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from './backup';
 
 const DESIGNS = path.join(DATA_DIR, 'designs');
@@ -81,6 +81,32 @@ function backupPath(name: string): BackupPath | null {
   if (p.length === 3) return p[2] === '' ? { kind: 'folder' } : IMAGE_NAME.test(p[2]) ? { kind: 'file', id: p[1], sub: '', name: p[2] } : null;
   if (p.length === 4 && p[2] === 'meshes') return p[3] === '' ? { kind: 'folder' } : MESH_FILE.test(p[3]) ? { kind: 'file', id: p[1], sub: 'meshes', name: p[3] } : null;
   return null;
+}
+
+/** The design file of a project folder ("Export project…"), zipped with or without the folder itself. */
+const PROJECT_DESIGN = /^(?:[^/]+\/)?design\.jig\.json$/;
+
+/**
+ * The folder a zipped project's files are in ('' or '<name>/'), or null when the zip isn't one
+ * project: it must hold exactly one design.jig.json, at the top or in one folder.
+ */
+function projectRoot(names: string[]): string | null {
+  const found = names.filter((n) => PROJECT_DESIGN.test(n));
+  return found.length === 1 ? found[0].slice(0, -'design.jig.json'.length) : null;
+}
+
+/**
+ * What a path in a zipped project is: design.jig.json, images/<image> and meshes/<file> are its
+ * design, with the same checks as in a backup; the rest (model.js, STL, 3MF, README…) is for people
+ * and is never read or written ('other'). The design's id comes from design.jig.json (id '').
+ */
+function projectPath(name: string, root: string): BackupPath | { kind: 'other' } {
+  if (!name.startsWith(root)) return { kind: 'other' };
+  const p = name.slice(root.length).split('/');
+  if (p.length === 1 && p[0] === 'design.jig.json') return { kind: 'design', id: '' };
+  if (p.length === 2 && p[0] === 'images' && IMAGE_NAME.test(p[1])) return { kind: 'file', id: '', sub: '', name: p[1] };
+  if (p.length === 2 && p[0] === 'meshes' && MESH_FILE.test(p[1])) return { kind: 'file', id: '', sub: 'meshes', name: p[1] };
+  return { kind: 'other' };
 }
 
 /** Write through a temp file and rename it into place, so readers see the old or the new file. */
@@ -325,6 +351,14 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     });
   });
 
+  // The images and mesh files stored with a design (what a backup holds of it), for "Export project…".
+  app.get('/api/designs/:id/files', async (req, res) => {
+    const { id } = req.params;
+    if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
+    const list = async (dir: string, re: RegExp) => (await readdir(dir).catch(() => [] as string[])).filter((n) => re.test(n)).sort();
+    res.json({ images: await list(imageDir(id), IMAGE_NAME), meshes: await list(meshDir(id), MESH_FILE) } satisfies DesignFiles);
+  });
+
   // A design started from a version of another one gets copies of that design's mesh files.
   app.post('/api/designs/:id/meshes/copy', json('1kb'), async (req, res) => {
     const { id } = req.params;
@@ -483,13 +517,15 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
       }, createWriteStream(upload));
       zip = await openZip(upload, MAX_BACKUP_ENTRIES);
 
-      // Every entry is checked before anything is written: a zip with anything else in it is refused whole.
+      // Every entry is checked before anything is written: a zip with anything else in it is refused
+      // whole. A zipped project ("Export project…") is one design; only its design files are read.
+      const root = projectRoot(zip.entries.map((e) => e.name));
       const designs = new Map<string, { json?: ZipEntry; files: { entry: ZipEntry; sub: '' | 'meshes'; name: string }[] }>();
       const settings: ZipEntry[] = [];
       for (const entry of zip.entries) {
-        const p = backupPath(entry.name);
+        const p = root === null ? backupPath(entry.name) : projectPath(entry.name, root);
         if (!p) throw new ZipError(`Not a Jig backup: it holds "${entry.name.slice(0, 100)}"`);
-        if (p.kind === 'folder') continue;
+        if (p.kind === 'folder' || p.kind === 'other') continue;
         if (entry.size > BACKUP_LIMITS[p.kind === 'file' ? (p.sub ? 'mesh' : 'image') : p.kind]) throw new ZipError(`${entry.name} is too large`);
         if (p.kind === 'settings') { settings.push(entry); continue; }
         const design = designs.get(p.id) ?? { files: [] };
@@ -499,17 +535,19 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
       }
 
       const out: BackupImport = { imported: [], skipped: [], settings: [] };
-      for (const [id, { json, files }] of designs) {
+      for (const [key, { json, files }] of designs) {
         if (!json) continue; // images or meshes without their design
+        const label = key || 'design.jig.json';
         let d: unknown;
         try {
           d = JSON.parse(Buffer.from(await json.read()).toString('utf8'));
         } catch (e) {
-          out.skipped.push({ id, name: id, reason: e instanceof ZipError ? e.message : 'not a design' });
+          out.skipped.push({ id: key, name: label, reason: e instanceof ZipError ? e.message : 'not a design' });
           continue;
         }
-        if (!isDesign(d) || d.id !== id) { out.skipped.push({ id, name: id, reason: 'not a complete design' }); continue; }
-        const design = d;
+        // A backup's design must have the id it is filed under; a project's names its own.
+        if (!isDesign(d) || (key ? d.id !== key : !ID_RE.test(d.id))) { out.skipped.push({ id: key, name: label, reason: 'not a complete design' }); continue; }
+        const design = d, id = d.id;
         // In the design's queue, so a save from another tab can't land between the check and the write.
         const skipped = await serially(id, async () => {
           if (generatingDesigns.has(id) || existsSync(designFile(id))) return 'already here (kept as it is)';
