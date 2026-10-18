@@ -9,7 +9,7 @@ import { MAX_SCAD_CHARS, MAX_SCAD_FILES, scadFileName, type ScadFile } from '../
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { ActivityPanel } from './ActivityPanel';
-import { activityOf } from '../lib/activity';
+import { activityOf, INTERRUPTED, wasInterrupted } from '../lib/activity';
 import { useEscape } from './useEscape';
 import { usePopover } from './usePopover';
 import type { GenerateRequest, MeshUpload } from '../../shared/api';
@@ -562,12 +562,13 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
   const renders = steps.filter((s) => s.kind === 'render' && s.image && !s.verbose);
   // The full step log is open while Claude works; afterwards it folds into one line.
   const showSteps = live || open;
+  const interrupted = wasInterrupted(m, live);
   const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${formatDuration(m.durationMs)}` : ''}`;
   return (
     <div className="msg assistant">
       <div className="msg-head">
         <button className={`steps-toggle ${live ? 'peek' : ''}`} onClick={() => setOpen(!open)} {...(live ? peekProps : {})}>
-          {live ? <span className="spinner" /> : <Icon name={m.error ? 'alert' : 'check'} size={14} />}
+          {live ? <span className="spinner" /> : <Icon name={m.error || interrupted ? 'alert' : 'check'} size={14} />}
           <span>{headline}{live && <span className="elapsed"> · {fmtElapsed(elapsed)}</span>}</span>
           {!live && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
         </button>
@@ -620,6 +621,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
         </div>
       )}
       {m.error && <div className="bubble error" role="alert"><Icon name="alert" size={14} /> {m.error}</div>}
+      {interrupted && <div className="bubble error interrupted" role="status"><Icon name="alert" size={14} /> {INTERRUPTED}</div>}
       {m.versionIndex != null && versions[m.versionIndex] && (
         <div className="version-row">
           <span className="version-chip">v{m.versionIndex + 1}</span>

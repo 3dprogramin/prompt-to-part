@@ -5,6 +5,7 @@ import type { FilamentLookup } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
 import type { PhotoRequest, PhotoResponse } from '../../shared/photos';
 import { dataUrlToImage } from './files';
+import { trimActivity } from './activity';
 
 export type { AgentEvent, FontEntry } from '../../shared/api';
 
@@ -56,11 +57,15 @@ async function withStoredImages(d: Design): Promise<Design> {
     }
     return url;
   };
-  const messages = await Promise.all(d.messages.map(async (m) => ({
-    ...m,
-    images: m.images && await Promise.all(m.images.map(sub)),
-    steps: m.steps && await Promise.all(m.steps.map(async (s) => (s.image ? { ...s, image: await sub(s.image) } : s))),
-  })));
+  // The live transcript is kept only for the newest reply, shortened: it can hold every model.js Claude typed.
+  const newest = d.messages.findLastIndex((m) => m.role === 'assistant');
+  const messages = await Promise.all(d.messages.map(async (m, i) => {
+    const steps = m.steps && await Promise.all(m.steps.map(async (s) => (s.image ? { ...s, image: await sub(s.image) } : s)));
+    const activity = i === newest && m.activity?.length
+      ? await Promise.all(trimActivity(m.activity).map(async (a) => (a.kind === 'step' && a.step.image ? { ...a, step: { ...a.step, image: await sub(a.step.image) } } : a)))
+      : undefined;
+    return { ...m, images: m.images && await Promise.all(m.images.map(sub)), steps, activity };
+  }));
   return { ...d, messages };
 }
 
@@ -80,12 +85,12 @@ export const api = {
   /**
    * Saves the design as the next revision after `rev` and returns what was saved (images replaced by
    * their stored URLs, `rev` the new revision). 409: another save came first; 410: deleted.
+   * `keepalive`: the page is closing, the save should still reach the server (only up to 64 KB).
    */
-  async saveDesign(d: Design, rev: number): Promise<Design> {
+  async saveDesign(d: Design, rev: number, keepalive = false): Promise<Design> {
     const saved = await withStoredImages(d);
-    // The live activity transcript stays in memory (it can hold every model.js Claude typed).
-    const body = JSON.stringify({ ...saved, rev }, (k, v) => (k === 'activity' ? undefined : v));
-    const r = await (await request(`/api/designs/${d.id}`, { method: 'PUT', body })).json() as { rev: number };
+    const body = JSON.stringify({ ...saved, rev });
+    const r = await (await request(`/api/designs/${d.id}`, { method: 'PUT', body, keepalive: keepalive && new Blob([body]).size < 64000 })).json() as { rev: number };
     return { ...saved, rev: r.rev };
   },
   async deleteDesign(id: string): Promise<void> {

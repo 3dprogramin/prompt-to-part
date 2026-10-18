@@ -64,7 +64,7 @@ export default function App() {
   // The open design as last rendered, for handlers that run later (e.g. after a failed delete).
   const designRef = useRef(design);
   designRef.current = design;
-  const { saveNow, saveSoon, saveErrors, clearSaveError, saveTimers, lastLoaded, adopted, stopSaving, cancelPending, isUnsaved } = useDesignSaving({
+  const { saveNow, saveSoon, saveErrors, clearSaveError, lastLoaded, adopted, stopSaving, cancelPending, isUnsaved } = useDesignSaving({
     setDesign, currentId, runningRef,
     onSaved: (saved) => {
       refreshList();
@@ -417,7 +417,8 @@ export default function App() {
     });
     const files = [...scad.map((f) => f.name), ...meshUploads.map((u) => u.entry.original ?? u.name)];
     const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, ...(files.length ? { files } : {}), createdAt: now };
-    const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now };
+    // Saved as it grows, marked pending until it ends (a reply still pending on load was interrupted).
+    const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now, pending: true };
     const designId = design.id;
     // For follow-ups, capture exactly what the user is looking at before the chat changes anything.
     const current = followUpContext();
@@ -498,12 +499,12 @@ export default function App() {
         } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
         else if (ev.type === 'error') { finished = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
       }, abort.signal);
-      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Please send the request again.' }));
+      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
     } catch (e) {
       if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
     } finally {
-      patchAsst((m) => ({ ...m, live: undefined }));
+      patchAsst((m) => ({ ...m, live: undefined, pending: undefined }));
       // Stopped or failed: messages queued for after this reply wait for the user ("Send now").
       if (!completed) setQueues((s) => (s[designId]?.items.length ? { ...s, [designId]: { ...s[designId], paused: true } } : s));
       setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
@@ -514,7 +515,7 @@ export default function App() {
       setTimeout(() => {
         const bg = background.current.get(designId);
         if (bg && currentId.current !== designId) {
-          clearTimeout(saveTimers.current.get(designId));
+          cancelPending(designId);
           saveNow(bg).catch(() => {});
         }
       }, 0);

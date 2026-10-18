@@ -2,7 +2,7 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, and Export project… (as a zip). A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
+// import, Export project… (as a zip), and a reply that was cut short. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
@@ -184,5 +184,24 @@ test('Export project… downloads the design as one zip where there is no folder
   await page.getByRole('button', { name: 'Designs' }).click();
   await page.locator('.menu input[type=file]').setInputFiles({ name: 'Smoke cube.zip', mimeType: 'application/zip', buffer: zip });
   await page.locator('.menu').getByText('Imported 0, skipped 1').waitFor();
+  await page.close();
+});
+
+test('a reply saved while Jig was working shows as interrupted, with its thinking kept', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const cut = 'ui-smoke-20000001';
+  const r = await fetch(`${A}/api/designs/${cut}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    body: JSON.stringify({ id: cut, name: 'Cut short', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], sessionId: 'abc',
+      messages: [{ id: 'u1', role: 'user', text: 'A cube', createdAt: 1 },
+        { id: 'a1', role: 'assistant', text: '', createdAt: 1, pending: true, steps: [{ kind: 'thinking', text: 'Planning a 20 mm cube' }],
+          activity: [{ kind: 'thinking', text: 'Planning a 20 mm cube with chamfered edges', at: 5 }] }] }) });
+  assert.equal(r.status, 200, await r.text());
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${cut}`);
+  await page.locator('.bubble.interrupted', { hasText: 'Interrupted – Jig stopped before finishing' }).waitFor();
+  await page.locator('.think-link').click();
+  await page.locator('.activity-panel', { hasText: 'chamfered edges' }).waitFor();
+  assert.equal(await page.locator('.chat-panel textarea').isEnabled(), true);
+  await page.screenshot({ path: path.join(shots, '6-interrupted.png') });
   await page.close();
 });

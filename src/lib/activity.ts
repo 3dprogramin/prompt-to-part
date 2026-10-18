@@ -44,8 +44,43 @@ export function addStep(list: ActivityItem[], step: AgentStep): ActivityItem[] {
   return [...list, { kind: 'step', step }];
 }
 
-/** The transcript to show for a reply: the live one if this session saw it stream, else rebuilt from its steps. */
+/** The transcript to show for a reply: the live (or saved) one if there is one, else rebuilt from its steps. */
 export function activityOf(m: ChatMessage): ActivityItem[] {
   if (m.activity?.length) return m.activity;
   return (m.steps ?? []).filter((s) => s.kind !== 'assembly').reduce(addStep, [] as ActivityItem[]);
 }
+
+/** Most characters of a reply's transcript saved with the design (the whole of it stays in memory). */
+export const MAX_SAVED_ACTIVITY = 200_000;
+/** Longest tool input (e.g. a model.js being written: the versions keep it anyway) or step detail in a saved transcript. */
+const MAX_SAVED_FIELD = 2000;
+
+const clipped = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max)}\n… (${(s.length - max).toLocaleString('en')} more characters, not saved)`);
+
+function itemSize(it: ActivityItem): number {
+  if (it.kind === 'tool') return it.label.length + Object.values(it.fields).reduce((n, v) => n + v.length, 0);
+  if (it.kind === 'step') return it.step.text.length + (it.step.detail?.length ?? 0);
+  return it.text.length;
+}
+
+/**
+ * A reply's transcript as it is saved (designs are saved often, so it is kept small): thinking and
+ * reply text as they are, long tool inputs and step details shortened, and if that is still over
+ * `max` characters, only the newest entries.
+ */
+export function trimActivity(items: ActivityItem[], max = MAX_SAVED_ACTIVITY): ActivityItem[] {
+  const short = items.map((it): ActivityItem => {
+    if (it.kind === 'tool') return { ...it, fields: Object.fromEntries(Object.entries(it.fields).map(([k, v]) => [k, clipped(v, MAX_SAVED_FIELD)])) };
+    if (it.kind === 'step') return it.step.detail && it.step.detail.length > MAX_SAVED_FIELD ? { ...it, step: { ...it.step, detail: clipped(it.step.detail, MAX_SAVED_FIELD) } } : it;
+    return it.text.length > max / 2 ? { ...it, text: clipped(it.text, max / 2) } : it;
+  });
+  let total = 0, from = short.length;
+  while (from > 0 && total + itemSize(short[from - 1]) <= max) total += itemSize(short[--from]);
+  if (!from) return short;
+  return [{ kind: 'step', step: { kind: 'status', text: `… ${from} earlier ${from === 1 ? 'entry' : 'entries'} not saved` } }, ...short.slice(from)];
+}
+
+export const INTERRUPTED = 'Interrupted – Jig stopped before finishing (the server restarted or the page reloaded). Send "continue" to pick up where it stopped.';
+
+/** A reply saved while Jig worked on it that nothing is working on any more (and that has no error of its own). */
+export const wasInterrupted = (m: ChatMessage, live: boolean) => m.role === 'assistant' && !!m.pending && !live && !m.error;

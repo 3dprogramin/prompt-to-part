@@ -200,8 +200,17 @@ export interface ChatMessage {
   durationMs?: number;
   /** Transient live status while generating (not meaningful once done) */
   live?: string;
-  /** Live transcript of the reply (thinking, text, tool calls, results); in memory only, never saved. */
+  /**
+   * Live transcript of the reply (thinking, text, tool calls, results). Saved only for the design's
+   * newest reply, shortened (src/lib/activity.ts trimActivity); earlier ones are rebuilt from `steps`.
+   */
   activity?: ActivityItem[];
+  /**
+   * Jig was still working on this reply when it was saved (saves run every few seconds while it
+   * works). Still set when nothing is working on it: the reply was interrupted (the server restarted
+   * or the page was reloaded); the final save of a reply that ended clears it.
+   */
+  pending?: boolean;
 }
 
 export interface DesignVersion {
