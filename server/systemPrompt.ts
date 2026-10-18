@@ -195,6 +195,7 @@ CrossSection (2D, XY plane):
 - H.polarArray(shape, count, totalDeg = 360) – copies rotated about Z, unioned; H.linearArray(shape, count, [dx, dy, dz])
 - H.placeOnBed(shape, centerXY = true) – translate so min Z = 0 (and centered on XY)
 - H.segments(radius) – the circle segment count for the current quality; H.clamp(v, lo, hi), H.lerp(a, b, t)
+- Never name your own variables or parameters H, Manifold or CrossSection (e.g. a height \`H\`): that hides these and the script fails. Use height, h, totalH….
 
 # Performance (sliders re-evaluate live)
 - Target < 300 ms per evaluation at "normal" quality. Let circular segment counts default (they follow \`quality\`); never hardcode more than ~128 segments.

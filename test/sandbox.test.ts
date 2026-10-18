@@ -54,6 +54,12 @@ test('an undeclared name is an error with its line, not undefined', () => {
   run('function build({ w = 2, ...rest }) { if (typeof foo !== "undefined") return null; const [a, , b = w] = [1, 2]; outer: for (const i of [1]) break outer; class A { #p = 1; get g() { return this.#p; } } return helper(a + b + new A().g); }\nfunction helper(s) { return Manifold.cube([s, 1, 1]); }');
 });
 
+test('a script declaring its own H (or Manifold, CrossSection) gets a clear error, not "H.x is not a function"', () => {
+  const info = fails('function build() {\n  const S = 50;\n  const H = 8;\n  return H.roundedBox([S, S, H], 2);\n}', /"H" is reserved for the helpers/, 'compile');
+  assert.equal(info.line, 3);
+  fails('function build(p, CrossSection) { return Manifold.cube([1, 1, 1]); }', /"CrossSection" is reserved/, 'compile');
+});
+
 test('syntax errors have a line number', () => {
   const info = fails('function build() {\n  return (\n}', /Syntax error/, 'compile');
   assert.equal(info.line, 3);

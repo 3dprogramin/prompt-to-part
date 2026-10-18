@@ -25,6 +25,8 @@ const compileCache = new Map<string, Compiled>();
 
 /** What scripts get besides the compartment's globals (see the wrapper in compile()). */
 const SCRIPT_ARGS = ['Manifold', 'CrossSection', 'H', 'quality', 'console'];
+/** Names a script must not declare: its own `const H = 30` hides the helpers, and `H.roundedRect` then fails as "not a function". */
+const RESERVED = new Set(['Manifold', 'CrossSection', 'H']);
 let knownGlobals: Set<string> | null = null;
 
 type Node = { type: string; [k: string]: unknown };
@@ -36,13 +38,14 @@ const isNode = (v: unknown): v is Node => !!v && typeof v === 'object' && typeof
  * `chamfr` would quietly drop a feature instead of failing with a line number. Scopes are ignored:
  * a name declared anywhere counts as declared, which can only miss a typo, never flag valid code.
  */
-function findUndeclared(ast: Node): { name: string; line: number; column: number } | null {
+function findUndeclared(ast: Node): { name: string; line: number; column: number; reserved?: boolean } | null {
   knownGlobals ??= new Set([...Object.getOwnPropertyNames(new Compartment().globalThis), ...SCRIPT_ARGS, 'arguments']);
   const declared = new Set<string>();
   const refs: Node[] = [];
+  let reserved: Node | null = null;
   const pattern = (p: unknown): void => {
     if (!isNode(p)) return;
-    if (p.type === 'Identifier') declared.add(p.name as string);
+    if (p.type === 'Identifier') { declared.add(p.name as string); if (RESERVED.has(p.name as string)) reserved ??= p; }
     else if (p.type === 'ObjectPattern') for (const prop of p.properties as Node[]) {
       if (prop.type === 'RestElement') pattern(prop.argument);
       else { if (prop.computed) visit(prop.key); pattern(prop.value); }
@@ -74,10 +77,13 @@ function findUndeclared(ast: Node): { name: string; line: number; column: number
     for (const [k, v] of Object.entries(n)) if (k !== 'loc') visit(v);
   };
   visit(ast);
+  const at = (n: Node) => (n.loc as { start: { line: number; column: number } }).start;
+  // Set inside pattern(), which TypeScript doesn't follow.
+  const own = reserved as Node | null;
+  if (own) return { name: own.name as string, line: at(own).line, column: at(own).column + 1, reserved: true };
   const bad = refs.find((r) => !declared.has(r.name as string) && !knownGlobals!.has(r.name as string));
   if (!bad) return null;
-  const loc = bad.loc as { start: { line: number; column: number } };
-  return { name: bad.name as string, line: loc.start.line, column: loc.start.column + 1 };
+  return { name: bad.name as string, line: at(bad).line, column: at(bad).column + 1 };
 }
 
 /** The compartment's global names that can be plain parameters (not eval, which strict code can't rebind). */
@@ -98,6 +104,9 @@ export function compile(code: string): Compiled {
     throw new ScriptError({ message: `Syntax error: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, stage: 'compile', line: loc?.line, column: loc ? loc.column + 1 : undefined });
   }
   const undeclared = findUndeclared(ast);
+  if (undeclared?.reserved) {
+    throw new ScriptError({ message: `"${undeclared.name}" is reserved for ${undeclared.name === 'H' ? 'the helpers (H.roundedRect…)' : `the ${undeclared.name} class`} – give your variable another name (e.g. "height" instead of "H")`, stage: 'compile', line: undeclared.line, column: undeclared.column });
+  }
   if (undeclared) {
     throw new ScriptError({ message: `"${undeclared.name}" is not defined – check the spelling, or declare it with const/let`, stage: 'compile', line: undeclared.line, column: undeclared.column });
   }
