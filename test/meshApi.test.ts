@@ -182,6 +182,46 @@ test('3D figure: a concept picture first, then image to 3D from exactly that pic
   assert.match(mesh.entry.prompt!, /^From concept picture "hero": a superhero crouching/);
 });
 
+test('3D figure in colour: a colour concept, a textured model (35 credits), its colours kept as 4 filaments through the script', async () => {
+  const events: AgentEvent[] = [];
+  const base: Record<string, string> = {};
+  const { client, created } = recordingClient();
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('a colour figure')]);
+  const asked: string[] = [];
+  const image = async (prompt: string) => { asked.push(prompt); return { image: { data: png.toString('base64'), mediaType: 'image/png' }, model: 'test/image-model', cost: 0.04 }; };
+  const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000007', references: [], concepts: true, color: true }, image });
+  const tools = toolsOf(cad);
+  const out = await tools.generate_concept.handler({ name: 'kid', subject: 'a boy in a red shirt and blue trousers' }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.match(asked[0], /in colour[\s\S]*at most 4 flat, solid colours[\s\S]*no shading baked into the colours/);
+  assert.doesNotMatch(asked[0], /grey clay/);
+  assert.match(out.content[1].text!, /35 Meshy credits, in colour/);
+  assert.equal(JSON.parse(base.$concepts).kid.color, true);
+  newUserMessage();
+  const built = await tools.generate_3d.handler({ name: 'kid', from_concept: 'kid' }, {});
+  assert.ok(!built.isError, JSON.stringify(built));
+  assert.equal(created[0].path, '/openapi/v1/image-to-3d');
+  assert.equal(created[0].body.should_texture, true);
+  assert.equal(created[0].body.texture_resolution, '2k');
+  assert.equal(created[0].body.enable_pbr, false);
+  const steps = events.flatMap((e) => (e.type === 'step' ? [e.step.text] : []));
+  assert.ok(steps.some((t) => /in colour \(35 credits\)/.test(t)), steps.join('\n'));
+  assert.ok(steps.some((t) => /^Coloured 3D model "kid" from Meshy · 35 credits$/.test(t)), steps.join('\n'));
+  const mesh = (events.find((e) => e.type === 'mesh') as Extract<AgentEvent, { type: 'mesh' }>).entry;
+  assert.equal(mesh.palette?.length, 4);
+  assert.match(built.content[1].text!, /In colour: its texture reduced to 4 colours/);
+  // The script's base in the figure's black: the report says 4 filaments, painted.
+  const code = `function build() { const f = H.mesh('kid', { height: 50 }).translate([0, 0, 2]); return [{ name: 'Kid', shape: f.add(Manifold.cylinder(2.5, 18, 18, 40)), color: '${mesh.palette!.find((c) => c.filament.name === 'PLA Basic Black')!.filament.color}' }]; }`;
+  const report = formatReport(await geometry.evaluate(code, base, 'draft'));
+  assert.match(report, /Coloured \(.*\): (PLA Basic \w+ \(Bambu Lab\) #[0-9a-f]{6} \d+ %; ){3}PLA Basic \w+ \(Bambu Lab\) #[0-9a-f]{6} \d+ %/);
+  assert.doesNotMatch(report, /needs \d filaments/);
+  // The limit message says what a coloured model costs.
+  await tools.generate_3d.handler({ name: 'two', prompt: 'a cat' }, {});
+  const third = await tools.generate_3d.handler({ name: 'three', prompt: 'a dog' }, {});
+  assert.match(third.content[0].text!, /35 Meshy credits \(in colour\)/);
+  assert.deepEqual(created.slice(1).map((c) => [c.path, c.body.mode]), [['/openapi/v2/text-to-3d', 'preview'], ['/openapi/v2/text-to-3d', 'refine']]);
+});
+
 test('at most 2 generate_3d calls per reply; a call that never reached Meshy does not count; the next message gets a fresh allowance', async () => {
   const events: AgentEvent[] = [];
   const { client, created } = recordingClient();

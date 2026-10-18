@@ -53,6 +53,8 @@ export interface GenerateRequest {
    * attached photo; 'off' (default) = Claude models subjects as 3D objects.
    */
   imageMode?: 'off' | 'artwork' | 'layertone' | 'lithophane' | 'figure';
+  /** 3D figure mode's Colour: figures in colour (a textured Meshy model, printed in up to 4 filaments; more Meshy credits). */
+  figureColor?: boolean;
   /** Names (in the design's MESHES_KEY index, sent in `pictures`) of meshes attached with this message: Claude gets a render and report of each. */
   meshes?: string[];
   /** The design's recent conversation, shortened: context for a fresh session when the old one can't be continued. */

@@ -13,6 +13,12 @@ Small models for the mesh import tests and the mock Meshy server (`server/meshyM
 
 Not every Quaternius model on poly.pizza is CC0 (some are CC-BY 3.0), so each one's own page was checked.
 
+Made by Jig (CC0 as well):
+
+| File | What |
+|---|---|
+| `colour-figure.glb` | A figure turned on a lathe, with UVs and an embedded 64 × 64 PNG base colour texture in four bands (hair, skin, shirt with two tiny buttons, trousers), made by `make-colour-figure.ts`; the mock serves it for textured (coloured) models |
+
 Broken variants for the repair tests, made by Jig's fixture script from the models above (CC0 as well):
 
 | File | Made from | What is wrong with it |

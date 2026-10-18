@@ -1,7 +1,9 @@
 // Meshy (https://docs.meshy.ai): AI 3D models from a description (Text to 3D, preview stage) or a
-// photo (Image to 3D), for generate_3d. Jig prints in one colour, so it asks for the untextured
-// mesh only (25 credits a model at 2k geometry); the preview picture is only for the chat. The key stays on the
-// server. MESHY_BASE_URL points it at the mock (`npm run mock:meshy`, server/meshyMock.ts).
+// photo (Image to 3D), for generate_3d. A figure in one colour is the untextured mesh only (25
+// credits a model at 2k geometry); a coloured one (3D figure mode's Colour) is textured: Image to 3D
+// with should_texture, Text to 3D with a refine task after the preview (35 credits either way), and
+// the GLB's base colour texture gives the colours. The preview picture is only for the chat. The key
+// stays on the server. MESHY_BASE_URL points it at the mock (`npm run mock:meshy`, server/meshyMock.ts).
 
 import type { MeshyBalance } from '../shared/api';
 
@@ -12,7 +14,7 @@ export const meshyBaseUrl = () => (process.env.MESHY_BASE_URL?.trim() || MESHY_D
 const MAX_DOWNLOAD = 100 * 1024 * 1024;
 /** Longest prompt Meshy takes. */
 export const MAX_MESHY_PROMPT = 800;
-export { MESHY_CREDITS_PER_MODEL } from '../shared/meshes';
+export { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits } from '../shared/meshes';
 /** Most generate_3d calls in one reply (JIG_MESHY_MAX_PER_REPLY); the user's next message gets a fresh allowance. */
 export const MESHY_MAX_PER_REPLY = 2;
 export const meshyMaxPerReply = () => {
@@ -124,10 +126,20 @@ export async function createTextTo3d(c: MeshyClient, prompt: string, signal?: Ab
   return data.result;
 }
 
-/** Starts a model from a photo (a data URI: JPEG, PNG or WebP up to 20 MB); returns the task id. */
-export async function createImageTo3d(c: MeshyClient, imageDataUri: string, signal?: AbortSignal): Promise<string> {
+/** Textures the colour asks for: the base colour only (no PBR maps), 2k, without baked-in lighting. */
+const TEXTURE = { enable_pbr: false, texture_resolution: '2k', remove_lighting: true } as const;
+
+/** Paints a finished Text to 3D preview (the refine stage, 10 credits); returns the refine task's id. */
+export async function createTextRefine(c: MeshyClient, previewTaskId: string, signal?: AbortSignal): Promise<string> {
+  const { data } = await call<{ result: string }>(c, 'POST', PATHS['text-to-3d'], { mode: 'refine', preview_task_id: previewTaskId, ...TEXTURE, target_formats: ['glb'] }, 60000, signal);
+  if (typeof data?.result !== 'string') throw new MeshyError('Meshy returned no task id');
+  return data.result;
+}
+
+/** Starts a model from a photo (a data URI: JPEG, PNG or WebP up to 20 MB), textured with `color`; returns the task id. */
+export async function createImageTo3d(c: MeshyClient, imageDataUri: string, signal?: AbortSignal, color = false): Promise<string> {
   const { data } = await call<{ result: string }>(c, 'POST', PATHS['image-to-3d'], {
-    image_url: imageDataUri, ai_model: 'meshy-7.1', geometry_resolution: '2k', should_texture: false, should_remesh: false, target_formats: ['glb'],
+    image_url: imageDataUri, ai_model: 'meshy-7.1', geometry_resolution: '2k', should_texture: color, ...(color ? TEXTURE : {}), should_remesh: false, target_formats: ['glb'],
   }, 60000, signal);
   if (typeof data?.result !== 'string') throw new MeshyError('Meshy returned no task id');
   return data.result;
@@ -210,7 +222,10 @@ export function meshyPrompt(subject: string): string {
 }
 
 export interface MeshyResult {
+  /** The task the model came from (a coloured Text to 3D model's refine task). */
   task: MeshyTask;
+  /** Credits all its tasks used (preview and refine). */
+  credits: number;
   /** The model file and its name (for its format). */
   model: { bytes: Uint8Array; filename: string };
   picture?: { bytes: Uint8Array; ext: 'png' | 'jpg' | 'webp' };
@@ -218,15 +233,27 @@ export interface MeshyResult {
   prompt: string;
 }
 
-/** A whole Meshy model: start the task, wait for it, download the model and its preview picture. */
+/**
+ * A whole Meshy model: start the task, wait for it, download the model and its preview picture. In
+ * colour, a model from a description is painted by a refine task after its preview; `onProgress`
+ * says which stage it is in.
+ */
 export async function generateMeshyModel(c: MeshyClient, input: { prompt: string } | { image: string; label?: string }, opts: {
-  signal?: AbortSignal; onProgress?: (t: MeshyTask) => void; onStarted?: (id: string) => void; timeoutMs?: number;
+  signal?: AbortSignal; onProgress?: (t: MeshyTask, stage: 'model' | 'texture') => void; onStarted?: (id: string) => void; timeoutMs?: number; color?: boolean;
 } = {}): Promise<MeshyResult> {
   const kind: MeshyKind = 'prompt' in input ? 'text-to-3d' : 'image-to-3d';
   const prompt = 'prompt' in input ? meshyPrompt(input.prompt) : input.label ?? 'From the attached photo';
-  const id = 'prompt' in input ? await createTextTo3d(c, prompt, opts.signal) : await createImageTo3d(c, input.image, opts.signal);
+  const id = 'prompt' in input ? await createTextTo3d(c, prompt, opts.signal) : await createImageTo3d(c, input.image, opts.signal, !!opts.color);
   opts.onStarted?.(id);
-  const task = await waitForTask(c, kind, id, opts);
+  const stage = (s: 'model' | 'texture') => ({ ...opts, onProgress: opts.onProgress && ((t: MeshyTask) => opts.onProgress!(t, s)) });
+  let task = await waitForTask(c, kind, id, stage('model'));
+  let credits = task.consumed_credits ?? 0;
+  if (opts.color && kind === 'text-to-3d') {
+    const refine = await createTextRefine(c, id, opts.signal);
+    opts.onStarted?.(refine);
+    task = await waitForTask(c, kind, refine, stage('texture'));
+    credits += task.consumed_credits ?? 0;
+  }
   const urls = task.model_urls ?? {};
   // Missing formats may come as "" as well as absent.
   const fmt = (['glb', 'stl', 'obj'] as const).find((f) => urls[f]);
@@ -243,5 +270,5 @@ export async function generateMeshyModel(c: MeshyClient, input: { prompt: string
       if (opts.signal?.aborted) throw e; // the picture is optional
     }
   }
-  return { task, model: { bytes: model.bytes, filename: `meshy-${id}.${fmt}` }, picture, prompt };
+  return { task, credits, model: { bytes: model.bytes, filename: `meshy-${task.id ?? id}.${fmt}` }, picture, prompt };
 }

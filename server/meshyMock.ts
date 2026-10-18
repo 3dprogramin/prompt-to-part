@@ -8,6 +8,8 @@
 //
 // Test triggers in the prompt: FAIL (the task fails), MODERATION (refused), RESCHEDULE (back to
 // PENDING once), FLAKY (the first poll answers 503), BROKEN (a mesh with holes and flipped faces).
+// A textured model (image to 3D with should_texture, or a Text to 3D refine task) is the coloured
+// figure (colour-figure.glb, with UVs and an embedded base colour texture).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -28,6 +30,8 @@ const MODELS: [RegExp, string][] = [
   [/\b(fish|koi|carp)/i, 'fish.glb'],
 ];
 const FIGURINE = 'figurine.glb';
+const TEXTURED = 'colour-figure.glb';
+const TEXTURE_RESOLUTIONS = ['2k', '4k', '8k'];
 
 export interface MockOptions {
   /** Time a task spends IN_PROGRESS (ms). */
@@ -51,6 +55,9 @@ interface Task {
   model: string;
   formats: string[];
   fail?: { type: string; code: string; message: string };
+  /** Textured (should_texture, or a refine task); `preview`: the preview task a refine paints. */
+  textured?: boolean;
+  preview?: string;
   reschedule?: boolean;
   flaky?: boolean;
   deleted?: boolean;
@@ -60,7 +67,10 @@ const ERR_DOCS = 'https://docs.meshy.ai/en/api/errors';
 const DEFAULT_FORMATS = ['glb', 'fbx', 'obj', 'mtl', 'usdz', 'stl'];
 const FORMATS = new Set(['glb', 'obj', 'fbx', 'stl', 'usdz', '3mf']);
 
-export function createMeshyMock(opts: MockOptions = {}): Server {
+/** The mock server; `created` lists the tasks created, with what they were created with (for tests). */
+export type MeshyMock = Server & { created: { type: string; body: Record<string, unknown> }[] };
+
+export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
   const runMs = opts.runMs ?? 12000, pendingMs = opts.pendingMs ?? 1500, retryAfter = opts.retryAfter ?? 2;
   let balance = opts.balance ?? 1000;
   const tasks = new Map<string, Task>();
@@ -84,12 +94,12 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
     const expires = finished ? finished + 259_200_000 : 0;
     const asset = (file: string) => `${base}/mock-assets/${t.id}/${file}?Expires=${Math.floor(expires / 1000)}&Signature=mock`;
     return {
-      id: t.id, type: t.type, ...(t.family === 'text-to-3d' ? { prompt: t.prompt, mode: 'preview' } : {}),
+      id: t.id, type: t.type, ...(t.family === 'text-to-3d' ? { prompt: t.prompt, mode: t.preview ? 'refine' : 'preview', ...(t.preview ? { preceding_task_id: t.preview } : {}) } : {}),
       status, progress: status === 'SUCCEEDED' ? 100 : progress, preceding_tasks: 0,
       created_at: t.created, started_at: started, finished_at: finished, ...(t.family === 'image-to-3d' ? { expires_at: expires } : {}),
       model_urls: status === 'SUCCEEDED' ? Object.fromEntries(t.formats.map((f) => [f, asset(`model.${f}`)])) : {},
       thumbnail_url: status === 'SUCCEEDED' ? asset('preview.png') : '',
-      texture_urls: [], texture_prompt: '', texture_image_url: '',
+      texture_urls: status === 'SUCCEEDED' && t.textured ? [{ base_color: asset('texture_0.png') }] : [], texture_prompt: '', texture_image_url: '',
       task_error: status === 'FAILED' ? { ...t.fail, doc_url: `${ERR_DOCS}#${t.fail!.code.replace(/_/g, '-')}` } : { message: '' },
       consumed_credits: status === 'FAILED' ? 0 : t.credits,
     };
@@ -117,13 +127,22 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
     if (b.ai_model != null && !['meshy-6-lite', 'meshy-6', 'meshy-7', 'meshy-7.1', 'latest'].includes(String(b.ai_model))) return send(res, 400, { message: `Invalid ai_model: ${b.ai_model}` });
     if (b.geometry_resolution != null && b.geometry_resolution !== 'standard' && !['meshy-7.1', 'latest', undefined].includes(b.ai_model as string)) return send(res, 400, { message: 'geometry_resolution 2k/4k needs meshy-7.1' });
     if (b.target_polycount != null && !(Number(b.target_polycount) >= 100 && Number(b.target_polycount) <= 300000)) return send(res, 400, { message: 'target_polycount must be between 100 and 300000' });
+    if (b.texture_resolution != null && !TEXTURE_RESOLUTIONS.includes(String(b.texture_resolution))) return send(res, 400, { message: `Invalid texture_resolution: ${b.texture_resolution} (2k, 4k or 8k)` });
+    if (b.enable_pbr != null && typeof b.enable_pbr !== 'boolean') return send(res, 400, { message: 'enable_pbr must be a boolean' });
     let prompt = '';
+    let preview: Task | undefined;
     if (family === 'text-to-3d') {
       if (b.mode !== 'preview' && b.mode !== 'refine') return send(res, 400, { message: 'mode is required (preview or refine)' });
-      if (b.mode === 'refine') return send(res, 400, { message: 'The mock makes previews only' });
-      if (typeof b.prompt !== 'string' || !b.prompt.trim()) return send(res, 400, { message: 'prompt is required' });
-      if (b.prompt.length > 800) return send(res, 400, { message: 'prompt must be at most 800 characters' });
-      prompt = b.prompt;
+      if (b.mode === 'refine') {
+        preview = typeof b.preview_task_id === 'string' ? tasks.get(b.preview_task_id) : undefined;
+        if (!preview || preview.deleted || preview.family !== 'text-to-3d' || preview.preview) return send(res, 400, { message: 'preview_task_id must be a Text to 3D preview task' });
+        if (view(preview).status !== 'SUCCEEDED') return send(res, 400, { message: 'The preview task has not succeeded yet' });
+        prompt = preview.prompt;
+      } else {
+        if (typeof b.prompt !== 'string' || !b.prompt.trim()) return send(res, 400, { message: 'prompt is required' });
+        if (b.prompt.length > 800) return send(res, 400, { message: 'prompt must be at most 800 characters' });
+        prompt = b.prompt;
+      }
     } else {
       const img = b.image_url;
       if (typeof img !== 'string' && typeof b.input_task_id !== 'string') return send(res, 400, { message: 'image_url or input_task_id is required' });
@@ -135,20 +154,23 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
       if (b.enable_pbr && b.should_texture === false) return send(res, 400, { message: 'enable_pbr requires should_texture' });
       prompt = typeof b.texture_prompt === 'string' ? b.texture_prompt : '';
     }
-    // 20 for the mesh, 30 textured; 2k/4k geometry costs 5 more.
-    const credits = (family === 'text-to-3d' || b.should_texture === false ? 20 : 30) + (b.geometry_resolution === '2k' || b.geometry_resolution === '4k' ? 5 : 0);
+    // 20 for the mesh, 30 textured; 2k/4k geometry costs 5 more; a refine 10.
+    const textured = preview ? true : family === 'image-to-3d' && b.should_texture !== false;
+    const credits = preview ? 10 : (family === 'text-to-3d' || b.should_texture === false ? 20 : 30) + (b.geometry_resolution === '2k' || b.geometry_resolution === '4k' ? 5 : 0);
     if (balance < credits) return send(res, 402, { message: 'Insufficient credits' });
     if (active() >= 10) return send(res, 429, { message: 'NoMorePendingTasks: too many tasks in the queue' });
     balance -= credits;
     const id = randomUUID();
     const t: Task = {
-      id, family, type: family === 'text-to-3d' ? 'text-to-3d-preview' : 'image-to-3d', prompt, created: Date.now(), credits,
-      model: MODELS.find(([re]) => re.test(prompt))?.[1] ?? FIGURINE, formats,
+      id, family, type: family === 'text-to-3d' ? (preview ? 'text-to-3d-refine' : 'text-to-3d-preview') : 'image-to-3d', prompt, created: Date.now(), credits,
+      model: textured ? TEXTURED : MODELS.find(([re]) => re.test(prompt))?.[1] ?? FIGURINE, formats, textured,
+      ...(preview ? { preview: preview.id } : {}),
       reschedule: /\bRESCHEDULE\b/.test(prompt), flaky: /\bFLAKY\b/.test(prompt),
       ...(/\bFAIL\b/.test(prompt) ? { fail: { type: 'invalid_input', code: 'image_too_complex', message: 'The uploaded image is too complex for 3D generation.' } } : {}),
       ...(/\bMODERATION\b/.test(prompt) ? { fail: { type: 'invalid_input', code: 'moderation_blocked', message: 'The input was blocked by content moderation.' } } : {}),
     };
     tasks.set(id, t);
+    server.created.push({ type: t.type, body: b });
     send(res, 202, { result: id });
   };
 
@@ -173,6 +195,15 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
       res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
       return res.end(png);
     }
+    if (file === 'texture_0.png' && t.textured) {
+      // The base colour texture embedded in the textured model.
+      const glb = readFileSync(path.join(FIXTURES, t.model));
+      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8'));
+      const bv = json.bufferViews[json.images[0].bufferView];
+      const png = glb.subarray(28 + glb.readUInt32LE(12) + (bv.byteOffset ?? 0), 28 + glb.readUInt32LE(12) + (bv.byteOffset ?? 0) + bv.byteLength);
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
+      return res.end(png);
+    }
     const fmt = /^model\.(\w+)$/.exec(file)?.[1];
     if (fmt !== 'glb') return send(res, 404, { message: 'The mock serves GLB models only' });
     const bytes = readFileSync(path.join(FIXTURES, t.model));
@@ -193,7 +224,7 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
     tick();
   };
 
-  const server = createServer(async (req, res) => {
+  const server = Object.assign(createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://mock');
     const parts = url.pathname.split('/').filter(Boolean);
     if (parts[0] === 'mock-assets') {
@@ -239,7 +270,7 @@ export function createMeshyMock(opts: MockOptions = {}): Server {
     if (t.flaky) { t.flaky = false; return send(res, 503, { message: 'Service temporarily unavailable' }); }
     const v = view(t);
     send(res, 200, v, v.status === 'PENDING' || v.status === 'IN_PROGRESS' ? { 'Retry-After': String(retryAfter) } : {});
-  });
+  }), { created: [] as MeshyMock['created'] });
   server.on('listening', () => {
     const a = server.address();
     if (a && typeof a === 'object') base = `http://127.0.0.1:${a.port}`;

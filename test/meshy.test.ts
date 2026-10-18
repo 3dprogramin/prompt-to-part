@@ -5,6 +5,8 @@ import type { AddressInfo } from 'node:net';
 import { createMeshyMock } from '../server/meshyMock';
 import { createImageTo3d, createTextTo3d, generateMeshyModel, getTask, MeshyError, waitForTask, type MeshyClient, type MeshyTask } from '../server/meshy';
 import { importMeshFile } from '../shared/runtime';
+import { decodeTexture } from '../shared/imageDecode';
+import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL } from '../shared/meshes';
 
 // The mock with quick tasks: 0.4 s waiting, 1.5 s running (the client's waits are cut short).
 async function startMock(balance?: number, pendingMs = 400) {
@@ -89,5 +91,42 @@ test('stopping while a task waits deletes it (refunded)', async () => {
   await assert.rejects(p);
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(await balance(), before);
+});
+
+test('in colour: image to 3D textured, text to 3D refined after its preview, 35 credits either way', async () => {
+  const mock = createMeshyMock({ pendingMs: 200, runMs: 600 });
+  await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
+  after(() => mock.close());
+  const c: MeshyClient = { ...client, baseUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi` };
+  const photo = `data:image/png;base64,${Buffer.from('89504e470d0a1a0a', 'hex').toString('base64')}`;
+  const started: string[] = [];
+  const img = await generateMeshyModel(c, { image: photo }, { color: true, onStarted: (id) => started.push(id) });
+  assert.equal(mock.created.at(-1)?.type, 'image-to-3d');
+  const sent = mock.created.at(-1)!.body;
+  assert.equal(sent.should_texture, true);
+  assert.equal(sent.texture_resolution, '2k');
+  assert.equal(sent.remove_lighting, true);
+  assert.equal(sent.enable_pbr, false);
+  assert.equal(sent.geometry_resolution, '2k');
+  assert.equal(img.credits, MESHY_CREDITS_PER_COLOR_MODEL);
+  assert.equal(started.length, 1);
+
+  const stages = new Set<string>();
+  const text = await generateMeshyModel(c, { prompt: 'a knight' }, { color: true, onStarted: (id) => started.push(id), onProgress: (_, s) => stages.add(s) });
+  assert.deepEqual(mock.created.slice(-2).map((t) => t.type), ['text-to-3d-preview', 'text-to-3d-refine']);
+  const refine = mock.created.at(-1)!.body;
+  assert.equal(refine.mode, 'refine');
+  assert.equal(refine.preview_task_id, started[1]);
+  assert.equal(refine.enable_pbr, false);
+  assert.equal(text.task.type, 'text-to-3d-refine');
+  assert.equal(text.credits, MESHY_CREDITS_PER_COLOR_MODEL);
+  assert.deepEqual([...stages], ['model', 'texture']);
+  // The textured model comes with its colours.
+  const imported = importMeshFile(text.model.bytes, text.model.filename, { colors: true }, decodeTexture);
+  assert.ok(imported.report.colored);
+  // Without colour: untextured, 25.
+  const grey = await generateMeshyModel(c, { image: photo });
+  assert.equal(mock.created.at(-1)!.body.should_texture, false);
+  assert.equal(grey.credits, MESHY_CREDITS_PER_MODEL);
 });
 

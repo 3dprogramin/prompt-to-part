@@ -25,7 +25,7 @@ import { A1_DEFAULTS } from '../shared/print';
 import type { ParamValues } from '../shared/types';
 import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
-import { MESHY_CREDITS_PER_MODEL, meshyClient } from './meshy';
+import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyClient, meshyCredits } from './meshy';
 import { recordRateLimit } from './usage';
 
 const MODEL_FILE = 'model.js';
@@ -202,6 +202,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const meshes = parseMeshes(pictureValues[MESHES_KEY]);
   const attachedMeshes = (req.meshes ?? []).filter((n) => meshes[n]);
   const figure = mode === 'figure';
+  // Colour (3D figure mode): figures textured by Meshy and printed in up to 4 filaments.
+  const figureColor = figure && !!req.figureColor;
   const meshy = meshyClient();
   // Concept pictures drawn earlier (generate_concept), for generate_3d's from_concept.
   const concepts = parseConcepts(pictureValues[CONCEPTS_KEY]);
@@ -223,7 +225,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
     layerTone,
     lithophane,
-    meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools } : undefined,
+    meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -320,8 +322,11 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
   if (figure && !meshy) parts.push('3D figure mode is on, but Jig has no Meshy key (MESHY_API_KEY), so generate_3d is not available.');
   else if (figure && references.length) parts.push('3D figure mode is on: make the subject with generate_3d (from_photo: true builds it from the attached photo) and build the design around it with H.mesh.');
-  else if (figure && conceptTools) parts.push(`3D figure mode is on: if the user is approving a concept picture, build it with generate_3d({ name, from_concept }) and the design around it with H.mesh; if they want it changed, draw a new one with generate_concept. For a new figure, draw a concept picture with generate_concept and end your reply asking the user to approve it (no generate_3d in this reply) – unless they said to skip the picture and go straight to 3D. Each Meshy model costs ${MESHY_CREDITS_PER_MODEL} credits.`);
+  else if (figure && conceptTools) parts.push(`3D figure mode is on: if the user is approving a concept picture, build it with generate_3d({ name, from_concept }) and the design around it with H.mesh; if they want it changed, draw a new one with generate_concept. For a new figure, draw a concept picture with generate_concept and end your reply asking the user to approve it (no generate_3d in this reply) – unless they said to skip the picture and go straight to 3D. Each Meshy model costs ${meshyCredits(figureColor)} credits.`);
   else if (figure) parts.push('3D figure mode is on: make the subject with generate_3d and build the design around it with H.mesh.');
+  if (figure && meshy) parts.push(figureColor
+    ? `Colour is on: the figure is made in colour – concept pictures in flat colours, generate_3d textured (${MESHY_CREDITS_PER_COLOR_MODEL} credits a model), its colours printed in up to 4 filaments (see "Coloured figures").`
+    : `Colour is off: figures are grey and print in one colour (${MESHY_CREDITS_PER_MODEL} credits a model). If the user asks for a figure in colour, use color: true on generate_concept and generate_3d (${MESHY_CREDITS_PER_COLOR_MODEL} credits) and tell them about the Colour switch next to the Figure button.`);
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {
@@ -366,7 +371,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       prompt: messages(),
       options: {
         systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
-          figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools } : undefined),
+          figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
