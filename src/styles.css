@@ -295,6 +295,8 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .md li::marker { color: var(--text-3); }
 .md strong { font-weight: 600; color: #fff; }
 .md code { font: 11.5px var(--mono); background: #ffffff12; border-radius: 4px; padding: 1px 4px; }
+.md a { color: var(--accent); text-decoration: underline; text-decoration-color: #e0a43c66; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.md a:hover { color: var(--accent-2); text-decoration-color: currentColor; }
 .md > :last-child { margin-bottom: 0; }
 .plate-label { font: 500 11px var(--sans); color: #e0a43c99; transform: translate(4px, 4px); white-space: nowrap; pointer-events: none; }
 .good-text { color: var(--good); text-align: right; }

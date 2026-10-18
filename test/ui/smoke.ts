@@ -1,7 +1,7 @@
 // UI smoke test (`npm run test:ui`): the built app in one headless Chromium against a throwaway
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
-// view, the Print tab (which must not start a slice by itself), the Designs menu's export and
+// view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
 // import, and Export project… (as a zip). A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
@@ -48,7 +48,8 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   const saved = await fetch(`${A}/api/designs/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
-    body: JSON.stringify({ id, name: 'Smoke cube', createdAt: 1, updatedAt: 1000, messages: [], code, values: {}, currentVersion: 0,
+    body: JSON.stringify({ id, name: 'Smoke cube', createdAt: 1, updatedAt: 1000, code,
+      messages: [{ id: 'm1', role: 'assistant', text: 'A cube. Battery: [DJI Store (EU)](https://store.dji.com/p?vid=1).', createdAt: 1000 }], values: {}, currentVersion: 0,
       versions: [{ code, summary: 'A 20 mm cube', createdAt: 1000, source: 'manual' }] }),
   });
   assert.equal(saved.status, 200, await saved.text());
@@ -69,6 +70,10 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await page.locator('.conn-chip', { hasText: 'Claude subscription · 62%' }).waitFor();
   await page.locator('canvas').first().waitFor();
   await page.screenshot({ path: path.join(shots, '1-design.png') });
+  // A markdown link in a reply opens in a new tab.
+  const dji = page.locator('.md-bubble a', { hasText: 'DJI Store (EU)' });
+  assert.equal(await dji.getAttribute('href'), 'https://store.dji.com/p?vid=1');
+  assert.equal(await dji.getAttribute('target'), '_blank');
 
   await page.getByRole('tab', { name: /Print/ }).click();
   const cost = page.locator('.cost-panel');
