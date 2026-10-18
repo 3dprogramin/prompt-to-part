@@ -26,7 +26,11 @@ mkdirSync(shots, { recursive: true });
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
 const { createApp } = await import('../../server/app');
-server.on('request', createApp({ port, generate: async () => { throw new Error('the smoke test never generates'); } }));
+// Stand-ins for Claude and for the connection check (the real one would start Claude Code with this
+// computer's login to read the subscription's usage).
+const connection = async () => ({ via: 'subscription' as const, ok: true, detail: 'Stand-in for the smoke test.',
+  usage: [{ kind: 'five_hour', label: '5-hour', percent: 62, resetsAt: Date.now() + 3600_000, limited: false, at: Date.now() }] });
+server.on('request', createApp({ port, connection, generate: async () => { throw new Error('the smoke test never generates'); } }));
 
 let browser: Browser | null = null;
 after(async () => {
@@ -62,7 +66,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
   assert.equal(await page.locator('.app-version').textContent(), `v${version}`);
   assert.equal(await page.locator('a.btn', { hasText: 'New' }).getAttribute('href'), '/');
-  await page.locator('.conn-chip').waitFor();
+  await page.locator('.conn-chip', { hasText: 'Claude subscription · 62%' }).waitFor();
   await page.locator('canvas').first().waitFor();
   await page.screenshot({ path: path.join(shots, '1-design.png') });
 

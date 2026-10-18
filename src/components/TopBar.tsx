@@ -109,7 +109,7 @@ export function TopBar(p: Props) {
               <div key={d.id} className={`menu-item ${d.id === p.design.id ? 'on' : ''}`}>
                 <button className="menu-open" onClick={() => open(d.id)}>
                   <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name}</span>
-                  <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} versions</span>
+                  <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
                 </button>
                 <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => p.onDelete(d.id)}><Icon name="trash" size={14} /></button>
               </div>

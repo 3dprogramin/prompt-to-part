@@ -109,9 +109,11 @@ export interface AppOptions {
   lookup?: typeof lookupFilament;
   /** Asks the image model for a picture (tests pass a stand-in). */
   image?: typeof requestImage;
+  /** Checks what Jig runs Claude on and its usage (tests pass a stand-in: the real one may start Claude Code). */
+  connection?: typeof checkConnection;
 }
 
-export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament, image = requestImage }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament, image = requestImage, connection = checkConnection }: AppOptions = {}): express.Express {
   const app = express();
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
@@ -320,7 +322,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   });
 
   app.get('/api/connection', async (req, res) => {
-    res.json(await checkConnection(req.query.fresh === '1'));
+    res.json(await connection(req.query.fresh === '1'));
   });
 
   // Dictation: a single-use token for ElevenLabs' realtime speech-to-text, so the page can stream
