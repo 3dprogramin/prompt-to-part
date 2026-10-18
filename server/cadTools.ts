@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
-import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from './artwork';
+import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, paintPrompt, picturePrompt, requestImage } from './artwork';
 import { checkSwaps, cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, toLayerToneImage, type LayerToneSetup } from '../shared/layertone';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
@@ -207,33 +207,65 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       })] : []),
-      ...(meshy?.concepts ? [tool('generate_concept', `Have the image model (${imageModel()}) draw a concept picture of a 3D figure for generate_3d to build from: the subject alone, full body, on white – as a grey clay render, or with color: true in a few flat colours for a coloured figure. A few cents and ~10–20 s, no Meshy credits. The user sees it in the chat: end your reply asking them to approve it or say what to change; once they approve, generate_3d({ name, from_concept }) builds exactly this picture (in colour if it was drawn in colour).`, {
+      ...(meshy?.concepts ? [tool('generate_concept', `Have the image model (${imageModel()}) draw a concept picture of a 3D figure for generate_3d to build from: the subject alone, full body, on white, as a grey clay render (the shape). With color: true (a coloured figure) it then paints that same picture like a painted collectible figurine (the colours), so the user approves the pair. A few cents a picture and ~10–20 s each, no Meshy credits. The user sees it in the chat: end your reply asking them to approve it or say what to change; once they approve, generate_3d({ name, from_concept }) builds exactly this picture (the shape from the grey one, painted from the coloured one).`, {
         name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name of the picture, e.g. "spiderman" (generate_3d takes it as from_concept); an existing name is replaced'),
         subject: z.string().min(10).max(2000).describe('The one subject: who or what it is, pose, proportions, clothes, hair, what it wears or holds, style – no base, scenery or props (those are built in the script)'),
         aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 3:4, for a standing figure)'),
-        color: z.boolean().optional().describe(`In flat colours, for a coloured figure printed in up to ${MAX_MESH_COLORS} filaments (default: ${meshy.color ? 'on – the user turned on Colour' : 'off, grey – on only when the user asks for a figure in colour'})`),
+        color: z.boolean().optional().describe(`Also paint it in colour, for a coloured figure printed in up to ${MAX_MESH_COLORS} filaments (default: ${meshy.color ? 'on – the user turned on Colour' : 'off, grey only – on only when the user asks for a figure in colour'})`),
       }, async (a) => {
         const color = a.color ?? !!meshy.color;
-        emit({ type: 'step', step: { kind: 'status', text: `Drawing ${color ? 'colour ' : ''}concept "${a.name}" with ${imageModel()}…` } });
-        try {
-          const prompt = conceptPrompt(a.subject, color);
-          const { image, model, cost } = await drawImage(prompt, a.aspect ?? '3:4', undefined, meshy.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+        const aspect = a.aspect ?? '3:4';
+        const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
+        const toFile = (image: { data: string; mediaType: string }) => {
           const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const)[image.mediaType as 'image/png'];
           if (!ext) throw new Error(`The image model returned a ${image.mediaType} picture, which Meshy can't take`);
-          const url = await storeConceptPicture(meshy.designId, { bytes: Buffer.from(image.data, 'base64'), ext });
-          const entry = { image: url, subject: a.subject.trim(), createdAt: Date.now(), ...(color ? { color: true } : {}) };
+          return { bytes: Buffer.from(image.data, 'base64'), ext };
+        };
+        status(`Drawing concept "${a.name}"${color ? ' (the shape)' : ''} with ${imageModel()}…`);
+        try {
+          // The shape: the same grey clay render with or without colour (image to 3D reads the shape from its shading).
+          const prompt = conceptPrompt(a.subject);
+          const grey = await drawImage(prompt, aspect, undefined, meshy.signal, status);
+          const greyUrl = `data:${grey.image.mediaType};base64,${grey.image.data}`;
+          const image = await storeConceptPicture(meshy.designId, toFile(grey.image));
+          const credits = meshyCredits(color);
+          emit({ type: 'step', step: {
+            kind: 'render', ok: true, image: greyUrl, detailOpen: true,
+            text: `Concept "${a.name}"${color ? ' – shape' : ''} from ${grey.model}${grey.cost != null ? ` · $${grey.cost.toFixed(3)}` : ''}`,
+            detail: `Prompt sent to ${grey.model}:\n\n${prompt}\n\nOnce you approve it, Meshy builds the 3D model ${color ? 'in this shape' : 'from this picture'} (${credits} credits).`,
+          } });
+          // The colours: that picture painted (image to image), Meshy's texture. Without it, Meshy paints the model itself.
+          let painted: { url: string; image: { data: string; mediaType: string } } | undefined;
+          let paintError = '';
+          if (color) {
+            status(`Painting concept "${a.name}" in colour with ${imageModel()}…`);
+            const paint = paintPrompt(a.subject);
+            try {
+              const p = await drawImage(paint, aspect, [greyUrl], meshy.signal, status);
+              painted = { url: await storeConceptPicture(meshy.designId, toFile(p.image)), image: p.image };
+              emit({ type: 'step', step: {
+                kind: 'render', ok: true, image: `data:${p.image.mediaType};base64,${p.image.data}`, detailOpen: true,
+                text: `Concept "${a.name}" – colours from ${p.model}${p.cost != null ? ` · $${p.cost.toFixed(3)}` : ''}`,
+                detail: `Prompt sent to ${p.model} with the shape picture:\n\n${paint}\n\nOnce you approve the pair, Meshy builds the shape from the grey picture and paints the model from this one (${credits} credits); Jig then reduces its colours to at most ${MAX_MESH_COLORS} filaments.`,
+              } });
+            } catch (e) {
+              if (meshy.signal?.aborted) throw e;
+              paintError = (e as Error).message;
+              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Concept colours: ${paintError} – Meshy will paint the model itself` } });
+            }
+          }
+          const entry = { image, ...(painted ? { painted: painted.url } : {}), subject: a.subject.trim(), createdAt: Date.now(), ...(color ? { color: true } : {}) };
           base[CONCEPTS_KEY] = withConcept(base[CONCEPTS_KEY], a.name, entry);
           state.newConcepts.add(a.name);
           emit({ type: 'concept', name: a.name, entry });
-          emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
-            text: `Concept "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nOnce you approve it, Meshy builds the 3D model from this picture${color ? ' in colour' : ''} (${meshyCredits(color)} credits).`,
-          } });
+          const check = painted
+            ? `The first picture is the shape (grey clay), the second the colours (the same picture painted). Check that they show the subject asked for – one subject, whole, on white – and that the painted one matches the grey one (same pose and framing, a few main colours, at most ${MAX_MESH_COLORS}); call generate_concept again if not. Then end your reply: tell the user this is the concept for their figure, the shape and its colours, and ask them to approve the pair or say what to change.`
+            : `Check that it shows the subject asked for – one subject, whole, grey, on white – and call generate_concept again if not.${paintError ? ` Painting it in colour failed (${paintError}): there is only the grey picture, and Meshy will paint the model with its own texturing – tell the user the colours will come from Meshy.` : ''} Then end your reply: tell the user this is the concept for their figure and ask them to approve it or say what to change.`;
           return {
             content: [
-              { type: 'image', data: image.data, mimeType: image.mediaType },
-              { type: 'text', text: `Concept picture "${a.name}" is ready; the user sees it in the chat. Check that it shows the subject asked for – one subject, whole, ${color ? `in a few flat, clearly separated colours (at most ${MAX_MESH_COLORS})` : 'grey'}, on white – and call generate_concept again if not. Then end your reply: tell the user this is the concept for their figure and ask them to approve it or say what to change. Don't call generate_3d now. When the user approves (their next message), call generate_3d({ name, from_concept: "${a.name}" }) (${meshyCredits(color)} Meshy credits${color ? ', in colour' : ''}); if they want changes, draw a new concept instead.` },
+              { type: 'image', data: grey.image.data, mimeType: grey.image.mediaType },
+              ...(painted ? [{ type: 'image' as const, data: painted.image.data, mimeType: painted.image.mediaType }] : []),
+              { type: 'text', text: `Concept picture "${a.name}" is ready; the user sees it in the chat. ${check} Don't call generate_3d now. When the user approves (their next message), call generate_3d({ name, from_concept: "${a.name}" }) (${credits} Meshy credits${color ? ', in colour' : ''}); if they want changes, draw a new concept instead.` },
             ],
           };
         } catch (e) {
@@ -242,11 +274,11 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       })] : []),
-      ...(meshy ? [tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept), the photo the user attached (from_photo) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${MAX_MESH_COLORS} filaments (the A1's AMS lite) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
+      ...(meshy ? [tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept: its grey picture gives the shape, and in colour its painted one the texture), the photo the user attached (from_photo) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${MAX_MESH_COLORS} filaments (the A1's AMS lite) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
         name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name to use with H.mesh, e.g. "fox"; an existing name is replaced'),
         prompt: z.string().max(700).optional().describe('The subject: what it is, pose, proportions, clothes, accessories, style – no printing instructions (Jig adds them). Required unless from_photo or from_concept'),
         from_photo: z.boolean().optional().describe('Build it from the photo the user attached to this message (image to 3D) instead of the description'),
-        from_concept: z.string().regex(/^[\w.-]{1,40}$/).optional().describe('Build it from this concept picture (generate_concept) the user approved (image to 3D): Meshy gets exactly that picture'),
+        from_concept: z.string().regex(/^[\w.-]{1,40}$/).optional().describe('Build it from this concept picture (generate_concept) the user approved (image to 3D): Meshy gets exactly that picture, and in colour paints the model from its coloured version'),
         color: z.boolean().optional().describe(`A coloured figure (textured, ${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), printed in up to ${MAX_MESH_COLORS} filaments. Default: ${meshy.color ? 'on (the user turned on Colour)' : 'off'}, or as the concept picture was drawn; turn it on only when the user asks for colour`),
         colors: z.number().int().min(1).max(MAX_MESH_COLORS).optional().describe(`With color: most colours (filaments) the figure gets (default ${MAX_MESH_COLORS}); fewer leave AMS slots for other parts in colours of their own`),
       }, async (a) => {
@@ -274,11 +306,17 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         state.meshyCalls++;
         let started = false;
         let image: string | undefined;
+        let texture: string | undefined;
         if (concept) {
-          const m = CONCEPT_URL.exec(concept.image)!;
-          try {
+          const dataUri = async (url: string) => {
+            const m = CONCEPT_URL.exec(url)!;
             const bytes = await readFile(path.join(meshDir(m[1]), m[2]));
-            image = `data:image/${m[2].endsWith('.jpg') ? 'jpeg' : m[2].slice(33)};base64,${bytes.toString('base64')}`;
+            return `data:image/${m[2].endsWith('.jpg') ? 'jpeg' : m[2].slice(33)};base64,${bytes.toString('base64')}`;
+          };
+          try {
+            // The grey picture is the shape; in colour, the painted one is the texture (Meshy paints it itself without one).
+            image = await dataUri(concept.image);
+            if (color && concept.painted) texture = await dataUri(concept.painted);
           } catch {
             state.meshyCalls--;
             return refuse(`The picture of concept "${a.from_concept}" is missing: draw it again with generate_concept.`);
@@ -288,7 +326,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         emit({ type: 'step', step: { kind: 'status', text: `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
         let shown = -1;
         let status = '';
-        const input = concept ? { image: image!, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: meshy.references[0] } : { prompt: a.prompt! };
+        const input = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: meshy.references[0] } : { prompt: a.prompt! };
         try {
           const r = await generateMeshyModel(meshy.client, input, {
             signal: meshy.signal,
@@ -321,7 +359,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           emit({ type: 'step', step: {
             kind: 'render', ok: true, image: picture, detailOpen: true,
             text: `${color ? 'Coloured 3D model' : '3D model'} "${a.name}" from Meshy${r.credits ? ` · ${r.credits} credits` : ''}`,
-            detail: `${'prompt' in input ? 'Prompt sent to Meshy (text to 3D)' : 'Sent to Meshy (image to 3D)'}:\n\n${r.prompt}\n\n${report}`,
+            detail: `${'prompt' in input ? 'Prompt sent to Meshy (text to 3D)' : `Sent to Meshy (image to 3D${texture ? ': the shape picture, painted from the colours picture' : ''})`}:\n\n${r.prompt}\n\n${report}`,
           } });
           return {
             content: [

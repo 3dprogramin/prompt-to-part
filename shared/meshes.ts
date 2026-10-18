@@ -75,10 +75,10 @@ export function rehomeMeshes(raw: unknown, designId: string): string | undefined
 }
 
 // ---------------------------------------------------------------------------- concept pictures
-// In 3D figure mode the image model first draws the subject as a grey clay render, or in flat
-// colours for a coloured figure (generate_concept), for the user to approve; generate_3d then builds
-// it from that picture (image to 3D). The picture is stored with the meshes; the values keep an
-// index of them under CONCEPTS_KEY.
+// In 3D figure mode the image model first draws the subject as a grey clay render (generate_concept),
+// and for a coloured figure then paints that same picture, for the user to approve; generate_3d then
+// builds it from the grey picture (image to 3D: the shape) and textures it from the painted one. The
+// pictures are stored with the meshes; the values keep an index of them under CONCEPTS_KEY.
 
 /** What one Meshy model costs (meshy-7.1, untextured, 2k geometry). */
 export const MESHY_CREDITS_PER_MODEL = 25;
@@ -94,8 +94,10 @@ export const MAX_CONCEPTS = 12;
 export const CONCEPT_URL = /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/meshes\/([0-9a-f]{32}\.(?:png|jpg|webp))$/;
 
 export interface ConceptEntry {
-  /** URL of the stored picture (CONCEPT_URL). */
+  /** URL of the stored picture (CONCEPT_URL): the grey clay render, the shape Meshy builds. */
   image: string;
+  /** A coloured figure: URL of the same picture painted (CONCEPT_URL), the texture Meshy paints from. */
+  painted?: string;
   /** What the image model was asked to show. */
   subject: string;
   createdAt: number;
@@ -111,7 +113,10 @@ export function parseConcepts(raw: unknown): Record<string, ConceptEntry> {
   for (const [name, e] of Object.entries(o).slice(-MAX_CONCEPTS)) {
     const c = e as Partial<ConceptEntry>;
     if (!MESH_NAME.test(name) || typeof c?.image !== 'string' || !CONCEPT_URL.test(c.image)) continue;
-    out[name] = { image: c.image, subject: typeof c.subject === 'string' ? c.subject.slice(0, 2000) : '', createdAt: Number(c.createdAt) || 0, ...(c.color === true ? { color: true } : {}) };
+    out[name] = {
+      image: c.image, ...(typeof c.painted === 'string' && CONCEPT_URL.test(c.painted) ? { painted: c.painted } : {}),
+      subject: typeof c.subject === 'string' ? c.subject.slice(0, 2000) : '', createdAt: Number(c.createdAt) || 0, ...(c.color === true ? { color: true } : {}),
+    };
   }
   return out;
 }
@@ -126,7 +131,11 @@ export function withConcept(raw: unknown, name: string, entry: ConceptEntry): st
 export function rehomeConcepts(raw: unknown, designId: string): string | undefined {
   const concepts = parseConcepts(raw);
   if (!Object.keys(concepts).length) return undefined;
-  for (const c of Object.values(concepts)) c.image = c.image.replace(/^\/api\/designs\/[a-zA-Z0-9-]{8,64}\//, `/api/designs/${designId}/`);
+  const rehome = (url: string) => url.replace(/^\/api\/designs\/[a-zA-Z0-9-]{8,64}\//, `/api/designs/${designId}/`);
+  for (const c of Object.values(concepts)) {
+    c.image = rehome(c.image);
+    if (c.painted) c.painted = rehome(c.painted);
+  }
   return JSON.stringify(concepts);
 }
 

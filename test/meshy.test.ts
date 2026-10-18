@@ -110,6 +110,14 @@ test('in colour: image to 3D textured, text to 3D refined after its preview, 35 
   assert.equal(sent.geometry_resolution, '2k');
   assert.equal(img.credits, MESHY_CREDITS_PER_COLOR_MODEL);
   assert.equal(started.length, 1);
+  assert.equal(sent.texture_image_url, undefined);
+  // Painted from a picture of its own (a concept's coloured version): texture_image_url, still 35.
+  const painted = `data:image/png;base64,${Buffer.from('89504e470d0a1a0a7061696e746564', 'hex').toString('base64')}`;
+  const tex = await generateMeshyModel(c, { image: photo, texture: painted }, { color: true });
+  assert.equal(mock.created.at(-1)!.body.image_url, photo);
+  assert.equal(mock.created.at(-1)!.body.texture_image_url, painted);
+  assert.equal(tex.credits, MESHY_CREDITS_PER_COLOR_MODEL);
+  await assert.rejects(createImageTo3d(c, photo, undefined, true, 'data:image/gif;base64,R0lGOD'), (e) => e instanceof MeshyError && e.status === 400);
 
   const stages = new Set<string>();
   const text = await generateMeshyModel(c, { prompt: 'a knight' }, { color: true, onStarted: (id) => started.push(id), onProgress: (_, s) => stages.add(s) });
@@ -125,8 +133,9 @@ test('in colour: image to 3D textured, text to 3D refined after its preview, 35 
   const imported = importMeshFile(text.model.bytes, text.model.filename, { colors: true }, decodeTexture);
   assert.ok(imported.report.colored);
   // Without colour: untextured, 25.
-  const grey = await generateMeshyModel(c, { image: photo });
+  const grey = await generateMeshyModel(c, { image: photo, texture: painted });
   assert.equal(mock.created.at(-1)!.body.should_texture, false);
+  assert.equal(mock.created.at(-1)!.body.texture_image_url, undefined);
   assert.equal(grey.credits, MESHY_CREDITS_PER_MODEL);
 });
 

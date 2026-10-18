@@ -300,14 +300,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     parts.push(`Meshes in this design (H.mesh): ${Object.entries(meshes).map(([n, m]) => `"${n}" (${m.source === 'meshy' ? `made with generate_3d${m.prompt ? `: ${m.prompt.slice(0, 120)}` : ''}` : `from ${m.original ?? 'a file'}`}; ${m.size.map((x) => x.toFixed(0)).join(' × ')} mm as stored, ${m.triangles.toLocaleString('en')} triangles)`).join(', ')}.`);
   }
   if (meshTools && Object.keys(concepts).length) {
-    parts.push(`Concept pictures in this design (generate_3d from_concept builds one; the newest is last): ${Object.entries(concepts).map(([n, c]) => `"${n}" (${c.subject.slice(0, 160)})`).join(', ')}.`);
+    parts.push(`Concept pictures in this design (generate_3d from_concept builds one; the newest is last): ${Object.entries(concepts).map(([n, c]) => `"${n}" (${c.subject.slice(0, 160)}${c.painted ? '; in colour: the shape and its painted colours' : ''})`).join(', ')}.`);
   }
   if (figure && !meshy) parts.push('3D figure mode is on, but Jig has no Meshy key (MESHY_API_KEY), so generate_3d is not available.');
   else if (figure && references.length) parts.push('3D figure mode is on: make the subject with generate_3d (from_photo: true builds it from the attached photo) and build the design around it with H.mesh.');
   else if (figure && conceptTools) parts.push(`3D figure mode is on: if the user is approving a concept picture, build it with generate_3d({ name, from_concept }) and the design around it with H.mesh; if they want it changed, draw a new one with generate_concept. For a new figure, draw a concept picture with generate_concept and end your reply asking the user to approve it (no generate_3d in this reply) – unless they said to skip the picture and go straight to 3D. Each Meshy model costs ${meshyCredits(figureColor)} credits.`);
   else if (figure) parts.push('3D figure mode is on: make the subject with generate_3d and build the design around it with H.mesh.');
   if (figure && meshy) parts.push(figureColor
-    ? `Colour is on: the figure is made in colour – concept pictures in flat colours, generate_3d textured (${MESHY_CREDITS_PER_COLOR_MODEL} credits a model), its colours printed in up to 4 filaments (see "Coloured figures").`
+    ? `Colour is on: the figure is made in colour – each concept is a grey picture (the shape) and the same picture painted (the colours), generate_3d textured from the painted one (${MESHY_CREDITS_PER_COLOR_MODEL} credits a model), its colours printed in up to 4 filaments (see "Coloured figures").`
     : `Colour is off: figures are grey and print in one colour (${MESHY_CREDITS_PER_MODEL} credits a model). If the user asks for a figure in colour, use color: true on generate_concept and generate_3d (${MESHY_CREDITS_PER_COLOR_MODEL} credits) and tell them about the Colour switch next to the Figure button.`);
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 

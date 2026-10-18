@@ -95,4 +95,14 @@ test('the concept picture index: checked, newest last, at most MAX_CONCEPTS, for
   assert.equal(names.at(-1), 'c5');
   assert.ok(!names.includes('c0') && !names.includes('c1'));
   assert.match(parseConcepts(rehomeConcepts(raw, 'new-design-00000002')).c5.image, /^\/api\/designs\/new-design-00000002\/meshes\/0{30}63\.png$/);
+  // A coloured concept's painted picture: checked like the grey one, kept by withConcept, moved by a fork.
+  const painted = pic(7).image.replace('.png', '.webp');
+  raw = withConcept(raw, 'kid', { ...pic(5), painted, color: true });
+  raw = withConcept(raw, 'bad', { ...pic(6), painted: '/etc/passwd' });
+  assert.equal(parseConcepts(raw).kid.painted, painted);
+  assert.equal(parseConcepts(raw).bad.painted, undefined);
+  const forked = parseConcepts(rehomeConcepts(raw, 'new-design-00000002')).kid;
+  assert.match(forked.image, /^\/api\/designs\/new-design-00000002\/meshes\/0{31}5\.png$/);
+  assert.match(forked.painted!, /^\/api\/designs\/new-design-00000002\/meshes\/0{31}7\.webp$/);
+  assert.equal(forked.color, true);
 });

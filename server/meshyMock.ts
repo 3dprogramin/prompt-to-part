@@ -9,7 +9,8 @@
 // Test triggers in the prompt: FAIL (the task fails), MODERATION (refused), RESCHEDULE (back to
 // PENDING once), FLAKY (the first poll answers 503), BROKEN (a mesh with holes and flipped faces).
 // A textured model (image to 3D with should_texture, or a Text to 3D refine task) is the coloured
-// figure (colour-figure.glb, with UVs and an embedded base colour texture).
+// figure (colour-figure.glb, with UVs and an embedded base colour texture). Image to 3D takes a
+// texture_image_url (a URL or a data URI, like image_url) to paint it from; `created` records it.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -57,6 +58,8 @@ interface Task {
   fail?: { type: string; code: string; message: string };
   /** Textured (should_texture, or a refine task); `preview`: the preview task a refine paints. */
   textured?: boolean;
+  /** Image to 3D: the texture_image_url it was painted from, when a URL (a data URI shows as ""). */
+  textureImage?: string;
   preview?: string;
   reschedule?: boolean;
   flaky?: boolean;
@@ -99,7 +102,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
       created_at: t.created, started_at: started, finished_at: finished, ...(t.family === 'image-to-3d' ? { expires_at: expires } : {}),
       model_urls: status === 'SUCCEEDED' ? Object.fromEntries(t.formats.map((f) => [f, asset(`model.${f}`)])) : {},
       thumbnail_url: status === 'SUCCEEDED' ? asset('preview.png') : '',
-      texture_urls: status === 'SUCCEEDED' && t.textured ? [{ base_color: asset('texture_0.png') }] : [], texture_prompt: '', texture_image_url: '',
+      texture_urls: status === 'SUCCEEDED' && t.textured ? [{ base_color: asset('texture_0.png') }] : [], texture_prompt: '', texture_image_url: t.textureImage ?? '',
       task_error: status === 'FAILED' ? { ...t.fail, doc_url: `${ERR_DOCS}#${t.fail!.code.replace(/_/g, '-')}` } : { message: '' },
       consumed_credits: status === 'FAILED' ? 0 : t.credits,
     };
@@ -152,6 +155,12 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
         if (m && (m[2].length * 3) / 4 > 20 * 1024 * 1024) return send(res, 400, { message: 'Image too large (max 20 MB)' });
       }
       if (b.enable_pbr && b.should_texture === false) return send(res, 400, { message: 'enable_pbr requires should_texture' });
+      if (b.texture_image_url != null) {
+        const tex = b.texture_image_url;
+        const m = typeof tex === 'string' ? /^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/s.exec(tex) : null;
+        if (typeof tex !== 'string' || (!m && !/^https:\/\//.test(tex))) return send(res, 400, { message: 'texture_image_url must be a public URL or a data URI (jpg, jpeg, png or webp)' });
+        if (m && (m[2].length * 3) / 4 > 20 * 1024 * 1024) return send(res, 400, { message: 'Texture image too large (max 20 MB)' });
+      }
       prompt = typeof b.texture_prompt === 'string' ? b.texture_prompt : '';
     }
     // 20 for the mesh, 30 textured; 2k/4k geometry costs 5 more; a refine 10.
@@ -164,6 +173,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
     const t: Task = {
       id, family, type: family === 'text-to-3d' ? (preview ? 'text-to-3d-refine' : 'text-to-3d-preview') : 'image-to-3d', prompt, created: Date.now(), credits,
       model: textured ? TEXTURED : MODELS.find(([re]) => re.test(prompt))?.[1] ?? FIGURINE, formats, textured,
+      ...(textured && typeof b.texture_image_url === 'string' ? { textureImage: b.texture_image_url.startsWith('https://') ? b.texture_image_url : '' } : {}),
       ...(preview ? { preview: preview.id } : {}),
       reschedule: /\bRESCHEDULE\b/.test(prompt), flaky: /\bFLAKY\b/.test(prompt),
       ...(/\bFAIL\b/.test(prompt) ? { fail: { type: 'invalid_input', code: 'image_too_complex', message: 'The uploaded image is too complex for 3D generation.' } } : {}),

@@ -186,21 +186,43 @@ test('3D figure in colour: a colour concept, a textured model (35 credits), its 
   const events: AgentEvent[] = [];
   const base: Record<string, string> = {};
   const { client, created } = recordingClient();
-  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('a colour figure')]);
-  const asked: string[] = [];
-  const image = async (prompt: string) => { asked.push(prompt); return { image: { data: png.toString('base64'), mediaType: 'image/png' }, model: 'test/image-model', cost: 0.04 }; };
+  const grey = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('a grey clay figure')]);
+  const painted = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('the same figure painted')]);
+  const asked: { prompt: string; references?: string[] }[] = [];
+  const image = async (prompt: string, _aspect: string, references?: string[]) => {
+    asked.push({ prompt, references });
+    return { image: { data: (references ? painted : grey).toString('base64'), mediaType: 'image/png' }, model: 'test/image-model', cost: 0.04 };
+  };
   const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000007', references: [], concepts: true, color: true }, image });
   const tools = toolsOf(cad);
   const out = await tools.generate_concept.handler({ name: 'kid', subject: 'a boy in a red shirt and blue trousers' }, {});
   assert.ok(!out.isError, JSON.stringify(out));
-  assert.match(asked[0], /in colour[\s\S]*at most 4 flat, solid colours[\s\S]*no shading baked into the colours/);
-  assert.doesNotMatch(asked[0], /grey clay/);
-  assert.match(out.content[1].text!, /35 Meshy credits, in colour/);
-  assert.equal(JSON.parse(base.$concepts).kid.color, true);
+  // The shape: the same grey clay picture as without colour; then that picture painted (image to image).
+  assert.equal(asked.length, 2);
+  assert.match(asked[0].prompt, /grey clay[\s\S]*plain pure white/);
+  assert.equal(asked[0].references, undefined);
+  assert.match(asked[1].prompt, /Paint the attached picture[\s\S]*collectible figurine[\s\S]*soft shading[\s\S]*at most 4/);
+  assert.doesNotMatch(asked[1].prompt, /no shading/);
+  assert.deepEqual(asked[1].references, [`data:image/png;base64,${grey.toString('base64')}`]);
+  assert.deepEqual(out.content.map((c) => c.type), ['image', 'image', 'text']);
+  assert.match(out.content[2].text!, /approve the pair[\s\S]*35 Meshy credits, in colour/);
+  const kid = JSON.parse(base.$concepts).kid;
+  assert.equal(kid.color, true);
+  assert.notEqual(kid.painted, kid.image);
+  assert.deepEqual(new Uint8Array(await (await fetch(A + kid.painted)).arrayBuffer()), new Uint8Array(painted));
+  const shown = events.flatMap((e) => (e.type === 'step' && e.step.kind === 'render' ? [e.step.text] : []));
+  assert.deepEqual(shown.map((t) => t.replace(/ from .*/, '')), ['Concept "kid" – shape', 'Concept "kid" – colours']);
+  // Not in the reply that drew the pair.
+  assert.match((await tools.generate_3d.handler({ name: 'kid', from_concept: 'kid' }, {})).content[0].text!, /hasn't approved/);
+  assert.equal(created.length, 0);
   newUserMessage();
   const built = await tools.generate_3d.handler({ name: 'kid', from_concept: 'kid' }, {});
   assert.ok(!built.isError, JSON.stringify(built));
   assert.equal(created[0].path, '/openapi/v1/image-to-3d');
+  // The shape from the grey picture, the texture from the painted one.
+  assert.equal(created[0].body.image_url, `data:image/png;base64,${grey.toString('base64')}`);
+  assert.equal(created[0].body.texture_image_url, `data:image/png;base64,${painted.toString('base64')}`);
+  assert.equal(created[0].body.remove_lighting, true);
   assert.equal(created[0].body.should_texture, true);
   assert.equal(created[0].body.texture_resolution, '2k');
   assert.equal(created[0].body.enable_pbr, false);
@@ -220,6 +242,31 @@ test('3D figure in colour: a colour concept, a textured model (35 credits), its 
   const third = await tools.generate_3d.handler({ name: 'three', prompt: 'a dog' }, {});
   assert.match(third.content[0].text!, /35 Meshy credits \(in colour\)/);
   assert.deepEqual(created.slice(1).map((c) => [c.path, c.body.mode]), [['/openapi/v2/text-to-3d', 'preview'], ['/openapi/v2/text-to-3d', 'refine']]);
+});
+
+test('3D figure in colour: when painting the concept fails, the grey picture alone, and Meshy paints the model itself', async () => {
+  const events: AgentEvent[] = [];
+  const base: Record<string, string> = {};
+  const { client, created } = recordingClient();
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('a grey clay cat')]);
+  const image = async (_prompt: string, _aspect: string, references?: string[]) => {
+    if (references) throw new Error('The image model is busy');
+    return { image: { data: png.toString('base64'), mediaType: 'image/png' }, model: 'test/image-model', cost: 0.04 };
+  };
+  const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000008', references: [], concepts: true, color: true }, image });
+  const tools = toolsOf(cad);
+  const out = await tools.generate_concept.handler({ name: 'cat', subject: 'a ginger cat sitting upright' }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.deepEqual(out.content.map((c) => c.type), ['image', 'text']);
+  assert.match(out.content[1].text!, /Painting it in colour failed \(The image model is busy\)[\s\S]*colours will come from Meshy/);
+  const cat = JSON.parse(base.$concepts).cat;
+  assert.equal(cat.color, true);
+  assert.equal(cat.painted, undefined);
+  assert.ok(events.some((e) => e.type === 'step' && e.step.ok === false && /^Concept colours: The image model is busy – Meshy will paint the model itself$/.test(e.step.text)));
+  newUserMessage();
+  assert.ok(!(await tools.generate_3d.handler({ name: 'cat', from_concept: 'cat' }, {})).isError);
+  assert.equal(created[0].body.should_texture, true);
+  assert.equal(created[0].body.texture_image_url, undefined);
 });
 
 test('at most 2 generate_3d calls per reply; a call that never reached Meshy does not count; the next message gets a fresh allowance', async () => {

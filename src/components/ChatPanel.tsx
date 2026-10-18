@@ -417,7 +417,7 @@ export function ChatPanel(p: Props) {
                 aria-pressed={p.figureColor}
                 onClick={() => p.onFigureColor(!p.figureColor)}
                 title={p.figureColor
-                  ? `Colour (4 filaments) is on: Jig draws the concept in colour, Meshy paints the model (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
+                  ? `Colour (4 filaments) is on: Jig draws the concept in grey (the shape) and then paints it (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
                   : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}
               >
                 <span className="figure-color-dots" aria-hidden><i /><i /><i /><i /></span>

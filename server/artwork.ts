@@ -161,22 +161,37 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
 
 /**
  * The prompt for a concept picture (generate_concept): the subject alone as a grey clay sculpture,
- * the way image-to-3D reads a picture best – one subject, whole, lit evenly, on plain white. In
- * colour (a coloured figure, printed in up to 4 filaments): flat, clearly separated colour areas.
+ * the way image-to-3D reads a picture best – one subject, whole, lit evenly, on plain white. Meshy
+ * infers the shape mostly from the shading, so a coloured figure starts from this same picture too
+ * (paintPrompt paints it afterwards).
  */
-export function conceptPrompt(subject: string, color = false): string {
+export function conceptPrompt(subject: string): string {
   return [
-    `A concept picture for an AI image-to-3D generator, which will sculpt a 3D-printable figure from it: the picture must show ${color ? 'the shape and its colours' : 'the shape only'}.`,
+    'A concept picture for an AI image-to-3D generator, which will sculpt a 3D-printable figure from it: the picture must show the shape only.',
     `Subject: ${subject.trim()}`,
     'Rules:',
     '- the single subject only, full body, in the pose described, three-quarter front view, the whole subject in frame with a margin around it (nothing cut off)',
-    color
-      ? '- in colour, like a painted vinyl toy: at most 4 flat, solid colours in large, clearly separated areas (e.g. hair, skin, clothes, shoes), each area one even colour with crisp edges; no gradients, patterns, fine print, textures painted on, text, logos or markings'
-      : '- rendered as a neutral grey clay / sculpture render: one matte grey material, no colours, no textures painted on, no text, logos or markings',
-    color
-      ? '- flat, even light: no shading baked into the colours, no highlights, reflections, glow, shadows or dramatic lighting'
-      : '- soft, even studio light with gentle shading that shows the form; no hard shadows, no dramatic lighting',
+    '- rendered as a neutral grey clay / sculpture render: one matte grey material, no colours, no textures painted on, no text, logos or markings',
+    '- soft, even studio light with gentle shading that shows the form; no hard shadows, no dramatic lighting',
     '- a plain pure white (#FFFFFF) background; nothing else in the scene (only what the subject wears or holds): no ground, base, props, scenery or other figures, no frame, signature or watermark',
+  ].join('\n');
+}
+
+/**
+ * The prompt that paints a grey concept picture (attached as the reference) for a coloured figure:
+ * the same picture, painted like a collectible figurine, its sculpted detail and soft shading kept.
+ * Meshy textures the model from it; Jig reduces the colours to at most 4 filaments afterwards.
+ */
+export function paintPrompt(subject: string): string {
+  return [
+    'Paint the attached picture: it shows a grey clay sculpture, which must become the same sculpture professionally painted, like a painted collectible figurine or resin miniature.',
+    `Subject: ${subject.trim()}`,
+    'Rules:',
+    '- exactly the same figure, pose, proportions, sculpted details, framing and camera angle as the attached picture; change only the colours, add or remove nothing',
+    '- keep the realistic sculpted detail and the natural, soft shading that shows the form (folds, hair, face); not flat or cartoon-like',
+    '- a limited palette of a few main colours (at most 4, e.g. skin, hair, clothes, shoes), each area painted cleanly in its colour; no fine patterns, text, logos or markings',
+    '- soft, even studio light; no dramatic lighting, glow, hard shadows or reflections',
+    '- the same plain pure white (#FFFFFF) background, nothing added: no ground, base, props, scenery, frame, signature or watermark',
   ].join('\n');
 }
 
