@@ -211,7 +211,8 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
  * The colour of each triangle of the repaired mesh (`positions`/`indices`, moved by −`shift` from
  * where the original was): that of the original triangle nearest to its centre, found with a BVH
  * over the original triangles (each with corners of its own, so its index survives the BVH's
- * reordering of the triangles).
+ * reordering of the triangles). The nearest one facing the same way, when it is that close: a
+ * triangle by a thin gap (a beard on a chest, a hand on the other figure) keeps its own side's colour.
  */
 export function transferColors(srcPos: Float32Array, srcTris: Uint32Array, srcColors: Uint8Array, positions: Float32Array, indices: Uint32Array, shift: Vec3 = [0, 0, 0]): Uint8Array {
   const keep: number[] = [];
@@ -229,13 +230,60 @@ export function transferColors(srcPos: Float32Array, srcTris: Uint32Array, srcCo
   g.setIndex(new BufferAttribute(Uint32Array.from({ length: keep.length * 3 }, (_, i) => i), 1));
   const bvh = new MeshBVH(g);
   const order = g.index!.array;
-  const p = new Vector3();
+  // Each original triangle's normal (not normalised: only its direction counts).
+  const normal = new Float32Array(keep.length * 3);
+  for (let i = 0; i < keep.length; i++) {
+    const o = i * 9;
+    const ux = soup[o + 3] - soup[o], uy = soup[o + 4] - soup[o + 1], uz = soup[o + 5] - soup[o + 2];
+    const vx = soup[o + 6] - soup[o], vy = soup[o + 7] - soup[o + 1], vz = soup[o + 8] - soup[o + 2];
+    normal[i * 3] = uy * vz - uz * vy; normal[i * 3 + 1] = uz * vx - ux * vz; normal[i * 3 + 2] = ux * vy - uy * vx;
+  }
+  const nt = indices.length / 3;
+  const face = new Int32Array(nt), facing = new Float32Array(nt), dist = new Float32Array(nt);
+  const p = new Vector3(), q = new Vector3();
   const hit = { point: new Vector3(), distance: 0, faceIndex: 0 };
-  for (let t = 0; t < indices.length / 3; t++) {
+  const centre = (t: number) => {
     const a = indices[3 * t] * 3, b = indices[3 * t + 1] * 3, c = indices[3 * t + 2] * 3;
-    p.set((positions[a] + positions[b] + positions[c]) / 3 + shift[0], (positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3 + shift[1], (positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3 + shift[2]);
-    const r = bvh.closestPointToPoint(p, hit as never) as typeof hit | null;
-    const src = keep[r ? Math.floor(order[3 * r.faceIndex] / 3) : 0];
+    return p.set((positions[a] + positions[b] + positions[c]) / 3 + shift[0], (positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3 + shift[1], (positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3 + shift[2]);
+  };
+  // Triangle t's normal into tn; returns its size (its longer edge from the first corner).
+  const tn = [0, 0, 0];
+  const setNormal = (t: number) => {
+    const a = indices[3 * t] * 3, b = indices[3 * t + 1] * 3, c = indices[3 * t + 2] * 3;
+    const ux = positions[b] - positions[a], uy = positions[b + 1] - positions[a + 1], uz = positions[b + 2] - positions[a + 2];
+    const vx = positions[c] - positions[a], vy = positions[c + 1] - positions[a + 1], vz = positions[c + 2] - positions[a + 2];
+    tn[0] = uy * vz - uz * vy; tn[1] = uz * vx - ux * vz; tn[2] = ux * vy - uy * vx;
+    return Math.sqrt(Math.max(ux * ux + uy * uy + uz * uz, vx * vx + vy * vy + vz * vz));
+  };
+  // How much original triangle f (the BVH's index) faces along tn: > 0 the same way.
+  const along = (f: number) => { const i = 3 * Math.floor(order[3 * f] / 3); return normal[i] * tn[0] + normal[i + 1] * tn[1] + normal[i + 2] * tn[2]; };
+  let same = 0, other = 0;
+  for (let t = 0; t < nt; t++) {
+    const r = bvh.closestPointToPoint(centre(t), hit as never) as typeof hit | null;
+    face[t] = r ? r.faceIndex : 0;
+    dist[t] = r ? r.distance : 0;
+    setNormal(t);
+    facing[t] = r ? along(face[t]) : 0;
+    if (facing[t] > 0) same++; else if (facing[t] < 0) other++;
+  }
+  // An original that is inside out throughout faces the other way everywhere.
+  const sign = other > same ? -1 : 1;
+  for (let t = 0; t < nt; t++) {
+    if (sign * facing[t] >= 0) continue;
+    // Facing away: the nearest that faces the same way, within a few times the distance plus the triangle's size.
+    centre(t);
+    let best = 3 * dist[t] + setNormal(t);
+    bvh.shapecast({
+      intersectsBounds: (box: { distanceToPoint: (v: Vector3) => number }) => box.distanceToPoint(p) < best,
+      intersectsTriangle: (tri: { closestPointToPoint: (v: Vector3, out: Vector3) => Vector3 }, f: number) => {
+        const d = tri.closestPointToPoint(p, q).distanceTo(p);
+        if (d < best && sign * along(f) > 0) { best = d; face[t] = f; }
+        return false;
+      },
+    } as never);
+  }
+  for (let t = 0; t < nt; t++) {
+    const src = keep[Math.floor(order[3 * face[t]] / 3)];
     out[3 * t] = srcColors[3 * src]; out[3 * t + 1] = srcColors[3 * src + 1]; out[3 * t + 2] = srcColors[3 * src + 2];
   }
   return out;

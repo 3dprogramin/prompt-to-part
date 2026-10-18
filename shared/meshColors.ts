@@ -1,8 +1,10 @@
 // Colour of AI figures (Meshy's textured models, "Colour" in 3D figure mode): the texture's colour
-// per triangle is reduced to at most MAX_MESH_COLORS colours (k-means in OKLab, weighted by area),
-// and each colour gets the closest filament (the user's own first, then Bambu Lab's PLA). The
-// stored mesh keeps its triangles' colours (shared/meshes.ts); the design's mesh entry keeps the
-// palette and the filaments, which the user can change.
+// per triangle is reduced to at most MAX_MESH_COLORS colours (k-means in OKLab, weighted by area,
+// lightness counting less than hue so shading stays on its material), and each colour gets the
+// closest filament (the user's own first, then Bambu Lab's PLA). Each triangle prints with its
+// nearest colour, cleaned up over the surface: lone triangles and specks too small to print go to
+// the colour around them. The stored mesh keeps its triangles' colours (shared/meshes.ts); the
+// design's mesh entry keeps the palette and the filaments, which the user can change.
 import { FILAMENT_LIBRARY } from './filaments';
 import type { LayerToneFilament } from './layertone';
 
@@ -46,6 +48,24 @@ export function oklab(r: number, g: number, b: number): Rgb {
   return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
 }
 const d2 = (a: readonly number[], b: readonly number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+/**
+ * How much lightness counts against hue and chroma when grouping a texture's colours and giving
+ * triangles theirs: a texture's light and shadow on one material change mostly its lightness, so a
+ * grey beard's highlights stay grey instead of going to a light skin colour. Greys that differ only
+ * in lightness (dark and light grey) still come apart, being nothing else.
+ */
+const LIGHTNESS_WEIGHT = 0.4;
+/**
+ * Below this OKLab chroma a triangle's colour is a grey: it takes one of the palette's greys when it
+ * has one (a near-white highlight on a grey beard is still nearer a light skin colour in lightness).
+ */
+const GREY = 0.02;
+/** OKLab with the lightness scaled by LIGHTNESS_WEIGHT. */
+function shadeLab(r: number, g: number, b: number): Rgb {
+  const lab = oklab(r, g, b);
+  lab[0] *= LIGHTNESS_WEIGHT;
+  return lab;
+}
 /** How different two colours look (OKLab distance; about 0.02 is just visible, 0.1 clearly another colour). */
 export const colorDistance = (a: string, b: string) => Math.sqrt(d2(oklab(...hexRgb(a)), oklab(...hexRgb(b))));
 
@@ -63,13 +83,14 @@ export function triangleAreas(positions: Float32Array, indices: Uint32Array): Fl
 
 /** A colour smaller than this share of the surface is merged into the nearest other one. */
 const MIN_SHARE = 0.02;
-/** Colours closer than this (OKLab) are one colour. */
+/** Colours closer than this (OKLab, lightness counted fully) are one colour. */
 const MIN_DISTANCE = 0.06;
 
 /**
  * At most `k` colours for triangles coloured `rgb` (3 bytes each) of these areas: area-weighted
- * k-means in OKLab, seeded with the most common colour and then the farthest ones, so the result
- * is the same every time. Tiny and near-identical colours are merged. Sorted by share, largest first.
+ * k-means in OKLab (lightness weighted less, LIGHTNESS_WEIGHT), seeded with the most common colour
+ * and then the farthest ones, so the result is the same every time. Tiny and near-identical colours
+ * are merged. Sorted by share, largest first.
  */
 export function clusterColors(rgb: Uint8Array, areas: ArrayLike<number>, k = MAX_MESH_COLORS): { color: string; share: number }[] {
   const n = areas.length;
@@ -88,7 +109,7 @@ export function clusterColors(rgb: Uint8Array, areas: ArrayLike<number>, k = MAX
     total += w;
   }
   if (!total) return [];
-  const pts = [...bins.values()].map((b) => ({ w: b.w, rgb: b.sum.map((s) => s / b.w) as Rgb })).map((p) => ({ ...p, lab: oklab(...p.rgb) }));
+  const pts = [...bins.values()].map((b) => ({ w: b.w, rgb: b.sum.map((s) => s / b.w) as Rgb })).map((p) => ({ ...p, lab: shadeLab(...p.rgb) }));
   // Seeds: the heaviest colour, then each time the one farthest (weighted) from the seeds so far.
   const seeds: Rgb[] = [pts.reduce((a, b) => (b.w > a.w ? b : a)).lab];
   while (seeds.length < Math.min(k, pts.length)) {
@@ -118,7 +139,7 @@ export function clusterColors(rgb: Uint8Array, areas: ArrayLike<number>, k = MAX
     if (groups.length < 2) break;
     let pair: [number, number] | null = null, closest = Infinity;
     for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
-      const d = d2(groups[i].lab, groups[j].lab);
+      const d = d2(oklab(...groups[i].rgb), oklab(...groups[j].rgb));
       if (d < closest) { closest = d; pair = [i, j]; }
     }
     // The smaller of the two that look the same, else a tiny one (re-assigning sends its colours to the nearest).
@@ -133,24 +154,159 @@ export function clusterColors(rgb: Uint8Array, areas: ArrayLike<number>, k = MAX
   return groups.sort((a, b) => b.w - a.w).map((g) => ({ color: rgbHex(g.rgb), share: g.w / total }));
 }
 
-/** Each triangle's colour index: the nearest of `palette` (#rrggbb, OKLab distance). */
+/**
+ * Each triangle's colour index: the nearest of `palette` (#rrggbb, OKLab distance with lightness
+ * weighted less); a grey's nearest grey of the palette, when it has one.
+ */
 export function colorSlots(rgb: Uint8Array, palette: string[]): Uint8Array {
   const n = rgb.length / 3, out = new Uint8Array(n);
   if (palette.length < 2) return out;
-  const labs = palette.map((c) => oklab(...hexRgb(c)));
+  const labs = palette.map((c) => shadeLab(...hexRgb(c)));
+  const greys = labs.map((l) => chroma(l) < NEUTRAL);
+  const anyGrey = greys.some(Boolean);
   const memo = new Map<number, number>();
   for (let t = 0; t < n; t++) {
     const key = (rgb[3 * t] << 16) | (rgb[3 * t + 1] << 8) | rgb[3 * t + 2];
     let s = memo.get(key);
     if (s === undefined) {
-      const lab = oklab(rgb[3 * t], rgb[3 * t + 1], rgb[3 * t + 2]);
-      s = 0;
-      for (let i = 1; i < labs.length; i++) if (d2(lab, labs[i]) < d2(lab, labs[s])) s = i;
+      const lab = shadeLab(rgb[3 * t], rgb[3 * t + 1], rgb[3 * t + 2]);
+      const grey = anyGrey && chroma(lab) < GREY;
+      s = -1;
+      for (let i = 0; i < labs.length; i++) if ((!grey || greys[i]) && (s < 0 || d2(lab, labs[i]) < d2(lab, labs[s]))) s = i;
       memo.set(key, s);
     }
     out[t] = s;
   }
   return out;
+}
+
+/** Passes of the majority filter: each triangle takes the colour most of the area around it has. */
+const SMOOTH_PASSES = 3;
+/**
+ * A patch of one colour smaller than this share of the surface (about 1.2 mm² on an 80 mm figure, as
+ * Meshy's are stored) goes to the colour around it: specks too small to print well, each a filament
+ * change. An eye on such a figure (1.5–2 mm²) stays.
+ */
+export const MIN_ISLAND_SHARE = 1e-4;
+/** Most rounds of merging small patches. */
+const MERGE_ROUNDS = 6;
+
+/**
+ * Each triangle's neighbour across each of its edges (3 per triangle, −1 for an open edge), found
+ * through the triangles around each vertex.
+ */
+export function triangleNeighbours(indices: Uint32Array): Int32Array {
+  let nv = 0;
+  for (let i = 0; i < indices.length; i++) if (indices[i] >= nv) nv = indices[i] + 1;
+  const start = new Uint32Array(nv + 1);
+  for (let i = 0; i < indices.length; i++) start[indices[i] + 1]++;
+  for (let v = 0; v < nv; v++) start[v + 1] += start[v];
+  const fill = start.slice(0, nv), around = new Uint32Array(indices.length);
+  for (let i = 0; i < indices.length; i++) around[fill[indices[i]]++] = (i / 3) | 0;
+  const out = new Int32Array(indices.length).fill(-1);
+  for (let t = 0; t < indices.length / 3; t++) {
+    for (let e = 0; e < 3; e++) {
+      if (out[3 * t + e] >= 0) continue;
+      const a = indices[3 * t + e], b = indices[3 * t + ((e + 1) % 3)];
+      search: for (let i = start[a]; i < start[a + 1]; i++) {
+        const o = around[i];
+        if (o === t) continue;
+        for (let f = 0; f < 3; f++) {
+          const x = indices[3 * o + f], y = indices[3 * o + ((f + 1) % 3)];
+          if ((x === b && y === a) || (x === a && y === b)) {
+            out[3 * t + e] = o;
+            if (out[3 * o + f] < 0) out[3 * o + f] = t;
+            break search;
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Per-triangle colour indices `slots` cleaned up over the surface: a few passes of an area-weighted
+ * majority filter (lone triangles and ragged borders go), then each connected patch of one
+ * colour smaller than `minShare` of the surface takes the colour it borders most.
+ */
+export function cleanSlots(positions: Float32Array, indices: Uint32Array, slots: Uint8Array, minShare = MIN_ISLAND_SHARE): Uint8Array {
+  const nt = slots.length;
+  let k = 0;
+  for (let t = 0; t < nt; t++) if (slots[t] >= k) k = slots[t] + 1;
+  if (k < 2 || indices.length !== nt * 3) return slots;
+  const areas = triangleAreas(positions, indices);
+  const nb = triangleNeighbours(indices);
+  let cur = slots.slice();
+  const votes = new Float64Array(k);
+  for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
+    const next = cur.slice();
+    let changed = 0;
+    for (let t = 0; t < nt; t++) {
+      const own = cur[t];
+      votes.fill(0);
+      votes[own] = areas[t];
+      for (let e = 0; e < 3; e++) { const o = nb[3 * t + e]; if (o >= 0) votes[cur[o]] += areas[o]; }
+      let best = own;
+      for (let s = 0; s < k; s++) if (votes[s] > votes[best]) best = s;
+      if (best !== own) { next[t] = best; changed++; }
+    }
+    cur = next;
+    if (!changed) break;
+  }
+  // Patches of one colour (flood fill over shared edges), the small ones into the colour they border
+  // most; again while any merged (a patch that took a smaller one's colour may itself be small).
+  let total = 0;
+  for (let t = 0; t < nt; t++) total += areas[t];
+  const minArea = total * minShare;
+  const seen = new Uint8Array(nt), members = new Uint32Array(nt), border = new Float64Array(k);
+  for (let round = 0; round < MERGE_ROUNDS; round++) {
+    seen.fill(0);
+    const small: { from: number; to: number; area: number }[] = [];
+    let n = 0;
+    for (let s = 0; s < nt; s++) {
+      if (seen[s]) continue;
+      const from = n;
+      let area = 0, head = n;
+      seen[s] = 1;
+      members[n++] = s;
+      // members[from..n) is the patch so far, and doubles as the queue.
+      while (head < n) {
+        const t = members[head++];
+        area += areas[t];
+        for (let e = 0; e < 3; e++) {
+          const o = nb[3 * t + e];
+          if (o >= 0 && !seen[o] && cur[o] === cur[t]) { seen[o] = 1; members[n++] = o; }
+        }
+      }
+      if (area < minArea) small.push({ from, to: n, area });
+    }
+    small.sort((a, b) => a.area - b.area);
+    let merged = 0;
+    for (const p of small) {
+      const own = cur[members[p.from]];
+      border.fill(0);
+      for (let i = p.from; i < p.to; i++) {
+        const t = members[i];
+        for (let e = 0; e < 3; e++) {
+          const o = nb[3 * t + e];
+          if (o < 0 || cur[o] === own) continue;
+          const a = indices[3 * t + e] * 3, b = indices[3 * t + ((e + 1) % 3)] * 3;
+          border[cur[o]] += Math.hypot(positions[a] - positions[b], positions[a + 1] - positions[b + 1], positions[a + 2] - positions[b + 2]);
+        }
+      }
+      let best = own;
+      for (let s = 0; s < k; s++) if (border[s] > (best === own ? 0 : border[best])) best = s;
+      if (best !== own) { for (let i = p.from; i < p.to; i++) cur[members[i]] = best; merged++; }
+    }
+    if (!merged) break;
+  }
+  return cur;
+}
+
+/** Each triangle's colour index of a coloured mesh: its nearest of `palette`, cleaned up (cleanSlots). */
+export function meshSlots(mesh: { positions: Float32Array; indices: Uint32Array; colors: Uint8Array }, palette: string[]): Uint8Array {
+  return cleanSlots(mesh.positions, mesh.indices, colorSlots(mesh.colors, palette));
 }
 
 /** The PLA filaments a colour is matched to when the user has none close: Bambu Lab PLA Basic and Matte. */
@@ -186,11 +342,19 @@ export function matchFilaments(colors: string[], mine: LayerToneFilament[] = [],
   });
 }
 
-/** A palette for a coloured mesh: at most `k` colours of its triangles, each with its filament. */
-export function meshPalette(rgb: Uint8Array, areas: ArrayLike<number>, k = MAX_MESH_COLORS, mine: LayerToneFilament[] = []): MeshColor[] {
-  const clusters = clusterColors(rgb, areas, Math.max(1, Math.min(MAX_MESH_COLORS, k)));
+/**
+ * A palette for a coloured mesh: at most `k` colours of its triangles, each with its filament and
+ * its share of the surface as the triangles print (meshSlots).
+ */
+export function meshPalette(mesh: { positions: Float32Array; indices: Uint32Array; colors: Uint8Array }, k = MAX_MESH_COLORS, mine: LayerToneFilament[] = []): MeshColor[] {
+  const areas = triangleAreas(mesh.positions, mesh.indices);
+  const clusters = clusterColors(mesh.colors, areas, Math.max(1, Math.min(MAX_MESH_COLORS, k)));
   const filaments = matchFilaments(clusters.map((c) => c.color), mine);
-  return clusters.map((c, i) => ({ color: c.color, share: +c.share.toFixed(4), filament: filaments[i] }));
+  const slots = meshSlots(mesh, clusters.map((c) => c.color));
+  const sums = clusters.map(() => 0);
+  let total = 0;
+  for (let t = 0; t < slots.length; t++) { sums[slots[t]] += areas[t]; total += areas[t]; }
+  return clusters.map((c, i) => ({ color: c.color, share: +(total ? sums[i] / total : c.share).toFixed(4), filament: filaments[i] }));
 }
 
 /** A palette as stored in a mesh entry: valid colours only, at most MAX_MESH_COLORS. */

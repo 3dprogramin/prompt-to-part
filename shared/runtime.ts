@@ -4,7 +4,7 @@ import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { FontMissingError, takeFontSubstitutions } from './text';
 import { compile, locate, ScriptError } from './compile';
 import { makeHelpers, type PaintedMesh } from './helpers';
-import { colorSlots, sameFilament, type PaintFilament } from './meshColors';
+import { meshSlots, sameFilament, type PaintFilament } from './meshColors';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
@@ -497,7 +497,7 @@ function paintOf(mesh: { triVerts: Uint32Array; runIndex: Uint32Array; runOrigin
     const key = `${pm.url}|${entry.palette.map((c) => c.color).join()}`;
     let slots = slotCache.get(key);
     if (!slots) {
-      slots = colorSlots(data.colors, entry.palette.map((c) => c.color));
+      slots = meshSlots({ ...data, colors: data.colors }, entry.palette.map((c) => c.color));
       slotCache.set(key, slots);
       while (slotCache.size > 8) slotCache.delete(slotCache.keys().next().value!);
     }

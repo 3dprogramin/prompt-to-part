@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { EvalResult } from '../../shared/types';
 import { decodeMesh, type MeshEntry } from '../../shared/meshes';
-import { filamentLabel, MAX_MESH_COLORS, meshPalette, triangleAreas, type MeshColor } from '../../shared/meshColors';
+import { filamentLabel, MAX_MESH_COLORS, meshPalette, type MeshColor } from '../../shared/meshColors';
 import { designFilaments } from '../../shared/modelWarnings';
 import { libraryFilament } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
@@ -38,7 +38,7 @@ export function MeshColorsPanel({ result, meshes, onPalette }: Props) {
       const mesh = decodeMesh(new Uint8Array(await (await request(entry.file)).arrayBuffer()));
       if (!mesh.colors) throw new Error('This mesh has no colours stored');
       const mine = await api.myFilaments().catch(() => [] as LayerToneFilament[]);
-      onPalette(name, meshPalette(mesh.colors, triangleAreas(mesh.positions, mesh.indices), k, mine));
+      onPalette(name, meshPalette({ ...mesh, colors: mesh.colors }, k, mine));
     } catch (e) {
       setError((e as Error).message);
     } finally {

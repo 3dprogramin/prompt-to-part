@@ -18,7 +18,7 @@ import { withFonts } from '../shared/text';
 import { decodeMesh, encodeMesh, withMeshes, type MeshData } from '../shared/meshes';
 import type { ImportOptions } from '../shared/meshRepair';
 import { decodeTexture } from '../shared/imageDecode';
-import { colorSlots, meshPalette, triangleAreas, type PaintFilament } from '../shared/meshColors';
+import { meshPalette, meshSlots, triangleAreas, type PaintFilament } from '../shared/meshColors';
 import type { LayerToneFilament } from '../shared/layertone';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
 import type { LayerColor } from '../shared/layertone';
@@ -195,9 +195,9 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
       // The file is untrusted: parsed and repaired here, in the locked-down process.
       const { mesh, report } = importMeshFile(new Uint8Array(req.bytes), req.filename, req.options, decodeTexture);
       // A coloured mesh: its colours (at most palette.colors) and their filaments; the picture shows them.
-      const palette = mesh.colors && req.palette ? meshPalette(mesh.colors, triangleAreas(mesh.positions, mesh.indices), req.palette.colors, req.palette.mine) : undefined;
+      const palette = mesh.colors && req.palette ? meshPalette({ ...mesh, colors: mesh.colors }, req.palette.colors, req.palette.mine) : undefined;
       const part = { name: 'Mesh', color: '#b0b7c3', positions: mesh.positions, indices: mesh.indices, bbox: { min: [-report.size[0] / 2, -report.size[1] / 2, 0], max: [report.size[0] / 2, report.size[1] / 2, report.size[2]] }, volume: report.volume, surfaceArea: 0, triCount: report.triangles, genus: 0, components: report.components } as EvalResult['parts'][number];
-      if (palette && mesh.colors) part.paint = { filaments: palette.map((c) => c.filament), tri: colorSlots(mesh.colors, palette.map((c) => c.color)) };
+      if (palette && mesh.colors) part.paint = { filaments: palette.map((c) => c.filament), tri: meshSlots({ ...mesh, colors: mesh.colors }, palette.map((c) => c.color)) };
       const { png, gridStep } = renderSheet([part]);
       post({ data: { bin: encodeMesh(mesh), report, png: png.toString('base64'), gridStep, ...(palette ? { palette } : {}) } });
     } else if (req.cmd === 'stress') {

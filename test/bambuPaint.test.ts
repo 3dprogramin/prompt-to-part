@@ -14,7 +14,7 @@ import { findBambuBinary } from '../server/bambu';
 import { slicedProject } from '../server/slicer';
 import { evaluateScript, importMeshFile } from '../shared/runtime';
 import { decodeTexture } from '../shared/imageDecode';
-import { meshPalette, triangleAreas } from '../shared/meshColors';
+import { meshPalette } from '../shared/meshColors';
 import { decodeMesh, encodeMesh, MESHES_KEY, registerMesh } from '../shared/meshes';
 import type { BambuTemplate } from '../shared/api';
 import type { PartMesh } from '../shared/types';
@@ -223,7 +223,7 @@ test('Bambu Studio slices Jig\'s painted cube and a coloured figure on a base wi
   // The mock's coloured figure, cut and joined with a base in its black: 4 filaments, all used.
   const glb = new Uint8Array(readFileSync(path.join(import.meta.dirname, 'fixtures', 'meshes', 'colour-figure.glb')));
   const { mesh } = importMeshFile(glb, 'figure.glb', { colors: true }, decodeTexture);
-  const palette = meshPalette(mesh.colors!, triangleAreas(mesh.positions, mesh.indices), 4);
+  const palette = meshPalette({ ...mesh, colors: mesh.colors! }, 4);
   const url = '/api/designs/abcdefgh/meshes/fedcba9876543210fedcba9876543210.bin';
   registerMesh(url, decodeMesh(encodeMesh(mesh)));
   const black = palette.find((c) => c.filament.name === 'PLA Basic Black')!.filament.color;
