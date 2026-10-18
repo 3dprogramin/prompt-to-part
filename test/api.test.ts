@@ -122,6 +122,24 @@ test('one generation per design; a running design can\'t be deleted', async () =
   assert.equal((await fetch(`${A}/api/designs/test-api-00000003`, { method: 'DELETE', headers: W })).status, 200);
 });
 
+test('a server that stops ends running replies with a note, and a reply in progress can be saved', async () => {
+  const { endGenerations } = await import('../server/app');
+  const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000012', prompt: 'a cube' }) });
+  assert.equal(r.status, 200);
+  await endGenerations('The Jig server is restarting.');
+  assert.match(await r.text(), /data: \{"type":"error","message":"The Jig server is restarting\."\}/);
+  // A new one starts: the first has ended.
+  const again = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000012', prompt: 'a cube' }) });
+  assert.equal(again.status, 200);
+  releaseGeneration();
+  await again.text();
+
+  const reply = { id: 'm2', role: 'assistant', text: '', createdAt: 2, pending: true, steps: [{ kind: 'thinking', text: 'Planning' }], activity: [{ kind: 'thinking', text: 'Planning the cube', at: 1 }] };
+  assert.equal((await put(design({ id: 'test-api-00000012', messages: [{ id: 'm1', role: 'user', text: 'a cube', createdAt: 1 }, reply] }))).status, 200);
+  const saved = await (await fetch(`${A}/api/designs/test-api-00000012`)).json();
+  assert.deepEqual(saved.messages[1], reply);
+});
+
 test('a reply refused at the usage limit says when it resets', async () => {
   const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000011', prompt: 'over the limit' }) });
   const events = (await r.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));

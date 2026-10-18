@@ -38,6 +38,20 @@ const STARRED_FILE = path.join(DATA_DIR, 'starred.json');
 const cleanStarred = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))] : []);
 const readStarred = async () => cleanStarred((JSON.parse(await readFile(STARRED_FILE, 'utf8').catch(() => '{}')) as { ids?: unknown }).ids);
 
+/** Ends each running reply's stream with an error (see endGenerations). */
+const openStreams = new Set<(message: string) => void>();
+
+/**
+ * The server is stopping: every running reply ends with `message` (its page shows at once that Jig
+ * stopped, instead of waiting for the connection to drop) and Claude is stopped. Resolves when
+ * they have ended, or after `waitMs`.
+ */
+export async function endGenerations(message: string, waitMs = 3000): Promise<void> {
+  for (const end of openStreams) end(message);
+  const until = Date.now() + waitMs;
+  while (openStreams.size && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+}
+
 /** The fields every saved design has; anything else would break the list or the app. */
 function isDesign(d: unknown): d is Design {
   const o = d as Design;
@@ -660,6 +674,8 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
     const ping = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
     const abort = new AbortController();
     res.on('close', () => { if (!res.writableFinished) abort.abort(); });
+    const end = (message: string) => { send({ type: 'error', message }); abort.abort(); };
+    openStreams.add(end);
 
     try {
       await generate(body, send, abort);
@@ -671,6 +687,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
         send({ type: 'error', message: friendlyError(msg, limited), ...(limited && { resetsAt: limitResetsAt() }) });
       }
     } finally {
+      openStreams.delete(end);
       generatingDesigns.delete(body.designId);
       clearInterval(ping);
       res.end();
