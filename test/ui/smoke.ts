@@ -124,6 +124,8 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', async
   const menu = page.locator('.menu');
   await menu.getByText('Load more (4 more)').waitFor();
   assert.equal(await menu.locator('.menu-item').count(), 10);
+  await menu.getByText('Load more (4 more)').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(shots, '4-menu.png') });
 
   // Starring the oldest marks it where it is, and it stays starred after a reload.
   await menu.getByText('Load more (4 more)').click();
@@ -131,7 +133,7 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', async
   await menu.getByRole('button', { name: 'Star Smoke cube' }).click();
   await menu.locator('.menu-item.starred', { hasText: 'Smoke cube' }).waitFor();
   assert.equal(await menu.locator('.menu-item.starred').count(), 1);
-  await page.screenshot({ path: path.join(shots, '4-starred.png') });
+  await page.screenshot({ path: path.join(shots, '5-starred.png') });
   await page.reload();
   await page.getByRole('button', { name: 'Designs' }).click();
   await menu.getByText('Load more (4 more)').click();
