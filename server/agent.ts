@@ -26,6 +26,7 @@ import type { ParamValues } from '../shared/types';
 import { MESHES_KEY, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
 import { meshyClient } from './meshy';
+import { recordRateLimit } from './usage';
 
 const MODEL_FILE = 'model.js';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -332,6 +333,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Whether Claude has answered at all: then a failure is not a missing session, and starting over
   // in a new one would repeat the work (and could produce a second version).
   let gotOutput = false;
+  // A request was refused because the subscription's usage limit is reached.
+  let limitHit = false;
   // Messages the user sends while Claude works go into the running reply (steerGeneration).
   const inbox = new Inbox();
   steering.set(req.designId, { inbox, emit });
@@ -451,6 +454,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         // A failed API call arrives as a made-up message carrying the error text: show it, but it
         // is not a reply (so the fresh-session retry below still applies).
         if (msg.error) {
+          if (msg.error === 'rate_limit') limitHit = true;
           for (const b of msg.message.content) if (b.type === 'text' && b.text.trim()) emit({ type: 'step', step: { kind: 'status', ok: false, text: b.text.trim() } });
           continue;
         }
@@ -511,8 +515,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         pushLive(`Waiting to retry the Claude API (${why})…`);
       } else if (msg.type === 'system' && msg.subtype === 'status' && msg.status && String(msg.status) !== 'requesting') {
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Status: ${String(msg.status)}` } });
-      } else if (msg.type === 'rate_limit_event' && msg.rate_limit_info?.status && msg.rate_limit_info.status !== 'allowed') {
-        emit({ type: 'step', step: { kind: 'status', ok: false, text: msg.rate_limit_info.status === 'rejected' ? 'Subscription usage limit reached – waiting for it to reset.' : 'Approaching the subscription usage limit.' } });
+      } else if (msg.type === 'rate_limit_event') {
+        if (msg.rate_limit_info) recordRateLimit(msg.rate_limit_info);
+        if (msg.rate_limit_info?.status && msg.rate_limit_info.status !== 'allowed') emit({ type: 'step', step: { kind: 'status', ok: false, text: msg.rate_limit_info.status === 'rejected' ? 'Subscription usage limit reached – waiting for it to reset.' : 'Approaching the subscription usage limit.' } });
       } else if (msg.type === 'tool_progress') {
         pushLive(`${TOOL_LABELS[msg.tool_name] ?? msg.tool_name}… ${Math.round(msg.elapsed_time_seconds)} s`);
       } else if (msg.type === 'result') {
@@ -544,15 +549,22 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // The session may be gone, or the API refuses its history (e.g. a session started on a Claude
     // subscription, continued through another provider): retry once in a fresh session, with a
     // recap of the conversation so Claude knows what came before.
-    if (req.sessionId && !gotOutput && /session|conversation|invalid .*request/i.test(msg)) {
+    if (req.sessionId && !gotOutput && !limitHit && /session|conversation|invalid .*request/i.test(msg)) {
       emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
-      await run(undefined, recapOf(req.history));
-    } else throw e;
+      try {
+        await run(undefined, recapOf(req.history));
+      } catch (e2) {
+        throw limitHit && !abort.signal.aborted ? new UsageLimitError((e2 as Error).message) : e2;
+      }
+    } else throw limitHit ? new UsageLimitError(msg) : e;
   } finally {
     inbox.close();
     if (steering.get(req.designId)?.inbox === inbox) steering.delete(req.designId);
   }
 }
+
+/** A reply that failed because the Claude subscription's usage limit is reached. */
+export class UsageLimitError extends Error {}
 
 /** The user's messages for one running reply, handed to Claude Code as it asks for them. */
 class Inbox {

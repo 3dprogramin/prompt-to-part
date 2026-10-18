@@ -17,6 +17,9 @@ let releaseGeneration = () => {};
 // What the stand-in image model was last asked for.
 let imageAsked: { prompt: string; aspect: string; references?: string[] } | null = null;
 const { createApp } = await import('../server/app');
+const { UsageLimitError } = await import('../server/agent');
+const { recordRateLimit } = await import('../server/usage');
+const LIMIT_RESET = Math.floor(Date.now() / 1000) + 3600;
 server.on('request', createApp({
   port,
   suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
@@ -24,7 +27,12 @@ server.on('request', createApp({
     imageAsked = { prompt, aspect, references };
     return { image: { data: Buffer.from('89504e470d0a1a0a70686f746f', 'hex').toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
   },
-  generate: (_req, send, abort) => new Promise((resolve) => {
+  generate: (req, send, abort) => new Promise((resolve, reject) => {
+    // A reply refused because the subscription's usage limit is reached.
+    if (req.prompt === 'over the limit') {
+      recordRateLimit({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: LIMIT_RESET });
+      return reject(new UsageLimitError('Claude Code returned an error result: You\'ve hit your limit'));
+    }
     send({ type: 'live', text: 'working' });
     releaseGeneration = () => resolve();
     abort.signal.addEventListener('abort', () => resolve());
@@ -112,6 +120,12 @@ test('one generation per design; a running design can\'t be deleted', async () =
   releaseGeneration();
   await first.text();
   assert.equal((await fetch(`${A}/api/designs/test-api-00000003`, { method: 'DELETE', headers: W })).status, 200);
+});
+
+test('a reply refused at the usage limit says when it resets', async () => {
+  const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000011', prompt: 'over the limit' }) });
+  const events = (await r.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
+  assert.deepEqual(events, [{ type: 'error', message: 'Your Claude subscription\'s usage limit is reached. (Claude Code returned an error result: You\'ve hit your limit)', resetsAt: LIMIT_RESET * 1000 }]);
 });
 
 test('dictation tokens need the ElevenLabs key, and only Jig may ask', { skip: !!process.env.ELEVENLABS_API_KEY && 'ELEVENLABS_API_KEY is set' }, async () => {

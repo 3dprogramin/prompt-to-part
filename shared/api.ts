@@ -8,6 +8,7 @@ import type { HfImage, HueforgeSetup } from './hueforge';
 import type { PrintSettings } from './print';
 import type { MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
+import type { UsageWindow } from './usage';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -64,7 +65,8 @@ export type AgentEvent =
   | { type: 'step'; step: AgentStep }
   | { type: 'model'; code: string; summary: string; sources: DimensionSource[] }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
-  | { type: 'error'; message: string }
+  /** resetsAt: when the reached usage limit lifts (ms), if known; the page adds it in local time. */
+  | { type: 'error'; message: string; resetsAt?: number }
   /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
   /** A picture for H.hueforge or H.lithophane (an attached photo or one the image model drew), kept with the design under HF_IMAGES_KEY. */
@@ -121,6 +123,8 @@ export interface Connection {
   detail: string;
   /** OpenRouter credit left, in USD (when the key may read it). */
   credit?: number;
+  /** The Claude subscription's usage windows, as far as Jig knows them (subscription mode). */
+  usage?: UsageWindow[];
 }
 
 /** POST /api/designs/:id/meshes: an attached mesh file, imported and stored with the design. */
