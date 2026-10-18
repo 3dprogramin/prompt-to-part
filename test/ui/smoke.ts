@@ -1,8 +1,9 @@
 // UI smoke test (`npm run test:ui`): the built app in one headless Chromium against a throwaway
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
-// view and the Print tab (which must not start a slice by itself). A screenshot of each step is saved
-// to JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
+// view, the Print tab (which must not start a slice by itself) and the Designs menu's export and
+// import. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
+// what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,6 +12,7 @@ import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser } from 'playwright-core';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-ui-test-'));
 process.env.JIG_DATA = dataDir;
@@ -77,4 +79,27 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
 
   assert.deepEqual(errors, []);
   console.log(`screenshots: ${shots}`);
+});
+
+test('the Designs menu exports every design as a zip and imports one', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.getByRole('button', { name: 'Designs' }).click();
+  const menu = page.locator('.menu');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), menu.getByText('Export all designs').click()]);
+  assert.match(download.suggestedFilename(), /^jig-designs-\d{4}-\d\d-\d\d\.zip$/);
+  const exported = unzipSync(new Uint8Array(readFileSync((await download.path())!)));
+  assert.deepEqual(Object.keys(exported), [`designs/${id}.json`]);
+
+  const other = 'ui-smoke-00000002';
+  const copy = { ...JSON.parse(strFromU8(exported[`designs/${id}.json`])), id: other, name: 'Imported cube' };
+  const zip = zipSync({ ...exported, [`designs/${other}.json`]: strToU8(JSON.stringify(copy)) });
+  await menu.locator('input[type=file]').setInputFiles({ name: 'backup.zip', mimeType: 'application/zip', buffer: Buffer.from(zip) });
+  await menu.getByText('Imported 1, skipped 1').waitFor();
+  await menu.getByText('Imported cube').waitFor();
+  await page.screenshot({ path: path.join(shots, '3-import.png') });
+  await page.close();
 });
