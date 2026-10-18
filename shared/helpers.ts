@@ -4,7 +4,7 @@ import { layoutText, type TextLayoutOptions } from './text';
 import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
-import { hueforgeLayers, hueforgeMesh, resolveHfOptions, type HfImage, type HueforgeOptions, type HueforgePart, type HueforgeSetup } from './hueforge';
+import { hueforgeLayers, hueforgeMesh, resolveHfOptions, type HfImage, type HueforgeOptions, type HueforgePart, type HueforgeSetup } from './layertone';
 import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
 import { getMeshData, type MeshEntry } from './meshes';
 

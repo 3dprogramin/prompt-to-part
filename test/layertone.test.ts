@@ -5,7 +5,7 @@ import { evaluateScript } from '../shared/runtime';
 import {
   autoSwaps, DEFAULT_FILAMENTS, fromBase64, HF_IMAGES_KEY, HF_KEY, hexToRgb, hfLuma, luma, MAX_HF_IMAGE_SIDE,
   resolveHfOptions, simulateColor, simulateImage, toBase64, toHfImage, type HfFilament, type LayerColor,
-} from '../shared/hueforge';
+} from '../shared/layertone';
 
 /** RGBA pixels from a function of (x, y) → grey level. */
 function picture(w: number, h: number, grey: (x: number, y: number) => number, alpha = 255): Uint8Array {

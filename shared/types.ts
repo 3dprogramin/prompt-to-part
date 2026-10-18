@@ -1,6 +1,6 @@
 import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
-import type { HueforgeSource, LayerColor } from './hueforge';
+import type { HueforgeSource, LayerColor } from './layertone';
 import type { LithophaneSource } from './lithophane';
 
 export type Vec2 = [number, number];

@@ -2,7 +2,7 @@ import type { Design, DesignSummary } from '../../shared/types';
 import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, FontEntry, GenerateRequest, ImageData, MeshUpload, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
-import type { HfFilament } from '../../shared/hueforge';
+import type { HfFilament } from '../../shared/layertone';
 import type { PhotoRequest, PhotoResponse } from '../../shared/photos';
 import { dataUrlToImage } from './files';
 

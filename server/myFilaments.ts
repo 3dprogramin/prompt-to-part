@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_DIR } from './config';
 import { cleanMyFilaments } from '../shared/filaments';
-import type { HfFilament } from '../shared/hueforge';
+import type { HfFilament } from '../shared/layertone';
 
 export const MY_FILAMENTS_FILE = path.join(DATA_DIR, 'filaments.json');
 

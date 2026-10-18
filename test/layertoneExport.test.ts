@@ -11,7 +11,7 @@ import { DATA_DIR } from '../server/config';
 import { findBambuBinary } from '../server/bambu';
 import { slicedProject, sliceProject } from '../server/slicer';
 import { evaluateScript } from '../shared/runtime';
-import { HF_IMAGES_KEY, HF_KEY, toHfImage, type LayerColor } from '../shared/hueforge';
+import { HF_IMAGES_KEY, HF_KEY, toHfImage, type LayerColor } from '../shared/layertone';
 import type { BambuTemplate } from '../shared/api';
 import type { PartMesh } from '../shared/types';
 

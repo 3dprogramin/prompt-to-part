@@ -3,7 +3,7 @@
 // CONTRACT (feat/hueforge): the side panel uses FILAMENT_LIBRARY and searchFilaments; the server
 // answers POST /api/filaments/lookup { brand, name } with FilamentLookup (TD found on the web),
 // which the page calls through lookupFilament() in src/lib/api.ts.
-import { hexToRgb, type HfFilament } from './hueforge';
+import { hexToRgb, type HfFilament } from './layertone';
 
 export interface LibraryFilament extends HfFilament {
   brand: string;

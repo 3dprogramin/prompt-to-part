@@ -7,7 +7,7 @@ import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
 import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from './artwork';
-import { checkSwaps, cleanFilaments, HF_IMAGES_KEY, HF_KEY, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, toHfImage, type HueforgeSetup } from '../shared/hueforge';
+import { checkSwaps, cleanFilaments, HF_IMAGES_KEY, HF_KEY, MAX_HF_FILAMENTS, parseHfImages, parseHueforgeSetup, toHfImage, type HueforgeSetup } from '../shared/layertone';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
 interface AiImages { references: string[]; signal?: AbortSignal }

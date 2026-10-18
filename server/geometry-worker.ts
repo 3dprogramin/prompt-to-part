@@ -18,7 +18,7 @@ import { withFonts } from '../shared/text';
 import { decodeMesh, encodeMesh, withMeshes, type MeshData } from '../shared/meshes';
 import type { ImportOptions } from '../shared/meshRepair';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
-import type { LayerColor } from '../shared/hueforge';
+import type { LayerColor } from '../shared/layertone';
 import type { LithophaneSource } from '../shared/lithophane';
 
 // Refuse to run model scripts without the process lock.

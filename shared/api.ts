@@ -4,7 +4,7 @@ import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
-import type { HfImage, HueforgeSetup } from './hueforge';
+import type { HfImage, HueforgeSetup } from './layertone';
 import type { PrintSettings } from './print';
 import type { MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';

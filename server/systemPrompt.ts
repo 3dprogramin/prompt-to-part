@@ -1,6 +1,6 @@
 import { PRINTER } from '../shared/printer';
 import { FILAMENT_LIBRARY } from '../shared/filaments';
-import type { HfFilament } from '../shared/hueforge';
+import type { HfFilament } from '../shared/layertone';
 import { A1_DEFAULTS, describeSetting, SETTING_LABELS, type PrintSettings } from '../shared/print';
 
 /** "layer 0.20 mm, 2 walls, …" for the baseline profile. */

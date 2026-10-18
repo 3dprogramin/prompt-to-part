@@ -3,7 +3,7 @@
 // lights, lamp shades, window panels, frames). The panel is flat, an arc of a lamp shade or a full
 // cylinder, built straight from the picture as one closed mesh (like hueforgeMesh), standing up
 // as it prints best. Pictures are the design's HfImages ($images), shared with H.hueforge.
-import { hfLuma, pictureSampler, toLinear, toSrgb, type HfImage } from './hueforge';
+import { hfLuma, pictureSampler, toLinear, toSrgb, type HfImage } from './layertone';
 import type { Brim, Seam } from './print';
 import type { Quality } from './types';
 

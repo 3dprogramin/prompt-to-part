@@ -2,7 +2,7 @@ import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
 import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
-import { HF_IMAGES_KEY, HF_KEY } from '../../shared/hueforge';
+import { HF_IMAGES_KEY, HF_KEY } from '../../shared/layertone';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';

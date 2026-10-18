@@ -2,7 +2,7 @@ import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
-import { HF_IMAGES_KEY, luma, toHfImage, toLinear, toSrgb } from '../shared/hueforge';
+import { HF_IMAGES_KEY, luma, toHfImage, toLinear, toSrgb } from '../shared/layertone';
 import {
   backlitRgb, cleanLithophaneSource, isLithophane, LITHO_MU, lithophaneMesh, lithoPrint, lithoThickness, lithoVertexColors,
   resolveLithoOptions, simulateLithophane, type LithophaneOptions,

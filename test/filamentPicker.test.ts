@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanMyFilaments, colourFamilies, COMMON_FILAMENTS, estimatedTd, FILAMENT_LIBRARY, filamentLines, libraryFilament, myFilamentKey, myFilamentsProblem, pickerFilaments, searchMyFilaments } from '../shared/filaments';
-import { replaceFilament, type HfFilament } from '../shared/hueforge';
+import { replaceFilament, type HfFilament } from '../shared/layertone';
 
 const id = (f: { brand?: string; name: string }) => `${f.brand} ${f.name}`;
 

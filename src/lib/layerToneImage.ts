@@ -1,4 +1,4 @@
-import { MAX_HF_IMAGE_SIDE, toHfImage, type HfImage } from '../../shared/hueforge';
+import { MAX_HF_IMAGE_SIDE, toHfImage, type HfImage } from '../../shared/layertone';
 
 // LayerTone pictures in the browser: a file or data URL → HfImage (via a canvas), and back to
 // pictures the side panel can show.

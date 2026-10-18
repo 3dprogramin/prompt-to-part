@@ -7,7 +7,7 @@ import { makeHelpers } from './helpers';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
-import { cleanHueforgeSource, cleanLayerColors, HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, vertexColors, type HueforgeSource, type LayerColor } from './hueforge';
+import { cleanHueforgeSource, cleanLayerColors, HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, vertexColors, type HueforgeSource, type LayerColor } from './layertone';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import { cleanProfile } from './print';
 import { MESHES_KEY, MeshMissingError, parseMeshes, type MeshData } from './meshes';

@@ -15,7 +15,7 @@ import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeat
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
-import { HF_IMAGES_KEY, HF_KEY, parseHfImages, toHfImage } from '../shared/hueforge';
+import { HF_IMAGES_KEY, HF_KEY, parseHfImages, toHfImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';

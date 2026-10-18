@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
-import { HF_IMAGES_KEY, parseHfImages, type HfImage } from '../../shared/hueforge';
+import { HF_IMAGES_KEY, parseHfImages, type HfImage } from '../../shared/layertone';
 import { lithoPrint, simulateLithophane, type LithophaneSource } from '../../shared/lithophane';
-import { rgbaToDataUrl } from '../lib/hfImage';
-import { PicturePair } from './HueforgePanel';
+import { rgbaToDataUrl } from '../lib/layerToneImage';
+import { PicturePair } from './LayerTonePanel';
 
 /** A lithophane part: (from the runtime) the picture and options it was built with. */
 type LithoPart = PartMesh & { lithophane: LithophaneSource };
