@@ -68,9 +68,11 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   const cost = page.locator('.cost-panel');
   await cost.waitFor();
   // With Bambu Studio installed there is a Slice button; without, a note saying it is needed.
-  await cost.getByText(/^Slice$|Needs Bambu Studio installed/).first().waitFor();
+  await cost.getByRole('button', { name: 'Slice', exact: true }).or(cost.getByText('Needs Bambu Studio installed', { exact: false })).first()
+    .waitFor().catch(async (e) => { throw new Error(`${e.message}\nCost panel: ${await cost.innerText()}`); });
   await page.waitForTimeout(1500);
   assert.deepEqual(slices, [], 'opening the Print tab must not slice');
+  await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
 
   assert.deepEqual(errors, []);
