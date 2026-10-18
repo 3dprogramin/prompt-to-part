@@ -1,6 +1,6 @@
 import { PRINTER } from '../shared/printer';
 import { FILAMENT_LIBRARY } from '../shared/filaments';
-import type { HfFilament } from '../shared/layertone';
+import type { LayerToneFilament } from '../shared/layertone';
 import { A1_DEFAULTS, describeSetting, SETTING_LABELS, type PrintSettings } from '../shared/print';
 
 /** "layer 0.20 mm, 2 walls, …" for the baseline profile. */
@@ -9,7 +9,7 @@ function describeBase(b: Required<PrintSettings>): string {
   return `layer ${b.layerHeight.toFixed(2)} mm, ${b.walls} walls, ${b.topLayers} top / ${b.bottomLayers} bottom layers, ${b.infill} % ${d('infillPattern')} infill, supports ${d('supports')}${b.supportsOnPlate ? ' (from the build plate only)' : ''}, brim ${d('brim')}, ironing ${d('ironing')}, seam ${d('seam')}, ${SETTING_LABELS.wallOrder.toLowerCase()} ${d('wallOrder')}, fuzzy skin ${d('fuzzySkin')}`;
 }
 
-export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, hueforge?: { pictures: boolean; mine?: HfFilament[] }, lithophane?: { pictures: boolean }, meshes?: { figure: boolean; meshy: boolean }): string {
+export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, layerTone?: { pictures: boolean; mine?: LayerToneFilament[] }, lithophane?: { pictures: boolean }, meshes?: { figure: boolean; meshy: boolean }): string {
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${PRINTER.name} (FDM bed-slinger, ${PRINTER.nozzle} mm nozzle, PLA/PETG, build volume ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
@@ -38,7 +38,7 @@ export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, pri
 # Dimensions of real products
 ${webSearch ? WEB_ON : WEB_OFF}
 ${artwork ? ARTWORK_ON : ''}
-${hueforge ? hueforgePrompt(hueforge.pictures, hueforge.mine) : ''}
+${layerTone ? layerTonePrompt(layerTone.pictures, layerTone.mine) : ''}
 ${lithophane ? lithophanePrompt(lithophane.pictures) : ''}
 ${meshes ? meshPrompt(meshes) : ''}
 
@@ -118,7 +118,7 @@ print: {
   parts: { 'Lead screw': { walls: 4, infill: 100 }, 'Cradle': { supports: 'tree', brim: 5 } },
 }
 \`\`\`
-- Keys: layerHeight (mm, model-wide only: 0.08/0.12/0.16/0.20/0.24/0.28), firstLayerHeight (mm, model-wide only; H.hueforge sets 0.16), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm), ironing ('off' | 'top' | 'topmost' | 'solid'), seam ('aligned' | 'nearest' | 'back' | 'random'), supportsOnPlate (true | false; per object), wallOrder ('inner-outer' | 'outer-inner' | 'inner-outer-inner'), fuzzySkin ('none' | 'external' | 'all').
+- Keys: layerHeight (mm, model-wide only: 0.08/0.12/0.16/0.20/0.24/0.28), firstLayerHeight (mm, model-wide only; H.layertone sets 0.16), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm), ironing ('off' | 'top' | 'topmost' | 'solid'), seam ('aligned' | 'nearest' | 'back' | 'random'), supportsOnPlate (true | false; per object), wallOrder ('inner-outer' | 'outer-inner' | 'inner-outer-inner'), fuzzySkin ('none' | 'external' | 'all').
 - ironing 'top' (or 'topmost' for only the very top) on parts with large flat top faces that are seen or touched (lids, plaques, signs, nameplates); it is slow and does nothing for curved tops.
 - seam 'back' to hide the seam on the back of visible round parts (figurines, vases, knobs); keep 'aligned' on functional parts; avoid 'random' where surfaces must fit.
 - supportsOnPlate true when supports are needed but must not stand on the model itself (they would scar a visible or mating surface, or fill a thread or a hole).
@@ -243,14 +243,14 @@ const FILAMENT_LINES = (() => {
 })();
 
 /** The user's own filaments (saved in the LayerTone panel), one per line. */
-const myFilamentLines = (mine: HfFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
+const myFilamentLines = (mine: LayerToneFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
 
-function hueforgePrompt(pictures: boolean, mine: HfFilament[] = []) {
+function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = []) {
   return `LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
 - Call this feature LayerTone in your replies (that is its name in Jig; never use another product's name for it).
-- Build it with H.hueforge(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
+- Build it with H.layertone(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
     const params = { width: { label: 'Picture width', value: 250, min: 40, max: 250, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
-    function build(p) { return { name: 'Picture', ...H.hueforge('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
+    function build(p) { return { name: 'Picture', ...H.layertone('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
 - Size: unless the user asks for another, make it as big as the A1's bed allows: 250 × 250 mm. The picture's longer side is 250 mm – landscape or square: width 250; portrait: width = 250 × (picture width ÷ picture height), so its height is 250 – and with a frame, take 2 × the frame off (the frame adds to the outside). Give the width slider that same maximum.
 - The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
 - Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
@@ -258,14 +258,14 @@ function hueforgePrompt(pictures: boolean, mine: HfFilament[] = []) {
   - More than 4 only when really needed: each extra filament means a pause and a manual spool swap. If you go above 4, say so in your final message and why.
   - Black at the bottom and white on top is the most common choice, not a rule: pick colours that suit the subject (skin tones, sky, a brown or grey mid-tone, a team colour…), dark at the bottom to light at the top unless the picture calls for something else.
   - Prefer filaments from Jig's library below (their TDs are known); colours marked * have an estimated TD – mention those. Use the library's exact name, brand, colour and TD.
-  - First version: pass them to H.hueforge({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_hueforge, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.
+  - First version: pass them to H.layertone({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_layertone, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.
 - Jig's filament library (brand line: colour #hex TD; * = estimated TD):
 ${FILAMENT_LINES}
 ${mine.length ? `- The user's own filaments, saved in Jig (name (brand) #hex TD). The user has these: prefer them over the library when they fit the picture, and use their exact name, brand, colour and TD:
 ${myFilamentLines(mine)}
 ` : ''}- Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
-- Filaments, their order, TDs and swap layers live in the LayerTone setup: the user edits it in the LayerTone panel, you edit it with set_hueforge – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_hueforge (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.hueforge as its own default.
-- Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.hueforge part.
+- Filaments, their order, TDs and swap layers live in the LayerTone setup: the user edits it in the LayerTone panel, you edit it with set_layertone – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_layertone (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.layertone as its own default.
+- Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.layertone part.
 - Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the LayerTone panel (Print tab) or ask you to.`;
 }
 
@@ -284,7 +284,7 @@ function lithophanePrompt(pictures: boolean) {
   - Lamp panel: curved, angle 90–150°, width 100–150 mm, stand 20.
 - It stands upright (picture vertical, facing −Y; FRONT view reads it) because that prints the finest tones: the walls trace the thickness in X/Y instead of in whole layers. Keep it upright and on the bed; don't scale it. upright: false (lying flat, relief up) only when the user asks.
 - It must fit the A1 (256 × 256 × 256 mm): the height is the width × the picture's height / width, plus the frame and foot.
-- Don't use H.hueforge in this design: a design is a lithophane or a LayerTone print, not both.
+- Don't use H.layertone in this design: a design is a lithophane or a LayerTone print, not both.
 - Check it with render_model: it shows the panel lit from behind (thin = warm white, thick = dark), and the report gives its size and thicknesses. In your final message give the size (width × height × depth), the thinnest/thickest values and the print advice: white PLA (e.g. Bambu PLA Basic White or Jade White), standing up as built, 0.12 mm layers, 100 % infill, the walls from the print settings, a brim unless it has a foot, and an LED light behind it (not a hot bulb: PLA softens at about 60 °C). The user sees the picture and the lit preview in the Lithophane section of the Print tab.`;
 }
 

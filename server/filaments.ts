@@ -11,7 +11,7 @@ export interface FilamentQuery {
 }
 
 const PROMPT = `You find a 3D-printing filament's TD (transmission distance, in mm: the thickness at which the filament hides what is under it) and its colour.
-Search the web for a published TD for exactly this filament: HueForge's filament library and posts, 3dfilamentprofiles.com, filamentcolors.xyz, community TD lists. Use only TD values you actually read on a page. If there is none for this exact filament, use the published TD of the closest filament (same brand and line in a similar colour, or the same colour from a similar brand) and say which. Only if nothing close is published, estimate from published values of similar colours and say so.
+Search the web for a published TD for exactly this filament: filament-painting TD libraries and posts, 3dfilamentprofiles.com, filamentcolors.xyz, community TD lists. Use only TD values you actually read on a page. If there is none for this exact filament, use the published TD of the closest filament (same brand and line in a similar colour, or the same colour from a similar brand) and say which. Only if nothing close is published, estimate from published values of similar colours and say so.
 The colour is the filament's hex colour as the maker publishes it or as measured on a swatch.
 Answer with ONLY a JSON object, no other text:
 {"name": "<the filament's full name, e.g. PLA Basic Black>", "line": "<product line, e.g. PLA Basic>", "color": "#rrggbb", "td": <mm, 0.1–20>, "source": "<URL of the page the TD comes from>", "match": "exact" | "similar" | "estimate", "note": "<one short sentence: where the value comes from, and which filament it belongs to if not this one>"}`;

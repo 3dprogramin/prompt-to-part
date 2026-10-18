@@ -2,7 +2,7 @@ import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
 import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
-import { HF_IMAGES_KEY, HF_KEY } from '../../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -16,7 +16,7 @@ function effective(values: ParamValues, params: Params): ParamValues {
   for (const [k, v] of Object.entries(values)) {
     // Attached drawings and LayerTone pictures come with chat messages and visibility is a view
     // choice: none of them is a setting to save as a version.
-    if (k === DRAWINGS_KEY || k === HF_IMAGES_KEY || k === HIDDEN_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
+    if (k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY || k === HIDDEN_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
     out[k] = v;
   }
   return out;
@@ -41,7 +41,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === SVG_KEY) return 'SVG';
     if (k === DRAWINGS_KEY) return 'attached drawings';
     if (k === PRINT_KEY) return 'print settings';
-    if (k === HF_KEY) return 'LayerTone filaments';
+    if (k === LAYERTONE_KEY) return 'LayerTone filaments';
     const d = params[k];
     return `${d?.label ?? k} ${fmt(v, d)}`;
   });

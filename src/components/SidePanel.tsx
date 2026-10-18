@@ -7,9 +7,9 @@ import { PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
 import { ObjectPanel } from './ObjectPanel';
 import { SvgPanel } from './SvgPanel';
-import { HueforgePanel, hueforgePart } from './LayerTonePanel';
+import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
-import type { HfImage, HueforgeSetup } from '../../shared/layertone';
+import type { LayerToneImage, LayerToneSetup } from '../../shared/layertone';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
 import type { PrintProfile, PrintSettings } from '../../shared/print';
@@ -45,8 +45,8 @@ interface Props {
   onResetValues: () => void;
   /** The design's values (the LayerTone setup and pictures). */
   values: ParamValues;
-  onHueforge: (s: HueforgeSetup | null) => void;
-  onHfImage: (name: string, image: HfImage) => void;
+  onLayerTone: (s: LayerToneSetup | null) => void;
+  onLayerToneImage: (name: string, image: LayerToneImage) => void;
   onApplyCode: (code: string) => void;
   onExport: (format: ExportFormat, partName?: string) => void;
   exporting: boolean;
@@ -106,7 +106,7 @@ export function SidePanel(p: Props) {
     : <div className="empty-note">{what}</div>);
   const hiddenCount = shown ? shown.parts.filter((x) => p.hiddenParts.includes(x.name)).length : 0;
   const decorations = p.textFeatures.length + p.svgFeatures.length;
-  const hfPart = hueforgePart(shown);
+  const layerTonePart = findLayerTonePart(shown);
   const lithoPart = lithophanePart(shown);
   // Four tabs, each with two sections one under the other (a LayerTone print or a lithophane adds
   // its own on top of the Print tab).
@@ -157,8 +157,8 @@ export function SidePanel(p: Props) {
             : noModel('SVG drawings can be added once a model is generated.')))}
         </>}
         {tab === 'print' && <>
-          {shown && hfPart && section('hueforge', 'LayerTone', () => <HueforgePanel result={shown} part={hfPart} values={p.values} onSetup={p.onHueforge} onImage={p.onHfImage} />)}
-          {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onHfImage} />)}
+          {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
+          {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
             : noModel('Print settings appear once a model is generated.')))}

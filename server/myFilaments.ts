@@ -4,12 +4,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_DIR } from './config';
 import { cleanMyFilaments } from '../shared/filaments';
-import type { HfFilament } from '../shared/layertone';
+import type { LayerToneFilament } from '../shared/layertone';
 
 export const MY_FILAMENTS_FILE = path.join(DATA_DIR, 'filaments.json');
 
 /** The saved filaments, checked; none if the file is missing or unreadable. */
-export async function readMyFilaments(): Promise<HfFilament[]> {
+export async function readMyFilaments(): Promise<LayerToneFilament[]> {
   try {
     return cleanMyFilaments((JSON.parse(await readFile(MY_FILAMENTS_FILE, 'utf8')) as { filaments?: unknown }).filaments);
   } catch {

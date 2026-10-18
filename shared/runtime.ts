@@ -7,7 +7,7 @@ import { makeHelpers } from './helpers';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
-import { cleanHueforgeSource, cleanLayerColors, HF_IMAGES_KEY, HF_KEY, parseHfImages, parseHueforgeSetup, vertexColors, type HueforgeSource, type LayerColor } from './layertone';
+import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import { cleanProfile } from './print';
 import { MESHES_KEY, MeshMissingError, parseMeshes, type MeshData } from './meshes';
@@ -293,7 +293,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   heapAtStart = heapSize();
   try {
     const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
-      images: parseHfImages(inputValues?.[HF_IMAGES_KEY]), setup: parseHueforgeSetup(inputValues?.[HF_KEY]),
+      images: parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]), setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
     }, parseMeshes(inputValues?.[MESHES_KEY]));
     let scope;
     try {
@@ -345,16 +345,16 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     });
     rawParts.forEach((rp, i) => {
       let shape: any, name = '', color = '';
-      let layerColors: LayerColor[] | undefined, hueforge: HueforgeSource | undefined, lithophane: LithophaneSource | undefined;
+      let layerColors: LayerColor[] | undefined, layerTone: LayerToneSource | undefined, lithophane: LithophaneSource | undefined;
       if (rp instanceof M) shape = rp;
       else if (rp && typeof rp === 'object') {
         const o = rp as Record<string, unknown>;
         shape = o.shape ?? o.manifold;
         name = typeof o.name === 'string' ? o.name : '';
         color = typeof o.color === 'string' ? o.color : '';
-        // A LayerTone part (H.hueforge): its filament stack, scaled with the part.
+        // A LayerTone part (H.layertone): its filament stack, scaled with the part.
         layerColors = cleanLayerColors(o.layerColors, scale);
-        hueforge = layerColors && cleanHueforgeSource(o.hueforge, scale);
+        layerTone = layerColors && cleanLayerToneSource(o.layerTone, scale);
         // A lithophane part (H.lithophane): what it was made from, scaled with the part. A design is
         // one or the other.
         lithophane = layerColors ? undefined : cleanLithophaneSource(o.lithophane, scale);
@@ -388,7 +388,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }
       if (opts.lite) {
         const bb = shape.boundingBox();
-        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(hueforge ? { hueforge } : {}), ...(lithophane ? { lithophane } : {}) });
+        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}) });
         return;
       }
       const mesh = shape.getMesh();
@@ -413,7 +413,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         // A sealed cavity is a component with negative volume: it is not a separate piece.
         components: shape.decompose().filter((c: Manifold) => c.volume() > 0).length,
         ...(layerColors ? { layerColors, vertexColors: vertexColors(positions, layerColors) } : {}),
-        ...(hueforge ? { hueforge } : {}),
+        ...(layerTone ? { layerTone } : {}),
         ...(lithophane ? { lithophane, ...(litColors ? { vertexColors: litColors } : {}) } : {}),
       });
     });

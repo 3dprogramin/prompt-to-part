@@ -144,7 +144,7 @@ async function requestOnce(key: string, model: string, prompt: string, aspect: s
 }
 
 /** The prompt for a LayerTone picture: a photo-like image with a full range of tones, no print rules about flat colours. */
-export function picturePrompt(r: { subject: string; style?: string; references?: string[]; use?: 'hueforge' | 'lithophane' }): string {
+export function picturePrompt(r: { subject: string; style?: string; references?: string[]; use?: 'layertone' | 'lithophane' }): string {
   return [
     r.use === 'lithophane'
       ? 'A picture to be printed as a lithophane: a white panel whose thickness follows the picture, lit from behind so it glows in shades of warm light, so the picture is judged by its light and dark values alone (no colour).'

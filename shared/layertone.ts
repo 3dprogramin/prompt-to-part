@@ -4,22 +4,22 @@
 // through, by each filament's TD (transmission distance: the thickness at which it hides what is
 // under it).
 //
-// CONTRACT (feat/hueforge). The types and signatures here are shared by the engine (this file,
-// shared/helpers.ts H.hueforge, shared/runtime.ts), the viewer, the side panel, the 3MF export
+// CONTRACT (LayerTone). The types and signatures here are shared by the engine (this file,
+// shared/helpers.ts H.layertone, shared/runtime.ts), the viewer, the side panel, the 3MF export
 // and the server.
 import type { Quality } from './types';
 
-/** Values key: the pictures for H.hueforge, as JSON Record<name, HfImage>. */
-export const HF_IMAGES_KEY = '$images';
-/** Values key: the user's LayerTone setup (filaments, swaps), as JSON HueforgeSetup. Edited in the side panel. */
-export const HF_KEY = '$hueforge';
+/** Values key: the pictures for H.layertone, as JSON Record<name, LayerToneImage>. */
+export const LAYERTONE_IMAGES_KEY = '$images';
+/** Values key: the user's LayerTone setup (filaments, swaps), as JSON LayerToneSetup. Edited in the side panel. */
+export const LAYERTONE_KEY = '$layertone';
 
 /** Most filaments in one LayerTone print (4 load in the A1's AMS lite; more need manual swaps). */
-export const MAX_HF_FILAMENTS = 8;
+export const MAX_LAYERTONE_FILAMENTS = 8;
 /** Longest side of a stored picture, pixels. */
-export const MAX_HF_IMAGE_SIDE = 800;
+export const MAX_LAYERTONE_IMAGE_SIDE = 800;
 
-export interface HfFilament {
+export interface LayerToneFilament {
   /** E.g. "PLA Basic Black". */
   name: string;
   /** E.g. "Bambu Lab", "eSUN". */
@@ -31,7 +31,7 @@ export interface HfFilament {
 }
 
 /** A picture as stored in the design: 8-bit luminance, row by row from the top. */
-export interface HfImage {
+export interface LayerToneImage {
   name: string;
   width: number;
   height: number;
@@ -39,10 +39,10 @@ export interface HfImage {
   luma: string;
 }
 
-/** What the user set in the side panel (stored under HF_KEY); script options are the fallback. */
-export interface HueforgeSetup {
+/** What the user set in the side panel (stored under LAYERTONE_KEY); script options are the fallback. */
+export interface LayerToneSetup {
   /** Bottom (first printed, usually darkest) → top. */
-  filaments?: HfFilament[];
+  filaments?: LayerToneFilament[];
   /**
    * The layer (0-based, counted from the bed) at which each filament after the first starts:
    * filaments.length - 1 ascending numbers. Missing = automatic (autoSwaps).
@@ -50,8 +50,8 @@ export interface HueforgeSetup {
   swaps?: number[];
 }
 
-/** H.hueforge options (sliders in the script); all lengths in mm. */
-export interface HueforgeOptions {
+/** H.layertone options (sliders in the script); all lengths in mm. */
+export interface LayerToneOptions {
   /** Width of the picture; its height follows the picture's proportions. */
   width: number;
   /** Default 0.08. */
@@ -69,8 +69,8 @@ export interface HueforgeOptions {
   /** Brightness curve before mapping to heights (default 1; < 1 lifts the shadows). */
   gamma?: number;
   /** Filaments when the user hasn't chosen any (default: black and white). */
-  filaments?: HfFilament[];
-  /** The script's swap layers (as HueforgeSetup.swaps) when the setup has none; missing = automatic. */
+  filaments?: LayerToneFilament[];
+  /** The script's swap layers (as LayerToneSetup.swaps) when the setup has none; missing = automatic. */
   swaps?: number[];
   /** Grid spacing of the relief, mm (default by quality: draft 0.6, normal 0.35, high 0.2). */
   resolution?: number;
@@ -88,24 +88,24 @@ export interface LayerColor {
   brand?: string;
 }
 
-/** What H.hueforge returns; a script returns it as a part: { name, ...hf } (shape, layerColors), and hf.print as its print settings. */
-export interface HueforgePart {
+/** What H.layertone returns; a script returns it as a part: { name, ...H.layertone(…) } (shape, layerColors), and its print field becomes the part's print settings. */
+export interface LayerTonePart {
   shape: unknown; // Manifold
   layerColors: LayerColor[];
   /** Print settings a LayerTone print needs (layer heights, 100 % infill…). */
   print: { layerHeight: number; firstLayerHeight: number; infill: number; infillPattern?: string; walls?: number; topLayers?: number; bottomLayers?: number };
-  /** What the relief was made from, for the side panel's preview (PartMesh.hueforge). */
-  hueforge: HueforgeSource;
+  /** What the relief was made from, for the side panel's preview (PartMesh.layerTone). */
+  layerTone: LayerToneSource;
 }
 
-/** The picture (key in HF_IMAGES_KEY) and the options a LayerTone part was built with, defaults filled in. */
-export interface HueforgeSource {
+/** The picture (key in LAYERTONE_IMAGES_KEY) and the options a LayerTone part was built with, defaults filled in. */
+export interface LayerToneSource {
   image: string;
-  options: Required<Omit<HueforgeOptions, 'filaments' | 'swaps'>>;
+  options: Required<Omit<LayerToneOptions, 'filaments' | 'swaps'>>;
 }
 
 /** The user's loaded black and white, as in the filament library (shared/filaments.ts). */
-export const DEFAULT_FILAMENTS: HfFilament[] = [
+export const DEFAULT_FILAMENTS: LayerToneFilament[] = [
   { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.2 },
   { name: 'PLA Basic Jade White', brand: 'Bambu Lab', color: '#ffffff', td: 5.9 },
 ];
@@ -186,10 +186,10 @@ function boxResize(src: Float32Array, w: number, h: number, nw: number, nh: numb
   return out;
 }
 
-/** RGBA pixels (e.g. from a canvas or a decoded PNG/JPEG) → HfImage, scaled down to MAX_HF_IMAGE_SIDE. */
-export function toHfImage(name: string, width: number, height: number, rgba: ArrayLike<number>): HfImage {
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new Error(`toHfImage: invalid size ${width}×${height}`);
-  if (rgba.length < width * height * 4) throw new Error(`toHfImage: expected ${width * height * 4} RGBA bytes, got ${rgba.length}`);
+/** RGBA pixels (e.g. from a canvas or a decoded PNG/JPEG) → LayerToneImage, scaled down to MAX_LAYERTONE_IMAGE_SIDE. */
+export function toLayerToneImage(name: string, width: number, height: number, rgba: ArrayLike<number>): LayerToneImage {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new Error(`toLayerToneImage: invalid size ${width}×${height}`);
+  if (rgba.length < width * height * 4) throw new Error(`toLayerToneImage: expected ${width * height * 4} RGBA bytes, got ${rgba.length}`);
   // Rec. 709 luma of the sRGB values; transparent pixels count as white paper.
   let lum: Float32Array = new Float32Array(width * height);
   for (let p = 0; p < lum.length; p++) {
@@ -197,10 +197,10 @@ export function toHfImage(name: string, width: number, height: number, rgba: Arr
     lum[p] = (0.2126 * rgba[p * 4] + 0.7152 * rgba[p * 4 + 1] + 0.0722 * rgba[p * 4 + 2]) * a + 255 * (1 - a);
   }
   let w = width, h = height;
-  const s = Math.max(width, height) / MAX_HF_IMAGE_SIDE;
+  const s = Math.max(width, height) / MAX_LAYERTONE_IMAGE_SIDE;
   if (s > 1) {
-    w = Math.max(1, Math.min(MAX_HF_IMAGE_SIDE, Math.round(width / s)));
-    h = Math.max(1, Math.min(MAX_HF_IMAGE_SIDE, Math.round(height / s)));
+    w = Math.max(1, Math.min(MAX_LAYERTONE_IMAGE_SIDE, Math.round(width / s)));
+    h = Math.max(1, Math.min(MAX_LAYERTONE_IMAGE_SIDE, Math.round(height / s)));
     lum = boxResize(lum, width, height, w, h);
   }
   const bytes = new Uint8Array(w * h);
@@ -208,43 +208,43 @@ export function toHfImage(name: string, width: number, height: number, rgba: Arr
   return { name, width: w, height: h, luma: toBase64(bytes) };
 }
 
-const lumaCache = new WeakMap<HfImage, Uint8Array>();
+const lumaCache = new WeakMap<LayerToneImage, Uint8Array>();
 /** The picture's luminance bytes (decoded once per picture object). */
-export function hfLuma(image: HfImage): Uint8Array {
+export function layerToneLuma(image: LayerToneImage): Uint8Array {
   let bytes = lumaCache.get(image);
   if (!bytes) {
     const b = fromBase64(image.luma);
-    if (!b || b.length !== image.width * image.height) throw new Error(`H.hueforge: picture "${image.name}" is damaged`);
+    if (!b || b.length !== image.width * image.height) throw new Error(`H.layertone: picture "${image.name}" is damaged`);
     lumaCache.set(image, bytes = b);
   }
   return bytes;
 }
 
 /** At most this many pictures per design. */
-export const MAX_HF_IMAGES = 12;
+export const MAX_LAYERTONE_IMAGES = 12;
 
 /** A picture from saved JSON, checked (its bytes are decoded only when used), or null. */
-export function cleanHfImage(raw: unknown, name: string): HfImage | null {
-  const o = raw as HfImage | null;
+export function cleanLayerToneImage(raw: unknown, name: string): LayerToneImage | null {
+  const o = raw as LayerToneImage | null;
   if (!o || typeof o !== 'object' || typeof o.luma !== 'string') return null;
   const { width, height } = o;
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > MAX_HF_IMAGE_SIDE || height > MAX_HF_IMAGE_SIDE) return null;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > MAX_LAYERTONE_IMAGE_SIDE || height > MAX_LAYERTONE_IMAGE_SIDE) return null;
   if (o.luma.length !== Math.ceil((width * height) / 3) * 4) return null;
   return { name, width, height, luma: o.luma };
 }
 
 // Pictures are large strings, and a live preview evaluates the same ones on every slider move.
 let lastImagesRaw: unknown;
-let lastImages: Record<string, HfImage> = {};
+let lastImages: Record<string, LayerToneImage> = {};
 /** Pictures from the design's values (name → picture), checked. */
-export function parseHfImages(raw: unknown): Record<string, HfImage> {
+export function parseLayerToneImages(raw: unknown): Record<string, LayerToneImage> {
   if (raw === lastImagesRaw && typeof raw === 'string') return lastImages;
   let o: unknown = raw;
   if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch { return {}; } }
   if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
-  const out: Record<string, HfImage> = {};
-  for (const [name, img] of Object.entries(o).slice(0, MAX_HF_IMAGES)) {
-    const clean = cleanHfImage(img, name.slice(0, 120));
+  const out: Record<string, LayerToneImage> = {};
+  for (const [name, img] of Object.entries(o).slice(0, MAX_LAYERTONE_IMAGES)) {
+    const clean = cleanLayerToneImage(img, name.slice(0, 120));
     if (clean) out[clean.name] = clean;
   }
   if (typeof raw === 'string') { lastImagesRaw = raw; lastImages = out; }
@@ -257,11 +257,11 @@ export function parseHfImages(raw: unknown): Record<string, HfImage> {
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
-/** Filaments from a script or saved JSON, checked (at most MAX_HF_FILAMENTS), or undefined if none are usable. */
-export function cleanFilaments(raw: unknown): HfFilament[] | undefined {
+/** Filaments from a script or saved JSON, checked (at most MAX_LAYERTONE_FILAMENTS), or undefined if none are usable. */
+export function cleanFilaments(raw: unknown): LayerToneFilament[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const out: HfFilament[] = [];
-  for (const f of raw.slice(0, MAX_HF_FILAMENTS)) {
+  const out: LayerToneFilament[] = [];
+  for (const f of raw.slice(0, MAX_LAYERTONE_FILAMENTS)) {
     if (!f || typeof f !== 'object' || typeof f.color !== 'string' || !HEX.test(f.color)) continue;
     const td = Number(f.td);
     if (!(td > 0) || !Number.isFinite(td)) continue;
@@ -275,21 +275,21 @@ export function cleanFilaments(raw: unknown): HfFilament[] | undefined {
 }
 
 /** A filament as the stack stores it: name, brand, colour and TD only (no library line or source). */
-export const stackFilament = (f: HfFilament): HfFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
+export const stackFilament = (f: LayerToneFilament): LayerToneFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
 
 /** The stack with filament `i` swapped for `f`, in place: the order (and so the swaps) stay. */
-export const replaceFilament = (list: HfFilament[], i: number, f: HfFilament): HfFilament[] => list.map((g, j) => (j === i ? stackFilament(f) : g));
+export const replaceFilament = (list: LayerToneFilament[], i: number, f: LayerToneFilament): LayerToneFilament[] => list.map((g, j) => (j === i ? stackFilament(f) : g));
 
-/** The user's setup from the design's values (HF_KEY), checked. */
-export function parseHueforgeSetup(raw: unknown): HueforgeSetup {
+/** The user's setup from the design's values (LAYERTONE_KEY), checked. */
+export function parseLayerToneSetup(raw: unknown): LayerToneSetup {
   let o: unknown = raw;
   if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch { return {}; } }
   if (!o || typeof o !== 'object') return {};
   const s = o as Record<string, unknown>;
-  const out: HueforgeSetup = {};
+  const out: LayerToneSetup = {};
   const filaments = cleanFilaments(s.filaments);
   if (filaments) out.filaments = filaments;
-  if (Array.isArray(s.swaps) && s.swaps.length <= MAX_HF_FILAMENTS && s.swaps.every((n) => Number.isFinite(n))) out.swaps = s.swaps.map((n) => Math.round(n as number));
+  if (Array.isArray(s.swaps) && s.swaps.length <= MAX_LAYERTONE_FILAMENTS && s.swaps.every((n) => Number.isFinite(n))) out.swaps = s.swaps.map((n) => Math.round(n as number));
   return out;
 }
 
@@ -305,17 +305,17 @@ export function checkSwaps(swaps: number[] | undefined, count: number): number[]
 // ---------------------------------------------------------------------------
 
 /** Options with defaults filled in and the relief's layer range: tops of `nBase` to `nMax` layers. */
-export interface HfResolved extends Required<Omit<HueforgeOptions, 'filaments' | 'swaps'>> {
+export interface LayerToneResolved extends Required<Omit<LayerToneOptions, 'filaments' | 'swaps'>> {
   nBase: number;
   nMax: number;
 }
 
 const RESOLUTION: Record<Quality, number> = { draft: 0.6, normal: 0.35, high: 0.2 };
 
-export function resolveHfOptions(o: HueforgeOptions, quality: Quality = 'normal'): HfResolved {
+export function resolveLayerToneOptions(o: LayerToneOptions, quality: Quality = 'normal'): LayerToneResolved {
   const num = (v: unknown, def: number, lo: number, hi: number) => { const n = Number(v); return v == null || !Number.isFinite(n) ? def : Math.min(hi, Math.max(lo, n)); };
   const width = Number(o?.width);
-  if (!(width > 0) || !Number.isFinite(width)) throw new Error('H.hueforge: width must be > 0 (mm)');
+  if (!(width > 0) || !Number.isFinite(width)) throw new Error('H.layertone: width must be > 0 (mm)');
   const layerHeight = num(o.layerHeight, 0.08, 0.04, 0.32);
   const firstLayerHeight = num(o.firstLayerHeight, 0.16, 0.04, 0.4);
   const count = (h: number) => (h <= firstLayerHeight + 1e-9 ? 1 : 1 + Math.round((h - firstLayerHeight) / layerHeight));
@@ -336,7 +336,7 @@ export function layerTop(n: number, r: { layerHeight: number; firstLayerHeight: 
 }
 
 /** The filament stack: where each filament starts (swaps: the layer each one after the first starts at). */
-export function stackLayers(filaments: HfFilament[], swaps: number[], r: { layerHeight: number; firstLayerHeight: number }): LayerColor[] {
+export function stackLayers(filaments: LayerToneFilament[], swaps: number[], r: { layerHeight: number; firstLayerHeight: number }): LayerColor[] {
   return filaments.map((f, i) => {
     const layer = i ? swaps[i - 1] : 0;
     return { z: layerTop(layer, r), layer, color: f.color, td: f.td, name: f.name, ...(f.brand ? { brand: f.brand } : {}) };
@@ -347,8 +347,8 @@ export function stackLayers(filaments: HfFilament[], swaps: number[], r: { layer
  * The stack for a picture: filaments from the user's setup, else the script's, else black and
  * white; the user's swaps if they fit, else autoSwaps.
  */
-export function hueforgeLayers(image: HfImage, o: HueforgeOptions, setup: HueforgeSetup = {}, quality: Quality = 'normal'): LayerColor[] {
-  const r = resolveHfOptions(o, quality);
+export function layerToneLayers(image: LayerToneImage, o: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): LayerColor[] {
+  const r = resolveLayerToneOptions(o, quality);
   const filaments = setup.filaments ?? cleanFilaments(o.filaments) ?? DEFAULT_FILAMENTS;
   return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? checkSwaps(o.swaps, filaments.length) ?? autoSwaps(image, filaments, o), r);
 }
@@ -357,7 +357,7 @@ export function hueforgeLayers(image: HfImage, o: HueforgeOptions, setup: Huefor
 export function cleanLayerColors(raw: unknown, scale = 1): LayerColor[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: LayerColor[] = [];
-  for (const l of raw.slice(0, MAX_HF_FILAMENTS)) {
+  for (const l of raw.slice(0, MAX_LAYERTONE_FILAMENTS)) {
     if (!l || typeof l !== 'object') continue;
     const z = Number(l.z), td = Number(l.td), layer = Number(l.layer);
     if (!(z >= 0) || !Number.isFinite(z) || !(td > 0) || !Number.isFinite(td) || !Number.isInteger(layer) || layer < 0 || typeof l.color !== 'string' || !HEX.test(l.color)) continue;
@@ -372,10 +372,10 @@ export function cleanLayerColors(raw: unknown, scale = 1): LayerColor[] | undefi
 }
 
 /** A part's LayerTone source returned by a script, checked and scaled by the runtime's uniform scale; undefined if unusable. */
-export function cleanHueforgeSource(raw: unknown, scale = 1): HueforgeSource | undefined {
-  const o = raw as HueforgeSource | null;
+export function cleanLayerToneSource(raw: unknown, scale = 1): LayerToneSource | undefined {
+  const o = raw as LayerToneSource | null;
   if (!o || typeof o !== 'object' || typeof o.image !== 'string' || !o.options || typeof o.options !== 'object') return undefined;
-  const n = (k: keyof HueforgeSource['options']) => Number(o.options[k]);
+  const n = (k: keyof LayerToneSource['options']) => Number(o.options[k]);
   const lengths = (['width', 'layerHeight', 'firstLayerHeight', 'baseHeight', 'maxHeight', 'border', 'resolution'] as const).map(n);
   if (!lengths.every((v) => v >= 0 && Number.isFinite(v)) || !(lengths[0] > 0) || !(n('gamma') > 0)) return undefined;
   const [width, layerHeight, firstLayerHeight, baseHeight, maxHeight, border, resolution] = lengths.map((v) => v * scale);
@@ -410,7 +410,7 @@ export function hexToRgb(hex: string): [number, number, number] {
 }
 export const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 export const toSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
-/** Rec. 709 luma of sRGB 0–1 values (as toHfImage measures the picture). */
+/** Rec. 709 luma of sRGB 0–1 values (as toLayerToneImage measures the picture). */
 export const luma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
 /** The colour a point looks when the print's top there is at `z` (mm), as sRGB 0–1. `layers` ascending by z. */
@@ -453,7 +453,7 @@ export function vertexColors(positions: Float32Array, layers: LayerColor[]): Flo
 const LEVELS = 1024;
 
 /** The picture's tone at brightness v (0–1) after the gamma curve and invert. */
-const tone = (v: number, r: HfResolved) => { const g = v ** r.gamma; return r.invert ? 1 - g : g; };
+const tone = (v: number, r: LayerToneResolved) => { const g = v ** r.gamma; return r.invert ? 1 - g : g; };
 
 /**
  * Brightness → layer count. Every possible top (nBase…nMax layers) is simulated with the stack;
@@ -461,7 +461,7 @@ const tone = (v: number, r: HfResolved) => { const g = v ** r.gamma; return r.in
  * count that looks closest to it (the lowest one on a tie). That keeps the print faithful whatever
  * the filaments and their order are, e.g. a light-first stack puts the dark areas high on its own.
  */
-function heightTable(layers: LayerColor[], r: HfResolved, levels = LEVELS): { counts: Uint16Array; sim: Float64Array } {
+function heightTable(layers: LayerColor[], r: LayerToneResolved, levels = LEVELS): { counts: Uint16Array; sim: Float64Array } {
   const sim = new Float64Array(r.nMax + 1);
   let lo = Infinity, hi = -Infinity;
   for (let n = r.nBase; n <= r.nMax; n++) {
@@ -482,7 +482,7 @@ function heightTable(layers: LayerColor[], r: HfResolved, levels = LEVELS): { co
 }
 
 /**
- * Automatic swap layers for the picture and filaments (see HueforgeSetup.swaps).
+ * Automatic swap layers for the picture and filaments (see LayerToneSetup.swaps).
  *
  * The swaps are scored on the picture's 256-bin brightness histogram, with every tone getting its
  * layer count as in the real print (heightTable):
@@ -496,16 +496,16 @@ function heightTable(layers: LayerColor[], r: HfResolved, levels = LEVELS): { co
  * between its neighbours until nothing improves. Swaps stay inside the relief (nBase … nMax - 1),
  * where their filament shows.
  */
-export function autoSwaps(image: HfImage, filaments: HfFilament[], o: HueforgeOptions): number[] {
+export function autoSwaps(image: LayerToneImage, filaments: LayerToneFilament[], o: LayerToneOptions): number[] {
   const k = filaments.length - 1;
   if (k <= 0) return [];
-  const r = resolveHfOptions(o);
+  const r = resolveLayerToneOptions(o);
   const lo = r.nBase, hi = r.nMax - 1;
   const span = hi - lo + 1;
   // More filaments than layers: one layer each, the last ones above the relief (unused).
   if (span <= k) return Array.from({ length: k }, (_, i) => lo + i);
   const hist = new Float64Array(256);
-  for (const b of hfLuma(image)) hist[b]++;
+  for (const b of layerToneLuma(image)) hist[b]++;
   const total = image.width * image.height;
   const target = Float64Array.from({ length: 256 }, (_, b) => tone(b / 255, r));
   const minShare = 1 / (2 * k);
@@ -553,8 +553,8 @@ export function autoSwaps(image: HfImage, filaments: HfFilament[], o: HueforgeOp
  * `cellPx` pixels wide: averaged over the cell (box filter, from a summed-area table) when it spans
  * several pixels, bilinear otherwise.
  */
-export function pictureSampler(image: HfImage, cellPx: number): (px: number, py: number) => number {
-  const lum = hfLuma(image);
+export function pictureSampler(image: LayerToneImage, cellPx: number): (px: number, py: number) => number {
+  const lum = layerToneLuma(image);
   const iw = image.width, ih = image.height;
   let sat: Float64Array | null = null;
   if (cellPx >= 1.5) {
@@ -584,19 +584,19 @@ export function pictureSampler(image: HfImage, cellPx: number): (px: number, py:
 }
 
 /** The most grid points in one relief (the resolution is coarsened past it). */
-export const MAX_HF_POINTS = 1_500_000;
+export const MAX_LAYERTONE_POINTS = 1_500_000;
 
 /**
  * The relief as a closed triangle mesh (top surface, walls, flat bottom at z = 0, centred on XY),
  * vertices shared, outward-facing: ready for a Manifold Mesh.
  */
-export function hueforgeMesh(image: HfImage, layers: LayerColor[], r: HfResolved): { vertProperties: Float32Array; triVerts: Uint32Array } {
+export function layerToneMesh(image: LayerToneImage, layers: LayerColor[], r: LayerToneResolved): { vertProperties: Float32Array; triVerts: Uint32Array } {
   const { counts } = heightTable(layers, r);
   const W = r.width, Hh = (W * image.height) / image.width, B = r.border;
   const iw = image.width, ih = image.height;
   let res = Math.max(r.resolution, W / iw / 2); // finer than half a pixel adds nothing
   const points = (W / res + 1) * (Hh / res + 1);
-  if (points > MAX_HF_POINTS) res *= Math.sqrt(points / MAX_HF_POINTS);
+  if (points > MAX_LAYERTONE_POINTS) res *= Math.sqrt(points / MAX_LAYERTONE_POINTS);
   const nx = Math.max(1, Math.round(W / res)), ny = Math.max(1, Math.round(Hh / res));
   // Grid lines: the picture's, plus the frame's outer edge and one just outside the picture, so
   // the frame rises steeply at the picture's edge.
@@ -661,9 +661,9 @@ export function hueforgeMesh(image: HfImage, layers: LayerColor[], r: HfResolved
 }
 
 /** The whole print as it will look, as RGBA pixels (for the side panel's preview and Claude). */
-export function simulateImage(image: HfImage, layers: LayerColor[], o: HueforgeOptions): { width: number; height: number; rgba: Uint8ClampedArray } {
-  const r = resolveHfOptions(o);
-  const lum = hfLuma(image);
+export function simulateImage(image: LayerToneImage, layers: LayerColor[], o: LayerToneOptions): { width: number; height: number; rgba: Uint8ClampedArray } {
+  const r = resolveLayerToneOptions(o);
+  const lum = layerToneLuma(image);
   const { counts } = heightTable(layers, r);
   const rgbOf = (n: number) => simulateRgb(layerTop(n, r), layers).map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255));
   const byCount = new Map<number, number[]>();

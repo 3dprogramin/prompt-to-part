@@ -1,13 +1,13 @@
-import { MAX_HF_IMAGE_SIDE, toHfImage, type HfImage } from '../../shared/layertone';
+import { MAX_LAYERTONE_IMAGE_SIDE, toLayerToneImage, type LayerToneImage } from '../../shared/layertone';
 
-// LayerTone pictures in the browser: a file or data URL → HfImage (via a canvas), and back to
+// LayerTone pictures in the browser: a file or data URL → LayerToneImage (via a canvas), and back to
 // pictures the side panel can show.
 
-/** A picture file or data URL as an HfImage, at most MAX_HF_IMAGE_SIDE pixels on its long side. */
-export async function loadHfImage(src: Blob | string, name: string): Promise<HfImage> {
+/** A picture file or data URL as an LayerToneImage, at most MAX_LAYERTONE_IMAGE_SIDE pixels on its long side. */
+export async function loadLayerToneImage(src: Blob | string, name: string): Promise<LayerToneImage> {
   const blob = typeof src === 'string' ? await (await fetch(src)).blob() : src;
   const bmp = await createImageBitmap(blob);
-  const s = Math.min(1, MAX_HF_IMAGE_SIDE / Math.max(bmp.width, bmp.height));
+  const s = Math.min(1, MAX_LAYERTONE_IMAGE_SIDE / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * s)), h = Math.max(1, Math.round(bmp.height * s));
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -18,7 +18,7 @@ export async function loadHfImage(src: Blob | string, name: string): Promise<HfI
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(bmp, 0, 0, w, h);
   bmp.close();
-  return toHfImage(name, w, h, ctx.getImageData(0, 0, w, h).data);
+  return toLayerToneImage(name, w, h, ctx.getImageData(0, 0, w, h).data);
 }
 
 /** RGBA pixels as a PNG data URL. */
@@ -31,7 +31,7 @@ export function rgbaToDataUrl(width: number, height: number, rgba: Uint8ClampedA
 }
 
 /** The stored picture (brightness only) as a grey PNG data URL. */
-export function hfImageToDataUrl(img: HfImage): string {
+export function layerToneImageToDataUrl(img: LayerToneImage): string {
   const luma = Uint8Array.from(atob(img.luma), (c) => c.charCodeAt(0));
   const rgba = new Uint8ClampedArray(img.width * img.height * 4);
   for (let i = 0; i < img.width * img.height; i++) {
