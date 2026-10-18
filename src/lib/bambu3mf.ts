@@ -1,6 +1,7 @@
 // Bambu Studio project 3MF: A1 + PLA template from the user's Bambu Studio, per-object print-setting
-// overrides, one filament per colour, and the filament changes of LayerTone parts. Structure verified
-// by loading and slicing with Bambu Studio 2.8.
+// overrides, one filament per colour, the filament changes of LayerTone parts, and the colour
+// painting of coloured meshes (each triangle's filament, as Bambu Studio's own painting tool stores
+// it). Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
 import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { bedShift } from '../../shared/printer';
@@ -71,10 +72,12 @@ export interface FilamentChange {
 }
 
 export interface FilamentPlan {
-  /** The project's filaments: one per distinct part colour and per LayerTone filament (the same colour and name share one). */
+  /** The project's filaments: one per distinct part colour, per LayerTone filament and per painted filament (the same colour and name share one). */
   filaments: { colour: string; name?: string }[];
-  /** Each part's filament (1-based); a LayerTone part's is its first (bottom) one. */
+  /** Each part's filament (1-based); a LayerTone part's is its first (bottom) one, a painted part's the one most of it prints with. */
   slot: number[];
+  /** A painted part's filament (1-based) for each of its paint filaments (PartMesh.paint), else empty. */
+  paint: number[][];
   /** Each part's filament changes, bottom → top (none for a normal part). */
   changes: FilamentChange[][];
   /** The AMS slot (1–4) each filament goes in; 0 for a filament nothing prints with. */
@@ -106,9 +109,19 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
   const use = (f: number, from: number, to: number) => { if (to >= from) (used[f - 1] ??= []).push([from, to]); };
   const floor = Math.min(...parts.map((p) => p.bbox.min[2]));
 
-  const slot: number[] = [], changes: FilamentChange[][] = [];
+  const slot: number[] = [], changes: FilamentChange[][] = [], paint: number[][] = [];
   for (const p of parts) {
     const top = layerAt(p.bbox.max[2] - p.bbox.min[2]) - 1;
+    if (p.paint?.filaments.length && !p.layerColors?.length) {
+      // Painted: every filament of it counts for its whole height; the part's own is its most used.
+      const fs = p.paint.filaments.map((f) => add(hex(f.color), f.name));
+      const count = fs.map(() => 0);
+      for (const t of p.paint.tri) count[t]++;
+      slot.push(fs[count.indexOf(Math.max(...count))]); changes.push([]); paint.push(fs);
+      for (const f of new Set(fs)) use(f, layerAt(p.bbox.min[2] - floor), layerAt(p.bbox.max[2] - floor) - 1);
+      continue;
+    }
+    paint.push([]);
     if (!p.layerColors?.length) {
       const f = add(hex(p.color));
       slot.push(f); changes.push([]);
@@ -139,14 +152,29 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
     ams[f - 1] = free.s + 1;
     for (const list of changes) for (const c of list) if (c.filament === f && c.layer === start) c.pause = { slot: free.s + 1, replaces: free.g };
   }
-  return { filaments, slot, changes, ams, ...(problem ? { problem } : {}) };
+  return { filaments, slot, paint, changes, ams, ...(problem ? { problem } : {}) };
 }
 
-function meshXml(p: PartMesh, c: number[]): string {
+/**
+ * Bambu Studio's colour painting of a whole (unsplit) triangle with a filament (1-based), its
+ * paint_color attribute: the triangle's TriangleSelector state, written as hex digits last first.
+ * The state is the filament; states below 3 are one digit (state << 2), the others "C" (0b1100,
+ * "more bits follow") then the state − 3: 1 → "4", 2 → "8", 3 → "0C", 4 → "1C", 5 → "2C".
+ */
+export function paintColor(filament: number): string {
+  return filament < 3 ? (filament << 2).toString(16).toUpperCase() : `${(filament - 3).toString(16).toUpperCase()}C`;
+}
+
+/** A part's mesh; `paint` gives each triangle's filament (a painted part), `own` the part's (left unpainted). */
+function meshXml(p: PartMesh, c: number[], paint?: { filament: number[]; own: number }): string {
   const v: string[] = [];
   for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k] - c[0])}" y="${num(p.positions[k + 1] - c[1])}" z="${num(p.positions[k + 2] - c[2])}"/>`);
   const t: string[] = [];
-  for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"/>`);
+  const tri = paint && p.paint?.tri.length === p.indices.length / 3 ? p.paint.tri : undefined;
+  for (let k = 0; k < p.indices.length; k += 3) {
+    const f = tri ? paint!.filament[tri[k / 3]] : 0;
+    t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${f && f !== paint!.own ? ` paint_color="${paintColor(f)}"` : ''}/>`);
+  }
   return `<mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh>`;
 }
 
@@ -188,7 +216,9 @@ export function toBambuProject(
     const file = `3D/Objects/object_${gi + 1}.model`;
     const meshIds = group.map(() => nextId++);
     const objId = nextId++;
-    files[file] = strToU8(`${header}<resources>${group.map((i, k) => `<object id="${meshIds[k]}" type="model">${meshXml(parts[i], c)}</object>`).join('')}</resources>\n<build/>\n</model>`);
+    // A painted part (a coloured mesh): its triangles painted with their filaments, with colours on only.
+    const painting = (i: number) => (opts.colours && plan.paint[i].length ? { filament: plan.paint[i], own: plan.slot[i] } : undefined);
+    files[file] = strToU8(`${header}<resources>${group.map((i, k) => `<object id="${meshIds[k]}" type="model">${meshXml(parts[i], c, painting(i))}</object>`).join('')}</resources>\n<build/>\n</model>`);
     rels.push(`<Relationship Target="/${file}" Id="rel-${gi + 1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
     resources.push(`<object id="${objId}" type="model"><components>${meshIds.map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
     items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);

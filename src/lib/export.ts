@@ -6,7 +6,7 @@ import type { PrintProfile } from '../../shared/print';
 import { bedShift } from '../../shared/printer';
 import type { BambuTemplate, BlendRequest } from '../../shared/api';
 import { api, request } from './api';
-import { CONTENT_TYPES, colourSlots, esc, num } from './threeMf';
+import { CONTENT_TYPES, colourIndex, colourSlots, esc, num } from './threeMf';
 import { boxDimensions } from './dimensions';
 
 export type ExportFormat = 'stl' | '3mf' | 'blend';
@@ -14,7 +14,8 @@ export type ExportFormat = 'stl' | '3mf' | 'blend';
 
 // ---------------------------------------------------------------------------
 // 3MF. Colours use the Materials extension colour group per triangle – the encoding
-// Bambu Studio reads from non-Bambu files (it offers colour mapping onto filaments).
+// Bambu Studio reads from non-Bambu files (it offers colour mapping onto filaments). A coloured
+// mesh's triangles each get their filament's colour.
 // ---------------------------------------------------------------------------
 
 /**
@@ -34,7 +35,10 @@ export function to3mf(parts: PartMesh[], title: string, colours = true): Blob {
     const t: string[] = [];
     const ci = colourIdx[i];
     const pid = colours ? ` pid="1" p1="${ci}"` : '';
-    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${pid}/>`);
+    // A painted part: each triangle its filament's colour.
+    const painted = colours && p.paint?.tri.length === p.indices.length / 3 ? p.paint : undefined;
+    const paintIdx = painted?.filaments.map((f) => colourIndex(palette, f.color));
+    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${painted ? ` pid="1" p1="${paintIdx![painted.tri[k / 3]]}"` : pid}/>`);
     return `<object id="${i + 2}" name="${esc(p.name)}" type="model"${colours ? ` pid="1" pindex="${ci}"` : ''}><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
   });
   const resources = objects.join('');
@@ -99,7 +103,8 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
   if (format === '3mf') {
     // A LayerTone print's filament changes and layer heights only exist in a Bambu project: without
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
-    const layerTone = threeMf.colours && parts.some((p) => p.layerColors?.length);
+    // So does a coloured mesh's painting (Bambu Studio's paint_color).
+    const layerTone = threeMf.colours && parts.some((p) => p.layerColors?.length || p.paint);
     if (!threeMf.print && !layerTone) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });
     const tpl = threeMf.print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
     if (!tpl) return buildProject({ kind: '3mf', parts, title, colours: threeMf.colours });

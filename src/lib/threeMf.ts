@@ -18,4 +18,11 @@ export function colourSlots(parts: PartMesh[]): { colours: string[]; slot: numbe
   return { colours, slot };
 }
 
+/** The index of `colour` in `colours` (#RRGGBB), added when it is new. */
+export function colourIndex(colours: string[], colour: string): number {
+  const c = /^#[0-9a-f]{6}$/i.test(colour) ? colour.toUpperCase() : FALLBACK_COLOUR;
+  const i = colours.indexOf(c);
+  return i < 0 ? colours.push(c) - 1 : i;
+}
+
 export const CONTENT_TYPES = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="png" ContentType="image/png"/></Types>';
