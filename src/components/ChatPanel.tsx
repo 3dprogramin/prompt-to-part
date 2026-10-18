@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ActivityItem, AgentStep, ChatMessage, DesignVersion } from '../../shared/types';
 import { isSvg, prepareImage } from '../lib/files';
 import { importSvg } from '../lib/svg';
@@ -176,6 +176,16 @@ export function ChatPanel(p: Props) {
   const dictation = useRef<Dictation | null>(null);
   const spoken = useRef(''); // the box's text including the latest words
   const sendWhenStopped = useRef(false);
+  // The words come in at the end of the box: keep them in view, with the caret after them. Only text
+  // from dictation moves it; typing or scrolling the box otherwise is left alone.
+  const followDictation = useRef(false);
+  useLayoutEffect(() => {
+    const el = textarea.current;
+    if (!followDictation.current || !el) return;
+    followDictation.current = false;
+    el.setSelectionRange(el.value.length, el.value.length);
+    el.scrollTop = el.scrollHeight;
+  }, [text]);
   const stopListening = async (): Promise<string> => {
     const d = dictation.current;
     if (d) {
@@ -197,7 +207,7 @@ export function ChatPanel(p: Props) {
     setListening('starting');
     try {
       const d = await startDictation(
-        (words) => { spoken.current = prefix + words; setText(spoken.current); },
+        (words) => { spoken.current = prefix + words; followDictation.current = true; setText(spoken.current); },
         (message) => { setDictationError(message); void stopListening(); },
       );
       // Stopped (or the design changed) while the microphone was starting.
