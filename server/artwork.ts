@@ -12,7 +12,7 @@ const ImageTracer = createRequire(import.meta.url)('imagetracerjs') as {
   imagedataToTracedata(img: { width: number; height: number; data: Uint8ClampedArray }, o: Record<string, unknown>): { layers: TracePath[][] };
 };
 
-export const DEFAULT_IMAGE_MODEL = 'google/gemini-nano-banana-2.1';
+export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-image';
 export const imageModel = () => process.env.JIG_IMAGE_MODEL || DEFAULT_IMAGE_MODEL;
 /** Artwork needs an OpenRouter key. */
 export const artworkAvailable = () => !!process.env.OPENROUTER_API_KEY;
@@ -108,7 +108,7 @@ export async function requestImage(prompt: string, aspect: string, references: s
 /** Seconds to wait before the 2nd and 3rd try of a busy model. */
 const RETRY_S = [4, 10];
 /** Used when the image model stays busy (JIG_IMAGE_FALLBACK; '' turns it off). */
-export const fallbackImageModel = () => process.env.JIG_IMAGE_FALLBACK ?? 'google/gemini-3.1-flash-image';
+export const fallbackImageModel = () => process.env.JIG_IMAGE_FALLBACK ?? 'google/gemini-nano-banana-2.1';
 /** The model is rate-limited or down for a moment (HTTP 429/5xx): worth retrying. */
 class BusyError extends Error {}
 
