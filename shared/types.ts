@@ -116,7 +116,18 @@ export interface PartMesh {
    * A part coloured per triangle (it has a coloured mesh, H.mesh): its filaments and each triangle's
    * index into them. Triangles of the script's own geometry are in the part's colour.
    */
-  paint?: { filaments: PaintFilament[]; tri: Uint8Array };
+  paint?: { filaments: PaintFilament[]; tri: Uint8Array; source?: PaintSource };
+}
+
+/**
+ * Where each triangle of a painted part came from, for repainting by hand (a click on the part
+ * finds the stored mesh's triangle): `meshes[mesh[t]]` and its triangle `face[t]`; the script's own
+ * triangles have mesh 255 (and face 0xffffffff).
+ */
+export interface PaintSource {
+  meshes: string[];
+  mesh: Uint8Array;
+  face: Uint32Array;
 }
 
 export interface PartDisplay {

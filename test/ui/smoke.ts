@@ -2,7 +2,7 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure,
+// import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's "Send my view" and "Wait for my OK" switches with a concept
 // picture's countdown. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
@@ -268,6 +268,32 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
   assert.match(await page.locator('.mesh-colors').textContent() ?? '', /4 of 4 AMS slots/);
   assert.equal(await page.getByRole('button', { name: /PLA Basic Black.*change the filament/ }).count(), 1);
   await page.screenshot({ path: path.join(shots, '8-coloured-figure.png') });
+  // Repaint: a click on the figure picks the patch under it, a filament repaints it (saved with the design).
+  await page.getByRole('button', { name: 'Repaint', exact: true }).click();
+  const box = (await page.locator('.viewer-host canvas').first().boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.getByText(/Patch: [\d.<\s]+ % of the figure/).waitFor();
+  await page.screenshot({ path: path.join(shots, '8b-repaint-patch.png') });
+  await page.getByRole('group', { name: 'Print it in' }).getByRole('button').last().click();
+  await page.getByRole('button', { name: 'Clear repaints (1)' }).waitFor();
+  for (const until = Date.now() + 10_000; ;) {
+    const d = await (await fetch(`${A}/api/designs/${fid}`)).json();
+    if (JSON.parse(d.values?.$meshes ?? '{}').kid?.repaint?.length === 1) break;
+    assert.ok(Date.now() < until, 'the repaint is saved with the design');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  // The brush: one drag over the figure is one more repaint; Undo takes it back.
+  await page.getByRole('button', { name: 'Brush', exact: true }).click();
+  await page.mouse.move(box.x + box.width / 2 - 15, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 15, box.y + box.height / 2 + 10, { steps: 6 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Clear repaints (2)' }).waitFor();
+  await page.screenshot({ path: path.join(shots, '8c-repaint-brush.png') });
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('button', { name: 'Clear repaints (1)' }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('button', { name: 'Repaint', exact: true }).getAttribute('aria-pressed'), 'false');
   await page.getByRole('button', { name: 'More export formats' }).click();
   await page.locator('.export-menu', { hasText: 'Geometry only: the figure\'s colours are lost' }).waitFor();
   await page.close();

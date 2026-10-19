@@ -4,7 +4,7 @@ import type { ManifoldToplevel, Manifold, CrossSection } from 'manifold-3d';
 import { FontMissingError, takeFontSubstitutions } from './text';
 import { compile, locate, ScriptError } from './compile';
 import { makeHelpers, type PaintedMesh } from './helpers';
-import { meshSlots, sameFilament, type PaintFilament } from './meshColors';
+import { sameFilament, storedSlots, type PaintFilament } from './meshColors';
 import { normalizeParams, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
@@ -16,7 +16,7 @@ import { parseMeshFile, type Raster } from './meshFormats';
 import { repairMesh, type ImportOptions, type ImportReport } from './meshRepair';
 import type {
   AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
-  PartMesh, Quality, ScriptErrorInfo, Vec3,
+  PaintSource, PartMesh, Quality, ScriptErrorInfo, Vec3,
 } from './types';
 
 export { ScriptError } from './compile';
@@ -472,13 +472,11 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   }
 }
 
-/** Each stored triangle's palette index, per coloured mesh and palette (a few kept: meshes are big). */
-const slotCache = new Map<string, Uint8Array>();
-
 /**
  * A part's colours per triangle: a triangle from a coloured mesh (its run's mesh ID is one H.mesh gave
- * out) prints with the filament of its colour, found through its faceID (the triangle's index in the
- * stored mesh); the script's own triangles in the part's colour. Undefined when no triangle came from one.
+ * out) prints with the filament of its colour (after the user's repaints), found through its faceID
+ * (the triangle's index in the stored mesh), which `source` keeps for repainting by hand; the
+ * script's own triangles in the part's colour. Undefined when no triangle came from one.
  */
 function paintOf(mesh: { triVerts: Uint32Array; runIndex: Uint32Array; runOriginalID: Uint32Array; faceID: Uint32Array }, painted: PaintedMesh[], meshes: Record<string, MeshEntry>, partColor: string): PartMesh['paint'] {
   const nt = mesh.triVerts.length / 3;
@@ -486,6 +484,7 @@ function paintOf(mesh: { triVerts: Uint32Array; runIndex: Uint32Array; runOrigin
   const filaments: PaintFilament[] = [];
   const indexOf = (f: PaintFilament) => { let i = filaments.findIndex((g) => sameFilament(g, f)); if (i < 0) i = filaments.push(f) - 1; return i; };
   const tri = new Uint8Array(nt);
+  const source: PaintSource = { meshes: [], mesh: new Uint8Array(nt).fill(255), face: new Uint32Array(nt).fill(0xffffffff) };
   const ownRuns: [number, number][] = [];
   for (let r = 0; r < mesh.runOriginalID.length; r++) {
     const from = mesh.runIndex[r] / 3, to = (r + 1 < mesh.runIndex.length ? mesh.runIndex[r + 1] : mesh.triVerts.length) / 3;
@@ -494,15 +493,13 @@ function paintOf(mesh: { triVerts: Uint32Array; runIndex: Uint32Array; runOrigin
     const entry = pm && meshes[pm.name];
     const data = pm && entry?.palette ? getMeshData(pm.url) : undefined;
     if (!pm || !entry?.palette || !data?.colors) { ownRuns.push([from, to]); continue; }
-    const key = `${pm.url}|${entry.palette.map((c) => c.color).join()}`;
-    let slots = slotCache.get(key);
-    if (!slots) {
-      slots = meshSlots({ ...data, colors: data.colors }, entry.palette.map((c) => c.color));
-      slotCache.set(key, slots);
-      while (slotCache.size > 8) slotCache.delete(slotCache.keys().next().value!);
-    }
+    const slots = storedSlots(pm.url, { ...data, colors: data.colors }, entry.palette, entry.repaint);
     const map = entry.palette.map((c) => indexOf(c.filament));
     for (let t = from; t < to; t++) tri[t] = map[slots[mesh.faceID[t]] ?? 0] ?? 0;
+    let m = source.meshes.indexOf(pm.name);
+    if (m < 0) m = source.meshes.push(pm.name) - 1;
+    source.mesh.fill(m, from, to);
+    source.face.set(mesh.faceID.subarray(from, to), from);
   }
   if (!filaments.length) return undefined;
   if (ownRuns.length) {
@@ -511,7 +508,7 @@ function paintOf(mesh: { triVerts: Uint32Array; runIndex: Uint32Array; runOrigin
     if (own < 0) own = filaments.push({ color: partColor.toLowerCase() }) - 1;
     for (const [from, to] of ownRuns) tri.fill(own, from, to);
   }
-  return { filaments, tri };
+  return { filaments, tri, source };
 }
 
 /**

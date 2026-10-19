@@ -29,6 +29,7 @@ import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
 import { useLiveModel } from './hooks/useLiveModel';
+import { useRepaint } from './hooks/useRepaint';
 import { STAGE_TEXT, useCost } from './hooks/useCost';
 import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
@@ -265,6 +266,18 @@ export default function App() {
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
   useEscape(!!picking, () => setPicking(null));
+
+  // Repainting a coloured figure's patches by hand (Object tab ▸ Filament colours ▸ Repaint).
+  const designMeshes = useMemo(() => parseMeshes(design.values[MESHES_KEY]), [design.values[MESHES_KEY]]);
+  const repaint = useRepaint(designMeshes, (name, list) => setDesign((d) => {
+    const meshes = parseMeshes(d.values[MESHES_KEY]);
+    if (!meshes[name]) return d;
+    const { repaint: _old, ...rest } = meshes[name];
+    return { ...withMesh(d, name, list ? { ...rest, repaint: list } : rest), updatedAt: Date.now() };
+  }));
+  // Placing text and repainting both take the clicks on the model: one at a time.
+  useEffect(() => { if (picking) repaint.stop(); }, [picking, repaint.stop]);
+  useEffect(() => repaint.stop(), [design.id, repaint.stop]);
 
   const textFeatures = useMemo(() => parseTextFeatures(design.values[TEXT_KEY]), [design.values]);
   const setTextFeatures = (list: TextFeature[]) => setDesign((d) => {
@@ -1121,12 +1134,16 @@ export default function App() {
           error={error}
           busy={busy}
           fitKey={fitKey}
-          options={picking ? { ...viewerOptions, pickText: true, measure: false } : viewerOptions}
+          options={picking ? { ...viewerOptions, pickText: true, measure: false } : repaint.view ? { ...viewerOptions, measure: false } : viewerOptions}
           onOptions={(o) => { if (o.hiddenParts !== viewerOptions.hiddenParts) setHiddenParts(o.hiddenParts); setViewOpts(o); }}
           quality={quality}
           onQuality={setQuality}
           onEditDimension={onEditDimension}
           onPickSurface={onPickSurface}
+          repaint={playback ? null : repaint.view}
+          onRepaintPick={repaint.pick}
+          onRepaintStroke={repaint.stroke}
+          paintRef={repaint.paintRef}
           snapshotRef={snapshotRef}
           photoRef={photoRef}
           photos={{
@@ -1196,6 +1213,8 @@ export default function App() {
             if (!meshes[name]) return d;
             return { ...withMesh(d, name, { ...meshes[name], palette }), updatedAt: Date.now() };
           })}
+          repaint={repaint}
+          onRepaintStart={(name) => { setPicking(null); repaint.start(name); }}
           onLayerToneImage={(name, image) => setDesign((d) => ({ ...withLayerToneImage(d, name, image), updatedAt: Date.now() }))}
           onEditDimension={onEditDimension}
           textFeatures={textFeatures}

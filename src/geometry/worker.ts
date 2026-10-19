@@ -132,6 +132,7 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
       transfer.push(p.positions.buffer, p.indices.buffer);
       // Only a buffer of its own (not a view into a bigger one) can be handed over.
       if (p.vertexColors && p.vertexColors.byteLength === p.vertexColors.buffer.byteLength) transfer.push(p.vertexColors.buffer);
+      if (p.paint) transfer.push(p.paint.tri.buffer, ...(p.paint.source ? [p.paint.source.mesh.buffer, p.paint.source.face.buffer] : []));
     }
     if (report) transfer.push(report.overlay.overhang.buffer, report.overlay.thin.buffer);
     post({ id: req.id, result, report }, transfer);

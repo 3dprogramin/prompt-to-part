@@ -4,7 +4,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
-import type { DimTarget, DimensionAnnotation, EvalResult, Vec3 } from '../../shared/types';
+import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
 import { buildGrid, buildPlate, updatePlate } from './stage';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
@@ -34,6 +34,20 @@ export interface ViewerOptions {
   oneColour?: string | null;
   /** The part selected in the Object tab: highlighted. */
   selectedPart?: string | null;
+}
+
+/** Repainting a coloured mesh by hand (the Object tab's Repaint): what a click or a drag on the model does. */
+export interface RepaintView {
+  /** The coloured mesh (PaintSource.meshes). */
+  mesh: string;
+  /** patch: a click picks the patch under it; brush: a left drag on the model paints. */
+  mode: 'patch' | 'brush';
+  /** Brush radius, mm. */
+  radius: number;
+  /** The brush's filament colour (#rrggbb), shown while it paints. */
+  color: string;
+  /** The stored mesh's triangles picked (1 each), highlighted. */
+  selected: Uint8Array | null;
 }
 
 const SELECTED_GLOW = new THREE.Color('#e0a43c').multiplyScalar(0.35);
@@ -98,6 +112,16 @@ export class Viewer {
   /** Double-click on an editable dimension label. */
   onDimEdit: (target: DimTarget, rect: DOMRect, current: number) => void = () => {};
   onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void = () => {};
+  /** Repaint, patch mode: a click on the mesh's triangle `face` (of the stored mesh). */
+  onRepaintPick: (face: number) => void = () => {};
+  /** Repaint, brush mode: the stored triangles one drag painted. */
+  onRepaintStroke: (faces: number[]) => void = () => {};
+  private repaint: RepaintView | null = null;
+  private repaintGroup = new THREE.Group();
+  private brushRing: THREE.Mesh;
+  private stroke: { faces: Set<number>; color: THREE.Color; pending: PointerEvent | null } | null = null;
+  /** Each painted part's triangle centres and normals, for the brush (by part, while its result is shown). */
+  private triCache = new WeakMap<PartMesh, { centres: Float32Array; normals: Float32Array }>();
 
   constructor(private container: HTMLElement, opts: ViewerOptions) {
     this.opts = opts;
@@ -129,7 +153,13 @@ export class Viewer {
     this.scene.add(hemi, key);
     this.scene.add(this.headlight);
     this.scene.add(this.headlight.target);
-    this.scene.add(this.gridGroup, this.plateGroup, this.issueGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup);
+    this.scene.add(this.gridGroup, this.plateGroup, this.issueGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.repaintGroup);
+    // The brush's outline on the surface under the pointer: a unit ring, scaled to the radius.
+    this.brushRing = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false, side: THREE.DoubleSide }));
+    this.brushRing.renderOrder = 10;
+    this.brushRing.visible = false;
+    this.brushRing.raycast = () => {};
+    this.scene.add(this.brushRing);
 
     const marker = document.createElement('div');
     marker.className = 'snap-marker';
@@ -146,8 +176,11 @@ export class Viewer {
     const el = this.renderer.domElement;
     el.addEventListener('pointermove', this.onPointerMove);
     el.addEventListener('pointerdown', this.onPointerDown);
+    // Before OrbitControls' own listener: a brush stroke on the model turns the orbit off first.
+    el.addEventListener('pointerdown', this.onBrushDown, { capture: true });
     el.addEventListener('pointerup', this.onPointerUp);
-    el.addEventListener('pointerleave', () => { this.snapMarker.visible = false; this.onHover(null, false); });
+    el.addEventListener('pointercancel', () => this.endStroke(true));
+    el.addEventListener('pointerleave', () => { this.snapMarker.visible = false; this.brushRing.visible = false; this.onHover(null, false); });
     window.addEventListener('keydown', this.onKey);
     this.loop();
   }
@@ -165,6 +198,9 @@ export class Viewer {
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     this.controls.update();
+    // A picked patch pulses: a steady tint would read as one more colour of the figure.
+    const pulse = 0.45 + 0.25 * Math.sin(performance.now() / 220);
+    for (const o of this.repaintGroup.children) ((o as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = pulse;
     this.headlight.position.copy(this.camera.position);
     this.headlight.target.position.copy(this.controls.target);
     this.renderer.render(this.scene, this.camera);
@@ -210,7 +246,7 @@ export class Viewer {
     this.clearModel();
     this.result = result;
     if (result) {
-      for (const part of result.parts) {
+      result.parts.forEach((part, index) => {
         // Live previews arrive ready to draw (src/geometry/worker.ts); anything else is prepared here.
         let geom: THREE.BufferGeometry;
         let edgeGeom: THREE.BufferGeometry;
@@ -271,6 +307,7 @@ export class Viewer {
         mesh.userData.color = color;
         mesh.userData.perVertex = perVertex;
         mesh.userData.painted = painted;
+        mesh.userData.index = index;
         const backMesh = new THREE.Mesh(geom, back);
         backMesh.raycast = () => {};
         const edges = new THREE.LineSegments(
@@ -282,11 +319,12 @@ export class Viewer {
         group.add(mesh, backMesh, edges);
         this.modelGroup.add(group);
         this.meshes.push(mesh);
-      }
+      });
     }
     this.applyOptions();
     this.rebuildDims();
     this.updatePlate();
+    this.drawRepaintSelection();
     const size = this.modelSize();
     if (Math.abs(size - this.lastSize) / Math.max(1, size) > 0.5) this.buildGrid(size);
     this.lastSize = size;
@@ -374,7 +412,7 @@ export class Viewer {
     this.measureGroup.visible = !this.clean && !this.playback;
     this.issueGroup.visible = !this.playback;
     this.labelRenderer.domElement.style.display = this.clean ? 'none' : '';
-    this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText ? 'crosshair' : '';
+    this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText || this.repaint ? 'crosshair' : '';
   }
 
   private switchCamera(ortho: boolean) {
@@ -631,12 +669,185 @@ export class Viewer {
     return { part: String(hit.object.userData.part), point: [hit.point.x, hit.point.y, hit.point.z], normal: [n.x, n.y, n.z] };
   }
 
+  // ---------------------------------------------------------------- repainting a coloured mesh
+
+  /** Repaint mode on (the mesh, its tool, the picked patch) or off (null). */
+  setRepaint(r: RepaintView | null) {
+    const was = this.repaint;
+    this.repaint = r;
+    if (!r) { this.brushRing.visible = false; this.endStroke(false); }
+    else (this.brushRing.material as THREE.MeshBasicMaterial).color.set(r.color);
+    if (r?.mode !== 'brush') this.brushRing.visible = false;
+    if (was?.selected !== r?.selected || was?.mesh !== r?.mesh) this.drawRepaintSelection();
+    this.applyOptions();
+  }
+
+  /** The repainted mesh's triangles in `mask` (by stored triangle) shown in `color` at once, until the rebuild with them arrives. */
+  paintStored(mesh: string, mask: Uint8Array, color: string) {
+    const c = new THREE.Color(color);
+    this.eachRepaintable(mesh, (m, src, idx) => {
+      const attr = m.geometry.getAttribute('color') as THREE.BufferAttribute;
+      for (let t = 0; t < src.mesh.length; t++) if (src.mesh[t] === idx && mask[src.face[t]]) for (let k = 0; k < 3; k++) attr.setXYZ(3 * t + k, c.r, c.g, c.b);
+      attr.needsUpdate = true;
+    });
+  }
+
+  /**
+   * Each shown part with triangles of the coloured mesh `name` (drawn per triangle, so triangle t is
+   * vertices 3t..3t+2 of its geometry), with its source map and the mesh's index in it.
+   */
+  private eachRepaintable(name: string, fn: (m: THREE.Mesh, src: PaintSource, idx: number, part: PartMesh) => void) {
+    for (const m of this.meshes) {
+      const part = this.result?.parts[m.userData.index as number];
+      const src = part?.paint?.source;
+      const idx = src ? src.meshes.indexOf(name) : -1;
+      if (part && src && idx >= 0 && m.userData.painted && m.parent?.visible) fn(m, src, idx, part);
+    }
+  }
+
+  /** The picked patch: its triangles tinted. */
+  private drawRepaintSelection() {
+    for (const o of [...this.repaintGroup.children]) {
+      const m = o as THREE.Mesh;
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+      this.repaintGroup.remove(o);
+    }
+    const sel = this.repaint?.selected;
+    if (!sel) return;
+    this.eachRepaintable(this.repaint!.mesh, (_m, src, idx, part) => {
+      const out: number[] = [];
+      const P = part.positions, I = part.indices;
+      for (let t = 0; t < src.mesh.length; t++) {
+        if (src.mesh[t] !== idx || !sel[src.face[t]]) continue;
+        for (let k = 0; k < 3; k++) { const v = I[3 * t + k] * 3; out.push(P[v], P[v + 1], P[v + 2]); }
+      }
+      if (!out.length) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(out), 3));
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        color: 0xffd36b, transparent: true, opacity: 0.6, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, clippingPlanes: this.opts.section.enabled ? [this.clipPlane] : [],
+      }));
+      mesh.raycast = () => {};
+      mesh.renderOrder = 5;
+      this.repaintGroup.add(mesh);
+    });
+  }
+
+  /** Under the pointer in repaint mode: the point, its normal and the repainted mesh's stored triangle there (−1 for other geometry). */
+  private repaintHit(ev: PointerEvent): { point: THREE.Vector3; normal: THREE.Vector3; face: number } | null {
+    if (!this.repaint || !this.result) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    (this.raycaster as THREE.Raycaster & { firstHitOnly?: boolean }).firstHitOnly = true;
+    let hits = this.raycaster.intersectObjects(this.meshes.filter((m) => m.parent?.visible), false);
+    if (this.opts.section.enabled) hits = hits.filter((h) => this.clipPlane.distanceToPoint(h.point) >= 0);
+    const hit = hits[0];
+    if (!hit?.face) return null;
+    const src = this.result.parts[hit.object.userData.index as number]?.paint?.source;
+    const idx = src && hit.object.userData.painted ? src.meshes.indexOf(this.repaint.mesh) : -1;
+    // Unshared triangles: the hit triangle is its first corner's vertex / 3.
+    const t = Math.floor(hit.face.a / 3);
+    return { point: hit.point.clone(), normal: hit.face.normal.clone(), face: idx >= 0 && src!.mesh[t] === idx ? src!.face[t] : -1 };
+  }
+
+  private trisOf(part: PartMesh) {
+    let c = this.triCache.get(part);
+    if (c) return c;
+    const P = part.positions, I = part.indices, n = I.length / 3;
+    c = { centres: new Float32Array(n * 3), normals: new Float32Array(n * 3) };
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), d = new THREE.Vector3();
+    for (let t = 0; t < n; t++) {
+      a.fromArray(P, I[3 * t] * 3); b.fromArray(P, I[3 * t + 1] * 3); d.fromArray(P, I[3 * t + 2] * 3);
+      c.centres.set([(a.x + b.x + d.x) / 3, (a.y + b.y + d.y) / 3, (a.z + b.z + d.z) / 3], 3 * t);
+      b.sub(a); d.sub(a);
+      c.normals.set(b.cross(d).toArray(), 3 * t);
+    }
+    this.triCache.set(part, c);
+    return c;
+  }
+
+  /** The brush at `point`: the repainted mesh's triangles whose centre is within its radius (facing its side) take its colour. */
+  private brushAt(point: THREE.Vector3, normal: THREE.Vector3) {
+    const s = this.stroke, r = this.repaint;
+    if (!s || !r) return;
+    const r2 = r.radius * r.radius;
+    this.eachRepaintable(r.mesh, (m, src, idx, part) => {
+      const b = part.bbox;
+      if ([0, 1, 2].some((k) => point.getComponent(k) < b.min[k] - r.radius || point.getComponent(k) > b.max[k] + r.radius)) return;
+      const { centres, normals } = this.trisOf(part);
+      const attr = m.geometry.getAttribute('color') as THREE.BufferAttribute;
+      let changed = false;
+      for (let t = 0; t < src.mesh.length; t++) {
+        if (src.mesh[t] !== idx) continue;
+        const dx = centres[3 * t] - point.x, dy = centres[3 * t + 1] - point.y, dz = centres[3 * t + 2] - point.z;
+        // Not through to the far side of a thin arm.
+        if (dx * dx + dy * dy + dz * dz > r2 || normals[3 * t] * normal.x + normals[3 * t + 1] * normal.y + normals[3 * t + 2] * normal.z < 0) continue;
+        s.faces.add(src.face[t]);
+        for (let k = 0; k < 3; k++) attr.setXYZ(3 * t + k, s.color.r, s.color.g, s.color.b);
+        changed = true;
+      }
+      if (changed) attr.needsUpdate = true;
+    });
+  }
+
+  private showRing(hit: { point: THREE.Vector3; normal: THREE.Vector3 } | null) {
+    const ring = this.brushRing;
+    ring.visible = !!hit && this.repaint?.mode === 'brush';
+    if (!hit || !ring.visible) return;
+    const n = hit.normal.clone().normalize();
+    ring.position.copy(hit.point).addScaledVector(n, 0.02);
+    ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    ring.scale.setScalar(this.repaint!.radius);
+  }
+
+  /** A left drag on the model in brush mode paints instead of turning the view (a drag beside it still does). */
+  private onBrushDown = (ev: PointerEvent) => {
+    if (this.repaint?.mode !== 'brush' || ev.button !== 0 || this.stroke) return;
+    const hit = this.repaintHit(ev);
+    if (!hit) return;
+    this.controls.enabled = false;
+    this.renderer.domElement.setPointerCapture(ev.pointerId);
+    this.stroke = { faces: new Set(), color: new THREE.Color(this.repaint.color), pending: null };
+    this.brushAt(hit.point, hit.normal);
+  };
+
+  private endStroke(emit: boolean) {
+    const s = this.stroke;
+    if (!s) return;
+    this.stroke = null;
+    this.controls.enabled = true;
+    if (emit && s.faces.size) this.onRepaintStroke([...s.faces]);
+  }
+
   private hoverPending = false;
   private onPointerMove = (ev: PointerEvent) => {
+    const s = this.stroke;
+    if (s) {
+      // One brush step a frame, at the latest pointer position.
+      const queued = !!s.pending;
+      s.pending = ev;
+      if (!queued) requestAnimationFrame(() => {
+        const e = s.pending;
+        s.pending = null;
+        const hit = e && this.stroke === s ? this.repaintHit(e) : null;
+        if (hit) { this.brushAt(hit.point, hit.normal); this.showRing(hit); }
+      });
+      return;
+    }
     if (this.hoverPending || ev.buttons) return;
     this.hoverPending = true;
     requestAnimationFrame(() => {
       this.hoverPending = false;
+      if (this.repaint) {
+        // The brush's outline instead of the snap marker and coordinates.
+        this.snapMarker.visible = false;
+        this.onHover(null, false);
+        this.showRing(this.repaint.mode === 'brush' ? this.repaintHit(ev) : null);
+        return;
+      }
       const res = this.pick(ev);
       const markerEl = this.snapMarker.element;
       if (res) {
@@ -656,10 +867,16 @@ export class Viewer {
   private onPointerDown = (ev: PointerEvent) => { this.downAt = { x: ev.clientX, y: ev.clientY }; };
 
   private onPointerUp = (ev: PointerEvent) => {
+    if (this.stroke && ev.button === 0) { this.downAt = null; this.endStroke(true); return; }
     if (!this.downAt || ev.button !== 0) return;
     const moved = Math.hypot(ev.clientX - this.downAt.x, ev.clientY - this.downAt.y);
     this.downAt = null;
     if (moved > 4) return;
+    if (this.repaint) {
+      const hit = this.repaint.mode === 'patch' ? this.repaintHit(ev) : null;
+      if (hit && hit.face >= 0) this.onRepaintPick(hit.face);
+      return;
+    }
     if (this.opts.pickText) {
       const hit = this.pickFace(ev);
       if (hit) this.onPickSurface(hit);
@@ -798,7 +1015,7 @@ export class Viewer {
     cam.updateProjectionMatrix();
 
     // Clean scene: overlays off, true colours, no section or highlight.
-    const shown = [this.gridGroup, this.plateGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.issueGroup, this.snapMarker].map((g) => [g, g.visible] as const);
+    const shown = [this.gridGroup, this.plateGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.issueGroup, this.snapMarker, this.repaintGroup, this.brushRing].map((g) => [g, g.visible] as const);
     for (const [g] of shown) g.visible = false;
     if (this.pendingLine) this.pendingLine.visible = false;
     const looks: [THREE.MeshStandardMaterial, number, number][] = [];

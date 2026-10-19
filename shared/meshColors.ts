@@ -380,3 +380,127 @@ export function cleanPalette(raw: unknown): MeshColor[] | undefined {
 
 /** "PLA Basic Red (Bambu Lab)" or the colour. */
 export const filamentLabel = (f: PaintFilament) => (f.name ? `${f.name}${f.brand ? ` (${f.brand})` : ''}` : f.color);
+
+// ---------------------------------------------------------------------------- repaints
+// Meshy guesses colours where its picture showed nothing (between the legs, under the arms): the user
+// repaints such patches by hand (the Object tab's Repaint). Each repaint is a set of the stored
+// mesh's triangles and the palette colour they take, applied in order over the cleaned-up slots. The
+// colour maps to the nearest of the current palette, so repaints survive a change of colour count.
+
+/** Triangles of the stored mesh repainted in one go (a patch or a brush stroke). */
+export interface Repaint {
+  /** The palette colour (MeshColor.color, #rrggbb) they print in: the nearest of the current palette. */
+  color: string;
+  /** The stored mesh's triangle indices (encodeTris). */
+  tris: string;
+}
+
+/** Most repaints a mesh keeps. */
+export const MAX_REPAINTS = 200;
+/** Longest encoded triangle list of one repaint (a patch of tens of thousands of scattered triangles). */
+export const MAX_REPAINT_CHARS = 100_000;
+
+/**
+ * Triangle indices as a short string: sorted, in runs of consecutive ones, each run its gap from the
+ * end of the previous one in base 36 and, for more than one, "+" and the count after the first
+ * ("0+3,5" is 0–3 and 9).
+ */
+export function encodeTris(tris: ArrayLike<number>): string {
+  const s = Uint32Array.from(tris).sort();
+  const out: string[] = [];
+  let end = 0;
+  for (let i = 0; i < s.length;) {
+    const start = s[i];
+    let j = i + 1;
+    while (j < s.length && s[j] <= s[j - 1] + 1) j++;
+    const last = s[j - 1];
+    out.push((start - end).toString(36) + (last > start ? '+' + (last - start).toString(36) : ''));
+    end = last + 1;
+    i = j;
+  }
+  return out.join(',');
+}
+
+/** The triangle indices of encodeTris, those below `limit` only (the mesh's triangle count). */
+export function decodeTris(s: string, limit = 2 ** 31): Uint32Array {
+  const out: number[] = [];
+  let end = 0;
+  for (const run of s ? s.split(',') : []) {
+    const [a, b] = run.split('+');
+    const start = end + parseInt(a, 36), more = b === undefined ? 0 : parseInt(b, 36);
+    if (!Number.isFinite(start) || !Number.isFinite(more) || start >= limit) break;
+    const last = Math.min(limit - 1, start + more);
+    for (let t = start; t <= last; t++) out.push(t);
+    end = last + 1;
+  }
+  return Uint32Array.from(out);
+}
+
+const TRIS = /^[0-9a-z]+(\+[0-9a-z]+)?(,[0-9a-z]+(\+[0-9a-z]+)?)*$/;
+/** Repaints as stored in a mesh entry: valid ones only, at most MAX_REPAINTS. */
+export function cleanRepaint(raw: unknown): Repaint[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.slice(0, MAX_REPAINTS).flatMap((r): Repaint[] =>
+    typeof r?.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) && typeof r.tris === 'string' && r.tris.length <= MAX_REPAINT_CHARS && TRIS.test(r.tris)
+      ? [{ color: r.color.toLowerCase(), tris: r.tris }] : []);
+  return out.length ? out : undefined;
+}
+
+/** Each triangle's palette index with the repaints applied (later ones win); `slots` itself without any. */
+export function applyRepaint(slots: Uint8Array, palette: string[], repaint?: Repaint[]): Uint8Array {
+  if (!repaint?.length || !palette.length) return slots;
+  const out = slots.slice();
+  const labs = palette.map((c) => oklab(...hexRgb(c)));
+  for (const r of repaint) {
+    const lab = oklab(...hexRgb(r.color));
+    let s = 0;
+    for (let i = 1; i < labs.length; i++) if (d2(lab, labs[i]) < d2(lab, labs[s])) s = i;
+    for (const t of decodeTris(r.tris, out.length)) out[t] = s;
+  }
+  return out;
+}
+
+/** The connected patch of triangle `start`'s slot (flood fill over shared edges, triangleNeighbours). */
+export function slotPatch(neighbours: Int32Array, slots: Uint8Array, start: number): Uint32Array {
+  const seen = new Uint8Array(slots.length), out: number[] = [start];
+  seen[start] = 1;
+  for (let i = 0; i < out.length; i++) {
+    const t = out[i];
+    for (let e = 0; e < 3; e++) {
+      const o = neighbours[3 * t + e];
+      if (o >= 0 && !seen[o] && slots[o] === slots[start]) { seen[o] = 1; out.push(o); }
+    }
+  }
+  return Uint32Array.from(out);
+}
+
+/** A short hash of a mesh's repaints, for cache keys. */
+export function repaintKey(repaint?: Repaint[]): string {
+  if (!repaint?.length) return '';
+  let h = 0x811c9dc5;
+  for (const r of repaint) for (const s of [r.color, r.tris, ';']) for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return `${repaint.length}:${(h >>> 0).toString(36)}`;
+}
+
+/** Each stored triangle's palette index, per coloured mesh, palette and repaints (a few kept: meshes are big). */
+const slotCache = new Map<string, Uint8Array>();
+const remember = (key: string, slots: Uint8Array) => {
+  slotCache.delete(key);
+  slotCache.set(key, slots);
+  while (slotCache.size > 8) slotCache.delete(slotCache.keys().next().value!);
+  return slots;
+};
+
+/**
+ * Each triangle's palette index of the coloured mesh stored at `url` (meshSlots, then its repaints),
+ * cached: the evaluation asks again on every change of the design, and a new repaint only applies
+ * the (cheap) repaints again, not the cleanup.
+ */
+export function storedSlots(url: string, mesh: { positions: Float32Array; indices: Uint32Array; colors: Uint8Array }, palette: MeshColor[], repaint?: Repaint[]): Uint8Array {
+  const base = `${url}|${palette.map((c) => c.color).join()}`, key = `${base}|${repaintKey(repaint)}`;
+  const hit = slotCache.get(key);
+  if (hit) return remember(key, hit);
+  const plain = slotCache.get(base) ?? meshSlots(mesh, palette.map((c) => c.color));
+  remember(base, plain);
+  return remember(key, applyRepaint(plain, palette.map((c) => c.color), repaint));
+}

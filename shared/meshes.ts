@@ -3,7 +3,7 @@
 // and the values keep a light index under MESHES_KEY. Evaluation is synchronous, so a mesh that
 // isn't loaded yet throws MeshMissingError and the caller loads it and retries (like fonts).
 import type { Vec3 } from './types';
-import { cleanPalette, MAX_MESH_COLORS, type MeshColor } from './meshColors';
+import { cleanPalette, cleanRepaint, MAX_MESH_COLORS, type MeshColor, type Repaint } from './meshColors';
 
 /** Values key: the design's meshes, as JSON Record<name, MeshEntry>. */
 export const MESHES_KEY = '$meshes';
@@ -31,6 +31,8 @@ export interface MeshEntry {
   repairs?: string[];
   /** A coloured mesh (a textured Meshy model): its colours and the filament of each (shared/meshColors.ts); the stored file has each triangle's colour. */
   palette?: MeshColor[];
+  /** A coloured mesh's patches the user repainted by hand, applied in order over its colours (shared/meshColors.ts). */
+  repaint?: Repaint[];
 }
 
 export function parseMeshes(raw: unknown): Record<string, MeshEntry> {
@@ -51,6 +53,8 @@ export function parseMeshes(raw: unknown): Record<string, MeshEntry> {
     };
     const palette = cleanPalette(m.palette);
     if (palette) out[name].palette = palette;
+    const repaint = palette && cleanRepaint(m.repaint);
+    if (repaint) out[name].repaint = repaint;
   }
   return out;
 }

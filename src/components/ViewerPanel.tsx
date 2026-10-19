@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Viewer, type Measurement, type PhotoView, type PlaybackStep, type ViewName, type ViewerOptions } from '../viewer/Viewer';
+import { Viewer, type Measurement, type PhotoView, type PlaybackStep, type RepaintView, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import type { LayerColor } from '../../shared/layertone';
 import { Icon } from './Icon';
@@ -21,6 +21,12 @@ interface Props {
   emptyState: React.ReactNode;
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   onPickSurface: (hit: { part: string; point: Vec3; normal: Vec3 }) => void;
+  /** Repainting a coloured mesh by hand (Viewer.setRepaint): a click picks a patch, a brush stroke paints. */
+  repaint?: RepaintView | null;
+  onRepaintPick?: (face: number) => void;
+  onRepaintStroke?: (faces: number[]) => void;
+  /** Receives a function that shows stored triangles of a coloured mesh in a colour at once (Viewer.paintStored). */
+  paintRef?: React.MutableRefObject<((mesh: string, mask: Uint8Array, color: string) => void) | null>;
   /** Receives a function that captures the current view as a JPEG data URL. */
   snapshotRef?: React.MutableRefObject<(() => string | null) | null>;
   /** Receives a function that renders the model alone for a product photo (PNG data URL). */
@@ -55,7 +61,7 @@ const STEP_SECONDS = 1.6;
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
 
-export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
+export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -113,6 +119,8 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
   editRef.current = onEditDimension;
   const pickRef = useRef(onPickSurface);
   pickRef.current = onPickSurface;
+  const repaintRef = useRef({ pick: onRepaintPick, stroke: onRepaintStroke });
+  repaintRef.current = { pick: onRepaintPick, stroke: onRepaintStroke };
 
   useEffect(() => {
     if (!toast) return;
@@ -145,6 +153,9 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
     v.onHover = (p, snapped) => setHover(p ? { p, snapped } : null);
     v.onMeasurementsChange = setMeasures;
     v.onPickSurface = (hit) => pickRef.current(hit);
+    v.onRepaintPick = (face) => repaintRef.current.pick?.(face);
+    v.onRepaintStroke = (faces) => repaintRef.current.stroke?.(faces);
+    if (paintRef) paintRef.current = (mesh, mask, color) => v.paintStored(mesh, mask, color);
     if (snapshotRef) snapshotRef.current = () => v.snapshot();
     if (photoRef) photoRef.current = (view, aspect) => v.photo(view, aspect);
     v.onDimEdit = (target, rect, current) => {
@@ -152,8 +163,8 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
       setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
     };
     viewer.current = v;
-    return () => { v.dispose(); viewer.current = null; if (snapshotRef) snapshotRef.current = null; if (photoRef) photoRef.current = null; };
-    // Created once; callbacks are read through refs (editRef, pickRef).
+    return () => { v.dispose(); viewer.current = null; if (snapshotRef) snapshotRef.current = null; if (photoRef) photoRef.current = null; if (paintRef) paintRef.current = null; };
+    // Created once; callbacks are read through refs (editRef, pickRef, repaintRef).
   }, []);
 
   useEffect(() => {
@@ -165,6 +176,7 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
   useEffect(() => { viewer.current?.recolor(recolor?.part ?? null, recolor?.layers ?? null); }, [recolor, result]);
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
+  useEffect(() => { viewer.current?.setRepaint(repaint ?? null); }, [repaint]);
 
   // ---- validation overlay ----
   const [highlight, setHighlight] = useState(true);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { evaluateScript, importMeshFile } from '../shared/runtime';
 import { parseMeshFile } from '../shared/meshFormats';
 import { decodeTexture } from '../shared/imageDecode';
-import { cleanSlots, clusterColors, colorDistance, colorSlots, matchFilaments, meshPalette, rgbHex, triangleAreas } from '../shared/meshColors';
+import { applyRepaint, cleanSlots, clusterColors, colorDistance, colorSlots, decodeTris, encodeTris, matchFilaments, MAX_REPAINTS, meshPalette, meshSlots, rgbHex, slotPatch, triangleAreas, triangleNeighbours } from '../shared/meshColors';
 import { transferColors as transferColorsForTest } from '../shared/meshRepair';
 import { decodeMesh, encodeMesh, MESHES_KEY, parseMeshes, registerMesh } from '../shared/meshes';
 import { modelWarnings } from '../shared/modelWarnings';
@@ -215,4 +215,82 @@ test('the colours follow the triangles through a script: cut, moved, joined with
   // Without a palette (colour turned off) the mesh is the part's colour.
   const plain = evaluateScript(code.replace('BASE', "'#000000'"), { [MESHES_KEY]: JSON.stringify({ fig: { file: url, triangles: 1, size: [1, 1, 1], source: 'meshy' } }) }, 'draft');
   assert.equal(plain.parts[0].paint, undefined);
+});
+
+test('repainted triangles: a short code for their indices, applied in order in the nearest current colour', () => {
+  for (const tris of [[], [0], [5], [0, 1, 2, 3, 9], [70000, 3, 4, 5, 5, 100, 99, 1e6], Array.from({ length: 500 }, (_, i) => i * 7 + (i % 3))]) {
+    const want = [...new Set(tris)].sort((a, b) => a - b);
+    assert.deepEqual([...decodeTris(encodeTris(tris))], want);
+  }
+  assert.equal(encodeTris([0, 1, 2, 3, 9]), '0+3,5');
+  // Only the mesh's own triangles.
+  assert.deepEqual([...decodeTris('0+3,5', 3)], [0, 1, 2]);
+  const palette = ['#ff0000', '#00ff00', '#0000ff'];
+  const slots = new Uint8Array([0, 0, 0, 0]);
+  assert.equal(applyRepaint(slots, palette), slots);
+  // A colour of an earlier palette (a darker green) takes the nearest of this one; the later repaint wins.
+  const out = applyRepaint(slots, palette, [{ color: '#20c020', tris: encodeTris([0, 1]) }, { color: '#0000ff', tris: encodeTris([1, 7]) }]);
+  assert.deepEqual([...out], [1, 2, 0, 0]);
+  assert.deepEqual([...slots], [0, 0, 0, 0]);
+});
+
+test('a patch is the connected triangles of one colour', () => {
+  // Two squares of colour 1 that touch only at a corner: a patch is one of them.
+  const g = grid(6, (x, y) => ((x < 2 && y < 2) || (x >= 2 && x < 4 && y >= 2 && y < 4) ? 1 : 0));
+  const patch = slotPatch(triangleNeighbours(g.indices), g.slots, 0);
+  assert.equal(patch.length, 8);
+  assert.ok([...patch].every((t) => g.slots[t] === 1 && t % 12 < 4));
+});
+
+test('repaints are kept with the mesh, invalid ones dropped', () => {
+  const entry = (repaint: unknown, pal: unknown = palette) => parseMeshes(JSON.stringify({ fig: { file: url, triangles: 10, size: [1, 1, 1], source: 'meshy', palette: pal, repaint } })).fig;
+  const good = { color: '#AABBCC', tris: '0+3,5' };
+  assert.deepEqual(entry([good]).repaint, [{ color: '#aabbcc', tris: '0+3,5' }]);
+  assert.deepEqual(entry([good, { color: 'red', tris: '1' }, { color: '#000000', tris: '1,,2' }, { color: '#000000', tris: '-1' }, { color: '#000000' }]).repaint, [{ color: '#aabbcc', tris: '0+3,5' }]);
+  assert.equal(entry(Array(MAX_REPAINTS + 5).fill(good)).repaint!.length, MAX_REPAINTS);
+  assert.equal(entry([]).repaint, undefined);
+  // Only a coloured mesh has them.
+  assert.equal(entry([good], null).repaint, undefined);
+});
+
+test('a repaint follows its triangles through a script, and each painted triangle knows its stored one', () => {
+  const pal = palette.map((c) => c.color);
+  const slots = meshSlots({ ...figure, colors: figure.colors! }, pal);
+  const trousers = pal.findIndex((c) => colorDistance(c, TROUSERS) < 0.03), shirt = pal.findIndex((c) => colorDistance(c, SHIRT) < 0.03);
+  // The stored figure is 80 mm tall: its legs (below 20 mm) repainted in the shirt's colour.
+  const legs: number[] = [];
+  for (let t = 0; t < slots.length; t++) {
+    const z = [0, 1, 2].reduce((s, k) => s + figure.positions[figure.indices[3 * t + k] * 3 + 2], 0) / 3;
+    if (z < 20 && slots[t] === trousers) legs.push(t);
+  }
+  assert.ok(legs.length > 50);
+  const code = `function build() {
+    const fig = H.mesh('fig', { height: 60 }).trimByPlane([0, 0, 1], 2).translate([0, 0, 1]);
+    return [{ name: 'Figure', shape: fig.add(Manifold.cylinder(3, 22, 22, 48)), color: '#123456' }];
+  }`;
+  const run = (repaint?: unknown) => evaluateScript(code, { [MESHES_KEY]: JSON.stringify({ fig: { file: url, triangles: slots.length, size: [35, 35, 80], source: 'meshy', palette, ...(repaint ? { repaint } : {}) } }) }, 'draft').parts[0];
+  const part = run([{ color: palette[shirt].color, tris: encodeTris(legs) }]);
+  const paint = part.paint!, src = paint.source!;
+  assert.deepEqual(src.meshes, ['fig']);
+  const name = (t: number) => paint.filaments[paint.tri[t]].name ?? paint.filaments[paint.tri[t]].color;
+  const repainted = new Set(legs);
+  let mapped = 0, own = 0;
+  for (let t = 0; t < paint.tri.length; t++) {
+    if (src.mesh[t] === 255) { own++; assert.equal(name(t), '#123456'); continue; }
+    mapped++;
+    // Each of the figure's triangles is in its stored triangle's colour, the repainted ones in the shirt's.
+    const f = src.face[t];
+    assert.ok(f < slots.length);
+    assert.equal(name(t), repainted.has(f) ? palette[shirt].filament.name : palette[slots[f]].filament.name);
+  }
+  assert.ok(mapped > 1000 && own > 10, `${mapped} ${own}`);
+  // The legs (8–15 mm after the script's scaling and moving) print red now; without the repaint, blue.
+  const zOf = (p: typeof part, t: number) => [0, 1, 2].reduce((s, k) => s + p.positions[p.indices[3 * t + k] * 3 + 2], 0) / 3;
+  const legColour = (p: typeof part) => {
+    const n = new Map<string, number>();
+    for (let t = 0; t < p.paint!.tri.length; t++) if (zOf(p, t) > 8 && zOf(p, t) < 15) { const f = p.paint!.filaments[p.paint!.tri[t]].name!; n.set(f, (n.get(f) ?? 0) + 1); }
+    return [...n].sort((a, b) => b[1] - a[1])[0][0];
+  };
+  assert.equal(legColour(part), 'PLA Basic Red');
+  assert.equal(legColour(run()), 'PLA Basic Blue');
 });
