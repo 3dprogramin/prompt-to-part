@@ -186,8 +186,12 @@ function boxResize(src: Float32Array, w: number, h: number, nw: number, nh: numb
   return out;
 }
 
-/** RGBA pixels (e.g. from a canvas or a decoded PNG/JPEG) → LayerToneImage, scaled down to MAX_LAYERTONE_IMAGE_SIDE. */
-export function toLayerToneImage(name: string, width: number, height: number, rgba: ArrayLike<number>): LayerToneImage {
+/**
+ * RGBA pixels (e.g. from a canvas or a decoded PNG/JPEG) → LayerToneImage, scaled down to `maxSide`
+ * (MAX_LAYERTONE_IMAGE_SIDE for pictures stored in a design; the lithophane widget's production
+ * files use larger ones, which are never stored).
+ */
+export function toLayerToneImage(name: string, width: number, height: number, rgba: ArrayLike<number>, maxSide = MAX_LAYERTONE_IMAGE_SIDE): LayerToneImage {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new Error(`toLayerToneImage: invalid size ${width}×${height}`);
   if (rgba.length < width * height * 4) throw new Error(`toLayerToneImage: expected ${width * height * 4} RGBA bytes, got ${rgba.length}`);
   // Rec. 709 luma of the sRGB values; transparent pixels count as white paper.
@@ -197,10 +201,10 @@ export function toLayerToneImage(name: string, width: number, height: number, rg
     lum[p] = (0.2126 * rgba[p * 4] + 0.7152 * rgba[p * 4 + 1] + 0.0722 * rgba[p * 4 + 2]) * a + 255 * (1 - a);
   }
   let w = width, h = height;
-  const s = Math.max(width, height) / MAX_LAYERTONE_IMAGE_SIDE;
+  const s = Math.max(width, height) / maxSide;
   if (s > 1) {
-    w = Math.max(1, Math.min(MAX_LAYERTONE_IMAGE_SIDE, Math.round(width / s)));
-    h = Math.max(1, Math.min(MAX_LAYERTONE_IMAGE_SIDE, Math.round(height / s)));
+    w = Math.max(1, Math.min(maxSide, Math.round(width / s)));
+    h = Math.max(1, Math.min(maxSide, Math.round(height / s)));
     lum = boxResize(lum, width, height, w, h);
   }
   const bytes = new Uint8Array(w * h);
