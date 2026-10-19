@@ -52,9 +52,10 @@ const d2 = (a: readonly number[], b: readonly number[]) => (a[0] - b[0]) ** 2 + 
  * How much lightness counts against hue and chroma when grouping a texture's colours and giving
  * triangles theirs: a texture's light and shadow on one material change mostly its lightness, so a
  * grey beard's highlights stay grey instead of going to a light skin colour. Greys that differ only
- * in lightness (dark and light grey) still come apart, being nothing else.
+ * in lightness (dark and light grey) still come apart, being nothing else. Low enough that a pale
+ * skin's light and shadow join each other before the pale skin joins a white beard.
  */
-const LIGHTNESS_WEIGHT = 0.4;
+const LIGHTNESS_WEIGHT = 0.25;
 /**
  * Below this OKLab chroma a triangle's colour is a grey: it takes one of the palette's greys when it
  * has one (a near-white highlight on a grey beard is still nearer a light skin colour in lightness).
@@ -83,8 +84,8 @@ export function triangleAreas(positions: Float32Array, indices: Uint32Array): Fl
 
 /** A colour smaller than this share of the surface is merged into the nearest other one. */
 const MIN_SHARE = 0.02;
-/** Colours closer than this (OKLab, lightness counted fully) are one colour. */
-const MIN_DISTANCE = 0.06;
+/** Colours closer than this (OKLab, lightness counted fully) are one colour (a grey beard and pale skin are about 0.04 apart). */
+const MIN_DISTANCE = 0.03;
 
 /**
  * At most `k` colours for triangles coloured `rgb` (3 bytes each) of these areas: area-weighted
@@ -162,7 +163,7 @@ export function colorSlots(rgb: Uint8Array, palette: string[]): Uint8Array {
   const n = rgb.length / 3, out = new Uint8Array(n);
   if (palette.length < 2) return out;
   const labs = palette.map((c) => shadeLab(...hexRgb(c)));
-  const greys = labs.map((l) => chroma(l) < NEUTRAL);
+  const greys = palette.map((c) => neutral(oklab(...hexRgb(c))));
   const anyGrey = greys.some(Boolean);
   const memo = new Map<number, number>();
   for (let t = 0; t < n; t++) {
@@ -317,9 +318,15 @@ const MINE_BONUS = 0.04;
 const asPaint = (f: { color: string; name?: string; brand?: string }): PaintFilament => ({ color: f.color.toLowerCase(), ...(f.name ? { name: f.name } : {}), ...(f.brand ? { brand: f.brand } : {}) });
 export const sameFilament = (a: PaintFilament, b: PaintFilament) => a.color.toLowerCase() === b.color.toLowerCase() && (a.name ?? '') === (b.name ?? '') && (a.brand ?? '') === (b.brand ?? '');
 
-/** Below this OKLab chroma a colour is a grey (black, white): it gets a grey filament, not a dark blue or a cream. */
+/**
+ * Below this OKLab chroma a colour is a grey (black, white): it gets a grey filament, not a dark blue
+ * or a cream. Dark colours have less chroma to show, so below NEUTRAL_LIGHTNESS the limit shrinks
+ * with the lightness: a dark brown glove is brown, not dark grey.
+ */
 const NEUTRAL = 0.035;
+const NEUTRAL_LIGHTNESS = 0.6;
 const chroma = (lab: Rgb) => Math.hypot(lab[1], lab[2]);
+const neutral = (lab: Rgb) => chroma(lab) < NEUTRAL * Math.min(1, Math.max(0.2, lab[0] / NEUTRAL_LIGHTNESS));
 
 /**
  * The filament for each colour (largest share first): the closest of the user's own (counted a
@@ -334,7 +341,7 @@ export function matchFilaments(colors: string[], mine: LayerToneFilament[] = [],
     const score = (o: (typeof options)[number]) => Math.sqrt(d2(lab, o.lab)) - o.bonus;
     let pool = options.filter((o) => !used.some((u) => sameFilament(u, o.f)));
     if (!pool.length) pool = options;
-    if (chroma(lab) < NEUTRAL && pool.some((o) => chroma(o.lab) < NEUTRAL)) pool = pool.filter((o) => chroma(o.lab) < NEUTRAL);
+    if (neutral(lab) && pool.some((o) => neutral(o.lab))) pool = pool.filter((o) => neutral(o.lab));
     const pick = pool.length ? pool.reduce((a, b) => (score(b) < score(a) ? b : a)) : null;
     const f = pick ? pick.f : { color: c };
     used.push(f);

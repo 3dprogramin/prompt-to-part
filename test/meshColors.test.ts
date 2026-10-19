@@ -97,6 +97,15 @@ test('shading stays on its colour: a grey\'s highlights stay grey, not the light
   // Greys differing only in lightness still come apart.
   const dark = new Uint8Array([60, 60, 60, 64, 64, 64, 180, 180, 180, 184, 184, 184]);
   assert.equal(clusterColors(dark, [1, 1, 1, 1], 4).length, 2);
+  // The real case: a white beard and pale skin in light and shadow stay two colours, and a dark
+  // brown glove gets a brown filament, not a dark grey.
+  const beard = [0xa8, 0xb4, 0xc0].map((g) => [g, g - 2, g - 5]);
+  const pale = [0.85, 0.95, 1.05, 1.15].map((s) => [0xb7, 0x92, 0x7f].map((c) => Math.min(255, Math.round(c * s))));
+  const mix = clusterColors(new Uint8Array([...beard, ...pale].flat()), [2, 2, 2, 1, 1, 1, 1], 2);
+  const mixSlots = colorSlots(new Uint8Array([...beard, ...pale].flat()), mix.map((c) => c.color));
+  assert.deepEqual([...mixSlots], [0, 0, 0, 1, 1, 1, 1].map((i) => mixSlots[i ? 3 : 0]));
+  assert.notEqual(mixSlots[0], mixSlots[3]);
+  assert.match(matchFilaments(['#37231a'])[0].name!, /Chocolate|Brown/);
 });
 
 /** A flat n × n grid of 1 mm squares (two triangles each, facing up); `slot(x, y, upper)` per triangle. */
