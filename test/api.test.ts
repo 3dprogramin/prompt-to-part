@@ -22,6 +22,7 @@ const { recordRateLimit } = await import('../server/usage');
 const LIMIT_RESET = Math.floor(Date.now() / 1000) + 3600;
 server.on('request', createApp({
   port,
+  hosts: ['192.168.1.50'],
   suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
   image: async (prompt, aspect, references) => {
     imageAsked = { prompt, aspect, references };
@@ -54,6 +55,9 @@ const PNG = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
 
 test('only Jig\'s own pages get in', async () => {
   assert.equal(await statusWithHost('/api/designs', `evil.com:${port}`), 421);
+  // The names JIG_HOSTS adds (a phone on the network reaching this computer's address).
+  assert.equal(await statusWithHost('/api/designs', `192.168.1.50:${port}`), 200);
+  assert.equal((await fetch(`${A}/api/designs`, { headers: { Origin: `http://192.168.1.50:${port}` } })).status, 200);
   assert.equal((await fetch(`${A}/api/designs`, { headers: { Origin: 'https://evil.com' } })).status, 403);
   assert.equal((await fetch(`${A}/api/designs`, { headers: { Origin: 'http://localhost:3000' } })).status, 403);
   const saved = await put(design({ id: 'test-api-00000009' }));

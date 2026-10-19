@@ -2,7 +2,9 @@
 # README). Settings and secrets come from .env (copy .env.sample).
 #
 # Jig has no login: anyone who can reach its port can use your Claude account and keys. It is
-# therefore published on this computer only (127.0.0.1); don't change that to 0.0.0.0.
+# therefore published on this computer only (127.0.0.1). JIG_BIND=0.0.0.0 in .env publishes it on
+# every interface (e.g. to try it from a phone; add this computer's address to JIG_HOSTS): only on
+# a network you trust.
 name: jig
 
 services:
@@ -24,7 +26,7 @@ services:
       JIG_DATA: /data
       CLAUDE_CONFIG_DIR: /home/node/.claude
     ports:
-      - "127.0.0.1:${JIG_PORT:-8787}:${JIG_PORT:-8787}"
+      - "${JIG_BIND:-127.0.0.1}:${JIG_PORT:-8787}:${JIG_PORT:-8787}"
     volumes:
       # Designs, chat images, workspaces, the Bambu template and slicer data, cost settings.
       - data:/data

@@ -7,7 +7,7 @@ import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promise
 import { pipeline } from 'node:stream/promises';
 import { runGeneration, steerGeneration, UsageLimitError, workspaceDir } from './agent';
 import type { AgentEvent, BackupImport, BlendRequest, Capabilities, GenerateRequest, ImageData, SpeechToken, PriceRequest } from '../shared/api';
-import { authMode, claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, PORT, PRODUCTION, ROOT } from './config';
+import { authMode, claudeAuthProblem, DATA_DIR, defaultEffort, defaultModel, EFFORTS, EXTRA_HOSTS, PORT, PRODUCTION, ROOT } from './config';
 import { listFonts, loadFontBuffers } from './fonts';
 import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
@@ -145,6 +145,8 @@ function speechLanguages(): Pick<SpeechToken, 'language' | 'secondaryLanguages'>
 export interface AppOptions {
   /** Port the server listens on: requests must name it in their Host header. */
   port?: number;
+  /** Names it answers to besides localhost and 127.0.0.1 (JIG_HOSTS). */
+  hosts?: string[];
   /** Runs a generation (tests pass a stand-in instead of Claude). */
   generate?: typeof runGeneration;
   /** Suggests a selling price (tests pass a stand-in instead of Claude). */
@@ -157,7 +159,7 @@ export interface AppOptions {
   connection?: typeof checkConnection;
 }
 
-export function createApp({ port = PORT, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament, image = requestImage, connection = checkConnection }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament, image = requestImage, connection = checkConnection }: AppOptions = {}): express.Express {
   const app = express();
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
@@ -165,7 +167,7 @@ export function createApp({ port = PORT, generate = runGeneration, suggest = sug
   // on other local ports, and requiring the X-Jig header on writes means a plain cross-site form or
   // beacon can never change anything. In development the Vite proxy (vite.config.ts) passes requests
   // from Jig's own page on with the API's origin and leaves every other origin as it is.
-  const LOCAL_HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+  const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', ...hosts].map((h) => `${h}:${port}`));
   const LOCAL_ORIGINS = new Set([...LOCAL_HOSTS].map((h) => `http://${h}`));
   app.use('/api', (req, res, next) => {
     if (!LOCAL_HOSTS.has(req.headers.host ?? '')) return void res.status(421).json({ error: 'Unexpected Host header' });

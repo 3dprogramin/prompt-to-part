@@ -304,6 +304,8 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_AUTH` | `api-key` | `subscription` uses the Claude account the `claude` CLI is logged in with (or `CLAUDE_CODE_OAUTH_TOKEN`) instead of a key, for your own use on your own computer only (see below) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | | With `JIG_AUTH=subscription`: a long-lived token from `claude setup-token`, how Jig signs in to your subscription in [Docker](#docker). Ignored in API-key mode |
 | `JIG_PORT`, `JIG_WITH_BAMBU` | `8787`, `0` | Docker Compose only: the published port, and `1` to build the image with Bambu Studio |
+| `JIG_BIND` | `127.0.0.1` | Docker Compose only: the address Jig is published on. `0.0.0.0` makes it reachable from your network (e.g. a phone); Jig has no login, so only on a network you trust |
+| `JIG_HOSTS` | – | More names Jig answers to besides `localhost` and `127.0.0.1`, comma-separated: this computer's address when it is reached from the network (with `JIG_BIND`). Requests naming any other host are refused |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |
 | `BLENDER_PATH` | found on `PATH` or in the default install folder | Blender executable |
