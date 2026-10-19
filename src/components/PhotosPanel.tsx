@@ -98,6 +98,20 @@ export function PhotosPanel(p: Props) {
   const faceOn = camera === 'best' && !!preset?.wall && flat;
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
   const photos = [...p.photos].reverse();
+  // The enlarged photo's neighbours: the arrow buttons, ← and →, or a swipe; at either end it wraps around.
+  const step = (by: number) => setBig((b) => {
+    const i = b ? photos.findIndex((ph) => ph.url === b.url) : -1;
+    return i < 0 ? b : photos[(i + by + photos.length) % photos.length];
+  });
+  useEffect(() => {
+    if (!big || photos.length < 2) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   const elapsed = useTicker(jobs.some((j) => !j.error));
 
   if (!p.open) return null;
@@ -214,7 +228,13 @@ export function PhotosPanel(p: Props) {
       {/* On the page itself: the panel's backdrop blur would make it the box a fixed overlay fills. */}
       {big && createPortal(
         <div className="lightbox ph-lightbox" role="dialog" aria-modal="true" aria-label="Product photo" onClick={closeBig}>
-          <BigPhoto photo={big} onSave={() => void save(big, photos.length - photos.indexOf(big))} onDelete={() => { p.onDelete(big.url); closeBig(); }} onClose={closeBig} />
+          <BigPhoto key={big.url} photo={big} onSave={() => void save(big, photos.length - photos.indexOf(big))} onDelete={() => { p.onDelete(big.url); closeBig(); }} onClose={closeBig}
+            onSwipe={photos.length > 1 ? step : undefined} />
+          {photos.length > 1 && <>
+            <button className="lightbox-nav prev" onClick={(e) => { e.stopPropagation(); step(-1); }} title="Previous photo (←)" aria-label="Previous photo"><Icon name="chevron" size={20} /></button>
+            <button className="lightbox-nav next" onClick={(e) => { e.stopPropagation(); step(1); }} title="Next photo (→)" aria-label="Next photo"><Icon name="chevron" size={20} /></button>
+            <div className="lightbox-count" aria-live="polite">{photos.findIndex((ph) => ph.url === big.url) + 1} / {photos.length}</div>
+          </>}
         </div>,
         document.body,
       )}
@@ -223,10 +243,20 @@ export function PhotosPanel(p: Props) {
 }
 
 /** The enlarged photo with what it was made from: scene, model, cost, the render and the prompt. */
-function BigPhoto({ photo, onSave, onDelete, onClose }: { photo: ProductPhoto; onSave: () => void; onDelete: () => void; onClose: () => void }) {
+function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe }: { photo: ProductPhoto; onSave: () => void; onDelete: () => void; onClose: () => void; onSwipe?: (by: number) => void }) {
   const [render, setRender] = useState(false);
+  // A sideways swipe on a touch screen goes to the next (left) or previous (right) photo.
+  const swipe = useRef<{ x: number; y: number } | null>(null);
   return (
-    <div className="ph-big" onClick={(e) => e.stopPropagation()} onKeyDown={trapFocus}>
+    <div className="ph-big" onClick={(e) => e.stopPropagation()} onKeyDown={trapFocus}
+      onTouchStart={(e) => { const t = e.touches[0]; swipe.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; }}
+      onTouchEnd={(e) => {
+        const from = swipe.current, t = e.changedTouches[0];
+        swipe.current = null;
+        if (!from || !onSwipe) return;
+        const dx = t.clientX - from.x, dy = t.clientY - from.y;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
+      }}>
       <img src={render && photo.render ? photo.render : photo.url} alt={render ? 'The render it was made from' : `Product photo: ${sceneLabel(photo.scene)}`} />
       <div className="ph-big-side">
         <div className="ph-big-head">

@@ -46,6 +46,8 @@ interface Props {
   leftOpen?: boolean;
   rightOpen?: boolean;
   onToggleLeft?: () => void;
+  /** What the left toggle hides and shows (default: the chat sidebar). */
+  leftName?: string;
   onToggleRight?: () => void;
   validation?: ValidationState | null;
   validationOpen?: boolean;
@@ -63,7 +65,7 @@ const f2 = (n: number) => n.toFixed(2);
 /** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
 const touch = window.matchMedia('(pointer: coarse)').matches;
 
-export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
+export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -340,7 +342,7 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
       )}
 
       {onToggleLeft && (
-        <button className={`edge-tab left ${leftOpen ? '' : 'closed'}`} onClick={onToggleLeft} title={leftOpen ? 'Hide the chat sidebar (T)' : 'Show the chat sidebar (T)'} aria-label={leftOpen ? 'Hide the chat sidebar' : 'Show the chat sidebar'} aria-expanded={leftOpen}>
+        <button className={`edge-tab left ${leftOpen ? '' : 'closed'}`} onClick={onToggleLeft} title={`${leftOpen ? 'Hide' : 'Show'} the ${leftName} (T)`} aria-label={`${leftOpen ? 'Hide' : 'Show'} the ${leftName}`} aria-expanded={leftOpen}>
           <Icon name="chevron" size={12} />
         </button>
       )}

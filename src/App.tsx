@@ -1152,7 +1152,7 @@ export default function App() {
       {/* On a small screen the sidebars' open/closed state and widths don't apply: the grid shows the
           picked panel (data-show) and hides the others, keeping their size (the 3D view's canvas
           never collapses) and their scroll position. */}
-      <main ref={workspace} className={shownTab ? `workspace layout-${layout}` : `workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
+      <main ref={workspace} className={shownTab ? `workspace layout-${layout} ${layout === 'split' && !leftOpen ? 'pane-closed' : ''}` : `workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
         data-show={shownTab ?? undefined}
         style={{ '--left-w': `${widths.left}px`, '--right-w': `${widths.right}px` } as React.CSSProperties}>
         {!shownTab && leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setUserWidths(({ left: _l, ...u }) => u)} />}
@@ -1249,7 +1249,9 @@ export default function App() {
           onAssemblyClose={() => setPlayback(null)}
           leftOpen={leftOpen}
           rightOpen={rightOpen}
-          onToggleLeft={shownTab ? undefined : () => setLeftOpen((o) => !o)}
+          // The split layout's pane (chat or panel) hides like the chat sidebar, for the whole width to the 3D view.
+          onToggleLeft={layout === 'phone' ? undefined : () => setLeftOpen((o) => !o)}
+          leftName={layout === 'split' ? (shownPanel.pane === 'chat' ? 'chat' : 'panel') : undefined}
           onToggleRight={shownTab ? undefined : () => setRightOpen((o) => !o)}
           validation={validation}
           validationOpen={validationOpen}

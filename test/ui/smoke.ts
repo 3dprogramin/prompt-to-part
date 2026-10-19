@@ -2,7 +2,7 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, Export project… (as a zip), a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
+// import, Export project… (as a zip), stepping through enlarged product photos, a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
 // picture's countdown, and the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
 // and an unfolded foldable (the 3D view beside the chat or the side panel). A screenshot of each step is saved to
@@ -256,6 +256,30 @@ test('a reply under way goes on through a reload or a dropped connection: the pa
   finishSlowCube();
   await page.locator('.msg.assistant').nth(1).filter({ hasText: 'The slow cube is done.' }).waitFor();
   assert.ok(resumed.length, 'caught up after the drop');
+  await page.close();
+});
+
+test('an enlarged product photo steps to the next and previous one (buttons, arrow keys)', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const pid = 'ui-smoke-20000003';
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+  const photos = ['table', 'shelf', 'desk'].map((scene, i) => ({ url: `${png}#${i}`, scene: 'custom', notes: scene, aspect: '4:5', prompt: scene, model: 'test/image', cost: null, createdAt: i + 1 }));
+  const r = await fetch(`${A}/api/designs/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    body: JSON.stringify({ id: pid, name: 'Photos', createdAt: 1, updatedAt: 1, code, values: {}, currentVersion: 0, versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual' }], messages: [], photos }) });
+  assert.equal(r.status, 200, await r.text());
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${pid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Photos');
+  await page.getByRole('button', { name: 'Product photos' }).click();
+  await page.locator('.ph-thumb').first().click();
+  const count = page.locator('.lightbox-count');
+  assert.equal(await count.innerText(), '1 / 3');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await count.innerText(), '2 / 3');
+  await page.getByRole('button', { name: 'Previous photo' }).click();
+  await page.getByRole('button', { name: 'Previous photo' }).click();
+  assert.equal(await count.innerText(), '3 / 3');
+  await page.screenshot({ path: path.join(shots, '15-photo-arrows.png') });
   await page.close();
 });
 
@@ -567,5 +591,13 @@ test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded 
     assert.ok(await big.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll');
     await big.screenshot({ path: path.join(shots, `14-unfolded-${name.toLowerCase()}.png`) });
   }
+  // The pane hides (the edge tab), for the whole width to the 3D view.
+  const width = async () => (await big.locator('.viewer-panel').boundingBox())!.width;
+  const narrow = await width();
+  await big.getByRole('button', { name: 'Hide the panel' }).tap();
+  assert.equal(await big.locator('.side-panel').isVisible(), false);
+  assert.ok(await width() > narrow + 200, 'the 3D view takes the width');
+  await big.getByRole('button', { name: 'Show the panel' }).tap();
+  assert.equal(await big.locator('.side-panel').isVisible(), true);
   await unfolded.close();
 });
