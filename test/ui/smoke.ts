@@ -4,8 +4,9 @@
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
 // import, Export project… (as a zip), a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
-// picture's countdown. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
-// what the browser saw.
+// picture's countdown, and the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
+// and an unfolded foldable (the 3D view beside the chat or the side panel). A screenshot of each step is saved to
+// JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -509,4 +510,62 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.equal(await page.locator('.model-text').isVisible(), false);
   await page.locator('.composer').screenshot({ path: path.join(shots, '12-chat-bar-narrow.png') });
   await page.close();
+});
+
+test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded one the 3D view beside a pane', async () => {
+  assert.ok(browser, 'runs after the first test');
+  // A Galaxy Z Fold's cover screen (as CSS pixels), touch only.
+  const phone = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
+  const page = await phone.newPage();
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.locator('.app.layout-phone').waitFor();
+  const noSideScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth);
+  assert.ok(await noSideScroll(), 'no horizontal scroll');
+  // The top bar keeps the name, the connection chip and Designs in view; no sidebar handles.
+  for (const el of [page.locator('.design-name'), page.locator('.conn-chip'), page.getByRole('button', { name: 'Designs' })]) {
+    const b = (await el.boundingBox())!;
+    assert.ok(b.width > 0 && b.x >= 0 && b.x + b.width <= 412, `in view: ${JSON.stringify(b)}`);
+  }
+  assert.equal(await page.locator('.sidebar-resize').count(), 0);
+  // No zoom on focus: text fields at 16 px.
+  assert.equal(await page.locator('.chat-panel textarea').evaluate((t) => getComputedStyle(t).fontSize), '16px');
+  const tab = (name: string) => page.getByRole('tab', { name, exact: true });
+  const shown = async () => ({ chat: await page.locator('.chat-panel').isVisible(), view: await page.locator('.viewer-panel').isVisible(), panel: await page.locator('.side-panel').isVisible() });
+  assert.deepEqual(await shown(), { chat: true, view: false, panel: false });
+  await page.screenshot({ path: path.join(shots, '13-phone-chat.png') });
+  await tab('3D').tap();
+  assert.deepEqual(await shown(), { chat: false, view: true, panel: false });
+  await page.waitForFunction(() => { const c = document.querySelector<HTMLCanvasElement>('.viewer-host canvas'); return !!c && c.clientWidth > 300 && c.clientHeight > 300; });
+  await page.screenshot({ path: path.join(shots, '13-phone-3d.png') });
+  await tab('Panel').tap();
+  assert.deepEqual(await shown(), { chat: false, view: false, panel: true });
+  await page.screenshot({ path: path.join(shots, '13-phone-panel.png') });
+  // The Designs menu fits the screen.
+  await page.getByRole('button', { name: 'Designs' }).tap();
+  const menu = (await page.locator('.menu').boundingBox())!;
+  assert.ok(menu.x >= 0 && menu.x + menu.width <= 412, `menu in view: ${JSON.stringify(menu)}`);
+  await page.screenshot({ path: path.join(shots, '13-phone-designs.png') });
+  assert.ok(await noSideScroll(), 'no horizontal scroll');
+  // The tab is remembered.
+  await page.reload();
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  assert.equal(await tab('Panel').getAttribute('aria-selected'), 'true');
+  await phone.close();
+
+  // Unfolded (the inner screen): the 3D view always, beside the chat or the side panel.
+  const unfolded = await browser.newContext({ viewport: { width: 880, height: 1000 }, isMobile: true, hasTouch: true });
+  const big = await unfolded.newPage();
+  await big.goto(`${A}/?design=${id}`);
+  await big.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await big.locator('.app.layout-split').waitFor();
+  assert.equal(await big.getByRole('tab', { name: '3D', exact: true }).count(), 0);
+  for (const name of ['Chat', 'Panel']) {
+    await big.getByRole('tab', { name, exact: true }).tap();
+    assert.equal(await big.locator(name === 'Chat' ? '.chat-panel' : '.side-panel').isVisible(), true);
+    assert.equal(await big.locator('.viewer-panel').isVisible(), true);
+    assert.ok(await big.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll');
+    await big.screenshot({ path: path.join(shots, `14-unfolded-${name.toLowerCase()}.png`) });
+  }
+  await unfolded.close();
 });

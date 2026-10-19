@@ -29,6 +29,8 @@ function onScreen(p: Placement): Placement {
   const width = Math.max(MIN_W, Math.min(p.width, window.innerWidth - 16));
   const top = Math.max(8, Math.min(p.top, window.innerHeight - MIN_H - 8));
   const height = p.height != null ? Math.max(MIN_H, Math.min(p.height, window.innerHeight - top - 8)) : undefined;
+  // On a phone it stays whole on screen: there is no room beside the chat to park it half outside.
+  if (window.innerWidth <= 700) return { width, height, top, left: Math.max(8, Math.min(p.left, window.innerWidth - width - 8)) };
   return { width, height, top, left: Math.max(80 - width, Math.min(p.left, window.innerWidth - 80)) };
 }
 

@@ -24,7 +24,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.45; }
@@ -33,7 +33,11 @@ button:disabled { cursor: default; opacity: 0.45; }
 .small { font-size: 11.5px; }
 .spacer { flex: 1; }
 
-.app { display: flex; flex-direction: column; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100%; height: 100dvh; }
+/* With viewport-fit=cover a phone draws under its camera cutout and gesture bar: keep clear of them
+   (0 on a desktop). The phone layout's tab bar pads the bottom itself. */
+.app { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.app.layout-phone { padding-bottom: 0; }
 
 /* ---------- top bar ---------- */
 .topbar { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
@@ -47,7 +51,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .design-name:hover { border-color: var(--line); }
 .design-name:focus { outline: none; border-color: var(--accent); background: var(--bg); }
 .menu-wrap { position: relative; }
-.menu { position: absolute; right: 0; top: calc(100% + 6px); width: 340px; max-height: 60vh; overflow: auto; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 12px 40px #0008; z-index: 50; padding: 4px; }
+.menu { position: absolute; right: 0; top: calc(100% + 6px); width: 340px; max-height: 60dvh; overflow: auto; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 12px 40px #0008; z-index: 50; padding: 4px; }
 .menu-empty { padding: 14px; color: var(--text-3); }
 .menu-item { display: flex; align-items: center; border-radius: 6px; }
 .menu-item:hover, .menu-item.on { background: #ffffff0a; }
@@ -151,7 +155,7 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .lightbox-close { position: absolute; top: 14px; right: 14px; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); display: grid; place-items: center; }
 .img-btn { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 8px; }
 .img-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.lightbox img { display: block; width: auto; height: auto; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px #000a; }
+.lightbox img { display: block; width: auto; height: auto; max-width: calc(100vw - 48px); max-height: calc(100dvh - 48px); object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px #000a; }
 
 .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin 0.8s linear infinite; display: inline-block; flex-shrink: 0; }
 .spinner.big { width: 34px; height: 34px; border-width: 3px; }
@@ -382,7 +386,7 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .export-menu span { font-size: 11.5px; color: var(--text-3); }
 
 /* ---------- fullscreen ---------- */
-.viewer-panel:fullscreen { width: 100vw; height: 100vh; }
+.viewer-panel:fullscreen { width: 100vw; height: 100dvh; }
 .viewer-panel.is-fullscreen .viewer-toolbar { right: 260px; }
 .ui-hidden .viewer-toolbar, .ui-hidden .section-bar, .ui-hidden .parts-legend, .ui-hidden .statusbar,
 .ui-hidden .viewer-toast, .ui-hidden .viewer-error { display: none; }
@@ -827,7 +831,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .layertone-pic-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .layertone-nopic { padding: 8px; border: 1px dashed var(--line-2); border-radius: 7px; }
 .layertone-big { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: min(1200px, calc(100vw - 48px)); }
-.layertone-big .layertone-fig img, .layertone-big .layertone-nosim { aspect-ratio: auto; max-height: calc(100vh - 100px); border-radius: 8px; }
+.layertone-big .layertone-fig img, .layertone-big .layertone-nosim { aspect-ratio: auto; max-height: calc(100dvh - 100px); border-radius: 8px; }
 .layertone-big .layertone-cap { font-size: 13px; color: var(--text-2); }
 .layertone-stats { color: var(--text-2); }
 .layertone-warn { display: flex; gap: 6px; align-items: flex-start; color: #f2c66d; }
@@ -969,16 +973,16 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-tile-bar .icon-btn { width: 24px; height: 24px; }
 .icon-btn.ph-armed { color: var(--bad); background: #3a1e1d; }
 .ph-lightbox { cursor: default; }
-.ph-big { display: flex; gap: 14px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); cursor: default; }
-.ph-big > img { display: block; min-width: 0; max-width: calc(100vw - 48px - 320px); max-height: calc(100vh - 48px); object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px #000a; }
-.ph-big-side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; padding: 12px; overflow-y: auto; align-self: flex-start; max-height: calc(100vh - 48px); }
+.ph-big { display: flex; gap: 14px; max-width: calc(100vw - 48px); max-height: calc(100dvh - 48px); cursor: default; }
+.ph-big > img { display: block; min-width: 0; max-width: calc(100vw - 48px - 320px); max-height: calc(100dvh - 48px); object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px #000a; }
+.ph-big-side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; padding: 12px; overflow-y: auto; align-self: flex-start; max-height: calc(100dvh - 48px); }
 .ph-big-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .ph-big-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .ph-prompt summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
-.ph-prompt pre { white-space: pre-wrap; font: 11px/1.45 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px; margin: 6px 0 0; max-height: 40vh; overflow-y: auto; }
+.ph-prompt pre { white-space: pre-wrap; font: 11px/1.45 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px; margin: 6px 0 0; max-height: 40dvh; overflow-y: auto; }
 @media (max-width: 900px) {
   .ph-big { flex-direction: column; overflow-y: auto; }
-  .ph-big > img { max-width: calc(100vw - 48px); max-height: 60vh; }
+  .ph-big > img { max-width: calc(100vw - 48px); max-height: 60dvh; }
   .ph-big-side { width: auto; }
 }
 .ui-hidden .photos-panel { display: none; }
@@ -988,3 +992,63 @@ body.resizing { cursor: col-resize; user-select: none; }
 .diff-tag.add { color: #8fdca4; background: #6cc48a26; border: 1px solid #6cc48a55; }
 .diff-tag.del { color: #f2a19b; background: #e5675f26; border: 1px solid #e5675f55; }
 .diff-count { font-size: 11px; color: var(--text-3); }
+
+/* ---------- small screens (useLayoutMode) ---------- */
+/* phone: one panel at a time over the whole workspace, the tab bar under it. split: the switch
+   (Chat, Panel) and its pane on the left, the 3D view on the right. The panels not shown are
+   hidden, not removed: they keep their size, so the 3D view's canvas never collapses to 0 × 0. */
+.workspace.layout-phone { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+.workspace.layout-phone > :is(.chat-panel, .viewer-panel, .side-panel) { grid-area: 1 / 1; border: 0; }
+.workspace.layout-phone > .layout-tabs { grid-area: 2 / 1; }
+.workspace.layout-split { grid-template-columns: clamp(320px, 42%, 420px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.workspace.layout-split > .layout-tabs { grid-area: 1 / 1; }
+.workspace.layout-split > :is(.chat-panel, .side-panel) { grid-area: 2 / 1; border-left: 0; border-right: 1px solid var(--line); }
+.workspace.layout-split > .viewer-panel { grid-area: 1 / 2 / 3 / 3; }
+.workspace[data-show]:not([data-show='chat']) > .chat-panel,
+.workspace.layout-phone:not([data-show='3d']) > .viewer-panel,
+.workspace[data-show]:not([data-show='panel']) > .side-panel { visibility: hidden; }
+/* Scrolling to the end of a panel doesn't pull the page (and reload it). */
+.workspace[data-show] :is(.chat-scroll, .tab-body) { overscroll-behavior: contain; }
+
+.layout-tabs { display: flex; background: var(--panel); }
+.layout-tabs button { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; background: none; border: 0; color: var(--text-3); font-weight: 500; }
+.layout-tabs button:hover { color: var(--text-2); }
+.layout-tabs button.on { color: var(--accent-2); }
+.layout-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.layout-tab-icon { position: relative; display: grid; }
+/* Jig working (pulsing) or a new version to look at, on a tab not shown. */
+.layout-dot { position: absolute; top: -3px; right: -5px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
+.layout-dot.live { animation: pulse 1.2s ease-in-out infinite; }
+/* Phone: a bottom tab bar, icons over labels, clear of the gesture bar. */
+.layout-tabs.phone { border-top: 1px solid var(--line); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.layout-tabs.phone button { flex-direction: column; gap: 2px; min-height: 54px; font-size: 11.5px; }
+/* Typing (the on-screen keyboard is up): the tab bar steps aside for the text. */
+.app.layout-phone:has(:is(textarea, input:not([type='range'], [type='checkbox'], [type='radio'], [type='color'], [type='file'])):focus) .layout-tabs { display: none; }
+/* Split: a two-way switch over the pane. */
+.layout-tabs.split { gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
+.layout-tabs.split button { min-height: 40px; border-radius: 8px; font-size: 13px; }
+.layout-tabs.split button.on { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+
+/* Phone: the view toolbar's groups wrap clear of the corner buttons (photos, fullscreen). */
+.app.layout-phone .viewer-toolbar { right: 84px; }
+.app.layout-phone .viewer-toolbar .tb-group { flex-wrap: wrap; }
+
+/* Phone: a narrow top bar. The logo is New (and Designs ▸ New design); the design tabs are in Designs;
+   the buttons are icons; the connection chip shows its dot and percentage. */
+.app.layout-phone .topbar { gap: 6px; padding: 0 8px; }
+.app.layout-phone :is(.brand-name, .app-version, .btn-label, .conn-via) { display: none; }
+.app.layout-phone .brand { padding-right: 2px; }
+.app.layout-phone .design-name { flex: 1 1 0; width: 0; min-width: 48px; max-width: none; }
+.app.layout-phone .topbar > .spacer { display: none; }
+.app.layout-phone .topbar .btn { padding: 6px 9px; }
+.app.layout-phone .conn-chip { padding: 2px 8px; min-width: 0; }
+.app.layout-phone .conn-extra { min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+/* Menus open across the screen, under the bar. */
+.app.layout-phone .topbar .menu { position: fixed; top: calc(env(safe-area-inset-top) + 52px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - env(safe-area-inset-top) - 64px); }
+
+/* Touch: text fields at 16 px, so the browser doesn't zoom in when one is focused (the code
+   editor's coloured copy follows its textarea); bar buttons big enough for a finger. */
+@media (pointer: coarse) {
+  :root :is(input:not([type='range'], [type='checkbox'], [type='radio'], [type='color'], [type='file']), textarea, select, .code-colours) { font-size: 16px; }
+  .topbar :is(.btn, .version-btn, .conn-chip) { min-height: 36px; }
+}

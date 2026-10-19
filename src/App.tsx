@@ -23,11 +23,13 @@ import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
 import type { DesignTab } from './components/DesignTabs';
 import { TopBar } from './components/TopBar';
+import { LayoutTabs, type LayoutTab } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
 import { PhotosPanel, usePhotoJobs } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
+import { useLayoutMode } from './hooks/useLayoutMode';
 import { useLiveModel } from './hooks/useLiveModel';
 import { useRepaint } from './hooks/useRepaint';
 import { STAGE_TEXT, useCost } from './hooks/useCost';
@@ -278,6 +280,38 @@ export default function App() {
   // Placing text and repainting both take the clicks on the model: one at a time.
   useEffect(() => { if (picking) repaint.stop(); }, [picking, repaint.stop]);
   useEffect(() => repaint.stop(), [design.id, repaint.stop]);
+
+  // Small screens (useLayoutMode): a phone shows one panel at a time (`tab`), the split layout the
+  // 3D view beside the chat or the side panel (`pane`, the last of those two picked). Remembered
+  // in this browser.
+  const layout = useLayoutMode();
+  const [shownPanel, setShownPanel] = useState<{ tab: LayoutTab; pane: Exclude<LayoutTab, '3d'> }>(() => {
+    const saved = load<{ tab?: unknown; pane?: unknown }>('layoutTab', {});
+    const pane = saved.pane === 'panel' ? 'panel' : 'chat';
+    return { tab: saved.tab === '3d' || saved.tab === 'panel' || saved.tab === 'chat' ? saved.tab : pane, pane };
+  });
+  useEffect(() => store('layoutTab', shownPanel), [shownPanel]);
+  const showPanel = (tab: LayoutTab) => setShownPanel((s) => ({ tab, pane: tab === '3d' ? s.pane : tab }));
+  const shownTab: LayoutTab | null = layout === 'phone' ? shownPanel.tab : layout === 'split' ? shownPanel.pane : null;
+  // A new version from a reply marks the phone's 3D tab until it is shown (no switch: the reply is
+  // still being read).
+  const [newModel, setNewModel] = useState(false);
+  const seenVersions = useRef({ id: design.id, n: design.versions.length });
+  useEffect(() => {
+    const seen = seenVersions.current;
+    if (seen.id !== design.id) setNewModel(false);
+    else if (design.versions.length > seen.n && design.versions.at(-1)?.source === 'ai') setNewModel(true);
+    seenVersions.current = { id: design.id, n: design.versions.length };
+  }, [design.id, design.versions.length]);
+  useEffect(() => { if (layout !== 'phone' || shownPanel.tab === '3d') setNewModel(false); }, [layout, shownPanel.tab, newModel]);
+  // Picking a surface for a text or drawing happens in the 3D view: a phone shows it while picking,
+  // then goes back to the panel.
+  const pickedFrom = useRef<LayoutTab | null>(null);
+  useEffect(() => {
+    if (layout !== 'phone') return;
+    if (picking && shownPanel.tab !== '3d') { pickedFrom.current = shownPanel.tab; showPanel('3d'); }
+    if (!picking && pickedFrom.current) { showPanel(pickedFrom.current); pickedFrom.current = null; }
+  }, [picking]);
 
   const textFeatures = useMemo(() => parseTextFeatures(design.values[TEXT_KEY]), [design.values]);
   const setTextFeatures = (list: TextFeature[]) => setDesign((d) => {
@@ -1092,8 +1126,9 @@ export default function App() {
   const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart, oneColour: viewColour };
 
   return (
-    <div className="app">
+    <div className={`app layout-${layout}`}>
       <TopBar
+        compact={layout === 'phone'}
         design={design}
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
         onRestore={onRestore}
@@ -1114,10 +1149,17 @@ export default function App() {
         generating={Object.keys(running).length}
         onDelete={deleteDesign}
       />
-      <main ref={workspace} className={`workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
+      {/* On a small screen the sidebars' open/closed state and widths don't apply: the grid shows the
+          picked panel (data-show) and hides the others, keeping their size (the 3D view's canvas
+          never collapses) and their scroll position. */}
+      <main ref={workspace} className={shownTab ? `workspace layout-${layout}` : `workspace ${leftOpen ? '' : 'left-closed'} ${rightOpen ? '' : 'right-closed'}`}
+        data-show={shownTab ?? undefined}
         style={{ '--left-w': `${widths.left}px`, '--right-w': `${widths.right}px` } as React.CSSProperties}>
-        {leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setUserWidths(({ left: _l, ...u }) => u)} />}
-        {rightOpen && <div className="sidebar-resize right" role="separator" aria-orientation="vertical" aria-label="Resize the parameters sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('right')} onDoubleClick={() => setUserWidths(({ right: _r, ...u }) => u)} />}
+        {!shownTab && leftOpen && <div className="sidebar-resize left" role="separator" aria-orientation="vertical" aria-label="Resize the chat sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('left')} onDoubleClick={() => setUserWidths(({ left: _l, ...u }) => u)} />}
+        {!shownTab && rightOpen && <div className="sidebar-resize right" role="separator" aria-orientation="vertical" aria-label="Resize the parameters sidebar" title="Drag to resize · double-click for the default width" onPointerDown={resize('right')} onDoubleClick={() => setUserWidths(({ right: _r, ...u }) => u)} />}
+        {shownTab && layout !== 'desktop' && (
+          <LayoutTabs mode={layout} active={shownTab} onSelect={showPanel} working={generating || busyElsewhere} newModel={newModel} />
+        )}
         <ChatPanel
           designId={design.id}
           messages={design.messages}
@@ -1207,8 +1249,8 @@ export default function App() {
           onAssemblyClose={() => setPlayback(null)}
           leftOpen={leftOpen}
           rightOpen={rightOpen}
-          onToggleLeft={() => setLeftOpen((o) => !o)}
-          onToggleRight={() => setRightOpen((o) => !o)}
+          onToggleLeft={shownTab ? undefined : () => setLeftOpen((o) => !o)}
+          onToggleRight={shownTab ? undefined : () => setRightOpen((o) => !o)}
           validation={validation}
           validationOpen={validationOpen}
           onValidationClose={() => setValidationOpen(false)}

@@ -34,6 +34,8 @@ interface Props {
   /** Generations running in this tab: the connection chip rechecks the usage when one ends. */
   generating: number;
   onDelete: (id: string) => void;
+  /** A phone's narrow bar: icons for the buttons, no design tabs (Designs lists them), New in the Designs menu. */
+  compact?: boolean;
 }
 
 /** Recent designs the Designs menu lists before "Load more". */
@@ -93,7 +95,7 @@ export function TopBar(p: Props) {
     <header className="topbar">
       {/* Real links (logo and New), so they can be opened in a new tab. */}
       <a className="brand" href="/" title="New design" onClick={newHere}>
-        <span className="logo"><Icon name="cube" size={18} /></span> Jig
+        <span className="logo"><Icon name="cube" size={18} /></span> <span className="brand-name">Jig</span>
       </a>
       <span className="app-version" title="Jig version">v{import.meta.env.VITE_APP_VERSION}</span>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
@@ -103,7 +105,7 @@ export function TopBar(p: Props) {
       {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} onFork={p.onFork} />}
       {p.unsavedSettings && (
         <button className="btn save-settings" onClick={p.onSaveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
-          <Icon name="save" size={13} /> Save as v{p.design.versions.length + 1}
+          <Icon name="save" size={13} /> <span className="btn-label">Save as </span>v{p.design.versions.length + 1}
         </button>
       )}
       {p.saveError && (
@@ -112,19 +114,20 @@ export function TopBar(p: Props) {
           onClick={p.onRetrySave}
           title={`Your latest changes are not saved: ${p.saveError}. ${/X-Jig/.test(p.saveError) ? 'This page is older than the server – reload it.' : 'Click to try again.'}`}
         >
-          <Icon name="alert" size={13} /> Not saved – retry
+          <Icon name="alert" size={13} /> <span className="btn-label">Not saved – retry</span>
         </button>
       )}
-      {p.tabs.length > 1 ? <DesignTabs tabs={p.tabs} current={p.design.id} onOpen={p.onOpen} onClose={p.onCloseTab} /> : <span className="spacer" />}
-      {p.tabs.filter((t) => !t.running).length > 1 && (
+      {p.tabs.length > 1 && !p.compact ? <DesignTabs tabs={p.tabs} current={p.design.id} onOpen={p.onOpen} onClose={p.onCloseTab} /> : <span className="spacer" />}
+      {p.tabs.filter((t) => !t.running).length > 1 && !p.compact && (
         <button className="btn ghost close-all" onClick={p.onCloseAllTabs} title="Close all tabs (designs Jig is working on stay open; nothing is deleted)">
           <Icon name="x" size={13} /> Close all
         </button>
       )}
       <ConnectionChip generating={p.generating} />
-      <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>
+      {!p.compact && <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>}
       <div className="menu-wrap" ref={listWrap}>
-        <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShown(PAGE); setShowList(!showList); }}><Icon name="folder" size={14} /> Designs</button>
+        <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} aria-label="Designs"
+          onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShown(PAGE); setShowList(!showList); }}><Icon name="folder" size={14} /> <span className="btn-label">Designs</span></button>
         {showList && (
           <div className="menu">
             {p.listError
@@ -135,6 +138,9 @@ export function TopBar(p: Props) {
               <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({p.designs.length - shown} more)</button>
             )}
             <div className="menu-foot">
+              {p.compact && (
+                <a className="menu-action" href="/" onClick={(e) => { setShowList(false); newHere(e); }}><Icon name="plus" size={13} /> New design</a>
+              )}
               {backupNote && (
                 <div className={`menu-note ${backupNote.error ? 'error' : ''}`} role="status">
                   {backupNote.text}{backupNote.detail && <div className="dim small">{backupNote.detail}</div>}
@@ -186,9 +192,9 @@ function ConnectionChip({ generating }: { generating: number }) {
   }, [generating]);
   const usage = usageSummary(conn?.usage);
   const state = checking && !conn ? 'checking' : !conn?.ok || usage?.level === 'limited' ? 'bad' : usage?.level === 'warn' ? 'warn' : 'ok';
-  const extra = conn?.credit != null ? ` · $${conn.credit.toFixed(2)}`
-    : usage?.level === 'limited' ? ` · limit reached${usage.until ? ` until ${formatReset(usage.until)}` : ''}`
-    : usage ? ` · ${Math.round(usage.percent)}%` : '';
+  const extra = conn?.credit != null ? `$${conn.credit.toFixed(2)}`
+    : usage?.level === 'limited' ? `limit reached${usage.until ? ` until ${formatReset(usage.until)}` : ''}`
+    : usage ? `${Math.round(usage.percent)}%` : '';
   // Which limit the percentage is: the 5-hour one or the weekly one ("7d") can be the nearer.
   const which = conn?.credit == null && usage ? <span className="conn-win" title={usage.window.startsWith('7d') ? 'The weekly limit' : 'The 5-hour limit'}>{usage.window}</span> : null;
   const windows = (conn?.usage ?? []).map((u) => currentWindow(u)).map((w) => `\n${w.label} limit: ${Math.round(w.percent)}% used${w.limited ? ' (reached)' : ''}${w.resetsAt ? `, resets ${formatReset(w.resetsAt)}` : ''}`).join('');
@@ -196,7 +202,8 @@ function ConnectionChip({ generating }: { generating: number }) {
   return (
     <button className={`conn-chip ${state}`} onClick={() => check(true)} disabled={checking}
       title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'}${windows || asOf ? `${windows}${asOf}\n` : ' '}Click to check again.`}>
-      <span className="conn-dot" /> {conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra}{which}
+      {/* A phone shows the dot, the percentage and its limit (the rest is in the tooltip). */}
+      <span className="conn-dot" /> <span className="conn-via">{conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra && ' · '}</span>{extra && <span className="conn-extra">{extra}</span>}{which}
     </button>
   );
 }

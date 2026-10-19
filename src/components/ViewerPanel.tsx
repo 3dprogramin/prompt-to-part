@@ -60,6 +60,8 @@ const STEP_SECONDS = 1.6;
 
 const VIEWS: [ViewName, string][] = [['iso', 'Iso'], ['front', 'Front'], ['top', 'Top'], ['right', 'Right'], ['left', 'Left'], ['back', 'Back'], ['bottom', 'Bottom']];
 const f2 = (n: number) => n.toFixed(2);
+/** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
+const touch = window.matchMedia('(pointer: coarse)').matches;
 
 export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -401,7 +403,7 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
 
       <div className="statusbar">
         <span className="mono">
-          {options.pickText ? 'Click on the model where the text should go (Esc to cancel)' : hover ? <>X {f2(hover.p[0])} · Y {f2(hover.p[1])} · Z {f2(hover.p[2])}{hover.snapped ? ' · vertex' : ''}</> : options.measure ? 'Click two points to measure' : 'Left-drag rotate · Right-drag pan · Wheel zoom'}
+          {options.pickText ? (touch ? 'Tap the model where the text should go' : 'Click on the model where the text should go (Esc to cancel)') : hover ? <>X {f2(hover.p[0])} · Y {f2(hover.p[1])} · Z {f2(hover.p[2])}{hover.snapped ? ' · vertex' : ''}</> : options.measure ? `${touch ? 'Tap' : 'Click'} two points to measure` : touch ? 'Drag: rotate · Pinch: zoom, pan' : 'Left-drag rotate · Right-drag pan · Wheel zoom'}
         </span>
         {measures.length > 0 && (
           <span className="measures">

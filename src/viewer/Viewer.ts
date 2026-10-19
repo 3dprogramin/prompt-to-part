@@ -201,6 +201,8 @@ export class Viewer {
     // A picked patch pulses: a steady tint would read as one more colour of the figure.
     const pulse = 0.45 + 0.25 * Math.sin(performance.now() / 220);
     for (const o of this.repaintGroup.children) ((o as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = pulse;
+    // Nothing to draw while the view is hidden (a phone showing the chat or the side panel).
+    if (this.container.checkVisibility?.({ visibilityProperty: true }) === false) return;
     this.headlight.position.copy(this.camera.position);
     this.headlight.target.position.copy(this.controls.target);
     this.renderer.render(this.scene, this.camera);
@@ -947,6 +949,9 @@ export class Viewer {
    */
   snapshot(maxSize = 1280): string {
     this.renderer.render(this.scene, this.camera);
+    // The labels too: a hidden view (loop) hasn't placed them since it was last shown.
+    this.labelRenderer.render(this.scene, this.camera);
+    declutter(this.labelRenderer.domElement);
     const src = this.renderer.domElement;
     const w = this.container.clientWidth, h = this.container.clientHeight;
     const k = Math.min(1, maxSize / Math.max(w, h));
