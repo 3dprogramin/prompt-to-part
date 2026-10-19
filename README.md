@@ -2,7 +2,7 @@
 
 AI-powered parametric CAD for 3D printing. Describe an object (and/or attach photos, SVG drawings, OpenSCAD files or 3D models). Jig writes a parametric model with sliders and dimension callouts, checks it, looks at renders of it, and stress-tests the sliders' extremes. You tweak it live, add text or logos, check that it prints, see what it costs to print, and export STL, a Bambu Studio project or a Blender file.
 
-![Jig: the chat with the reply and its sources on the left, a desk stand assembled in the 3D view with its dimensions, the parts list and the sliders on the right](docs/screenshot.png)
+![Jig: the chat with the reply and its sources on the left, a desk stand in an exploded view with its dimensions, the parts list and the sliders on the right](docs/screenshot.png)
 
 Jig runs Claude through the Claude Agent SDK, with an OpenRouter key (`OPENROUTER_API_KEY`, which also powers AI artwork) or an Anthropic API key (`ANTHROPIC_API_KEY`). See [Claude account or API key](#claude-account-or-api-key).
 
