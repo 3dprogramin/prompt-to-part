@@ -3,7 +3,7 @@
 // and the values keep a light index under MESHES_KEY. Evaluation is synchronous, so a mesh that
 // isn't loaded yet throws MeshMissingError and the caller loads it and retries (like fonts).
 import type { Vec3 } from './types';
-import { cleanPalette, type MeshColor } from './meshColors';
+import { cleanPalette, MAX_MESH_COLORS, type MeshColor } from './meshColors';
 
 /** Values key: the design's meshes, as JSON Record<name, MeshEntry>. */
 export const MESHES_KEY = '$meshes';
@@ -93,6 +93,26 @@ export const MAX_CONCEPTS = 12;
 /** A concept picture's URL: /api/designs/<design>/meshes/<content hash>.png|jpg|webp */
 export const CONCEPT_URL = /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/meshes\/([0-9a-f]{32}\.(?:png|jpg|webp))$/;
 
+/** A colour a coloured concept is painted in: its name and every part in it. */
+export interface PlannedColor {
+  /** #rrggbb */
+  color: string;
+  /** e.g. "olive green" */
+  name: string;
+  /** e.g. "both pairs of shorts" */
+  parts: string;
+}
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** A planned palette as stored: valid colours only, at most MAX_MESH_COLORS. */
+export function cleanPlanned(raw: unknown): PlannedColor[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const text = (s: unknown, n: number) => (typeof s === 'string' ? s.trim().slice(0, n) : '');
+  const out = raw.slice(0, MAX_MESH_COLORS).flatMap((c): PlannedColor[] => (HEX.test(c?.color) && text(c.name, 40) ? [{ color: c.color.toLowerCase(), name: text(c.name, 40), parts: text(c.parts, 200) }] : []));
+  return out.length ? out : undefined;
+}
+
 export interface ConceptEntry {
   /** URL of the stored picture (CONCEPT_URL): the grey clay render, the shape Meshy builds. */
   image: string;
@@ -103,6 +123,8 @@ export interface ConceptEntry {
   createdAt: number;
   /** Drawn in colour, for a coloured figure. */
   color?: boolean;
+  /** The colours it was painted in (with color). */
+  palette?: PlannedColor[];
 }
 
 export function parseConcepts(raw: unknown): Record<string, ConceptEntry> {
@@ -117,6 +139,8 @@ export function parseConcepts(raw: unknown): Record<string, ConceptEntry> {
       image: c.image, ...(typeof c.painted === 'string' && CONCEPT_URL.test(c.painted) ? { painted: c.painted } : {}),
       subject: typeof c.subject === 'string' ? c.subject.slice(0, 2000) : '', createdAt: Number(c.createdAt) || 0, ...(c.color === true ? { color: true } : {}),
     };
+    const palette = cleanPlanned(c.palette);
+    if (palette) out[name].palette = palette;
   }
   return out;
 }

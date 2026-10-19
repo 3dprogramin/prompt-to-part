@@ -6,6 +6,7 @@ import jpeg from 'jpeg-js';
 import { decode as decodePng } from 'fast-png';
 import { MAX_SVG_POINTS, type SvgDrawing } from '../shared/svgFeatures';
 import type { Vec2 } from '../shared/types';
+import type { PlannedColor } from '../shared/meshes';
 
 interface TracePath { segments: { type: 'L' | 'Q'; x1: number; y1: number; x2: number; y2: number; x3?: number; y3?: number }[] }
 const ImageTracer = createRequire(import.meta.url)('imagetracerjs') as {
@@ -179,18 +180,23 @@ export function conceptPrompt(subject: string): string {
 
 /**
  * The prompt that paints a grey concept picture (attached as the reference) for a coloured figure:
- * the same picture, painted like a collectible figurine, its sculpted detail and soft shading kept.
+ * the same picture, painted like a collectible figurine in `palette` (each "colour: the parts in it",
+ * at most 4) under soft light, so Meshy's texture holds the paint colours rather than light and shade.
  * Meshy textures the model from it; Jig reduces the colours to at most 4 filaments afterwards.
  */
-export function paintPrompt(subject: string): string {
+export function paintPrompt(subject: string, palette?: PlannedColor[]): string {
+  const colours = palette?.length
+    ? [`- paint it in exactly these ${palette.length} colours and no others, every area in the colour listed for it:`, ...palette.map((c, i) => `  ${i + 1}. ${c.name} (${c.color}): ${c.parts}`), '- anything not listed takes the listed colour closest to it; no extra colours, no accents, no gradients between colours']
+    : ['- a limited palette of a few main colours (at most 4, e.g. skin, hair, clothes, shoes), each area painted cleanly in its colour'];
   return [
     'Paint the attached picture: it shows a grey clay sculpture, which must become the same sculpture professionally painted, like a painted collectible figurine or resin miniature.',
     `Subject: ${subject.trim()}`,
     'Rules:',
     '- exactly the same figure, pose, proportions, sculpted details, framing and camera angle as the attached picture; change only the colours, add or remove nothing',
-    '- keep the realistic sculpted detail and the natural, soft shading that shows the form (folds, hair, face); not flat or cartoon-like',
-    '- a limited palette of a few main colours (at most 4, e.g. skin, hair, clothes, shoes), each area painted cleanly in its colour; no fine patterns, text, logos or markings',
-    '- soft, even studio light; no dramatic lighting, glow, hard shadows or reflections',
+    ...colours,
+    '- each colour solid and even over its whole area, the same in light and in shade; no fine patterns, text, logos or markings',
+    '- still a photo of the same 3D sculpture with its sculpted detail, not a drawing or illustration: no outlines, no cel shading',
+    '- soft, diffuse light from all around, as in a light tent: only gentle shading, no cast or dark shadows, no highlights, glow or reflections',
     '- the same plain pure white (#FFFFFF) background, nothing added: no ground, base, props, scenery, frame, signature or watermark',
   ].join('\n');
 }

@@ -195,19 +195,27 @@ test('3D figure in colour: a colour concept, a textured model (35 credits), its 
   };
   const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000007', references: [], concepts: true, color: true }, image });
   const tools = toolsOf(cad);
-  const out = await tools.generate_concept.handler({ name: 'kid', subject: 'a boy in a red shirt and blue trousers' }, {});
+  // In colour it needs the palette to paint in.
+  assert.match((await tools.generate_concept.handler({ name: 'kid', subject: 'a boy in a red shirt and blue trousers' }, {})).content[0].text!, /give palette/);
+  const palette = [
+    { color: '#E0B090', name: 'light skin', parts: 'face, arms and hands' },
+    { color: '#1a1a1a', name: 'black', parts: 'the hair' },
+    { color: '#c62a30', name: 'red', parts: 'the shirt' },
+    { color: '#2040a0', name: 'blue', parts: 'the trousers and shoes' },
+  ];
+  const out = await tools.generate_concept.handler({ name: 'kid', subject: 'a boy in a red shirt and blue trousers', palette }, {});
   assert.ok(!out.isError, JSON.stringify(out));
   // The shape: the same grey clay picture as without colour; then that picture painted (image to image).
   assert.equal(asked.length, 2);
   assert.match(asked[0].prompt, /grey clay[\s\S]*plain pure white/);
   assert.equal(asked[0].references, undefined);
-  assert.match(asked[1].prompt, /Paint the attached picture[\s\S]*collectible figurine[\s\S]*soft shading[\s\S]*at most 4/);
-  assert.doesNotMatch(asked[1].prompt, /no shading/);
+  assert.match(asked[1].prompt, /Paint the attached picture[\s\S]*collectible figurine[\s\S]*exactly these 4 colours[\s\S]*3\. red \(#c62a30\): the shirt[\s\S]*not a drawing[\s\S]*light tent/);
   assert.deepEqual(asked[1].references, [`data:image/png;base64,${grey.toString('base64')}`]);
   assert.deepEqual(out.content.map((c) => c.type), ['image', 'image', 'text']);
-  assert.match(out.content[2].text!, /approve the pair[\s\S]*35 Meshy credits, in colour/);
+  assert.match(out.content[2].text!, /keeps to the palette[\s\S]*red \(the shirt\) → PLA Basic Red[\s\S]*approve the pair[\s\S]*35 Meshy credits, in colour/);
   const kid = JSON.parse(base.$concepts).kid;
   assert.equal(kid.color, true);
+  assert.deepEqual(kid.palette.map((c: { color: string }) => c.color), ['#e0b090', '#1a1a1a', '#c62a30', '#2040a0']);
   assert.notEqual(kid.painted, kid.image);
   assert.deepEqual(new Uint8Array(await (await fetch(A + kid.painted)).arrayBuffer()), new Uint8Array(painted));
   const shown = events.flatMap((e) => (e.type === 'step' && e.step.kind === 'render' ? [e.step.text] : []));
@@ -230,7 +238,7 @@ test('3D figure in colour: a colour concept, a textured model (35 credits), its 
   assert.ok(steps.some((t) => /in colour \(35 credits\)/.test(t)), steps.join('\n'));
   assert.ok(steps.some((t) => /^Coloured 3D model "kid" from Meshy · 35 credits$/.test(t)), steps.join('\n'));
   const mesh = (events.find((e) => e.type === 'mesh') as Extract<AgentEvent, { type: 'mesh' }>).entry;
-  assert.equal(mesh.palette?.length, 4);
+  assert.equal(mesh.palette?.length, 4, JSON.stringify(mesh.palette));
   assert.match(built.content[1].text!, /In colour: its texture reduced to 4 colours/);
   // The script's base in the figure's black: the report says 4 filaments, painted.
   const code = `function build() { const f = H.mesh('kid', { height: 50 }).translate([0, 0, 2]); return [{ name: 'Kid', shape: f.add(Manifold.cylinder(2.5, 18, 18, 40)), color: '${mesh.palette!.find((c) => c.filament.name === 'PLA Basic Black')!.filament.color}' }]; }`;
@@ -255,7 +263,7 @@ test('3D figure in colour: when painting the concept fails, the grey picture alo
   };
   const { server: cad, newUserMessage } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000008', references: [], concepts: true, color: true }, image });
   const tools = toolsOf(cad);
-  const out = await tools.generate_concept.handler({ name: 'cat', subject: 'a ginger cat sitting upright' }, {});
+  const out = await tools.generate_concept.handler({ name: 'cat', subject: 'a ginger cat sitting upright', palette: [{ color: '#d07a30', name: 'ginger', parts: 'the whole cat' }] }, {});
   assert.ok(!out.isError, JSON.stringify(out));
   assert.deepEqual(out.content.map((c) => c.type), ['image', 'text']);
   assert.match(out.content[1].text!, /Painting it in colour failed \(The image model is busy\)[\s\S]*colours will come from Meshy/);

@@ -15,7 +15,7 @@ import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../shared/meshes';
 import { forgetBalance, generateMeshyModel, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, type MeshyClient } from './meshy';
 import { readMyFilaments } from './myFilaments';
-import { MAX_MESH_COLORS } from '../shared/meshColors';
+import { filamentLabel, matchFilaments, MAX_MESH_COLORS } from '../shared/meshColors';
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from './meshes';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
@@ -212,8 +212,15 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         subject: z.string().min(10).max(2000).describe('The one subject: who or what it is, pose, proportions, clothes, hair, what it wears or holds, style – no base, scenery or props (those are built in the script)'),
         aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 3:4, for a standing figure)'),
         color: z.boolean().optional().describe(`Also paint it in colour, for a coloured figure printed in up to ${MAX_MESH_COLORS} filaments (default: ${meshy.color ? 'on – the user turned on Colour' : 'off, grey only – on only when the user asks for a figure in colour'})`),
+        palette: z.array(z.object({
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('The paint colour, #rrggbb, as it looks in plain light (e.g. skin "#d9a383", not its shadow)'),
+          name: z.string().min(2).max(40).describe('e.g. "olive green"'),
+          parts: z.string().min(2).max(200).describe('Every part painted in it, e.g. "both pairs of shorts and the belt"'),
+        })).min(1).max(MAX_MESH_COLORS).optional().describe(`Required with color: the colours to paint it in, at most ${MAX_MESH_COLORS} (one AMS lite slot each), every part of the subject in one of them. Plan it from the subject: give parts that should differ clearly different colours, and parts that can share one the same colour (e.g. a grey shirt with a grey beard) rather than a fifth.`),
       }, async (a) => {
         const color = a.color ?? !!meshy.color;
+        if (color && !a.palette?.length) return { content: [{ type: 'text' as const, text: `With color, give palette: at most ${MAX_MESH_COLORS} colours and every part in each, so the picture is painted in colours the AMS lite can print.` }], isError: true };
+        const palette = color ? a.palette?.map((c) => ({ color: c.color.toLowerCase(), name: c.name.trim(), parts: c.parts.trim() })) : undefined;
         const aspect = a.aspect ?? '3:4';
         const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
         const toFile = (image: { data: string; mediaType: string }) => {
@@ -237,16 +244,19 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           // The colours: that picture painted (image to image), Meshy's texture. Without it, Meshy paints the model itself.
           let painted: { url: string; image: { data: string; mediaType: string } } | undefined;
           let paintError = '';
+          let plan = '';
           if (color) {
             status(`Painting concept "${a.name}" in colour with ${imageModel()}…`);
-            const paint = paintPrompt(a.subject);
+            const paint = paintPrompt(a.subject, palette);
+            // The filament each planned colour prints with, shown before any Meshy credits are spent.
+            if (palette) plan = matchFilaments(palette.map((c) => c.color), await readMyFilaments()).map((f, i) => `- ${palette[i].name} (${palette[i].parts}) → ${filamentLabel(f)}`).join('\n');
             try {
               const p = await drawImage(paint, aspect, [greyUrl], meshy.signal, status);
               painted = { url: await storeConceptPicture(meshy.designId, toFile(p.image)), image: p.image };
               emit({ type: 'step', step: {
                 kind: 'render', ok: true, image: `data:${p.image.mediaType};base64,${p.image.data}`, detailOpen: true,
                 text: `Concept "${a.name}" – colours from ${p.model}${p.cost != null ? ` · $${p.cost.toFixed(3)}` : ''}`,
-                detail: `Prompt sent to ${p.model} with the shape picture:\n\n${paint}\n\nOnce you approve the pair, Meshy builds the shape from the grey picture and paints the model from this one (${credits} credits); Jig then reduces its colours to at most ${MAX_MESH_COLORS} filaments.`,
+                detail: `${plan ? `Prints in:\n${plan}\n\n` : ''}Prompt sent to ${p.model} with the shape picture:\n\n${paint}\n\nOnce you approve the pair, Meshy builds the shape from the grey picture and paints the model from this one (${credits} credits); Jig then reduces its colours to at most ${MAX_MESH_COLORS} filaments.`,
               } });
             } catch (e) {
               if (meshy.signal?.aborted) throw e;
@@ -254,12 +264,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
               emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Concept colours: ${paintError} – Meshy will paint the model itself` } });
             }
           }
-          const entry = { image, ...(painted ? { painted: painted.url } : {}), subject: a.subject.trim(), createdAt: Date.now(), ...(color ? { color: true } : {}) };
+          const entry = { image, ...(painted ? { painted: painted.url } : {}), subject: a.subject.trim(), createdAt: Date.now(), ...(color ? { color: true } : {}), ...(painted && palette ? { palette } : {}) };
           base[CONCEPTS_KEY] = withConcept(base[CONCEPTS_KEY], a.name, entry);
           state.newConcepts.add(a.name);
           emit({ type: 'concept', name: a.name, entry });
           const check = painted
-            ? `The first picture is the shape (grey clay), the second the colours (the same picture painted). Check that they show the subject asked for – one subject, whole, on white – and that the painted one matches the grey one (same pose and framing, a few main colours, at most ${MAX_MESH_COLORS}); call generate_concept again if not. Then end your reply: tell the user this is the concept for their figure, the shape and its colours, and ask them to approve the pair or say what to change.`
+            ? `The first picture is the shape (grey clay), the second the colours (the same picture painted). Check that they show the subject asked for – one subject, whole, on white – and that the painted one matches the grey one (same pose and framing) and keeps to the palette: every part in its planned colour, no colour outside it (another colour would take a filament of its own or print in the wrong one). If not, call generate_concept again – once; if the second is still off, tell the user what differs.${plan ? ` The planned colours print with:\n${plan}\n` : ''} Then end your reply: tell the user this is the concept for their figure, the shape and its colours, and ask them to approve the pair or say what to change.`
             : `Check that it shows the subject asked for – one subject, whole, grey, on white – and call generate_concept again if not.${paintError ? ` Painting it in colour failed (${paintError}): there is only the grey picture, and Meshy will paint the model with its own texturing – tell the user the colours will come from Meshy.` : ''} Then end your reply: tell the user this is the concept for their figure and ask them to approve it or say what to change.`;
           return {
             content: [
