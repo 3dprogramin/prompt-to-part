@@ -396,6 +396,8 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .check input { accent-color: var(--accent); margin: 0; }
 .busy-note { color: var(--accent-2); }
 .elapsed { color: var(--text-3); font-variant-numeric: tabular-nums; }
+/* One thinking block's time: a violet pill, set apart from the reply's time. */
+.think-time { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; color: #c4b5fd; background: #8b5cf622; border: 1px solid #8b5cf655; flex-shrink: 0; white-space: nowrap; }
 .step { display: flex; gap: 6px; align-items: baseline; }
 .step-time { flex-shrink: 0; min-width: 34px; font: 10.5px var(--mono); color: var(--text-3); }
 .step.thinking { font-style: italic; color: #8d93a0; }

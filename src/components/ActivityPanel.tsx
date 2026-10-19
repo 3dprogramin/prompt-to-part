@@ -5,6 +5,7 @@ import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { useEscape } from './useEscape';
 import { load, store } from '../lib/storage';
+import { blockDuration } from '../lib/activity';
 
 interface Props {
   items: ActivityItem[];
@@ -107,7 +108,7 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
       </div>
       <div className="activity-body" ref={scroller} onScroll={onScroll}>
         {!items.length && <div className="dim">{live ? 'Waiting for Jig…' : 'Nothing was recorded for this reply.'}</div>}
-        {items.map((it, i) => <Item key={i} it={it} streaming={live && i === items.length - 1} onImage={onImage} />)}
+        {items.map((it, i) => <Item key={i} it={it} streaming={live && i === items.length - 1} duration={it.kind === 'thinking' ? blockDuration(items, i) : undefined} onImage={onImage} />)}
       </div>
       {!follow && (
         <button className="activity-jump" onClick={() => setFollow(true)}>
@@ -120,7 +121,7 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
 }
 
 // Memoised: while a reply streams only the newest item changes, so the rest skip re-rendering.
-const Item = memo(function Item({ it, streaming, onImage }: { it: ActivityItem; streaming: boolean; onImage: (src: string) => void }) {
+const Item = memo(function Item({ it, streaming, duration, onImage }: { it: ActivityItem; streaming: boolean; duration?: number; onImage: (src: string) => void }) {
   if (it.kind === 'step') {
     const s = it.step;
     return (
@@ -142,7 +143,7 @@ const Item = memo(function Item({ it, streaming, onImage }: { it: ActivityItem; 
   const head = it.kind === 'tool' ? it.label : it.kind === 'thinking' ? 'Thinking' : 'Reply';
   return (
     <section className={`act-block ${it.kind} ${streaming ? 'streaming' : ''}`}>
-      <div className="act-head"><span className="act-time">{fmtTime(it.at)}</span> {head}{streaming && <span className="act-cursor" />}</div>
+      <div className="act-head"><span className="act-time">{fmtTime(it.at)}</span> {head}{duration != null && <ThinkTime ms={duration} />}{streaming && <span className="act-cursor" />}</div>
       {it.kind === 'tool' ? <ToolBody name={it.name} fields={it.fields} /> : <Markdown text={it.text} />}
     </section>
   );
@@ -161,6 +162,12 @@ function ToolBody({ name, fields }: { name: string; fields: Record<string, strin
   const shown = Object.entries(fields).filter(([k, v]) => k !== 'file_path' && v !== '' && v !== '{}');
   if (!shown.length) return null;
   return <pre className="act-args">{shown.map(([k, v]) => `${k}: ${v}`).join('\n')}</pre>;
+}
+
+/** How long Jig thought in one thinking block (the chat's live line, each block here): set apart from the reply's own time. */
+export function ThinkTime({ ms }: { ms: number }) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return <span className="think-time" title="Time on this thinking"><Icon name="spark" size={11} />{s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`}</span>;
 }
 
 function fmtTime(ms: number) {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ActivityItem, ChatMessage } from '../shared/types';
-import { trimActivity, wasInterrupted } from '../src/lib/activity';
+import { blockDuration, thinkingSince, trimActivity, wasInterrupted } from '../src/lib/activity';
 
 test('a saved transcript keeps thinking and text, and shortens long tool inputs and details', () => {
   const code = 'x'.repeat(30_000);
@@ -40,4 +40,23 @@ test('a reply saved in progress shows as interrupted unless Jig is still working
   assert.equal(wasInterrupted(m, true), false);
   assert.equal(wasInterrupted({ ...m, pending: undefined }, false), false);
   assert.equal(wasInterrupted({ ...m, error: 'Stopped.' }, false), false);
+});
+
+test('thinking has its own time: from its block\'s start until the next block starts', () => {
+  const list: ActivityItem[] = [
+    { kind: 'thinking', text: 'plan', at: 1000 },
+    { kind: 'step', step: { kind: 'status', text: 'still thinking', at: 4000 } },
+    { kind: 'tool', name: 'Write', label: 'Writing model.js', fields: {}, at: 9000 },
+    { kind: 'thinking', text: 'check', at: 12000 },
+    { kind: 'step', step: { kind: 'status', text: 'a status', at: 15000 } },
+  ];
+  // The newest block is thinking (steps logged meanwhile don't end it): it started 12 s in.
+  assert.equal(thinkingSince(list), 12000);
+  assert.equal(thinkingSince(list.slice(0, 3)), null);
+  assert.equal(thinkingSince([]), null);
+  // A finished thinking lasted until the tool call; the newest one until the last step after it.
+  assert.equal(blockDuration(list, 0), 8000);
+  assert.equal(blockDuration(list, 3), 3000);
+  assert.equal(blockDuration(list.slice(0, 4), 3), undefined);
+  assert.equal(blockDuration(list, 1), undefined);
 });

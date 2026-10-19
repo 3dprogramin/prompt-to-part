@@ -44,6 +44,31 @@ export function addStep(list: ActivityItem[], step: AgentStep): ActivityItem[] {
   return [...list, { kind: 'step', step }];
 }
 
+/**
+ * When the reply's current thinking started (ms into the reply), while its newest block is one:
+ * thinking lasts until the next block (a tool call or the reply) starts. Null when it isn't thinking.
+ */
+export function thinkingSince(list: ActivityItem[]): number | null {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const x = list[i];
+    if (x.kind !== 'step') return x.kind === 'thinking' ? x.at : null;
+  }
+  return null;
+}
+
+/** How long block `i` took: until the next block started, else the last step logged after it; undefined if nothing came after it. */
+export function blockDuration(list: ActivityItem[], i: number): number | undefined {
+  const it = list[i];
+  if (!it || it.kind === 'step') return undefined;
+  let end: number | undefined;
+  for (let j = i + 1; j < list.length; j++) {
+    const x = list[j];
+    if (x.kind !== 'step') { end = x.at; break; }
+    if (x.step.at != null) end = x.step.at;
+  }
+  return end == null ? undefined : Math.max(0, end - it.at);
+}
+
 /** The transcript to show for a reply: the live (or saved) one if there is one, else rebuilt from its steps. */
 export function activityOf(m: ChatMessage): ActivityItem[] {
   if (m.activity?.length) return m.activity;

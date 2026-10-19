@@ -8,8 +8,8 @@ import { EditTags, groupEdits } from './EditTags';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, scadFileName, type ScadFile } from '../../shared/scad';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
-import { ActivityPanel } from './ActivityPanel';
-import { activityOf, INTERRUPTED, wasInterrupted } from '../lib/activity';
+import { ActivityPanel, ThinkTime } from './ActivityPanel';
+import { activityOf, INTERRUPTED, thinkingSince, wasInterrupted } from '../lib/activity';
 import { useEscape } from './useEscape';
 import { usePopover } from './usePopover';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../../shared/api';
@@ -688,6 +688,8 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
 }) {
   const [open, setOpen] = useState(false);
   const elapsed = useElapsed(live ? m.createdAt : null);
+  // The current thinking's own time, beside the reply's: it starts again with each thinking block.
+  const thinkingAt = live ? thinkingSince(m.activity ?? []) : null;
   // Everything Claude does, beside the chat: opens while hovering the live line, can be pinned.
   const [think, setThink] = useState<{ mode: 'hover' | 'pinned'; at: { left: number; top: number } } | null>(null);
   const hideTimer = useRef(0);
@@ -761,7 +763,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
       {showSteps && (
         <ol className="steps">
           {groupEdits(steps).map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
-          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span></li>}
+          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span>{thinkingAt != null && <ThinkTime ms={elapsed - thinkingAt} />}</li>}
         </ol>
       )}
       {!showSteps && renders.length > 0 && (
