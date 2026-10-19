@@ -197,6 +197,10 @@ The picture menu under the chat box (the palette button) says what Jig does with
   - **Printing:** it stands upright as built (picture vertical), which gives the finest tones: the walls trace the thickness in X/Y instead of in whole layers. Its print settings come with it: 0.12 mm layers, 100 % infill, enough walls to fill the panel solid, a brim unless it has a foot (a cylinder puts its seam where the picture's edges meet).
   - **Preview:** the 3D view and Jig's renders show it lit from behind (thin = warm white, thick = dark and warm), and the *Lithophane* section of the Print tab shows the picture next to the lit panel (click to enlarge), *Change picture…*, its size and thicknesses, and print advice. Sizes and thicknesses are sliders under Parameters. The thickness is kept on each vertex of the mesh, so the colours survive holes and moves Jig adds.
 
+### Lithophane preview widget for shops
+
+`litho/` is a separate, brand-neutral web component, `<litho-preview>`, built from Jig's lithophane code. A shop's customers upload a photo, frame it, and see the lithophane lit from behind and in 3D, all in their browser. On a Shopify product page it adds their choices and the photo to the order. A shop-only page builds the order's STL and 3MF at full resolution. `npm run dev:litho` runs it and `npm run build:litho` builds it to `dist-litho/`; it doesn't change Jig's own build. Setup, the API and the Shopify steps are in [litho/README.md](litho/README.md).
+
 ## 3D models: imported meshes and AI figures
 
 Jig can work with ready-made meshes as well as with what it models itself: a figurine, an animal or a part from a file, or a sculpted figure made by [Meshy](https://www.meshy.ai). Jig then builds the design around it: a base or name plate, a flat bottom, a hole, a mount or hook, text on it, a cut in half, a hollow inside.

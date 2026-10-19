@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lithophane preview demo</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f7f4ef; color: #1f1b16; }
+    main { max-width: 1040px; margin: 0 auto; padding: 16px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    h1 { font-size: 1.3rem; margin: 0; }
+    .lang a { color: inherit; margin-left: 8px; }
+    .cart { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .cart button { font: inherit; font-weight: 650; padding: 12px 22px; border-radius: 999px; border: 0; background: #1f1b16; color: #fff; min-height: 46px; }
+    pre { background: #fff; border: 1px solid #e4ddd2; border-radius: 10px; padding: 12px; white-space: pre-wrap; word-break: break-all; font-size: .8rem; }
+    p.small { font-size: .85rem; color: #6f665c; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Litofanie personalizată</h1>
+      <span class="lang">Limba: <a href="?lang=ro">RO</a><a href="?lang=en">EN</a></span>
+    </header>
+    <!-- A stand-in for a Shopify product form: the widget fills it with hidden properties[…] inputs and the photo. -->
+    <form id="product-form" action="/cart/add" method="post">
+      <input type="hidden" name="id" value="1001">
+      <litho-preview form="product-form"></litho-preview>
+      <div class="cart"><button type="submit">Adaugă în coș</button><span class="small">Demo: shows what the form would send instead of adding to a cart.</span></div>
+    </form>
+    <pre id="sent" hidden></pre>
+  </main>
+  <script type="module" src="./src/element.ts"></script>
+  <script>
+    // Demo only: the language from ?lang=, and the form's fields shown instead of posting them.
+    var lang = new URLSearchParams(location.search).get('lang');
+    if (lang) document.querySelector('litho-preview').setAttribute('lang', lang);
+    document.getElementById('product-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var out = [];
+      new FormData(e.target).forEach(function (v, k) { out.push(k + ' = ' + (v instanceof File ? v.name + ' (' + v.type + ', ' + Math.round(v.size / 1024) + ' KB)' : v)); });
+      var pre = document.getElementById('sent');
+      pre.hidden = false;
+      pre.textContent = out.join('\n');
+    });
+  </script>
+</body>
+</html>
