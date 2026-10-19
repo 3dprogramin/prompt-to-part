@@ -60,7 +60,7 @@ Jig's own `npm run build` and `dist/` are unaffected.
 - `stand` gives a flat panel a foot, `stand` mm deep, so it stands on a shelf. It is off by default.
 - `photoMaxSide` is the longest side of the photo kept in the browser and attached to the order. 2400 px is plenty: a 15 cm panel at 0.2 mm needs about 750 px.
 
-**Theming** is done with CSS custom properties on the element: `--litho-accent`, `--litho-accent-text`, `--litho-font` (by default the theme's font), `--litho-bg`, `--litho-fg`, `--litho-muted`, `--litho-border`, `--litho-radius` and `--litho-stage-height`. The layout uses a container query: one column when narrow, and the preview beside the options from 720 px of widget width.
+**Light or dark:** `theme="light"` (the default), `theme="dark"`, or `theme="auto"` to follow the visitor's system setting. Set it to match the shop's theme; the demo and production pages have a switch for it (Auto → Light → Dark, remembered in the browser). **Theming** is done with CSS custom properties on the element: `--litho-accent`, `--litho-accent-text`, `--litho-font` (by default the theme's font), `--litho-bg`, `--litho-fg`, `--litho-muted`, `--litho-border`, `--litho-radius` and `--litho-stage-height`. The layout uses a container query: one column when narrow, and the preview beside the options from 720 px of widget width.
 
 **Events and JS:** a `litho-change` event (detail `{ order, price, variant, ready }`) fires after every change. `el.order` gives the current choices as they go with the order, `el.loadFile(blob)` loads a photo, and `el.applyOrder(settings)` restores a saved order.
 

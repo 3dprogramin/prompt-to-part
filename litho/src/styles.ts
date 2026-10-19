@@ -2,6 +2,21 @@
 // theme). The host page themes it through CSS custom properties on <litho-preview>:
 //   --litho-accent, --litho-accent-text, --litho-font, --litho-bg, --litho-fg, --litho-muted,
 //   --litho-border, --litho-radius, --litho-stage-height.
+// and picks light or dark defaults with theme="light" (the default), "dark" or "auto" (the system's).
+
+/** The dark theme's defaults (the same custom properties still override them). */
+const DARK = `
+  color: var(--litho-fg, #ece6dd);
+  --a: var(--litho-accent, #e2803f);
+  --at: var(--litho-accent-text, #1a1208);
+  --bg: var(--litho-bg, #1b1916);
+  --mu: var(--litho-muted, #a99f92);
+  --bd: var(--litho-border, #3a342d);
+  --stage: #26221d; --day-1: #4a443c; --day-2: #2a2622;
+  --tip-bg: #3a2c14; --tip-fg: #f3d29a; --good-bg: #16301e; --good-fg: #a3dbb2; --err: #ff8f85;
+  color-scheme: dark;
+`;
+
 export const STYLES = `
 :host {
   display: block;
@@ -15,8 +30,12 @@ export const STYLES = `
   --bd: var(--litho-border, #e4ddd2);
   --r: var(--litho-radius, 14px);
   --tint: color-mix(in srgb, var(--a) 9%, var(--bg));
+  --stage: #ece8e1; --day-1: #f6f3ee; --day-2: #ddd7cd;
+  --tip-bg: #fff4e0; --tip-fg: #6b3d06; --good-bg: #e9f6ec; --good-fg: #1d5b2c; --err: #b42318;
   -webkit-tap-highlight-color: transparent;
 }
+:host([theme="dark"]) {${DARK}}
+@media (prefers-color-scheme: dark) { :host([theme="auto"]) {${DARK}} }
 :host([hidden]) { display: none; }
 * { box-sizing: border-box; }
 button, input { font: inherit; color: inherit; }
@@ -47,7 +66,7 @@ button { cursor: pointer; }
 .privacy { display: flex; gap: 6px; align-items: flex-start; font-size: .8rem; color: var(--mu); margin-top: 6px; text-align: left; }
 .privacy svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--mu); }
 .status { text-align: center; color: var(--mu); font-size: .9rem; margin: 8px 0 0; }
-.status.error { color: #b42318; }
+.status.error { color: var(--err); }
 
 /* Workspace */
 .work { display: grid; gap: 14px; }
@@ -63,10 +82,10 @@ button { cursor: pointer; }
 .seg button[aria-selected="true"], .seg button[aria-pressed="true"] { background: var(--bg); color: inherit; box-shadow: 0 1px 3px rgb(0 0 0 / .14); }
 .stage {
   position: relative; margin-top: 10px; height: var(--litho-stage-height, clamp(300px, 88cqw, 460px));
-  border-radius: calc(var(--r) - 4px); overflow: hidden; background: #ece8e1; user-select: none;
+  border-radius: calc(var(--r) - 4px); overflow: hidden; background: var(--stage); user-select: none;
 }
 .stage.dark { background: radial-gradient(120% 90% at 50% 40%, #2c241d 0%, #110e0b 70%); }
-.stage.day { background: radial-gradient(120% 90% at 50% 30%, #f6f3ee 0%, #ddd7cd 100%); }
+.stage.day { background: radial-gradient(120% 90% at 50% 30%, var(--day-1) 0%, var(--day-2) 100%); }
 .pane { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .pane canvas { display: block; }
 .frame canvas { width: 100%; height: 100%; touch-action: none; cursor: grab; }
@@ -109,13 +128,13 @@ legend { font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; co
 .tones input { flex: 1; }
 .sub { font-size: .8rem; color: var(--mu); margin: 2px 0 0; }
 .tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.tips li { display: flex; gap: 8px; font-size: .86rem; padding: 9px 11px; border-radius: 10px; background: #fff4e0; color: #6b3d06; }
-.tips li.good { background: #e9f6ec; color: #1d5b2c; }
+.tips li { display: flex; gap: 8px; font-size: .86rem; padding: 9px 11px; border-radius: 10px; background: var(--tip-bg); color: var(--tip-fg); }
+.tips li.good { background: var(--good-bg); color: var(--good-fg); }
 .tips svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 .summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--bd); padding-top: 12px; }
 .summary .what { font-size: .88rem; color: var(--mu); }
 .summary .price { font-size: 1.45rem; font-weight: 700; }
 .note { font-size: .82rem; color: var(--mu); margin: 0; }
-.note.warn { color: #b42318; font-weight: 600; }
+.note.warn { color: var(--err); font-weight: 600; }
 .link { border: 0; background: none; padding: 6px 0; color: var(--a); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 `;

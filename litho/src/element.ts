@@ -48,7 +48,7 @@ const ICONS = {
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 export class LithoPreviewElement extends HTMLElement {
-  static observedAttributes = ['lang', 'config', 'variants', 'form'];
+  static observedAttributes = ['lang', 'config', 'variants', 'form', 'theme'];
 
   private locale: Lang = 'ro';
   private cfg: LithoConfig = DEFAULT_CONFIG;
@@ -96,8 +96,10 @@ export class LithoPreviewElement extends HTMLElement {
     this.started = false;
   }
 
-  attributeChangedCallback() {
-    if (this.started) this.start();
+  attributeChangedCallback(name: string) {
+    // The theme is CSS, apart from the framing canvas's backdrop: a redraw, not a fresh start.
+    if (name === 'theme') this.drawFrame();
+    else if (this.started) this.start();
   }
 
   // -------------------------------------------------------------------------
@@ -494,7 +496,8 @@ export class LithoPreviewElement extends HTMLElement {
     const rect = cropRect(photo.width, photo.height, pic.w / pic.h, this.crop);
     const k = pic.w / rect.w;
 
-    ctx.fillStyle = '#ece8e1';
+    // The stage colour of the light or dark theme (styles.ts).
+    ctx.fillStyle = getComputedStyle(this).getPropertyValue('--stage').trim() || '#ece8e1';
     ctx.fillRect(0, 0, cw, ch);
     // The rest of the photo, dimmed, for context while dragging.
     ctx.globalAlpha = 0.3;
