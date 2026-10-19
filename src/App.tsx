@@ -9,7 +9,7 @@ import { findLayerTonePart } from './components/LayerTonePanel';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
-import { api, generate, HttpError, steer } from './lib/api';
+import { api, generate, HttpError, resumeReply, steer, type AgentEvent, type ReplyEnd } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
 import { approvalText, autoBuildAfter, withView, type AutoBuild, type DrawnConcept } from './lib/autoBuild';
 import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
@@ -435,6 +435,96 @@ export default function App() {
   // Re-fit the camera only when a new script version arrives.
   const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
 
+  /**
+   * Follows Jig's reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
+   * with one under way): its events update that design, even if another one is open by now.
+   */
+  const followReply = async (designId: string, asstId: string, stream: (onEvent: (ev: AgentEvent, seen: number) => void, signal: AbortSignal) => Promise<ReplyEnd>) => {
+    // Updates always go to the design this generation belongs to, even if another one is open by now.
+    const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
+    const patchAsst = (fn: (m: ChatMessage) => ChatMessage) =>
+      update((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asstId ? fn(m) : m)) }));
+    const abort = new AbortController();
+    setRunning((r) => ({ ...r, [designId]: abort }));
+    tell({ type: 'running', id: designId, on: true });
+    let finished = false;
+    // Messages queued meanwhile go out only after a reply that ended normally.
+    let completed = false;
+    // Meshy started a model in this reply: the credits changed.
+    let usedMeshy = false;
+    // Concept pictures drawn in this reply, and whether it failed (for the countdown).
+    const drawn: DrawnConcept[] = [];
+    let failed = false;
+    let end: ReplyEnd | undefined;
+    try {
+      end = await stream((ev, count) => {
+        if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
+        else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
+        else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
+        else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
+        else if (ev.type === 'concept') {
+          drawn.push({ name: ev.name, color: !!ev.entry.color });
+          update((d) => ({ ...d, values: { ...d.values, [CONCEPTS_KEY]: withConcept(d.values[CONCEPTS_KEY], ev.name, ev.entry) } }));
+        }
+        else if (ev.type === 'layerToneSetup') update((d) => {
+          const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
+          return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
+        });
+        else if (ev.type === 'step') {
+          // Meshy started a task (credits spent, even if it fails later).
+          if (ev.step.text.startsWith('Meshy task ')) usedMeshy = true;
+          patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
+        }
+        else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
+        else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
+        else if (ev.type === 'model') {
+          update((d) => {
+            const values = keepAppValues(d.values);
+            // A page Claude opened in an earlier generation of this design counts as opened.
+            const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
+            const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
+            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources }];
+            const vi = versions.length - 1;
+            return {
+              ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
+              messages: d.messages.map((m) => (m.id === asstId ? { ...m, versionIndex: vi } : m)),
+            };
+          });
+        } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
+        else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
+        // How far this copy of the reply has got, so a page opened later can catch up with it.
+        patchAsst((m) => ({ ...m, run: ev.type === 'run' ? { id: ev.runId, seen: count } : m.run && { ...m.run, seen: count } }));
+      }, abort.signal);
+      // Another page (or tab) follows the reply now and owns the design: its saves win over this note.
+      if (end === 'moved') return void patchAsst((m) => ({ ...m, live: undefined, error: 'Jig carries on with this reply in another window – reload to see it here.' }));
+      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
+    } catch (e) {
+      if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
+      else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
+    } finally {
+      if (end !== 'moved') patchAsst((m) => ({ ...m, live: undefined, pending: undefined, run: undefined }));
+      // Stopped or failed: messages queued for after this reply wait for the user ("Send now").
+      if (!completed) setQueues((s) => (s[designId]?.items.length ? { ...s, [designId]: { ...s[designId], paused: true } } : s));
+      setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
+      if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
+      tell({ type: 'running', id: designId, on: false });
+      if (usedMeshy && meshy) refreshMeshyCredits();
+      // "Wait for my OK" off: new concept pictures on the design open here are built after a countdown.
+      const next = autoBuildAfter({ designId, messageId: asstId, concepts: drawn, completed, error: failed, openDesignId: currentId.current,
+        waitForOk: waitForOkRef.current, queued: !!queuesRef.current[designId]?.items.length, now: Date.now() });
+      if (next) setAutoBuild(next);
+      // A design that finished in the background is persisted, then dropped from memory (by
+      // onSaved; a failed save keeps it, so "Retry" still has the changes).
+      setTimeout(() => {
+        const bg = background.current.get(designId);
+        if (bg && currentId.current !== designId) {
+          cancelPending(designId);
+          saveNow(bg).catch(() => {});
+        }
+      }, 0);
+    }
+  };
+
   /** `approval`: the approval of concept pictures (the countdown or Build now), sent without the user's view. */
   const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = [], meshUploads: MeshUpload[] = [], { approval = false } = {}) => {
     const now = Date.now();
@@ -471,108 +561,31 @@ export default function App() {
         ...(meshNames.length ? { [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), ...Object.fromEntries(meshNames.map((n) => [n, meshes[n]])) }) } : {}),
       },
     }));
-    // Updates always go to the design this generation belongs to, even if another one is open by now.
-    const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
-    const patchAsst = (fn: (m: ChatMessage) => ChatMessage) =>
-      update((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asst.id ? fn(m) : m)) }));
-    const abort = new AbortController();
-    setRunning((r) => ({ ...r, [designId]: abort }));
-    tell({ type: 'running', id: designId, on: true });
-    let finished = false;
-    // Messages queued meanwhile go out only after a reply that ended normally.
-    let completed = false;
-    // Meshy started a model in this reply: the credits changed.
-    let usedMeshy = false;
-    // Concept pictures drawn in this reply, and whether it failed (for the countdown).
-    const drawn: DrawnConcept[] = [];
-    let failed = false;
-    try {
-      await generate({
-        designId: design.id,
-        prompt: text,
-        images: images.map(dataUrlToImage),
-        code: design.code || undefined,
-        values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
-        textNote: [describeText(textFeatures), describeSvg(svgFeatures)].filter(Boolean).join('; ') || undefined,
-        ...current,
-        // The render Claude gets of the current model already has the newly attached meshes.
-        ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
-        sessionId: design.sessionId,
-        model: chat.model,
-        effort: chat.effort,
-        webSearch: chat.webSearch,
-        imageMode: chat.imageMode,
-        ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
-        artwork: chat.imageMode === 'artwork',
-        drawings: Object.keys(drawings).length ? drawings : undefined,
-        // The design's pictures, meshes and LayerTone setup, so Claude has them even before a first version exists.
-        pictures: pictureValues(sentValues),
-        meshes: meshNames.length ? meshNames : undefined,
-        scad: scad.length ? scad : undefined,
-        // In case the session can't be continued: what was said, for a fresh one.
-        history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
-      }, (ev) => {
-        if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
-        else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
-        else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
-        else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
-        else if (ev.type === 'concept') {
-          drawn.push({ name: ev.name, color: !!ev.entry.color });
-          update((d) => ({ ...d, values: { ...d.values, [CONCEPTS_KEY]: withConcept(d.values[CONCEPTS_KEY], ev.name, ev.entry) } }));
-        }
-        else if (ev.type === 'layerToneSetup') update((d) => {
-          const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
-          return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
-        });
-        else if (ev.type === 'step') {
-          // Meshy started a task (credits spent, even if it fails later).
-          if (ev.step.text.startsWith('Meshy task ')) usedMeshy = true;
-          patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
-        }
-        else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
-        else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
-        else if (ev.type === 'model') {
-          update((d) => {
-            const values = keepAppValues(d.values);
-            // A page Claude opened in an earlier generation of this design counts as opened.
-            const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
-            const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources }];
-            const vi = versions.length - 1;
-            return {
-              ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
-              messages: d.messages.map((m) => (m.id === asst.id ? { ...m, versionIndex: vi } : m)),
-            };
-          });
-        } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
-        else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
-      }, abort.signal);
-      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
-    } catch (e) {
-      if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
-      else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
-    } finally {
-      patchAsst((m) => ({ ...m, live: undefined, pending: undefined }));
-      // Stopped or failed: messages queued for after this reply wait for the user ("Send now").
-      if (!completed) setQueues((s) => (s[designId]?.items.length ? { ...s, [designId]: { ...s[designId], paused: true } } : s));
-      setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
-      if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
-      tell({ type: 'running', id: designId, on: false });
-      if (usedMeshy && meshy) refreshMeshyCredits();
-      // "Wait for my OK" off: new concept pictures on the design open here are built after a countdown.
-      const next = autoBuildAfter({ designId, messageId: asst.id, concepts: drawn, completed, error: failed, openDesignId: currentId.current,
-        waitForOk: waitForOkRef.current, queued: !!queuesRef.current[designId]?.items.length, now: Date.now() });
-      if (next) setAutoBuild(next);
-      // A design that finished in the background is persisted, then dropped from memory (by
-      // onSaved; a failed save keeps it, so "Retry" still has the changes).
-      setTimeout(() => {
-        const bg = background.current.get(designId);
-        if (bg && currentId.current !== designId) {
-          cancelPending(designId);
-          saveNow(bg).catch(() => {});
-        }
-      }, 0);
-    }
+    await followReply(designId, asst.id, (onEvent, signal) => generate({
+      designId: design.id,
+      prompt: text,
+      images: images.map(dataUrlToImage),
+      code: design.code || undefined,
+      values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
+      textNote: [describeText(textFeatures), describeSvg(svgFeatures)].filter(Boolean).join('; ') || undefined,
+      ...current,
+      // The render Claude gets of the current model already has the newly attached meshes.
+      ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
+      sessionId: design.sessionId,
+      model: chat.model,
+      effort: chat.effort,
+      webSearch: chat.webSearch,
+      imageMode: chat.imageMode,
+      ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
+      artwork: chat.imageMode === 'artwork',
+      drawings: Object.keys(drawings).length ? drawings : undefined,
+      // The design's pictures, meshes and LayerTone setup, so Claude has them even before a first version exists.
+      pictures: pictureValues(sentValues),
+      meshes: meshNames.length ? meshNames : undefined,
+      scad: scad.length ? scad : undefined,
+      // In case the session can't be continued: what was said, for a fresh one.
+      history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
+    }, onEvent, signal));
   };
 
   // ---- messages sent while Claude works: queued per design, sent together once the reply is done
@@ -620,6 +633,23 @@ export default function App() {
   useEffect(() => {
     if (queue?.items.length && !queue.paused && !running[design.id] && remoteRunning[design.id] == null && !busy) sendQueued();
   }, [queue, running, remoteRunning, busy, design.id]);
+
+  // A reply the server is still working on when its design is opened (the page was reloaded, or
+  // another device started it): catch up with it, unless another tab here follows it already.
+  const resumeLast = useRef(() => {});
+  resumeLast.current = () => {
+    const m = design.messages.at(-1);
+    const run = m?.pending && m.run;
+    if (!m || !run || running[design.id] || remoteRunning[design.id] != null) return;
+    void followReply(design.id, m.id, (onEvent, signal) => resumeReply(design.id, run, onEvent, signal));
+  };
+  const lastRun = design.messages.at(-1)?.run?.id;
+  useEffect(() => {
+    if (!lastRun) return;
+    // Other tabs first say whether they follow it (they answer "hello" at once).
+    const t = setTimeout(() => resumeLast.current(), 1500);
+    return () => clearTimeout(t);
+  }, [design.id, lastRun]);
 
   const restore = (vi: number) => {
     const v = design.versions[vi];

@@ -225,9 +225,11 @@ export interface ChatMessage {
   /**
    * Jig was still working on this reply when it was saved (saves run every few seconds while it
    * works). Still set when nothing is working on it: the reply was interrupted (the server restarted
-   * or the page was reloaded); the final save of a reply that ended clears it.
+   * before it ended, or a page reload found it gone); the final save of a reply that ended clears it.
    */
   pending?: boolean;
+  /** The server's run of this pending reply and how many of its events this copy has (a page opened later catches up from there). */
+  run?: { id: string; seen: number };
 }
 
 export interface DesignVersion {

@@ -105,7 +105,7 @@ export function trimActivity(items: ActivityItem[], max = MAX_SAVED_ACTIVITY): A
   return [{ kind: 'step', step: { kind: 'status', text: `… ${from} earlier ${from === 1 ? 'entry' : 'entries'} not saved` } }, ...short.slice(from)];
 }
 
-export const INTERRUPTED = 'Interrupted – Jig stopped before finishing (the server restarted or the page reloaded). Send "continue" to pick up where it stopped.';
+export const INTERRUPTED = 'Interrupted – Jig stopped before finishing (the server restarted). Send "continue" to pick up where it stopped.';
 
 /** A reply saved while Jig worked on it that nothing is working on any more (and that has no error of its own). */
 export const wasInterrupted = (m: ChatMessage, live: boolean) => m.role === 'assistant' && !!m.pending && !live && !m.error;

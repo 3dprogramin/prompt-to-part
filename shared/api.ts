@@ -63,6 +63,10 @@ export interface GenerateRequest {
 
 /** Server-sent events of POST /api/generate. */
 export type AgentEvent =
+  /** The first event: the reply's id on the server, to catch up with it (GET /api/generate/:id/events). */
+  | { type: 'run'; runId: string }
+  /** The last event to a page another page (or tab) took the reply over from. */
+  | { type: 'moved' }
   | { type: 'session'; sessionId: string }
   | { type: 'step'; step: AgentStep }
   | { type: 'model'; code: string; summary: string; sources: DimensionSource[] }

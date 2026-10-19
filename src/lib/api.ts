@@ -138,8 +138,96 @@ export async function steer(designId: string, text: string, images: ImageData[])
   }
 }
 
-export async function generate(body: GenerateRequest, onEvent: (e: AgentEvent) => void, signal: AbortSignal): Promise<void> {
-  const res = await request('/api/generate', { method: 'POST', body: JSON.stringify(body), signal });
+/**
+ * How following a reply ended: with its last event (done or an error), taken over by another page
+ * ('moved'), or 'lost' when the server no longer has it (it restarted, or the reply is long over).
+ */
+export type ReplyEnd = 'ended' | 'moved' | 'lost';
+/** A reply under way on the server and how many of its events a page has. */
+export interface ReplyRun { id: string; seen: number }
+
+/**
+ * Starts a reply and follows it to its end. A dropped connection (a phone locking its screen) is
+ * picked up again where it stopped: the server goes on with the reply meanwhile. `onEvent` gets
+ * each event with the number of events seen so far (for resumeReply after a reload).
+ */
+export const generate = (body: GenerateRequest, onEvent: (e: AgentEvent, seen: number) => void, signal: AbortSignal): Promise<ReplyEnd> =>
+  followReply(body.designId, { body }, onEvent, signal);
+
+/** Catches up with a reply under way that a page had followed up to `run.seen` events, and follows it to its end. */
+export const resumeReply = (designId: string, run: ReplyRun, onEvent: (e: AgentEvent, seen: number) => void, signal: AbortSignal): Promise<ReplyEnd> =>
+  followReply(designId, { run }, onEvent, signal);
+
+/** Tries to reconnect this many times in a row while the page is in view, before giving up. */
+const MAX_RECONNECTS = 20;
+/** A connection that sent nothing for this long is dead (the server pings every 15 s), e.g. after a phone slept. */
+const SILENT_MS = 40_000;
+
+async function followReply(designId: string, from: { body: GenerateRequest } | { run: ReplyRun }, onEvent: (e: AgentEvent, seen: number) => void, signal: AbortSignal): Promise<ReplyEnd> {
+  let run = 'run' in from ? { ...from.run } : null;
+  // Stop ends the reply on the server too: it no longer stops when the page's connection closes.
+  const stop = () => { void request(`/api/generate/${designId}/stop`, { method: 'POST' }).catch(() => {}); };
+  signal.addEventListener('abort', stop, { once: true });
+  try {
+    for (let failures = 0; ; ) {
+      const attempt = new AbortController();
+      const both = AbortSignal.any([signal, attempt.signal]);
+      let heard = Date.now();
+      const watch = setInterval(() => { if (Date.now() - heard > SILENT_MS) attempt.abort(); }, 5000);
+      try {
+        const res = run
+          ? await request(`/api/generate/${designId}/events?run=${encodeURIComponent(run.id)}&from=${run.seen}`, { signal: both })
+          : await request('/api/generate', { method: 'POST', body: JSON.stringify((from as { body: GenerateRequest }).body), signal: both });
+        failures = 0;
+        let last: AgentEvent | undefined;
+        await readEvents(res, () => { heard = Date.now(); }, (e) => {
+          last = e;
+          if (e.type === 'moved') return;
+          if (e.type === 'run') run = { id: e.runId, seen: 0 };
+          if (run) run.seen++;
+          onEvent(e, run?.seen ?? 0);
+        });
+        if (last?.type === 'moved') return 'moved';
+        if (last?.type === 'done' || last?.type === 'error') return 'ended';
+      } catch (e) {
+        // Stopped, refused, or the reply never started: nothing to pick up.
+        if (signal.aborted || !run || (e instanceof HttpError && e.status !== 0)) {
+          if (e instanceof HttpError && e.status === 404) return 'lost';
+          throw e;
+        }
+      } finally {
+        clearInterval(watch);
+      }
+      if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
+      // Out of view (a locked phone), the page waits to be back before trying again.
+      if (!document.hidden && ++failures > MAX_RECONNECTS) return 'lost';
+      await reconnectPause(Math.min(8000, 500 * 2 ** failures), signal);
+    }
+  } finally {
+    signal.removeEventListener('abort', stop);
+  }
+}
+
+/** Waits `ms`, less when the page comes back into view or online; while it is hidden, until it is back. */
+function reconnectPause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(t);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', done);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const onVisible = () => { if (!document.hidden) done(); };
+    const t = document.hidden ? undefined : setTimeout(done, ms);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', done);
+    signal.addEventListener('abort', done);
+  });
+}
+
+/** Reads a server-sent event stream to its end. */
+async function readEvents(res: Response, onData: () => void, onEvent: (e: AgentEvent) => void): Promise<void> {
   if (!res.body) throw new Error('The server sent no response');
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -147,6 +235,7 @@ export async function generate(body: GenerateRequest, onEvent: (e: AgentEvent) =
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    onData();
     buf += dec.decode(value, { stream: true });
     let i;
     while ((i = buf.indexOf('\n\n')) >= 0) {
@@ -154,7 +243,9 @@ export async function generate(body: GenerateRequest, onEvent: (e: AgentEvent) =
       buf = buf.slice(i + 2);
       for (const line of chunk.split('\n')) {
         if (line.startsWith('data: ')) {
-          try { onEvent(JSON.parse(line.slice(6))); } catch { /* ignore malformed */ }
+          let e: AgentEvent;
+          try { e = JSON.parse(line.slice(6)); } catch { continue; /* ignore malformed */ }
+          onEvent(e);
         }
       }
     }

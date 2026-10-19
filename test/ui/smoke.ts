@@ -2,7 +2,7 @@
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
-// import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
+// import, Export project… (as a zip), a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
 // picture's countdown. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
@@ -11,6 +11,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import type { Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser } from 'playwright-core';
@@ -32,7 +33,17 @@ const { createApp } = await import('../../server/app');
 // computer's login to read the subscription's usage).
 const connection = async () => ({ via: 'subscription' as const, ok: true, detail: 'Stand-in for the smoke test.',
   usage: [{ kind: 'five_hour', label: '5-hour', percent: 62, resetsAt: Date.now() + 3600_000, limited: false, at: Date.now() }] });
-server.on('request', createApp({ port, connection, generate: async () => { throw new Error('the smoke test never generates'); } }));
+// The browser's connections, to drop them as a phone locking its screen would.
+const sockets = new Set<Socket>();
+server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
+// The one reply it generates, "a slow cube", waits for finishSlowCube() (or Stop).
+let finishSlowCube = () => {};
+server.on('request', createApp({ port, connection, generate: async (req, send, abort) => {
+  if (req.prompt !== 'a slow cube') throw new Error('the smoke test never generates');
+  send({ type: 'step', step: { kind: 'status', text: 'Measuring the slow cube' } });
+  await new Promise<void>((resolve) => { finishSlowCube = resolve; abort.signal.addEventListener('abort', () => resolve()); });
+  if (!abort.signal.aborted) send({ type: 'done', durationMs: 5000, turns: 1, submitted: false, text: 'The slow cube is done.' });
+} }));
 
 let browser: Browser | null = null;
 after(async () => {
@@ -206,6 +217,44 @@ test('a reply saved while Jig was working shows as interrupted, with its thinkin
   await page.locator('.activity-panel', { hasText: 'chamfered edges' }).waitFor();
   assert.equal(await page.locator('.chat-panel textarea').isEnabled(), true);
   await page.screenshot({ path: path.join(shots, '6-interrupted.png') });
+  await page.close();
+});
+
+test('a reply under way goes on through a reload or a dropped connection: the page catches up with it', async () => {
+  assert.ok(browser, 'runs after the first test');
+  const slow = 'ui-smoke-20000002';
+  const r = await fetch(`${A}/api/designs/${slow}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    body: JSON.stringify({ id: slow, name: 'Slow', createdAt: 1, updatedAt: 1, code, values: {}, currentVersion: 0, versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual' }], messages: [] }) });
+  assert.equal(r.status, 200, await r.text());
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  await page.goto(`${A}/?design=${slow}`);
+  const box = page.locator('.chat-panel textarea');
+  await box.fill('a slow cube');
+  await box.press('Enter');
+  // Saved while it works, with how far the page got.
+  for (let t = Date.now(); ; ) {
+    const d = await (await fetch(`${A}/api/designs/${slow}`)).json();
+    if (d.messages.at(-1)?.run?.seen >= 2) break;
+    assert.ok(Date.now() - t < 15_000, 'saved with its run');
+    await new Promise((res) => setTimeout(res, 200));
+  }
+  await page.reload();
+  await page.locator('.msg.assistant', { hasText: 'Measuring the slow cube' }).waitFor();
+  await page.getByRole('button', { name: /^Stop/ }).waitFor(); // following it again
+  finishSlowCube();
+  await page.locator('.msg.assistant', { hasText: 'The slow cube is done.' }).waitFor();
+  assert.equal(await page.locator('.bubble.interrupted').count(), 0);
+  await page.screenshot({ path: path.join(shots, '6-caught-up.png') });
+  // The connection drops (a phone locks its screen): the page picks it up again by itself.
+  const resumed: string[] = [];
+  page.on('request', (q) => { if (q.url().includes('/events?')) resumed.push(q.url()); });
+  await box.fill('a slow cube');
+  await box.press('Enter');
+  await page.locator('.msg.assistant').nth(1).filter({ hasText: 'Measuring the slow cube' }).waitFor();
+  for (const s of sockets) s.destroy();
+  finishSlowCube();
+  await page.locator('.msg.assistant').nth(1).filter({ hasText: 'The slow cube is done.' }).waitFor();
+  assert.ok(resumed.length, 'caught up after the drop');
   await page.close();
 });
 

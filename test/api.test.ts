@@ -144,9 +144,31 @@ test('a server that stops ends running replies with a note, and a reply in progr
   assert.deepEqual(saved.messages[1], reply);
 });
 
+test('a reply goes on when the page\'s connection drops; the page catches up and can stop it', async () => {
+  const id = 'test-api-00000013';
+  const events = (text: string) => text.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
+  const page = new AbortController();
+  const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: id, prompt: 'a cube' }), signal: page.signal });
+  const reader = r.body!.getReader();
+  let text = '';
+  while (!text.includes('working')) text += new TextDecoder().decode((await reader.read()).value);
+  const [{ runId }] = events(text);
+  page.abort(); // the phone locks its screen
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal((await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: id, prompt: 'a cube' }) })).status, 409);
+  assert.equal((await fetch(`${A}/api/generate/${id}/events?run=nope&from=0`)).status, 404);
+  // Back: the events after the first one, then the rest as they come.
+  const back = await fetch(`${A}/api/generate/${id}/events?run=${runId}&from=1`);
+  assert.equal(back.status, 200);
+  assert.equal((await fetch(`${A}/api/generate/${id}/stop`, { method: 'POST', headers: W })).status, 200);
+  assert.deepEqual(events(await back.text()), [{ type: 'live', text: 'working' }, { type: 'error', message: 'Stopped.' }]);
+  // Kept for a while after it ended.
+  assert.equal(events(await (await fetch(`${A}/api/generate/${id}/events?run=${runId}&from=2`)).text()).length, 1);
+});
+
 test('a reply refused at the usage limit says when it resets', async () => {
   const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000011', prompt: 'over the limit' }) });
-  const events = (await r.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
+  const events = (await r.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6))).filter((e) => e.type !== 'run');
   assert.deepEqual(events, [{ type: 'error', message: 'Your Claude subscription\'s usage limit is reached. (Claude Code returned an error result: You\'ve hit your limit)', resetsAt: LIMIT_RESET * 1000 }]);
 });
 

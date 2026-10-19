@@ -38,6 +38,36 @@ const STARRED_FILE = path.join(DATA_DIR, 'starred.json');
 const cleanStarred = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))] : []);
 const readStarred = async () => cleanStarred((JSON.parse(await readFile(STARRED_FILE, 'utf8').catch(() => '{}')) as { ids?: unknown }).ids);
 
+/**
+ * A reply Jig is working on, or finished a little while ago: its server-sent events so far (the
+ * first says which run it is) and the one page connection following it.
+ */
+interface Run { id: string; events: string[]; listener: express.Response | null; done: boolean; abort: AbortController; forget?: ReturnType<typeof setTimeout> }
+/** By design id. */
+const runs = new Map<string, Run>();
+/** How long a finished reply's events are kept for a page that comes back. */
+const KEEP_RUN_MS = 30 * 60_000;
+
+/** Streams `run`'s events from `from` on to `res`, which takes over from any page following it before. */
+function follow(run: Run, res: express.Response, from: number) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  const old = run.listener;
+  if (old && old !== res) {
+    old.write(`data: ${JSON.stringify({ type: 'moved' } satisfies AgentEvent)}\n\n`);
+    old.end();
+  }
+  for (const s of run.events.slice(from)) res.write(s);
+  if (run.done) return void res.end();
+  run.listener = res;
+  res.on('close', () => { if (run.listener === res) run.listener = null; });
+}
+
 /** Ends each running reply's stream with an error (see endGenerations). */
 const openStreams = new Set<(message: string) => void>();
 
@@ -676,17 +706,23 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     }
     generatingDesigns.add(body.designId);
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.flushHeaders();
-    const send = (e: AgentEvent) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(e)}\n\n`); };
-    const ping = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
+    // The reply runs on whatever happens to the page's connection (a phone that locks its screen
+    // drops it): its events are kept, so the page can catch up (GET …/events) and stop it (POST …/stop).
     const abort = new AbortController();
-    res.on('close', () => { if (!res.writableFinished) abort.abort(); });
+    const run: Run = { id: randomUUID(), events: [], listener: null, done: false, abort };
+    const prev = runs.get(body.designId);
+    if (prev) clearTimeout(prev.forget);
+    runs.set(body.designId, run);
+    let ended = false;
+    const send = (e: AgentEvent) => {
+      if (e.type === 'done' || e.type === 'error') ended = true;
+      const s = `data: ${JSON.stringify(e)}\n\n`;
+      run.events.push(s);
+      if (run.listener && !run.listener.writableEnded) run.listener.write(s);
+    };
+    send({ type: 'run', runId: run.id });
+    follow(run, res, 0);
+    const ping = setInterval(() => { if (run.listener && !run.listener.writableEnded) run.listener.write(': ping\n\n'); }, 15000);
     const end = (message: string) => { send({ type: 'error', message }); abort.abort(); };
     openStreams.add(end);
 
@@ -700,12 +736,36 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
         send({ type: 'error', message: friendlyError(msg, limited), ...(limited && { resetsAt: limitResetsAt() }) });
       }
     } finally {
+      // Every reply's events end with how it ended, so a page catching up later knows.
+      if (!ended) send({ type: 'error', message: 'Stopped.' });
       openStreams.delete(end);
       generatingDesigns.delete(body.designId);
       clearInterval(ping);
-      res.end();
+      run.done = true;
+      run.listener?.end();
+      run.listener = null;
+      run.forget = setTimeout(() => { if (runs.get(body.designId) === run) runs.delete(body.designId); }, KEEP_RUN_MS);
+      run.forget.unref?.();
     }
   });
+
+  // A page catching up with a reply after its connection dropped (or a reload): the events from
+  // `from` on, then the rest as they come. 404 when the server doesn't have that reply (any more).
+  app.get('/api/generate/:id/events', (req, res) => {
+    const run = runs.get(req.params.id);
+    const from = Number(req.query.from);
+    if (!run || run.id !== req.query.run || !Number.isInteger(from) || from < 0 || from > run.events.length) {
+      return void res.status(404).json({ error: 'Jig has no such reply under way' });
+    }
+    follow(run, res, from);
+  });
+
+  // Stops the design's reply (the page's Stop button).
+  app.post('/api/generate/:id/stop', (req, res) => {
+    runs.get(req.params.id)?.abort.abort();
+    res.json({ ok: true });
+  });
+
   const dist = path.join(ROOT, 'dist');
   if (PRODUCTION) {
     if (!existsSync(path.join(dist, 'index.html'))) console.warn('[jig] dist/ is missing – run `npm run build` first; only the API is served.');
