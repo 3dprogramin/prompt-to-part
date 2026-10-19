@@ -3,7 +3,7 @@
 // Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
 // import, Export project… (as a zip), a reply that was cut short, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
-// "Print in one colour" in the Print tab, and the chat's "Send my view" and "Wait for my OK" switches with a concept
+// "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
 // picture's countdown. A screenshot of each step is saved to JIG_UI_SHOTS (default: a temp folder) for a look at
 // what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
@@ -229,13 +229,20 @@ test('3D figure mode shows the Meshy credits left on its button', async () => {
   assert.match(await page.locator('.mode-btn').getAttribute('title') ?? '', /1,200 Meshy credits left .*a model costs 25/);
   assert.ok(asked >= 1);
   await page.screenshot({ path: path.join(shots, '7-meshy-credits.png') });
-  // Colour (4 filaments), off by default: a coloured model costs 35.
+  // Colour (4 filaments) in the figure's ▾ menu, off by default: a coloured model costs 35, and the
+  // figure button shows it's on.
   await page.keyboard.press('Escape');
-  const colour = page.locator('button.figure-color');
-  assert.equal(await colour.getAttribute('aria-pressed'), 'false');
+  await page.getByRole('button', { name: '3D figure options' }).click();
+  const colour = page.getByRole('menuitemcheckbox', { name: /^Colour/ });
+  assert.equal(await colour.getAttribute('aria-checked'), 'false');
+  assert.match(await page.locator('.figure-credits').textContent() ?? '', /1,200 Meshy credits left/);
   await colour.click();
-  assert.equal(await colour.getAttribute('aria-pressed'), 'true');
+  assert.equal(await colour.getAttribute('aria-checked'), 'true');
   assert.match(await page.locator('.mode-btn').getAttribute('title') ?? '', /a model costs 35 in colour/);
+  assert.equal(await page.locator('.mode-btn .figure-marks .figure-color-dots').count(), 1);
+  await page.locator('.chat-panel').screenshot({ path: path.join(shots, '7-figure-menu.png') });
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu', { name: '3D figure options' }).waitFor({ state: 'detached' });
   await page.close();
 });
 
@@ -344,10 +351,10 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   // (for an approval) a short answer.
   await page.route('**/api/capabilities', async (route) => {
     const response = await route.fetch();
-    await route.fulfill({ response, json: { ...await response.json(), meshy: true, artwork: 'Image model' } });
+    await route.fulfill({ response, json: { ...await response.json(), meshy: true, artwork: 'Image model', effort: 'high' } });
   });
   await page.route('**/api/meshy/balance', (route) => route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200 } }));
-  const sent: { prompt: string; currentView?: unknown; renderValues?: unknown }[] = [];
+  const sent: { prompt: string; currentView?: unknown; renderValues?: unknown; model?: string; effort?: string }[] = [];
   const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
   await page.route('**/api/generate', (route) => {
     const body = route.request().postDataJSON();
@@ -370,18 +377,41 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
     await page.getByRole('menuitemradio', { name: /3D figure/ }).click();
     await page.keyboard.press('Escape');
   };
+  // Wait for my OK is in the figure's ▾ menu; off, the figure button shows a timer.
   await figureMode();
-  const wait = page.getByRole('button', { name: 'Wait for my OK' });
-  assert.equal(await wait.getAttribute('aria-pressed'), 'true');
+  const figureOptions = page.getByRole('button', { name: '3D figure options' });
+  await figureOptions.click();
+  const wait = page.getByRole('menuitemcheckbox', { name: /^Wait for my OK/ });
+  assert.equal(await wait.getAttribute('aria-checked'), 'true');
   await wait.click();
-  await view.click();
   assert.match(await wait.getAttribute('title') ?? '', /Wait for my OK is off: 10 s after/);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.mode-btn .figure-marks svg').count(), 1);
+  await view.click();
   await page.reload();
   await page.waitForFunction(() => document.title === 'Jig - Knight');
   assert.equal(await view.getAttribute('aria-pressed'), 'false');
   await figureMode();
-  assert.equal(await wait.getAttribute('aria-pressed'), 'false');
+  await figureOptions.click();
+  assert.equal(await wait.getAttribute('aria-checked'), 'false');
+  await page.keyboard.press('Escape');
   await page.screenshot({ path: path.join(shots, '10-chat-switches.png') });
+  // Model and effort in one chip, from the keyboard: Enter opens its menu on the chosen model, Right
+  // goes to the efforts, Down and Enter choose the next one; Escape closes it.
+  const chip = page.getByRole('button', { name: /^Model and reasoning effort:/ });
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  const modelMenu = page.getByRole('menu', { name: 'Model and reasoning effort' });
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-checked')), 'true');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  assert.equal(await modelMenu.getByRole('menuitemradio', { name: 'X-High' }).getAttribute('aria-checked'), 'true');
+  await modelMenu.getByRole('menuitemradio', { name: 'Sonnet' }).click();
+  await page.locator('.chat-panel').screenshot({ path: path.join(shots, '10-model-menu.png') });
+  await page.keyboard.press('Escape');
+  await modelMenu.waitFor({ state: 'detached' });
+  assert.match(await chip.getAttribute('aria-label') ?? '', /Sonnet · X-High$/);
 
   const box = page.locator('.chat-panel textarea');
   const card = page.locator('.auto-build');
@@ -391,6 +421,8 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.equal(sent.length, 1);
   assert.equal(sent[0].currentView, undefined);
   assert.equal(sent[0].renderValues, undefined);
+  assert.equal(sent[0].model, 'sonnet');
+  assert.equal(sent[0].effort, 'xhigh');
   assert.match(await card.innerText(), /Building with Meshy in \d+ s · 25 credits/);
   await page.screenshot({ path: path.join(shots, '11-countdown.png') });
   // Stop: the countdown is gone and nothing is sent.
@@ -417,5 +449,14 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.equal(sent.length, 6);
   assert.equal(sent[5].prompt, 'Approved – build it.');
   assert.equal(await card.count(), 0);
+  // At the chat's narrowest (240 px) the composer's controls still fit one row, as icons.
+  await page.evaluate(() => localStorage.setItem('sidebarWidthsUser', JSON.stringify({ left: 240 })));
+  await page.reload();
+  await page.waitForFunction(() => document.title === 'Jig - Knight');
+  await figureMode();
+  const bar = await page.locator('.composer-bar').boundingBox();
+  assert.ok(bar && bar.height < 36, `one row (${bar?.height} px high)`);
+  assert.equal(await page.locator('.model-text').isVisible(), false);
+  await page.locator('.composer').screenshot({ path: path.join(shots, '12-chat-bar-narrow.png') });
   await page.close();
 });

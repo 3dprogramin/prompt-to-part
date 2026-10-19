@@ -385,22 +385,11 @@ export function ChatPanel(p: Props) {
           rows={3}
         />
         <div className="composer-bar">
-          {/* The options wrap onto a second row in a narrow chat; the microphone and send stay at the right. */}
-          <div className="composer-tools">
+          {/* One row at any chat width: the chips shrink to icons in a narrow chat (styles.css); the microphone and send stay at the right. */}
+          <div className={`composer-tools ${p.generating && hasDraft ? 'crowded' : ''}`}>
             <button className="icon-btn" title="Attach photos, SVG, OpenSCAD (.scad) or 3D models (STL, 3MF, OBJ, GLB)" aria-label="Attach photos, SVG, OpenSCAD files or 3D models" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
             <input ref={fileInput} type="file" accept="image/*,.svg,.scad,.stl,.3mf,.obj,.glb,.gltf" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
-            <select value={p.model} onChange={(e) => p.onModel(e.target.value)} title="Claude model" aria-label="Claude model">
-              <option value="opus">Opus</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="haiku">Haiku</option>
-              {!['opus', 'sonnet', 'haiku'].includes(p.defaultModel) && <option value={p.defaultModel}>{modelLabel(p.defaultModel)}</option>}
-            </select>
-            <select value={p.effort} onChange={(e) => p.onEffort(e.target.value)} title="Reasoning effort" aria-label="Reasoning effort">
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="xhigh">X-High</option>
-              <option value="max">Max</option>
-            </select>
+            <ModelMenu model={p.model} effort={p.effort} defaultModel={p.defaultModel} onModel={p.onModel} onEffort={p.onEffort} />
             <button
               className={`web-toggle ${p.webSearch ? 'on' : ''}`}
               aria-label="Web search"
@@ -410,33 +399,14 @@ export function ChatPanel(p: Props) {
             >
               <Icon name="globe" size={14} />
             </button>
-            <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} color={p.figureColor} onMode={p.onImageMode} />
-            {p.imageMode === 'figure' && p.meshy && (
-              <button
-                className={`web-toggle figure-color ${p.figureColor ? 'on' : ''}`}
-                aria-pressed={p.figureColor}
-                onClick={() => p.onFigureColor(!p.figureColor)}
-                title={p.figureColor
-                  ? `Colour (4 filaments) is on: Jig draws the concept in grey (the shape) and then paints it (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
-                  : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}
-              >
-                <span className="figure-color-dots" aria-hidden><i /><i /><i /><i /></span>
-                <span className="mode-label">Colour</span>
-              </button>
-            )}
-            {p.imageMode === 'figure' && p.meshy && p.artworkModel && (
-              <button
-                className={`web-toggle wait-ok ${p.waitForOk ? 'on' : ''}`}
-                aria-label="Wait for my OK"
-                aria-pressed={p.waitForOk}
-                onClick={() => p.onWaitForOk(!p.waitForOk)}
-                title={p.waitForOk
-                  ? `Wait for my OK is on: Jig draws a concept picture of the figure and waits for you to approve it before Meshy builds it. Click to have it built by itself ${AUTO_BUILD_SECONDS} s after the picture, unless you stop it or type a change (${MESHY_CREDITS_PER_MODEL} Meshy credits a figure, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour).`
-                  : `Wait for my OK is off: ${AUTO_BUILD_SECONDS} s after Jig draws a concept picture, Meshy builds it (${MESHY_CREDITS_PER_MODEL} credits, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour) unless you click Stop or type a change. Click to approve each picture yourself.`}
-              >
-                <Icon name="hand" size={14} />
-              </button>
-            )}
+            {/* 3D figure mode: the picture mode button with a ▾ for the figure's options (Colour, Wait for my OK, credits). */}
+            <span className="mode-split">
+              <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} color={p.figureColor}
+                split={p.imageMode === 'figure' && p.meshy} autoBuild={p.imageMode === 'figure' && p.meshy && !!p.artworkModel && !p.waitForOk} onMode={p.onImageMode} />
+              {p.imageMode === 'figure' && p.meshy && (
+                <FigureMenu color={p.figureColor} onColor={p.onFigureColor} waitForOk={p.artworkModel ? p.waitForOk : null} onWaitForOk={p.onWaitForOk} credits={p.meshyCredits} />
+              )}
+            </span>
             {p.hasModel && (
               <button
                 className={`web-toggle send-view ${p.sendView ? 'on' : ''}`}
@@ -516,8 +486,8 @@ const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: strin
   { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
   { mode: 'figure', label: '3D figure (AI mesh)', short: 'Figure', icon: 'figure', hint: (art, meshy) => (!meshy
     ? 'Needs a Meshy API key: set MESHY_API_KEY in .env and restart Jig.'
-    : art ? 'Jig draws a concept picture of the person, character or animal for you to approve, then Meshy sculpts it as a real 3D model (1–3 min, Meshy credits); or attach a photo. Jig adds the base, name or mount. Turn on Colour next to it for a figure in up to 4 filaments.'
-    : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount. Turn on Colour next to it for a figure in up to 4 filaments.') },
+    : art ? 'Jig draws a concept picture of the person, character or animal for you to approve, then Meshy sculpts it as a real 3D model (1–3 min, Meshy credits); or attach a photo. Jig adds the base, name or mount. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.'
+    : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.') },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */
@@ -527,45 +497,169 @@ function creditsText(c: MeshyBalance, color = false): string {
   return `${c.balance.toLocaleString('en')} Meshy credits left${resets}; a model costs ${meshyCredits(color)}${color ? ' in colour' : ''}.`;
 }
 
-function ImageModeMenu({ mode, artworkModel, meshy, credits, color, onMode }: { mode: ImageMode; artworkModel: string | null; meshy: boolean; credits: MeshyBalance | null; color: boolean; onMode: (m: ImageMode) => void }) {
+/** In an open menu: arrows, Home and End move the focus through its items; Tab closes it. */
+function menuKeys(e: React.KeyboardEvent, menu: HTMLElement | null, close: () => void) {
+  const items = [...(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  const to = e.key === 'ArrowDown' ? (i + 1) % items.length : e.key === 'ArrowUp' ? (i - 1 + items.length) % items.length : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1;
+  if (to >= 0) { e.preventDefault(); items[to]?.focus(); }
+  if (e.key === 'Tab') close();
+}
+
+/** A composer chip's menu: open/closed, closed by Escape, Tab or a click outside; arrow keys on the chip open it. */
+function useChipMenu() {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   usePopover(open, () => setOpen(false), wrap, trigger);
+  return {
+    open, setOpen, wrap, trigger, menu,
+    triggerProps: {
+      ref: trigger,
+      'aria-haspopup': 'menu' as const,
+      'aria-expanded': open,
+      onClick: () => setOpen(!open),
+      onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } },
+    },
+    onMenuKey: (e: React.KeyboardEvent) => menuKeys(e, menu.current, () => setOpen(false)),
+    /** Closes the menu and puts the focus back on its chip. */
+    close: () => { setOpen(false); trigger.current?.focus(); },
+  };
+}
+
+const MODELS = [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }, { id: 'haiku', label: 'Haiku' }];
+const EFFORTS = [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'xhigh', label: 'X-High' }, { id: 'max', label: 'Max' }];
+
+/** The model and reasoning effort in one chip ("Opus 5.5 · High"), both chosen in its menu. */
+function ModelMenu({ model, effort, defaultModel, onModel, onEffort }: { model: string; effort: string; defaultModel: string; onModel: (m: string) => void; onEffort: (e: string) => void }) {
+  const m = useChipMenu();
+  // The server's starting model is offered too when it is a full model ID.
+  const models = MODELS.some((x) => x.id === defaultModel) ? MODELS : [...MODELS, { id: defaultModel, label: modelLabel(defaultModel) }];
+  const modelName = models.find((x) => x.id === model)?.label ?? modelLabel(model);
+  const effortName = EFFORTS.find((x) => x.id === effort)?.label ?? effort;
+  // "Opus 5.5": the family stays when the chip gets narrow, the version goes first.
+  const [family, ...version] = modelName.split(' ');
+  const full = `${modelName} · ${effortName}`;
+  // Longer than "Opus · High": the credits badge beside it goes sooner (styles.css), so it rarely needs an ellipsis.
+  const long = family.length + effortName.length > 8;
+  useEffect(() => { if (m.open) m.menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus(); }, [m.open]);
+  // Left and Right go between the two lists (to the chosen item); the other keys as in any menu.
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const groups = [...(m.menu.current?.querySelectorAll<HTMLElement>('[role="group"]') ?? [])];
+      const other = groups.find((g) => !g.contains(document.activeElement));
+      e.preventDefault();
+      (other?.querySelector<HTMLElement>('[aria-checked="true"]') ?? other?.querySelector<HTMLElement>('[role="menuitemradio"]'))?.focus();
+      return;
+    }
+    m.onMenuKey(e);
+  };
+  // Choosing keeps the menu open (to set the other one too); choosing the chosen item again closes it.
+  const pick = (current: string, id: string, set: (id: string) => void) => (id === current ? m.close() : set(id));
+  const list = (label: string, head: string, items: { id: string; label: string }[], current: string, set: (id: string) => void) => (
+    <div role="group" aria-label={label} className="model-group">
+      <div className="model-group-head" aria-hidden>{head}</div>
+      {items.map((x) => (
+        <button key={x.id} role="menuitemradio" aria-checked={x.id === current} className={x.id === current ? 'on' : ''} onClick={() => pick(current, x.id, set)}>
+          <span className="mode-check" aria-hidden>{x.id === current && <Icon name="check" size={13} />}</span>
+          <span>{x.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+  return (
+    <span className={`mode-wrap model-wrap ${long ? 'long' : ''}`} ref={m.wrap}>
+      <button {...m.triggerProps} className="web-toggle model-btn" aria-label={`Model and reasoning effort: ${full}`} title={`Model and reasoning effort: ${full}. Click to choose.`}>
+        <span className="model-icon" aria-hidden><Icon name="cpu" size={14} /></span>
+        <span className="model-text" aria-hidden>
+          <span className="model-name">{family}<span className="model-version">{version.length ? ` ${version.join(' ')}` : ''}</span></span><span className="model-sep">·</span><span className="model-effort">{effortName}</span>
+        </span>
+      </button>
+      {m.open && (
+        <div className="mode-menu model-menu" role="menu" aria-label="Model and reasoning effort" ref={m.menu} onKeyDown={onKey}>
+          {list('Model', 'Model', models, model, onModel)}
+          {list('Reasoning effort', 'Effort', EFFORTS, effort, onEffort)}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** 3D figure mode's ▾ beside the picture mode button: Colour, Wait for my OK (`waitForOk` null without an image model) and the Meshy credits left. */
+function FigureMenu({ color, onColor, waitForOk, onWaitForOk, credits }: { color: boolean; onColor: (on: boolean) => void; waitForOk: boolean | null; onWaitForOk: (on: boolean) => void; credits: MeshyBalance | null }) {
+  const m = useChipMenu();
+  useEffect(() => { if (m.open) m.menu.current?.querySelector<HTMLElement>('[role="menuitemcheckbox"]')?.focus(); }, [m.open]);
+  return (
+    <span className="mode-wrap" ref={m.wrap}>
+      <button {...m.triggerProps} className={`web-toggle figure-more ${m.open ? 'open' : ''}`} aria-label="3D figure options" title="3D figure options: Colour, Wait for my OK and the Meshy credits left">
+        <Icon name="chevron" size={12} />
+      </button>
+      {m.open && (
+        <div className="mode-menu figure-menu" ref={m.menu} onKeyDown={m.onMenuKey}>
+          <div role="menu" aria-label="3D figure options">
+            <button role="menuitemcheckbox" aria-checked={color} className={color ? 'on' : ''} onClick={() => onColor(!color)}
+              title={color
+                ? `Colour (4 filaments) is on: Jig draws the concept in grey (the shape) and then paints it (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
+                : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}>
+              <span className="mode-check" aria-hidden>{color && <Icon name="check" size={13} />}</span>
+              <span className="mode-icon" aria-hidden><span className={`figure-color-dots ${color ? 'on' : ''}`}><i /><i /><i /><i /></span></span>
+              <span><b>Colour (4 filaments)</b><span>{color
+                ? `Painted by Meshy, printed in up to 4 filaments with the AMS lite · ${MESHY_CREDITS_PER_COLOR_MODEL} credits a model.`
+                : `In colour, printed in up to 4 filaments with the AMS lite · ${MESHY_CREDITS_PER_COLOR_MODEL} credits a model instead of ${MESHY_CREDITS_PER_MODEL}.`}</span></span>
+            </button>
+            {waitForOk != null && (
+              <button role="menuitemcheckbox" aria-checked={waitForOk} className={waitForOk ? 'on' : ''} onClick={() => onWaitForOk(!waitForOk)}
+                title={waitForOk
+                  ? `Wait for my OK is on: Jig draws a concept picture of the figure and waits for you to approve it before Meshy builds it. Click to have it built by itself ${AUTO_BUILD_SECONDS} s after the picture, unless you stop it or type a change (${MESHY_CREDITS_PER_MODEL} Meshy credits a figure, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour).`
+                  : `Wait for my OK is off: ${AUTO_BUILD_SECONDS} s after Jig draws a concept picture, Meshy builds it (${MESHY_CREDITS_PER_MODEL} credits, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour) unless you click Stop or type a change. Click to approve each picture yourself.`}>
+                <span className="mode-check" aria-hidden>{waitForOk && <Icon name="check" size={13} />}</span>
+                <span className="mode-icon" aria-hidden><Icon name={waitForOk ? 'hand' : 'timer'} size={16} /></span>
+                <span><b>Wait for my OK</b><span>{waitForOk
+                  ? 'Meshy builds a concept picture only once you approve it.'
+                  : `Meshy builds a concept picture ${AUTO_BUILD_SECONDS} s after it is drawn, unless you stop it or type a change.`}</span></span>
+              </button>
+            )}
+          </div>
+          {credits && <div className={`figure-credits ${credits.balance < meshyCredits(color) ? 'low' : ''}`}><Icon name="coin" size={13} /> {creditsText(credits, color)}</div>}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function ImageModeMenu({ mode, artworkModel, meshy, credits, color, split, autoBuild, onMode }: {
+  mode: ImageMode; artworkModel: string | null; meshy: boolean; credits: MeshyBalance | null; color: boolean;
+  /** 3D figure mode's ▾ menu is attached on the right; the button then also marks Colour on and Wait for my OK off (`autoBuild`). */
+  split: boolean; autoBuild: boolean; onMode: (m: ImageMode) => void;
+}) {
+  const { open, wrap, menu, triggerProps, onMenuKey: onKey, close } = useChipMenu();
   const modes = IMAGE_MODES.filter((m) => m.mode !== 'artwork' || artworkModel || mode === 'artwork');
   const current = IMAGE_MODES.find((m) => m.mode === mode) ?? IMAGE_MODES[0];
   // Opening puts the focus on the chosen mode; arrows, Home and End move it.
   useEffect(() => { if (open) menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus(); }, [open]);
-  const onKey = (e: React.KeyboardEvent) => {
-    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
-    const i = items.indexOf(document.activeElement as HTMLElement);
-    const to = e.key === 'ArrowDown' ? (i + 1) % items.length : e.key === 'ArrowUp' ? (i - 1 + items.length) % items.length : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1;
-    if (to >= 0) { e.preventDefault(); items[to]?.focus(); }
-    if (e.key === 'Tab') setOpen(false);
-  };
   // Picking another mode keeps the menu open (to compare the modes); picking the chosen one again,
   // Escape, Tab or a click outside closes it.
-  const pick = (m: ImageMode) => {
-    if (m !== mode) return onMode(m);
-    setOpen(false);
-    trigger.current?.focus();
-  };
+  const pick = (m: ImageMode) => (m !== mode ? onMode(m) : close());
+  const marks = split && (color || autoBuild);
   return (
     <span className="mode-wrap" ref={wrap}>
       <button
-        ref={trigger}
-        className={`web-toggle art mode-btn ${mode !== 'off' ? 'on' : ''}`}
+        {...triggerProps}
+        className={`web-toggle art mode-btn ${mode !== 'off' ? 'on' : ''} ${split ? 'split' : ''}`}
         aria-label={`Picture mode: ${current.label}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}
-        title={`Picture mode: ${current.label}. ${current.hint(artworkModel, meshy)}${mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''} Click to choose.`}
+        title={`Picture mode: ${current.label}. ${current.hint(artworkModel, meshy)}${mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''}${split && color ? ' Colour is on.' : ''}${split && autoBuild ? ` Wait for my OK is off: concept pictures are built ${AUTO_BUILD_SECONDS} s after they are drawn.` : ''} Click to choose.`}
       >
         <Icon name={current.icon} size={14} />
         {current.short && <span className="mode-label">{current.short}</span>}
         {mode === 'figure' && credits && <span className={`mode-credits ${credits.balance < meshyCredits(color) ? 'low' : ''}`} aria-label={creditsText(credits, color)}>{credits.balance.toLocaleString('en')}</span>}
+        {/* Colour on and Wait for my OK off, at a glance (both are set in the ▾ menu). */}
+        {marks && (
+          <span className="figure-marks" aria-hidden>
+            {color && <span className="figure-color-dots on"><i /><i /><i /><i /></span>}
+            {autoBuild && <Icon name="timer" size={11} />}
+          </span>
+        )}
       </button>
       {open && (
         <div className="mode-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>

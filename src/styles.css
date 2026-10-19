@@ -132,10 +132,12 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .composer textarea:focus { border-color: var(--accent); }
 .composer { container-type: inline-size; }
 .composer-bar { display: flex; align-items: center; gap: 4px; }
-.composer-tools { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-/* The menus give way first (down to their shortest names), so the switches stay on the first row as long as they can. */
-.composer-tools select { flex: 100 1 0; min-width: 60px; max-width: 92px; }
-.composer-bar > button, .composer-tools > button { flex-shrink: 0; }
+/* One row down to the chat's narrowest (240 px): the chips' words go as it narrows (see the picture
+   mode below), then everything tightens to icons. Only with Stop and Later beside Send as well
+   (typing while Jig works) may a very narrow chat take a second row. */
+.composer-tools { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.composer-tools.crowded { flex-wrap: wrap; }
+.composer-bar > button, .composer-tools > * { flex-shrink: 0; }
 @container (max-width: 320px) { .composer-bar .btn-label { display: none; } }
 .composer-bar .btn { padding: 6px 10px; }
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -721,24 +723,71 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* The menu opens across the whole composer bar, above it. */
 .composer-bar { position: relative; }
 .mode-btn { width: auto; min-width: 30px; gap: 5px; padding: 0 7px; }
-/* The mode's name only where the model and effort menus still fit beside it. */
-.mode-label { display: none; font-size: 11.5px; font-weight: 500; }
 /* The mode's name only where it fits on the composer's one row (with "Lithophane", the longest). */
-@container (min-width: 500px) { .mode-label { display: inline; } }
+.mode-label { display: none; font-size: 11.5px; font-weight: 500; }
+@container (min-width: 480px) { .mode-label { display: inline; } }
 /* The Meshy credits left, on the 3D figure button. */
 .mode-credits { font: 500 10.5px/1 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 4px; }
 .mode-credits.low { color: var(--bad); border-color: var(--bad); }
-/* 3D figure mode's Colour switch: four filament dots. */
-.web-toggle.figure-color { width: auto; gap: 5px; padding: 0 7px; }
-.web-toggle.figure-color.on { background: #e0a43c22; border-color: var(--accent); color: var(--accent-2); }
+/* 3D figure mode's ▾ (Colour, Wait for my OK, credits), joined to the picture mode button. */
+.mode-split { display: flex; }
+.mode-btn.split { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.web-toggle.figure-more { width: 16px; margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; background: #e0a43c22; border-color: var(--accent); color: var(--accent-2); }
+.web-toggle.figure-more:hover, .web-toggle.figure-more.open { background: #e0a43c3a; }
+.figure-more svg { transform: rotate(90deg); transition: transform 0.15s; }
+.figure-more.open svg { transform: rotate(-90deg); }
+/* Colour: four filament dots, in their colours when on. */
 .figure-color-dots { display: inline-grid; grid-template-columns: 5px 5px; gap: 1px; }
 .figure-color-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.55; }
-.web-toggle.figure-color.on .figure-color-dots i:nth-child(1) { background: #d33; opacity: 1; }
-.web-toggle.figure-color.on .figure-color-dots i:nth-child(2) { background: #3a6fd8; opacity: 1; }
-.web-toggle.figure-color.on .figure-color-dots i:nth-child(3) { background: #f0c08b; opacity: 1; }
-.web-toggle.figure-color.on .figure-color-dots i:nth-child(4) { background: #222; opacity: 1; box-shadow: 0 0 0 0.5px #888; }
-/* 3D figure mode's "Wait for my OK" and the follow-ups' "Send my view": icon switches. */
-.web-toggle.wait-ok.on { background: #e0a43c22; border-color: var(--accent); color: var(--accent-2); }
+.figure-color-dots.on i:nth-child(1) { background: #d33; opacity: 1; }
+.figure-color-dots.on i:nth-child(2) { background: #3a6fd8; opacity: 1; }
+.figure-color-dots.on i:nth-child(3) { background: #f0c08b; opacity: 1; }
+.figure-color-dots.on i:nth-child(4) { background: #222; opacity: 1; box-shadow: 0 0 0 0.5px #888; }
+.mode-icon .figure-color-dots { grid-template-columns: 6px 6px; gap: 2px; }
+.mode-icon .figure-color-dots i { width: 6px; height: 6px; }
+/* On the figure button: Colour on (small dots) and Wait for my OK off (a timer), as a badge on the
+   corner of its ▾, so they take no room in the row. */
+.mode-btn { position: relative; }
+.figure-marks { position: absolute; top: -6px; right: -21px; z-index: 1; display: inline-flex; align-items: center; gap: 2px; height: 12px; padding: 0 2px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text-2); pointer-events: none; }
+.figure-marks .figure-color-dots { grid-template-columns: 3px 3px; }
+.figure-marks .figure-color-dots i { width: 3px; height: 3px; }
+.figure-menu .figure-credits { display: flex; align-items: center; gap: 6px; margin: 4px -4px -4px; padding: 7px 12px 8px 28px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-3); }
+.figure-credits svg { flex-shrink: 0; }
+.figure-credits.low { color: var(--bad); }
+/* The model and reasoning effort chip: its words go as the chat narrows (the version first, then all but an icon). */
+.web-toggle.model-btn { width: auto; min-width: 0; max-width: 100%; gap: 5px; padding: 0 7px; color: var(--text-2); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.web-toggle.model-btn:hover, .web-toggle.model-btn[aria-expanded='true'] { color: var(--text); }
+/* The one chip that shrinks when the row is short of room: the model's name gets an ellipsis (the effort stays). */
+.composer-tools .model-wrap { display: flex; flex-shrink: 1; min-width: 30px; }
+.model-icon { display: none; }
+.model-text { display: inline-flex; min-width: 0; overflow: hidden; }
+.model-name { overflow: hidden; text-overflow: ellipsis; }
+.model-sep { flex-shrink: 0; padding: 0 4px; color: var(--text-3); }
+.model-effort { flex-shrink: 0; }
+.mode-menu.model-menu { right: auto; width: 270px; max-width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.model-group-head { padding: 5px 8px 3px 28px; font: 600 9.5px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.mode-menu.model-menu button { align-items: center; padding: 5px 10px 5px 6px; }
+.model-menu .mode-check { padding-top: 0; }
+.model-menu button.on > span:last-child { color: var(--accent-2); font-weight: 500; }
+/* As the chat narrows (the Figure's name goes at 480 px): the model's version and the credits badge (sooner
+   beside a long model chip), the model chip's words (an icon then), and below 260 px everything
+   tightens. The full text is in each chip's tooltip and menu. */
+@container (max-width: 439px) { .model-version { display: none; } .composer-tools:has(.model-wrap.long) .mode-credits { display: none; } }
+@container (max-width: 409px) { .mode-credits { display: none; } }
+@container (max-width: 389px) {
+  .model-text { display: none; }
+  .model-icon { display: inline-flex; }
+  .web-toggle.model-btn { width: 30px; padding: 0; }
+}
+@container (max-width: 259px) {
+  .composer-bar, .composer-tools { gap: 2px; }
+  .composer-bar .icon-btn, .composer-tools .web-toggle, .web-toggle.model-btn { width: 26px; }
+  .composer-tools .model-wrap { min-width: 26px; }
+  .web-toggle.mode-btn { min-width: 26px; padding: 0 5px; }
+  .web-toggle.figure-more { width: 14px; }
+  .figure-marks { right: -19px; }
+  .composer-bar .btn { padding: 6px 8px; }
+}
 /* The countdown under a reply with new concept pictures ("Wait for my OK" off). */
 .auto-build { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: #e0a43c14; }
 .auto-build-head { display: flex; align-items: center; gap: 10px; }
