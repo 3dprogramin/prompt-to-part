@@ -31,18 +31,24 @@ export function currentWindow(w: UsageWindow, now = Date.now()): UsageWindow {
   return w.resetsAt != null && w.resetsAt <= now ? { ...w, percent: 0, limited: false, resetsAt: undefined } : w;
 }
 
+/** A window's name in short, for the chip: "5h", "7d", "7d Opus". */
+export const shortLabel = (w: UsageWindow) => w.label.replace(/^(\d+)-hour\b/, '$1h').replace(/^(\d+)-day\b/, '$1d');
+
 /**
- * What the chip shows: the most-used window's percentage, 'warn' from 80 % and 'limited' while a
- * limit is reached (until the last limited window resets, if known). Null without any windows.
+ * What the chip shows: the most-used window's percentage and short name (which limit it is), 'warn'
+ * from 80 % and 'limited' while a limit is reached (until the last limited window resets, if known;
+ * then the name is the limited one's). Null without any windows.
  */
-export function usageSummary(windows: UsageWindow[] | undefined, now = Date.now()): { percent: number; level: 'ok' | 'warn' | 'limited'; until?: number } | null {
+export function usageSummary(windows: UsageWindow[] | undefined, now = Date.now()): { percent: number; level: 'ok' | 'warn' | 'limited'; window: string; until?: number } | null {
   const ws = (windows ?? []).map((w) => currentWindow(w, now));
   if (!ws.length) return null;
-  const percent = Math.max(...ws.map((w) => w.percent));
+  const top = ws.reduce((a, b) => (b.percent > a.percent ? b : a));
+  const percent = top.percent;
   const limited = ws.filter((w) => w.limited || w.percent >= 100);
   if (limited.length) {
     const resets = limited.map((w) => w.resetsAt);
-    return { percent, level: 'limited', until: resets.every((r) => r != null) ? Math.max(...(resets as number[])) : undefined };
+    const last = limited.reduce((a, b) => ((b.resetsAt ?? Infinity) > (a.resetsAt ?? Infinity) ? b : a));
+    return { percent, level: 'limited', window: shortLabel(last), until: resets.every((r) => r != null) ? Math.max(...(resets as number[])) : undefined };
   }
-  return { percent, level: percent >= 80 ? 'warn' : 'ok' };
+  return { percent, level: percent >= 80 ? 'warn' : 'ok', window: shortLabel(top) };
 }

@@ -70,6 +70,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   assert.equal(await page.locator('.app-version').textContent(), `v${version}`);
   assert.equal(await page.locator('a.btn', { hasText: 'New' }).getAttribute('href'), '/');
   await page.locator('.conn-chip', { hasText: 'Claude subscription · 62%' }).waitFor();
+  assert.equal(await page.locator('.conn-chip .conn-win').textContent(), '5h');
   await page.locator('canvas').first().waitFor();
   await page.screenshot({ path: path.join(shots, '1-design.png') });
   // A markdown link in a reply opens in a new tab.

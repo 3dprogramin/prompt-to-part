@@ -16,11 +16,14 @@ test('reset times: the time today, the weekday and time on another day', () => {
 test('the chip: the most-used window, amber from 80 %, red while a limit is reached', () => {
   const w = (percent: number, extra: Partial<UsageWindow> = {}): UsageWindow => ({ kind: 'five_hour', label: '5-hour', percent, limited: false, at: NOW, ...extra });
   assert.equal(usageSummary([], NOW), null);
-  assert.deepEqual(usageSummary([w(62), w(30, { kind: 'seven_day' })], NOW), { percent: 62, level: 'ok' });
+  assert.deepEqual(usageSummary([w(62), w(30, { kind: 'seven_day', label: '7-day' })], NOW), { percent: 62, level: 'ok', window: '5h' });
+  // The weekly window, when it is the most used: the chip says which.
+  assert.deepEqual(usageSummary([w(20), w(74, { kind: 'seven_day', label: '7-day' })], NOW), { percent: 74, level: 'ok', window: '7d' });
+  assert.equal(usageSummary([w(20), w(90, { kind: 'seven_day_opus', label: '7-day Opus' })], NOW)?.window, '7d Opus');
   assert.equal(usageSummary([w(10), w(85, { kind: 'seven_day' })], NOW)?.level, 'warn');
-  assert.deepEqual(usageSummary([w(100, { limited: true, resetsAt: NOW + HOUR })], NOW), { percent: 100, level: 'limited', until: NOW + HOUR });
+  assert.deepEqual(usageSummary([w(100, { limited: true, resetsAt: NOW + HOUR })], NOW), { percent: 100, level: 'limited', window: '5h', until: NOW + HOUR });
   // Once its reset time has passed, a window starts again from 0 %.
-  assert.deepEqual(usageSummary([w(100, { limited: true, resetsAt: NOW - 1 })], NOW), { percent: 0, level: 'ok' });
+  assert.deepEqual(usageSummary([w(100, { limited: true, resetsAt: NOW - 1 })], NOW), { percent: 0, level: 'ok', window: '5h' });
 });
 
 test('replies report the windows: the limiting one, and both when Claude Code sends them', () => {

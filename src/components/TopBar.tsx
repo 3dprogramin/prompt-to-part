@@ -189,12 +189,14 @@ function ConnectionChip({ generating }: { generating: number }) {
   const extra = conn?.credit != null ? ` · $${conn.credit.toFixed(2)}`
     : usage?.level === 'limited' ? ` · limit reached${usage.until ? ` until ${formatReset(usage.until)}` : ''}`
     : usage ? ` · ${Math.round(usage.percent)}%` : '';
+  // Which limit the percentage is: the 5-hour one or the weekly one ("7d") can be the nearer.
+  const which = conn?.credit == null && usage ? <span className="conn-win" title={usage.window.startsWith('7d') ? 'The weekly limit' : 'The 5-hour limit'}>{usage.window}</span> : null;
   const windows = (conn?.usage ?? []).map((u) => currentWindow(u)).map((w) => `\n${w.label} limit: ${Math.round(w.percent)}% used${w.limited ? ' (reached)' : ''}${w.resetsAt ? `, resets ${formatReset(w.resetsAt)}` : ''}`).join('');
   const asOf = conn?.usage?.length ? `\nUsage as of ${formatReset(Math.max(...conn.usage.map((w) => w.at)))}.` : '';
   return (
     <button className={`conn-chip ${state}`} onClick={() => check(true)} disabled={checking}
       title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'}${windows || asOf ? `${windows}${asOf}\n` : ' '}Click to check again.`}>
-      <span className="conn-dot" /> {conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra}
+      <span className="conn-dot" /> {conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra}{which}
     </button>
   );
 }
