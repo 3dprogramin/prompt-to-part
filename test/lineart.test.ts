@@ -5,7 +5,7 @@ import { evaluateScript } from '../shared/runtime';
 import { withFonts } from '../shared/text';
 import { loadFontBuffers } from '../server/fonts';
 import { DRAWINGS_KEY, type SvgDrawing } from '../shared/svgFeatures';
-import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
+import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
 import { parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
 import type { Vec2 } from '../shared/types';
 
@@ -78,6 +78,19 @@ test('H.lineart: key holder pegs, thickness and a helpful error', () => {
   assert.equal(r.parts[0].lineArt!.hooks, 3);
   assert.ok(Math.abs(r.parts[0].bbox.max[2] - 19) < 0.01, 'bar 4 mm + 15 mm pegs');
   assert.throws(() => evaluateScript("function build() { return H.lineart('car', {}); }", values, 'draft'), /no drawing named "car" \(drawings: "bike"\)/);
+});
+
+test('H.lineart: a typed W × H makes a frame or medallion exactly that size; a width alone follows the drawing', () => {
+  const sized = (style: string, size: string) => evaluateScript(`function build() { return H.lineart('bike', { style: '${style}' }); }`, { ...values, [LINEART_SIZE_KEY]: size }, 'draft').parts[0];
+  const dims = (p: { bbox: { min: number[]; max: number[] } }) => [p.bbox.max[0] - p.bbox.min[0], p.bbox.max[1] - p.bbox.min[1]].map((v) => +v.toFixed(1));
+  // The bike is 2:1: a 200 × 160 box leaves room above and below it, a 240 × 80 one beside it.
+  assert.deepEqual(dims(sized('framed', '200x160')), [200, 160]);
+  assert.deepEqual(dims(sized('framed', '240x80')), [240, 80]);
+  assert.deepEqual(dims(sized('medallion', '200x160')), [200, 160]);
+  assert.deepEqual(dims(sized('medallion', '150x150')), [150, 150]);
+  const free = dims(sized('framed', '200x'));
+  assert.equal(free[0], 200);
+  assert.ok(free[1] < 110, `height follows the drawing (${free[1]})`);
 });
 
 test('hand edits: drawn lines join, erasing has the last word, frames map the drawing into the piece', () => {

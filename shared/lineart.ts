@@ -257,7 +257,9 @@ export function parseLineArtSplit(raw: unknown): SplitSpec | 'off' | undefined {
 /**
  * The whole piece's size the user typed in the Print tab, which wins over the script's width and
  * height (its sliders' limits and a height written in the script included): "800x" (that width,
- * the height following the drawing), "x600" (that height) or "800x600" (fit inside both).
+ * the height following the drawing), "x600" (that height) or "800x600" (the piece exactly that
+ * size where the style allows: a frame's outer box or a medallion's oval exactly W × H, the art
+ * fitted inside, centred, never stretched; a bar W wide; an outline fits inside both).
  */
 export const LINEART_SIZE_KEY = '$lineartSize';
 export const MAX_LINEART_SIZE = 3000;
@@ -1092,6 +1094,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   // The size the user typed wins: a width alone frees the height (it follows the drawing), a
   // height alone sets the largest width, so the height decides.
   if (d.size) opts = { ...opts, width: d.size.width ?? MAX_LINEART_SIZE, height: d.size.height };
+  // Both sides typed: a frame's box or a medallion's oval is exactly that size, the art fitted inside.
+  const exact = d.size?.width && d.size.height ? { w: d.size.width, h: d.size.height } : null;
   const { M, C } = d;
   const names = Array.isArray(source) ? source : [source];
   if (!names.length || names.length > 8 || !names.every((n) => typeof n === 'string')) throw new Error('H.lineart: give a drawing name or a list of 1–8 names');
@@ -1184,7 +1188,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   } else if (style === 'framed') {
     art = art.translate([-aw / 2, -s / 2]);
     moveFrames(-aw / 2, -s / 2);
-    const hx = aw / 2 + padding - ov, hy = s / 2 + padding - ov;
+    const hx = exact ? exact.w / 2 - frameWidth : aw / 2 + padding - ov, hy = exact ? exact.h / 2 - frameWidth : s / 2 + padding - ov;
     anchor = C.square([2 * (hx + frameWidth), 2 * (hy + frameWidth)], true).subtract(C.square([2 * hx, 2 * hy], true));
     anchorThickness = frameThickness;
     pieceW = 2 * (hx + frameWidth); pieceH = 2 * (hy + frameWidth);
@@ -1192,7 +1196,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     // Medallion: the art as large as fits inside the ring (touching it, unless padding).
     const oval = opts.shape === 'oval';
     let a = width / 2, b = oval ? (width / 2) * (s / aw) : width / 2;
-    if (opts.height != null && 2 * b > opts.height) { const k = opts.height / (2 * b); a *= k; b *= k; }
+    if (exact) { a = exact.w / 2; b = exact.h / 2; }
+    else if (opts.height != null && 2 * b > opts.height) { const k = opts.height / (2 * b); a *= k; b *= k; }
     const ia = a - frameWidth, ib = b - frameWidth;
     if (!(ia > 0 && ib > 0)) throw new Error('H.lineart: frameWidth leaves no room inside the medallion');
     const fa = ia + ov - padding, fb = ib + ov - padding;
