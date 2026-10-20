@@ -36,6 +36,7 @@ test('line-art prompt: the house style and each style\'s composition', () => {
   assert.match(p, /no grey, shading, hatching, gradients/);
   assert.match(p, /no text, signature, watermark, frame, border/);
   assert.match(p, /ONE straight, horizontal ground line across the very bottom/);
+  assert.match(p, /never cut off at the knees/);
   assert.doesNotMatch(p, /attached photo/);
   assert.match(lineArtPrompt({ subject: 'a woman in a long dress', style: 'framed' }), /filling the picture[\s\S]*all four sides/);
   assert.match(lineArtPrompt({ subject: 'a cat sitting', style: 'medallion' }), /fills a circle/);
