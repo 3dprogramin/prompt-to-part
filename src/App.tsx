@@ -42,10 +42,11 @@ import { pageKey } from '../shared/sources';
 import { formatReset } from '../shared/usage';
 import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
 import { oneColourFilament } from './lib/bambu3mf';
+import { DEFAULT_LINE_ART_STYLE, type LineArtStyle } from '../shared/lineart';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
-interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode; figureColor?: boolean }
+interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode; figureColor?: boolean; lineArtStyle?: LineArtStyle }
 /** Most design tabs open at once in the top bar. */
 const MAX_TABS = 8;
 const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, imageMode: 'off' };
@@ -611,6 +612,7 @@ export default function App() {
       webSearch: chat.webSearch,
       imageMode: chat.imageMode,
       ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
+      ...(chat.imageMode === 'lineart' ? { lineArtStyle: chat.lineArtStyle ?? DEFAULT_LINE_ART_STYLE } : {}),
       artwork: chat.imageMode === 'artwork',
       drawings: Object.keys(drawings).length ? drawings : undefined,
       // The design's pictures, meshes and LayerTone setup, so Claude has them even before a first version exists.
@@ -1187,6 +1189,8 @@ export default function App() {
           onImageMode={(imageMode) => setChat({ imageMode })}
           figureColor={!!chat.figureColor}
           onFigureColor={(figureColor) => setChat({ figureColor })}
+          lineArtStyle={chat.lineArtStyle ?? DEFAULT_LINE_ART_STYLE}
+          onLineArtStyle={(lineArtStyle) => setChat({ lineArtStyle })}
           waitForOk={waitForOk}
           onWaitForOk={setWaitForOk}
           sendView={sendView}
