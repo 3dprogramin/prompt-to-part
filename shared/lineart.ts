@@ -437,16 +437,22 @@ export function sqDistance(src: Uint8Array, w: number, h: number): Float32Array 
   return d;
 }
 
-/** Zhang–Suen thinning: the one-pixel centre lines of `img` (changed in place). The border pixels must be empty. */
+/**
+ * Zhang–Suen thinning: the one-pixel centre lines of `img` (changed in place), its pixels in
+ * order. The border pixels must be empty. Only pixels on the edge (an empty neighbour) can go, so
+ * each pass looks at those alone: thick areas cost their area once, not once per pass.
+ */
 function thin(img: Uint8Array, w: number) {
-  let fg: number[] = [];
-  for (let i = 0; i < img.length; i++) if (img[i]) fg.push(i);
+  const nb = N8(w);
+  const queued = new Uint8Array(img.length);
+  let edge: number[] = [];
+  for (let i = 0; i < img.length; i++) if (img[i] && nb.some((k) => !img[i + k])) { edge.push(i); queued[i] = 1; }
   const del: number[] = [];
   for (let changed = true; changed;) {
     changed = false;
     for (let step = 0; step < 2; step++) {
       del.length = 0;
-      for (const i of fg) {
+      for (const i of edge) {
         const p2 = img[i - w], p3 = img[i - w + 1], p4 = img[i + 1], p5 = img[i + w + 1], p6 = img[i + w], p7 = img[i + w - 1], p8 = img[i - 1], p9 = img[i - w - 1];
         const b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
         if (b < 2 || b > 6) continue;
@@ -456,9 +462,17 @@ function thin(img: Uint8Array, w: number) {
         del.push(i);
       }
       for (const i of del) img[i] = 0;
-      if (del.length) { changed = true; fg = fg.filter((i) => img[i]); }
+      if (del.length) {
+        changed = true;
+        // What a deleted pixel uncovers is on the edge now.
+        const next = edge.filter((i) => img[i]);
+        for (const i of del) for (const k of nb) { const j = i + k; if (img[j] && !queued[j]) { queued[j] = 1; next.push(j); } }
+        edge = next;
+      }
     }
   }
+  const fg: number[] = [];
+  for (let i = 0; i < img.length; i++) if (img[i]) fg.push(i);
   return fg;
 }
 
