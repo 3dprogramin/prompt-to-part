@@ -70,7 +70,7 @@ export function LineArtPanel({ part, values }: Props) {
           {tooBig && <span className="lineart-why"><Icon name="alert" size={12} /> bigger than the {bed}'s bed ({PRINTER.bed[0]} mm)</span>}
         </dd>
         <dt>Thickness</dt><dd className="mono">{mm(la.thickness)}</dd>
-        <dt>Lines</dt><dd><span className="mono">{mm(la.lineWidth)}</span> {la.lines === 'even' ? 'even' : 'kept (thin ones thickened)'}</dd>
+        <dt>Lines</dt><dd><span className="mono">{mm(la.lineWidth)}</span>, {la.lines === 'even' ? 'even' : 'kept (thin ones thickened)'}</dd>
         <dt>Bridges</dt>
         <dd className={loose ? 'warn' : ''}>
           {la.bridges ? <><span className="mono">{la.bridges}</span> added, longest <span className="mono">{mm(la.longestBridge)}</span></> : 'none needed'}
