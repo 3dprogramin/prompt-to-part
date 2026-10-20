@@ -5,6 +5,7 @@ import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
 import { layerToneLayers, layerToneMesh, resolveLayerToneOptions, type LayerToneImage, type LayerToneOptions, type LayerTonePart, type LayerToneSetup } from './layertone';
+import { buildLineArt, type LineArtOptions, type LineArtResult } from './lineart';
 import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
 import { getMeshData, type MeshEntry } from './meshes';
 
@@ -555,6 +556,38 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       if (st !== 'NoError') throw new Error(`H.lithophane: the panel mesh is invalid (${st})`);
       const { print, note } = lithoPrint(r);
       return { shape, print, lithophane: { image: imageName, options: r }, note };
+    },
+
+    /**
+     * Line art: a one-piece wall cut-out of one or more drawings (attached SVGs, traced pictures;
+     * several stand side by side at the same height), lying flat with its back on z = 0. Its lines
+     * are redrawn `lineWidth` wide at the final size, loose bits are bridged to the rest and specks
+     * dropped, and the style adds a bar (with pegs for keys, or a name), a frame or a stand. Return
+     * it as it is: `return H.lineart('car', { style: 'keyholder', width: 220 })` – parts, print
+     * settings and what was fixed (lineArt) go with it.
+     */
+    lineart(source: string | string[], opts: LineArtOptions = {}): LineArtResult {
+      const known = (n: string) => {
+        const d = drawings[n];
+        if (!d) throw new Error(`H.lineart: no drawing named "${n}" (drawings: ${Object.keys(drawings).map((k) => `"${k}"`).join(', ') || 'none'})`);
+        return d;
+      };
+      return buildLineArt({
+        M, C, quality,
+        section: (n, colors) => {
+          const d = known(n);
+          const cs = drawingSection(d, 1, colors ?? defaultColors(d), C);
+          if (!cs) throw new Error(`H.lineart: "${n}" has no shape in the colours ${JSON.stringify(colors ?? defaultColors(d))}`);
+          return cs;
+        },
+        fingerprint: (n) => {
+          const d = known(n);
+          let h = 0, pts = 0;
+          for (const sh of d.shapes) for (const c of sh.contours) for (const [x, y] of c) { h = (h * 31 + Math.round(x * 1e5) * 7 + Math.round(y * 1e5)) | 0; pts++; }
+          return `${n}:${d.aspect}:${pts}:${h}`;
+        },
+        text: (str, o) => H.text(str, o),
+      }, source, opts);
     },
 
     /**
