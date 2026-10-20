@@ -2,6 +2,7 @@ import { modelWarnings } from '../shared/modelWarnings';
 import { filamentLabel, type MeshColor } from '../shared/meshColors';
 import type { LayerToneFilament } from '../shared/layertone';
 import { PRINTER } from '../shared/printer';
+import { LINE_ART_STYLE_INFO, type LineArtInfo } from '../shared/lineart';
 import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
@@ -215,6 +216,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
       const form = o.shape === 'cylinder' ? `a cylinder ${f(o.width / Math.PI, 1)} mm across` : o.shape === 'curved' ? `curved over ${f(o.angle, 0)}°` : o.upright ? 'flat, standing up' : 'flat, lying down';
       lines.push(`    Lithophane of picture "${p.lithophane.image}": ${f(o.width, 1)} mm wide, ${form}, ${f(o.minThickness, 2)}–${f(o.maxThickness, 2)} mm thick (bright → dark)${o.border ? `, ${f(o.border, 1)} mm frame` : ''}${o.stand ? `, foot ${f(o.stand, 1)} mm deep, ${f(o.standHeight, 1)} mm high` : ''}${o.invert ? ', inverted' : ''}${o.gamma !== 1 ? `, gamma ${f(o.gamma, 2)}` : ''}`);
     }
+    if (p.lineArt) lines.push(`    ${lineArtLine(p.lineArt)}`);
   }
   if (r.dimensions.length) {
     lines.push('Dimension callouts:');
@@ -236,4 +238,11 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   if (r.logs.length) { lines.push('console output:'); for (const l of r.logs.slice(0, 40)) lines.push(`  ${l}`); }
   const report = lines.join('\n');
   return report.length > MAX_REPORT ? `${report.slice(0, MAX_REPORT)}\n… report cut at ${MAX_REPORT} characters` : report;
+}
+
+/** A line-art part in one line: style, drawings, size, lines, what Jig fixed and the key holder's pegs. */
+export function lineArtLine(a: LineArtInfo): string {
+  const g = (n: number) => String(+n.toFixed(1));
+  const fixed = `${a.bridges ? `${a.bridges} bridge${a.bridges > 1 ? 's' : ''} added (longest ${g(a.longestBridge)} mm)` : 'no bridges needed'}, ${a.dropped ? `${a.dropped} speck${a.dropped > 1 ? 's' : ''} dropped` : 'no specks dropped'}`;
+  return `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${g(a.lineWidth)} mm lines (${a.lines}); ${fixed}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}`;
 }
