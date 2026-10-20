@@ -16,11 +16,10 @@ const box = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0
 // bridged) and a speck too small to print (to be dropped). Lines are 0.015 units (1.5 mm at 100 mm high).
 const bike: SvgDrawing = {
   name: 'bike', aspect: 2,
-  shapes: [{ rule: 'EvenOdd', contours: [
-    ...ring(-0.6, -0.1, 0.38, 0.015), ...ring(0.6, -0.1, 0.38, 0.015),
-    box(-0.6, 0.3, 0.6, 0.315), box(-0.6075, 0.27, -0.5925, 0.31), box(0.5925, 0.27, 0.6075, 0.31),
-    circle(-0.6, -0.1, 0.04), circle(0.6, -0.1, 0.04), circle(0, 0, 0.003),
-  ], color: '#000000' }],
+  shapes: [
+    { rule: 'EvenOdd', contours: [...ring(-0.6, -0.1, 0.38, 0.015), ...ring(0.6, -0.1, 0.38, 0.015), circle(-0.6, -0.1, 0.04), circle(0.6, -0.1, 0.04), circle(0, 0, 0.003)], color: '#000000' },
+    { rule: 'NonZero', contours: [box(-0.6, 0.3, 0.6, 0.315), box(-0.6075, 0.27, -0.5925, 0.31), box(0.5925, 0.27, 0.6075, 0.31)], color: '#000000' },
+  ],
 };
 const values = { [DRAWINGS_KEY]: JSON.stringify({ bike }) };
 const run = (opts: string) => evaluateScript(`function build() { return H.lineart('bike', { ${opts} }); }`, values, 'draft');

@@ -292,10 +292,104 @@ function prune(img: Uint8Array, fg: number[], w: number, k: number) {
   }
 }
 
-/** Draws a round-capped line of radius `r` px from pixel a to pixel b. */
-function capsule(img: Uint8Array, w: number, h: number, a: number, b: number, r: number) {
-  const ax = a % w, ay = (a / w) | 0, bx = b % w, by = (b / w) | 0;
-  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1;
+/** Removes the corner pixels of a skeleton's staircases (an L of two neighbours that touch each other anyway), so a line's pixels form a simple chain. */
+function unstair(img: Uint8Array, fg: number[], w: number) {
+  for (const i of fg) {
+    if (!img[i]) continue;
+    const n = img[i - w], e = img[i + 1], s = img[i + w], wv = img[i - 1];
+    if ((n && e && !s && !wv && !img[i + w - 1]) || (e && s && !n && !wv && !img[i - w - 1]) || (s && wv && !n && !e && !img[i - w + 1]) || (wv && n && !s && !e && !img[i + w + 1])) img[i] = 0;
+  }
+}
+
+/** The skeleton as chains of pixels from one end or junction to the next (closed loops too; a lone pixel is a chain of one). */
+function skeletonChains(img: Uint8Array, fg: number[], w: number): number[][] {
+  unstair(img, fg, w);
+  const nb = N8(w);
+  const nbrs = (i: number) => nb.map((k) => i + k).filter((j) => img[j]);
+  const node = (i: number) => nbrs(i).length !== 2;
+  const used = new Uint8Array(img.length), pairs = new Set<number>(), chains: number[][] = [];
+  for (const s of fg) {
+    if (!img[s] || !node(s)) continue;
+    const ns = nbrs(s);
+    if (!ns.length) { chains.push([s]); continue; }
+    for (const first of ns) {
+      if (used[first]) continue;
+      const chain = [s];
+      let prev = s, cur = first;
+      for (;;) {
+        chain.push(cur);
+        if (node(cur)) break;
+        used[cur] = 1;
+        const next = nbrs(cur).find((j) => j !== prev)!;
+        prev = cur; cur = next;
+      }
+      // Two junctions side by side: the same chain from both ends.
+      if (chain.length === 2) {
+        const key = Math.min(s, cur) * img.length + Math.max(s, cur);
+        if (pairs.has(key)) continue;
+        pairs.add(key);
+      }
+      chains.push(chain);
+    }
+  }
+  // Closed loops (no end or junction on them).
+  for (const s of fg) {
+    if (!img[s] || used[s] || node(s)) continue;
+    const chain = [s];
+    used[s] = 1;
+    let prev = s, cur = nbrs(s)[0];
+    while (cur !== s && !used[cur]) {
+      chain.push(cur); used[cur] = 1;
+      const next = nbrs(cur).find((j) => j !== prev)!;
+      prev = cur; cur = next;
+    }
+    chain.push(s);
+    chains.push(chain);
+  }
+  return chains;
+}
+
+/** A chain of pixels drawn `r` px wide around its smoothed path, so a line drawn again doesn't follow the pixel steps of its skeleton; returns that path. */
+function strokePolyline(img: Uint8Array, w: number, h: number, chain: number[], r: number): Pt[] {
+  const raw: Pt[] = chain.map((i) => [i % w, (i / w) | 0]);
+  // A running average over about half a line width takes out the skeleton's pixel zigzag; the
+  // ends stay where they are (they meet other lines there).
+  const m = Math.max(2, Math.round(r));
+  const pts = raw.map((p, k): Pt => {
+    if (k === 0 || k === raw.length - 1) return p;
+    const a = Math.max(0, k - m), b = Math.min(raw.length - 1, k + m), c = Math.min(k - a, b - k);
+    let x = 0, y = 0;
+    for (let j = k - c; j <= k + c; j++) { x += raw[j][0]; y += raw[j][1]; }
+    return [x / (2 * c + 1), y / (2 * c + 1)];
+  });
+  const path = pts.length > 2 ? simplifyOpen(pts, 0.4) : pts;
+  if (path.length === 1) capsuleXY(img, w, h, path[0], path[0], r);
+  for (let k = 0; k + 1 < path.length; k++) capsuleXY(img, w, h, path[k], path[k + 1], r);
+  return path;
+}
+
+/** Ramer–Douglas–Peucker on an open polyline. */
+function simplifyOpen(pts: Pt[], tol: number): Pt[] {
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack: [number, number][] = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [s, e] = stack.pop()!;
+    const A = pts[s], B = pts[e], dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy || 1e-12;
+    let worst = -1, wd = tol * tol;
+    for (let k = s + 1; k < e; k++) {
+      const P = pts[k], t = Math.max(0, Math.min(1, ((P[0] - A[0]) * dx + (P[1] - A[1]) * dy) / L2));
+      const d = (P[0] - A[0] - t * dx) ** 2 + (P[1] - A[1] - t * dy) ** 2;
+      if (d > wd) { wd = d; worst = k; }
+    }
+    if (worst >= 0) { keep[worst] = 1; stack.push([s, worst], [worst, e]); }
+  }
+  return pts.filter((_, k) => keep[k]);
+}
+
+/** Draws a round-capped line of radius `r` px from point a to point b (pixel coordinates). */
+function capsuleXY(img: Uint8Array, w: number, h: number, [ax, ay]: Pt, [bx, by]: Pt, r: number) {
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-12;
   const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r)), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx) + r));
   const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r)), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by) + r));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
@@ -304,8 +398,15 @@ function capsule(img: Uint8Array, w: number, h: number, a: number, b: number, r:
   }
 }
 
+/** Draws a round-capped line of radius `r` px from pixel a to pixel b. */
+function capsule(img: Uint8Array, w: number, h: number, a: number, b: number, r: number) {
+  capsuleXY(img, w, h, [a % w, (a / w) | 0], [b % w, (b / w) | 0], r);
+}
+
 export interface LineArtMaskOptions {
   lineWidth: number;
+  /** Bridge every loose bit, however small (they were dropped beforehand, from the drawing itself). */
+  keepSpecks?: boolean;
   fill: number;
   minIsland: number;
   lines: 'even' | 'keep';
@@ -314,9 +415,11 @@ export interface LineArtMaskOptions {
 /**
  * The drawing `art` made printable as one piece, on grid `g`: lines redrawn at an even width (or
  * only thin ones thickened), specks dropped, and loose bits bridged to the rest and to `anchor`
- * (the bar or frame, which is not part of the result).
+ * (the bar or frame, which is not part of the result). `mask` is the whole result; `paths` the
+ * centre lines of what Jig drew (thickened lines and bridges, `lineWidth` wide, in pixels), which
+ * lines 'keep' adds to the drawing as it was.
  */
-export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number } {
+export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number } {
   const { w, h, px } = g, N = w * h;
   const r = o.lineWidth / px / 2;
   // Keep the outermost pixels empty (thinning and tracing rely on it).
@@ -340,7 +443,7 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
         if (anchor?.[i]) anchored = true;
         for (const k of nb) { const j = i + k; if (!seen[j] && (art[j] || anchor?.[j])) { seen[j] = 1; comp.push(j); } }
       }
-      if (!anchored && comp.length < minPx) { for (const i of comp) art[i] = 0; dropped++; }
+      if (!o.keepSpecks && !anchored && comp.length < minPx) { for (const i of comp) art[i] = 0; dropped++; }
     }
   }
 
@@ -358,12 +461,14 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
     for (let i = 0; i < N; i++) if (art[i] && near[i] <= R * R) solid[i] = 1;
   }
 
-  // Lines: the skeleton, drawn again `lineWidth` wide.
+  // Lines: the skeleton, followed as smoothed polylines and drawn `lineWidth` wide – every line
+  // ('even'), or ('keep') only where the drawing's own line is thinner than that, so lines thick
+  // enough stay exactly as drawn.
   const skel = art.slice();
   const fg = thin(skel, w);
-  prune(skel, fg, w, Math.ceil(r) + 1);
+  if (o.lines === 'even') prune(skel, fg, w, Math.ceil(r) + 1);
   // Thinning can wipe out a small blob (a dot, an eye) altogether: it keeps its middle pixel.
-  const seen = new Uint8Array(N), nb8 = N8(w), comp: number[] = [];
+  const seen = new Uint8Array(N), comp: number[] = [];
   for (let s = 0; s < N; s++) {
     if (!art[s] || seen[s]) continue;
     comp.length = 0; comp.push(s); seen[s] = 1;
@@ -372,13 +477,36 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       const i = comp[q];
       if (skel[i]) has = true;
       if (inside[i] > inside[mid]) mid = i;
-      for (const k of nb8) if (art[i + k] && !seen[i + k]) { seen[i + k] = 1; comp.push(i + k); }
+      for (const k of nb) if (art[i + k] && !seen[i + k]) { seen[i + k] = 1; comp.push(i + k); }
     }
-    if (!has) skel[mid] = 1;
+    if (!has) { skel[mid] = 1; fg.push(mid); }
   }
-  const along = sqDistance(skel, w, h);
+  const strokes = new Uint8Array(N);
+  // The centre lines drawn (pixel coordinates), each `r` px wide: lines 'keep' builds them as exact shapes.
+  const paths: Pt[][] = [];
+  // A thin stretch shorter than this at a free end, joined to a thick line, is a corner's tip or a
+  // thinning spur, not a line of its own: it keeps its drawn shape.
+  const tip = Math.ceil(4 * r);
+  const thinAt = (i: number) => inside[i] < r * r;
+  for (const chain of skeletonChains(skel, fg, w)) {
+    if (o.lines === 'even') { paths.push(strokePolyline(strokes, w, h, chain, r)); continue; }
+    const deg = (i: number) => nb.reduce((n, k) => n + skel[i + k], 0);
+    for (let k = 0; k < chain.length;) {
+      if (!thinAt(chain[k])) { k++; continue; }
+      // One stretch, through short thick bits (a line about as wide as lineWidth flickers between
+      // the two): one stroke, not several with jogs between them.
+      let e = k;
+      for (let j = k + 1; j < chain.length && j - e <= tip; j++) if (thinAt(chain[j])) e = j;
+      const atStart = k === 0, atEnd = e === chain.length - 1;
+      const freeTip = (atStart && deg(chain[0]) <= 1 && !atEnd) || (atEnd && deg(chain[chain.length - 1]) <= 1 && !atStart);
+      // A thin run between two thick stretches or reaching a junction is a line; one alone at a
+      // free end of a thick line is a tip.
+      if (!(freeTip && e - k + 1 < tip)) paths.push(strokePolyline(strokes, w, h, chain.slice(Math.max(0, k - 1), e + 2), r));
+      k = e + 1;
+    }
+  }
   const out = o.lines === 'keep' ? art.slice() : solid;
-  for (let i = 0; i < N; i++) if (along[i] <= r * r) out[i] = 1;
+  for (let i = 0; i < N; i++) if (strokes[i]) out[i] = 1;
   // Detail lost: openings between the lines that were there and aren't any more.
   const openings = countOpenings(art, w, h, minPx), closed = Math.max(0, openings - countOpenings(out, w, h, minPx));
 
@@ -432,11 +560,12 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       if (ra === rb) continue;
       parent[ra] = rb;
       capsule(out, w, h, a, b, r);
+      paths.push([[a % w, (a / w) | 0], [b % w, (b / w) | 0]]);
       bridges++;
       longest = Math.max(longest, Math.max(0, d * px - o.lineWidth));
     }
   }
-  return { mask: out, bridges, longestBridge: longest, dropped, closed, openings };
+  return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings };
 }
 
 /** Enclosed empty areas of `img` (4-connected, not touching the border) of at least `min` pixels. */
@@ -558,6 +687,23 @@ function simplify(loop: Pt[], tol: number): Pt[] {
 // The piece
 // ---------------------------------------------------------------------------
 
+/** Round-capped strokes `r` mm wide along `paths` (mm) as counter-clockwise outlines – a quad per segment and a disc per point – whose union (NonZero) is the strokes. */
+function strokeOutlines(paths: Pt[][], r: number, n: number): Pt[][] {
+  const m = Math.max(8, Math.round(n));
+  const disc: Pt[] = Array.from({ length: m }, (_, k) => [Math.cos((2 * Math.PI * k) / m) * r, Math.sin((2 * Math.PI * k) / m) * r]);
+  const out: Pt[][] = [];
+  for (const p of paths) {
+    for (const [x, y] of p) out.push(disc.map(([dx, dy]) => [x + dx, y + dy]));
+    for (let k = 0; k + 1 < p.length; k++) {
+      const [ax, ay] = p[k], [bx, by] = p[k + 1], L = Math.hypot(bx - ax, by - ay);
+      if (L < 1e-9) continue;
+      const nx = (-(by - ay) / L) * r, ny = ((bx - ax) / L) * r;
+      out.push([[ax - nx, ay - ny], [bx - nx, by - ny], [bx + nx, by + ny], [ax + nx, ay + ny]]);
+    }
+  }
+  return out;
+}
+
 /** What buildLineArt needs from the runtime (Manifold's classes, the text and drawing helpers). */
 export interface LineArtDeps {
   M: any;
@@ -571,7 +717,7 @@ export interface LineArtDeps {
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
-const cache = new Map<string, { loops: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number }>();
+const cache = new Map<string, { loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number }>();
 const CACHE_SIZE = 6;
 /** The most pixels of a grid (the pixels grow past it). */
 const MAX_PIXELS = { draft: 1_500_000, normal: 4_000_000, high: 8_000_000 };
@@ -681,6 +827,15 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     pieceW = 2 * a; pieceH = 2 * b;
   }
 
+  // Loose bits too small to print on their own are dropped (those touching the bar or frame aren't loose).
+  let vectorDropped = 0;
+  const pieces = art.decompose();
+  if (pieces.length > 1) {
+    const kept = pieces.filter((p: any) => p.area() >= minIsland || (anchor && !p.intersect(anchor).isEmpty()));
+    vectorDropped = pieces.length - kept.length;
+    if (vectorDropped) art = C.compose(kept);
+  }
+
   // The drawing made printable, on a pixel grid over the whole piece.
   const ab = (anchor ? art.add(anchor) : art).bounds();
   let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
@@ -690,12 +845,14 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   let res = cache.get(key);
   if (!res) {
     const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
-    const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines });
-    res = { loops: traceMask(m.mask, g, px * 0.35), bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings };
+    const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines, keepSpecks: lines === 'keep' });
+    const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
+    res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings };
     cache.set(key, res);
     if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
   }
-  const lineCs = new C(res.loops, 'EvenOdd');
+  // Lines kept as drawn: the drawing itself, exactly, with what Jig drew (thickened lines, bridges) added as exact shapes.
+  const lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
   let shape = lineCs.extrude(thickness);
   if (anchor) shape = shape.add(anchor.extrude(anchorThickness));
 
@@ -723,7 +880,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     t = t.translate([-(cb.min[0] + cb.max[0]) / 2, -barHeight / 2 - (cb.min[1] + cb.max[1]) / 2]);
     shape = shape.add(t.extrude(depth).translate([0, 0, barThickness]));
   }
-  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped, closed: res.closed, openings: res.openings, hooks };
+  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, hooks };
   const parts: LineArtResult['parts'] = [{ name: 'Line art', shape, color, lineArt: info }];
   // Desk stand: a base with a slot the bar pushes into, printed beside the piece.
   let slotNote = '';
