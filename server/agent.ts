@@ -17,6 +17,7 @@ import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
+import { DEFAULT_LINE_ART_STYLE, isLineArt, LINE_ART_STYLE_INFO } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -44,6 +45,8 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__generate_artwork: 'Generating artwork',
   mcp__cad__generate_picture: 'Generating a picture',
   mcp__cad__set_layertone: 'Changing the LayerTone filaments',
+  mcp__cad__generate_line_art: 'Drawing line art',
+  mcp__cad__trace_line_art: 'Tracing line art',
   mcp__cad__generate_concept: 'Drawing a concept picture',
   mcp__cad__generate_3d: 'Making a 3D model with Meshy',
   mcp__cad__submit_model: 'Validating & submitting',
@@ -169,16 +172,19 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
   // The chat's picture mode: AI artwork (flat colours traced for H.svg), a LayerTone filament
-  // painting (H.layertone) or a lithophane (H.lithophane); all only when turned on, and AI pictures
-  // need an OpenRouter key.
+  // painting (H.layertone), a lithophane (H.lithophane) or line art (H.lineart); all only when
+  // turned on, and AI pictures need an OpenRouter key.
   const mode = req.imageMode ?? (req.artwork ? 'artwork' : 'off');
   const artwork = mode === 'artwork' && artworkAvailable();
   // A LayerTone or lithophane design stays one in follow-ups, whatever the menu says now (unless it
   // asks for the other): Claude keeps its picture tools. A design is one or the other.
   // The design's pictures and LayerTone setup (sent with every request; the follow-up values win).
   const pictureValues: ParamValues = { ...req.pictures, ...req.renderValues };
-  const lithophane = mode === 'lithophane' || (mode !== 'layertone' && isLithophane(req.code));
-  const layerTone = !lithophane && (mode === 'layertone' || /\bH\.layertone\s*\(/.test(req.code ?? '') || Object.keys(parseLayerToneImages(pictureValues[LAYERTONE_IMAGES_KEY])).length > 0);
+  // Line art stays line art the same way; a design is one kind of picture print.
+  const lineArt = mode === 'lineart' || (isLineArt(req.code) && mode !== 'layertone' && mode !== 'lithophane');
+  const lineArtStyle = req.lineArtStyle ?? DEFAULT_LINE_ART_STYLE;
+  const lithophane = !lineArt && (mode === 'lithophane' || (mode !== 'layertone' && isLithophane(req.code)));
+  const layerTone = !lineArt && !lithophane && (mode === 'layertone' || /\bH\.layertone\s*\(/.test(req.code ?? '') || Object.keys(parseLayerToneImages(pictureValues[LAYERTONE_IMAGES_KEY])).length > 0);
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   // Pictures: the design's own, plus the photos attached now (kept with the design).
   const layerToneImages = parseLayerToneImages(pictureValues[LAYERTONE_IMAGES_KEY]);
@@ -226,6 +232,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     layerTone,
     lithophane,
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
+    lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -284,6 +291,16 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const names = Object.keys(layerToneImages);
     parts.push(`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }
+  if (lineArt) {
+    const info = LINE_ART_STYLE_INFO[lineArtStyle];
+    const names = Object.keys(drawings);
+    const attached = refs.length ? `The user attached ${refs.length > 1 ? `${refs.length} images (numbered 1–${refs.length} in the order above)` : 'an image (image 1)'}: trace_line_art({ name, image }) traces one that already is line art as it is; a photo of a real subject is redrawn with generate_line_art({ …, use_attached_photos: true })${artworkAvailable() ? '' : ' (not available: Jig has no image model without OPENROUTER_API_KEY)'}.` : '';
+    const none = artworkAvailable()
+      ? 'There is no drawing yet: make one with generate_line_art (or trace an attached line-art picture with trace_line_art).'
+      : 'There is no drawing yet, and Jig has no image model without OPENROUTER_API_KEY: trace an attached line-art picture with trace_line_art, or ask the user to attach an SVG or a picture of line art (dark lines on white).';
+    const available = names.length ? `Drawings available to H.lineart: ${names.map((n) => `"${n}" (${drawings[n].aspect.toFixed(2)} times as wide as high)`).join(', ')}.` : none;
+    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a one-piece line-art cut-out with H.lineart (see the system prompt).`, attached, available].filter(Boolean).join(' '));
+  }
   // Mesh files attached now: a picture of each as imported, and what the import did.
   for (const name of attachedMeshes) {
     const entry = meshes[name];
@@ -322,7 +339,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
   if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
-  if (Object.keys(drawings).length) parts.push(`SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
+  if (Object.keys(drawings).length) parts.push(lineArt
+    ? `Drawings in this design (attached SVGs and traced pictures; attached ones are among the images). Use their exact shapes with H.lineart(name, { … }) instead of redrawing them:\n${describeDrawings(drawings)}`
+    : `SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
   parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : attachedMeshes.length ? '(no text – show the attached mesh as a printable model)' : '(no text – work from the reference images)')}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
 
@@ -353,7 +372,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       prompt: messages(),
       options: {
         systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
-          figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined),
+          figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined,
+          lineArt ? { pictures: artworkAvailable() } : undefined),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },

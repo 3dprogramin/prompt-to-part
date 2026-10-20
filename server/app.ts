@@ -19,6 +19,7 @@ import { MY_FILAMENTS_FILE, readMyFilaments } from './myFilaments';
 import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
+import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
 import { photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
 import { geometry } from './geometry';
@@ -794,7 +795,8 @@ function generateProblem(b: GenerateRequest): string | null {
   for (const v of [b.values, b.renderValues, b.pictures]) if (v != null && (typeof v !== 'object' || Array.isArray(v))) return 'bad values';
   if (b.drawings != null && (typeof b.drawings !== 'object' || Array.isArray(b.drawings))) return 'bad drawings';
   if (b.meshes != null && (!Array.isArray(b.meshes) || b.meshes.length > MAX_MESHES || !b.meshes.every((n) => typeof n === 'string' && MESH_NAME.test(n)))) return 'bad meshes';
-  if (b.imageMode != null && !['off', 'artwork', 'layertone', 'lithophane', 'figure'].includes(b.imageMode)) return 'bad imageMode';
+  if (b.imageMode != null && !['off', 'artwork', 'layertone', 'lithophane', 'lineart', 'figure'].includes(b.imageMode)) return 'bad imageMode';
+  if (b.lineArtStyle != null && !isLineArtStyle(b.lineArtStyle)) return `lineArtStyle must be one of ${LINE_ART_STYLES.join(', ')}`;
   if (b.figureColor != null && typeof b.figureColor !== 'boolean') return 'bad figureColor';
   if (!parseScadFiles(b.scad)) return `up to ${MAX_SCAD_FILES} .scad files of up to ${MAX_SCAD_CHARS.toLocaleString('en')} characters`;
   if (b.history != null && (!Array.isArray(b.history) || b.history.length > 40 || !b.history.every((h) => h && typeof h.text === 'string' && (h.role === 'user' || h.role === 'assistant')))) return 'bad history';
