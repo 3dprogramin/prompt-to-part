@@ -281,9 +281,10 @@ function SplitPicture({ result, split }: { result: EvalResult; split: LineArtSpl
       ctx.fill(path);
     }
     ctx.lineWidth = 1.2; ctx.strokeStyle = SEAM; ctx.setLineDash([4, 3]);
-    for (const m of split.seams) {
+    // (Only where two pieces really meet.)
+    for (const m of split.seams) for (const cut of m.cuts ?? [m.points]) {
       ctx.beginPath();
-      m.points.forEach(([x, y], i) => { if (i) ctx.lineTo(X(x), Y(y)); else ctx.moveTo(X(x), Y(y)); });
+      cut.forEach(([x, y], i) => { if (i) ctx.lineTo(X(x), Y(y)); else ctx.moveTo(X(x), Y(y)); });
       ctx.stroke();
     }
     ctx.setLineDash([]);
