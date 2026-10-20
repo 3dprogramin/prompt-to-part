@@ -43,6 +43,8 @@ export interface MockOptions {
   retryAfter?: number;
   /** Credits the account starts with. */
   balance?: number;
+  /** The mock's clock (ms), which tasks move on by; tests pass one they advance themselves. */
+  now?: () => number;
 }
 
 type Status = 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED';
@@ -75,6 +77,7 @@ export type MeshyMock = Server & { created: { type: string; body: Record<string,
 
 export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
   const runMs = opts.runMs ?? 12000, pendingMs = opts.pendingMs ?? 1500, retryAfter = opts.retryAfter ?? 2;
+  const now = opts.now ?? Date.now;
   let balance = opts.balance ?? 1000;
   const tasks = new Map<string, Task>();
   const previews = new Map<string, Buffer>();
@@ -83,7 +86,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
   const view = (t: Task) => {
     // Waiting, then running; RESCHEDULE runs half way, goes back to PENDING (progress 0) and starts again.
     const timeline = t.reschedule ? [pendingMs, runMs / 2, pendingMs, runMs] : [pendingMs, runMs];
-    let e = Date.now() - t.created, at = t.created;
+    let e = now() - t.created, at = t.created;
     let status: Status = 'SUCCEEDED', progress = 100, started = 0, finished = 0;
     for (let i = 0; i < timeline.length; i++) {
       const d = timeline[i], running = i % 2 === 1, last = i === timeline.length - 1;
@@ -111,7 +114,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
 
   const send = (res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}) => {
     const text = body === undefined ? '' : JSON.stringify(body);
-    res.writeHead(status, { 'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '19', 'X-RateLimit-Reset': String(Math.ceil(Date.now() / 1000) + 1), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), 'Content-Length': Buffer.byteLength(text), ...headers });
+    res.writeHead(status, { 'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '19', 'X-RateLimit-Reset': String(Math.ceil(now() / 1000) + 1), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), 'Content-Length': Buffer.byteLength(text), ...headers });
     res.end(text);
   };
   const readBody = (req: IncomingMessage) => new Promise<unknown>((resolve) => {
@@ -171,7 +174,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
     balance -= credits;
     const id = randomUUID();
     const t: Task = {
-      id, family, type: family === 'text-to-3d' ? (preview ? 'text-to-3d-refine' : 'text-to-3d-preview') : 'image-to-3d', prompt, created: Date.now(), credits,
+      id, family, type: family === 'text-to-3d' ? (preview ? 'text-to-3d-refine' : 'text-to-3d-preview') : 'image-to-3d', prompt, created: now(), credits,
       model: textured ? TEXTURED : MODELS.find(([re]) => re.test(prompt))?.[1] ?? FIGURINE, formats, textured,
       ...(textured && typeof b.texture_image_url === 'string' ? { textureImage: b.texture_image_url.startsWith('https://') ? b.texture_image_url : '' } : {}),
       ...(preview ? { preview: preview.id } : {}),
@@ -185,7 +188,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
   };
 
   const asset = (res: ServerResponse, t: Task, file: string, expires: number) => {
-    if (!Number.isFinite(expires) || expires * 1000 < Date.now()) return send(res, 403, undefined, {}), undefined;
+    if (!Number.isFinite(expires) || expires * 1000 < now()) return send(res, 403, undefined, {}), undefined;
     if (file === 'preview.png') {
       let png = previews.get(t.model);
       if (!png) {
@@ -245,7 +248,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
     if (parts[0] !== 'openapi') return send(res, 404, { message: 'Not found' });
     if (!/^Bearer msy_\S+$/.test(req.headers.authorization ?? '')) return send(res, 401, { message: 'Invalid API key' });
     const route = parts.slice(1).join('/');
-    if (req.method === 'GET' && route === 'v1/balance') return send(res, 200, { balance, monthly_credits: Math.min(balance, 600), permanent_credits: Math.max(0, balance - 600), monthly_resets_at: Date.now() + 30 * 86400000 });
+    if (req.method === 'GET' && route === 'v1/balance') return send(res, 200, { balance, monthly_credits: Math.min(balance, 600), permanent_credits: Math.max(0, balance - 600), monthly_resets_at: now() + 30 * 86400000 });
     const fam = /^(v2\/text-to-3d|v1\/image-to-3d)(?:\/([^/]+))?(?:\/(stream))?$/.exec(route);
     if (!fam) return send(res, 404, { message: 'Not found' });
     const family: Task['family'] = fam[1] === 'v2/text-to-3d' ? 'text-to-3d' : 'image-to-3d';

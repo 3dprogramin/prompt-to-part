@@ -8,15 +8,19 @@ import { importMeshFile } from '../shared/runtime';
 import { decodeTexture } from '../shared/imageDecode';
 import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL } from '../shared/meshes';
 
-// The mock with quick tasks: 0.4 s waiting, 1.5 s running (the client's waits are cut short).
-async function startMock(balance?: number, pendingMs = 400) {
-  const mock = createMeshyMock({ pendingMs, runMs: 1500, balance });
+// The mocks' clock moves only when the client waits between polls (40 ms a wait, at once), so the
+// polls see every status however busy the machine is; a test that doesn't poll holds it still.
+let clock = Date.now();
+const now = () => clock;
+const fastSleep = async (ms: number) => { clock += Math.min(ms, 40); };
+// The mock with quick tasks: 0.4 s waiting, 1.5 s running.
+async function startMock(balance?: number) {
+  const mock = createMeshyMock({ pendingMs: 400, runMs: 1500, balance, now });
   await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
   after(() => mock.close());
   return `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`;
 }
 const base = await startMock();
-const fastSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 40)));
 const client: MeshyClient = { key: 'msy_test', baseUrl: base, sleep: fastSleep };
 const balance = async (url = base) => (await (await fetch(`${url}/v1/balance`, { headers: { Authorization: 'Bearer msy_x' } })).json()).balance as number;
 const statuses = (seen: MeshyTask[]) => seen.map((t) => t.status).filter((s, i, a) => s !== a[i - 1]);
@@ -71,16 +75,16 @@ test('a full queue is a 429 without Retry-After, and no task is created', async 
 });
 
 test('polling rides out a server error, follows a reschedule, and gives up after the time limit', async () => {
-  // Long waits, so the polls see each of them.
-  const slowQueue = { ...client, baseUrl: await startMock(undefined, 1200) };
-  const flaky = await createTextTo3d(slowQueue, 'a cat FLAKY RESCHEDULE');
+  const flaky = await createTextTo3d(client, 'a cat FLAKY RESCHEDULE');
   const seen: MeshyTask[] = [];
-  const done = await waitForTask(slowQueue, 'text-to-3d', flaky, { onProgress: (t) => seen.push(t) });
+  const done = await waitForTask(client, 'text-to-3d', flaky, { onProgress: (t) => seen.push(t) });
   assert.equal(done.status, 'SUCCEEDED');
   // Back to PENDING once, half way through, as Meshy may do.
   assert.deepEqual(statuses(seen), ['PENDING', 'IN_PROGRESS', 'PENDING', 'IN_PROGRESS', 'SUCCEEDED']);
   const slow = await createTextTo3d(client, 'a slow cat');
-  await assert.rejects(waitForTask(client, 'text-to-3d', slow, { timeoutMs: 50 }), (e) => e instanceof MeshyError && e.code === 'timeout');
+  // Real waits that leave the clock still: the task stays PENDING, only the time limit ends it.
+  const stuck = { ...client, sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 10))) };
+  await assert.rejects(waitForTask(stuck, 'text-to-3d', slow, { timeoutMs: 50 }), (e) => e instanceof MeshyError && e.code === 'timeout');
   await assert.rejects(getTask(client, 'text-to-3d', 'no-such-task'), (e) => e instanceof MeshyError && e.status === 404);
 });
 
@@ -89,12 +93,13 @@ test('stopping while a task waits deletes it (refunded)', async () => {
   const abort = new AbortController();
   const p = generateMeshyModel({ ...client, sleep: (ms, signal) => new Promise((resolve, reject) => { const t = setTimeout(resolve, ms); signal?.addEventListener('abort', () => { clearTimeout(t); reject(signal.reason); }); }) }, { prompt: 'a dog' }, { signal: abort.signal, onStarted: () => setTimeout(() => abort.abort(), 20) });
   await assert.rejects(p);
-  await new Promise((r) => setTimeout(r, 100));
+  // The delete is fire and forget: the refund comes soon after.
+  for (const end = Date.now() + 5000; (await balance()) !== before && Date.now() < end;) await new Promise((r) => setTimeout(r, 10));
   assert.equal(await balance(), before);
 });
 
 test('in colour: image to 3D textured, text to 3D refined after its preview, 35 credits either way', async () => {
-  const mock = createMeshyMock({ pendingMs: 200, runMs: 600 });
+  const mock = createMeshyMock({ pendingMs: 200, runMs: 600, now });
   await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
   after(() => mock.close());
   const c: MeshyClient = { ...client, baseUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi` };
