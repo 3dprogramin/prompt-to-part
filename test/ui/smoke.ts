@@ -4,18 +4,20 @@
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
 // import, Export project… (as a zip), stepping through enlarged product photos, a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
-// picture's countdown, and the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
-// and an unfolded foldable (the 3D view beside the chat or the side panel). A screenshot of each step is saved to
+// picture's countdown, the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
+// and an unfolded foldable (the 3D view beside the chat or the side panel), the Designs menu's search, the
+// picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
+// tab. Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
-import { test, after } from 'node:test';
+import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { chromium, type Browser } from 'playwright-core';
+import { chromium, type Browser, type BrowserContextOptions, type Locator, type Page } from 'playwright-core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-ui-test-'));
@@ -46,19 +48,52 @@ server.on('request', createApp({ port, connection, generate: async (req, send, a
   if (!abort.signal.aborted) send({ type: 'done', durationMs: 5000, turns: 1, submitted: false, text: 'The slow cube is done.' });
 } }));
 
-let browser: Browser | null = null;
+// Headless Chromium renders in software here, so a model build can take a while: waits are generous
+// but bounded, and so is each test (a hang fails it rather than the run going on for ever).
+const WAIT = 60_000;
+const TEST = { timeout: 180_000 };
+let browser: Browser;
+let stopGeometry = () => {};
+before(async () => { browser = await chromium.launch(); });
+// Each test's pages go when it ends, passed or not, so a failure doesn't leave a 3D view rendering.
+afterEach(async () => { await Promise.all(browser?.contexts().map((c) => c.close().catch(() => {})) ?? []); });
 after(async () => {
-  await browser?.close();
-  server.close();
-  rmSync(dataDir, { recursive: true, force: true });
+  try {
+    await browser?.close();
+  } finally {
+    stopGeometry();
+    server.closeAllConnections();
+    server.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
+/** A page in its own context, with the generous timeouts. */
+async function newPage(options: BrowserContextOptions = { viewport: { width: 1400, height: 850 } }): Promise<Page> {
+  const context = await browser.newContext(options);
+  context.setDefaultTimeout(WAIT);
+  return context.newPage();
+}
+/** Waits for the server side of something (polled), failing with `what` after `ms`. */
+async function until(check: () => Promise<boolean>, what: string, ms = 15_000) {
+  for (const end = Date.now() + ms; !(await check()); await new Promise((r) => setTimeout(r, 200))) assert.ok(Date.now() < end, what);
+}
+const getDesign = async (designId: string) => (await fetch(`${A}/api/designs/${designId}`)).json();
+const putDesign = (design: Record<string, unknown>) => fetch(`${A}/api/designs/${design.id}`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(design) });
+/** The model is built: its parts listed in the Object tab, the view no longer evaluating. */
+async function built(page: Page) {
+  await page.locator('.object-tree [role=treeitem]').first().waitFor();
+  await page.waitForFunction(() => !document.querySelector('.busy-dot')?.textContent);
+}
 
 const A = `http://127.0.0.1:${port}`;
+// A Galaxy Z Fold's cover screen (as CSS pixels), touch only.
+const PHONE: BrowserContextOptions = { viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true };
 const version = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const id = 'ui-smoke-00000001';
 const code = 'function build() { return Manifold.cube([20, 20, 20]); }';
 
-test('the app opens a design: top bar, 3D view, Print tab without an automatic slice', async () => {
+test('the app opens a design: top bar, 3D view, Print tab without an automatic slice', TEST, async () => {
   const saved = await fetch(`${A}/api/designs/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
@@ -68,8 +103,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   });
   assert.equal(saved.status, 200, await saved.text());
 
-  browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -84,6 +118,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await page.locator('.conn-chip', { hasText: 'Claude subscription · 62%' }).waitFor();
   assert.equal(await page.locator('.conn-chip .conn-win').textContent(), '5h');
   await page.locator('canvas').first().waitFor();
+  await built(page);
   await page.screenshot({ path: path.join(shots, '1-design.png') });
   // A markdown link in a reply opens in a new tab.
   const dji = page.locator('.md-bubble a', { hasText: 'DJI Store (EU)' });
@@ -96,7 +131,9 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   // With Bambu Studio installed there is a Slice button; without, a note saying it is needed.
   await cost.getByRole('button', { name: 'Slice', exact: true }).or(cost.getByText('Needs Bambu Studio installed', { exact: false })).first()
     .waitFor().catch(async (e) => { throw new Error(`${e.message}\nCost panel: ${await cost.innerText()}`); });
-  await page.waitForTimeout(1500);
+  // Nothing to wait for when nothing should happen: the model is built and the panel is up, so a slice
+  // started by either would have gone out by now; a moment of quiet on the network makes sure.
+  await page.waitForLoadState('networkidle');
   assert.deepEqual(slices, [], 'opening the Print tab must not slice');
   await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
@@ -114,9 +151,8 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   console.log(`screenshots: ${shots}`);
 });
 
-test('the Designs menu exports every design as a zip and imports one', async () => {
-  assert.ok(browser, 'runs after the first test');
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+test('the Designs menu exports every design as a zip and imports one', TEST, async () => {
+  const page = await newPage();
   await page.goto(`${A}/?design=${id}`);
   await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
   await page.getByRole('button', { name: 'Designs' }).click();
@@ -137,8 +173,7 @@ test('the Designs menu exports every design as a zip and imports one', async () 
   await page.close();
 });
 
-test('the Designs menu lists 10 designs at a time and marks starred ones', async () => {
-  assert.ok(browser, 'runs after the first test');
+test('the Designs menu lists 10 designs at a time and marks starred ones', TEST, async () => {
   // 12 more designs (14 in all), the oldest first.
   for (let i = 1; i <= 12; i++) {
     const n = `ui-smoke-1${String(i).padStart(7, '0')}`;
@@ -146,7 +181,7 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', async
       body: JSON.stringify({ id: n, name: `Cube ${i}`, createdAt: 1, updatedAt: 2000 + i, messages: [], code, values: {}, currentVersion: -1, versions: [] }) });
     assert.equal(r.status, 200, await r.text());
   }
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   await page.goto(`${A}/?design=${id}`);
   await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
   await page.getByRole('button', { name: 'Designs' }).click();
@@ -167,12 +202,27 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', async
   await page.getByRole('button', { name: 'Designs' }).click();
   await menu.getByText('Load more (4 more)').click();
   await menu.getByRole('button', { name: 'Unstar Smoke cube' }).waitFor();
+
+  // Search by name: case and accents don't matter, the matches page like the list, Enter opens the first.
+  const search = menu.getByRole('searchbox', { name: 'Search designs' });
+  const names = () => menu.locator('.menu-open > span:first-child').allInnerTexts().then((n) => n.map((x) => x.trim()));
+  await search.fill('cube');
+  await menu.getByText('Load more (4 more)').waitFor();
+  await search.fill('CÚBE 1');
+  await menu.getByText('Load more').waitFor({ state: 'detached' });
+  assert.deepEqual(await names(), ['Cube 12', 'Cube 11', 'Cube 10', 'Cube 1']);
+  await page.screenshot({ path: path.join(shots, '5-search.png') });
+  await search.fill('no such design');
+  await menu.getByText('No design\'s name contains “no such design”').waitFor();
+  await search.fill('cube 11');
+  await search.press('Enter');
+  await page.waitForFunction(() => document.title === 'Jig - Cube 11');
+  assert.equal(await menu.count(), 0, 'the menu closes');
   await page.close();
 });
 
-test('Export project… downloads the design as one zip where there is no folder picker', async () => {
-  assert.ok(browser, 'runs after the first test');
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+test('Export project… downloads the design as one zip where there is no folder picker', TEST, async () => {
+  const page = await newPage();
   // Playwright has no folder picker: the zip, as in Firefox.
   await page.addInitScript(() => { delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker; });
   // As if Blender and Bambu Studio weren't installed (they would make the test slow): no .blend, a plain 3MF.
@@ -202,8 +252,7 @@ test('Export project… downloads the design as one zip where there is no folder
   await page.close();
 });
 
-test('a reply saved while Jig was working shows as interrupted, with its thinking kept', async () => {
-  assert.ok(browser, 'runs after the first test');
+test('a reply saved while Jig was working shows as interrupted, with its thinking kept', TEST, async () => {
   const cut = 'ui-smoke-20000001';
   const r = await fetch(`${A}/api/designs/${cut}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
     body: JSON.stringify({ id: cut, name: 'Cut short', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], sessionId: 'abc',
@@ -211,7 +260,7 @@ test('a reply saved while Jig was working shows as interrupted, with its thinkin
         { id: 'a1', role: 'assistant', text: '', createdAt: 1, pending: true, steps: [{ kind: 'thinking', text: 'Planning a 20 mm cube' }],
           activity: [{ kind: 'thinking', text: 'Planning a 20 mm cube with chamfered edges', at: 5 }] }] }) });
   assert.equal(r.status, 200, await r.text());
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   await page.goto(`${A}/?design=${cut}`);
   await page.locator('.bubble.interrupted', { hasText: 'Interrupted – Jig stopped before finishing' }).waitFor();
   await page.locator('.think-link').click();
@@ -221,24 +270,18 @@ test('a reply saved while Jig was working shows as interrupted, with its thinkin
   await page.close();
 });
 
-test('a reply under way goes on through a reload or a dropped connection: the page catches up with it', async () => {
-  assert.ok(browser, 'runs after the first test');
+test('a reply under way goes on through a reload or a dropped connection: the page catches up with it', TEST, async () => {
   const slow = 'ui-smoke-20000002';
   const r = await fetch(`${A}/api/designs/${slow}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
     body: JSON.stringify({ id: slow, name: 'Slow', createdAt: 1, updatedAt: 1, code, values: {}, currentVersion: 0, versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual' }], messages: [] }) });
   assert.equal(r.status, 200, await r.text());
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   await page.goto(`${A}/?design=${slow}`);
   const box = page.locator('.chat-panel textarea');
   await box.fill('a slow cube');
   await box.press('Enter');
   // Saved while it works, with how far the page got.
-  for (let t = Date.now(); ; ) {
-    const d = await (await fetch(`${A}/api/designs/${slow}`)).json();
-    if (d.messages.at(-1)?.run?.seen >= 2) break;
-    assert.ok(Date.now() - t < 15_000, 'saved with its run');
-    await new Promise((res) => setTimeout(res, 200));
-  }
+  await until(async () => (await getDesign(slow)).messages.at(-1)?.run?.seen >= 2, 'saved with its run');
   await page.reload();
   await page.locator('.msg.assistant', { hasText: 'Measuring the slow cube' }).waitFor();
   await page.getByRole('button', { name: /^Stop/ }).waitFor(); // following it again
@@ -259,15 +302,14 @@ test('a reply under way goes on through a reload or a dropped connection: the pa
   await page.close();
 });
 
-test('an enlarged product photo steps to the next and previous one (buttons, arrow keys)', async () => {
-  assert.ok(browser, 'runs after the first test');
+test('an enlarged product photo steps to the next and previous one (buttons, arrow keys)', TEST, async () => {
   const pid = 'ui-smoke-20000003';
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
   const photos = ['table', 'shelf', 'desk'].map((scene, i) => ({ url: `${png}#${i}`, scene: 'custom', notes: scene, aspect: '4:5', prompt: scene, model: 'test/image', cost: null, createdAt: i + 1 }));
   const r = await fetch(`${A}/api/designs/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
     body: JSON.stringify({ id: pid, name: 'Photos', createdAt: 1, updatedAt: 1, code, values: {}, currentVersion: 0, versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual' }], messages: [], photos }) });
   assert.equal(r.status, 200, await r.text());
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   await page.goto(`${A}/?design=${pid}`);
   await page.waitForFunction(() => document.title === 'Jig - Photos');
   await page.getByRole('button', { name: 'Product photos' }).click();
@@ -283,9 +325,8 @@ test('an enlarged product photo steps to the next and previous one (buttons, arr
   await page.close();
 });
 
-test('3D figure mode shows the Meshy credits left on its button', async () => {
-  assert.ok(browser, 'runs after the first test');
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+test('3D figure mode shows the Meshy credits left on its button', TEST, async () => {
+  const page = await newPage();
   // As if Jig had a Meshy key; the balance is a stand-in (the real one would ask Meshy).
   await page.route('**/api/capabilities', async (route) => {
     const response = await route.fetch();
@@ -321,10 +362,10 @@ test('3D figure mode shows the Meshy credits left on its button', async () => {
   await page.close();
 });
 
-test('a coloured figure: its filaments in the Object tab, the STL hint says the colours are lost', async () => {
-  assert.ok(browser, 'runs after the first test');
+test('a coloured figure: its filaments in the Object tab, the STL hint says the colours are lost', TEST, async () => {
   // The mock's coloured figure, imported (in the geometry process) as generate_3d stores it.
   const { geometry } = await import('../../server/geometry');
+  stopGeometry = () => geometry.stop();
   const imported = await geometry.importMesh(new Uint8Array(readFileSync(new URL('../fixtures/meshes/colour-figure.glb', import.meta.url))), 'figure.glb', { colors: true }, { colors: 4, mine: [] });
   geometry.stop();
   const palette = imported.palette!;
@@ -341,7 +382,7 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
       versions: [{ code: figCode, summary: 'A coloured kid', createdAt: 1000, source: 'manual' }] }),
   });
   assert.equal(saved.status, 200, await saved.text());
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   await page.goto(`${A}/?design=${fid}`);
   await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
   const rows = page.locator('.mesh-colors-row');
@@ -358,12 +399,7 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
   await page.screenshot({ path: path.join(shots, '8b-repaint-patch.png') });
   await page.getByRole('group', { name: 'Print it in' }).getByRole('button').last().click();
   await page.getByRole('button', { name: 'Clear repaints (1)' }).waitFor();
-  for (const until = Date.now() + 10_000; ;) {
-    const d = await (await fetch(`${A}/api/designs/${fid}`)).json();
-    if (JSON.parse(d.values?.$meshes ?? '{}').kid?.repaint?.length === 1) break;
-    assert.ok(Date.now() < until, 'the repaint is saved with the design');
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  await until(async () => JSON.parse((await getDesign(fid)).values?.$meshes ?? '{}').kid?.repaint?.length === 1, 'the repaint is saved with the design');
   // The brush: one drag over the figure is one more repaint; Undo takes it back.
   await page.getByRole('button', { name: 'Brush', exact: true }).click();
   await page.mouse.move(box.x + box.width / 2 - 15, box.y + box.height / 2);
@@ -381,10 +417,9 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
   await page.close();
 });
 
-test('"Print in one colour" in the Print tab: the view shows one filament, saved with the design', async () => {
-  assert.ok(browser, 'runs after the coloured figure');
+test('"Print in one colour" in the Print tab: the view shows one filament, saved with the design', TEST, async () => {
   const fid = 'ui-smoke-00000003';
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   await page.goto(`${A}/?design=${fid}`);
   await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
   await page.getByRole('tab', { name: /Print/ }).click();
@@ -395,13 +430,7 @@ test('"Print in one colour" in the Print tab: the view shows one filament, saved
   assert.equal(await page.getByRole('combobox', { name: 'Filament to print with' }).inputValue(), 'main');
   await page.screenshot({ path: path.join(shots, '9-one-colour.png') });
   // Saved with the design (autosave), so it is still on after a reload, and Export ▸ 3MF… follows it.
-  const until = Date.now() + 10_000;
-  for (;;) {
-    const d = await (await fetch(`${A}/api/designs/${fid}`)).json();
-    if (d.values?.$oneColour === true) break;
-    assert.ok(Date.now() < until, 'the switch is saved with the design');
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  await until(async () => (await getDesign(fid)).values?.$oneColour === true, 'the switch is saved with the design');
   await page.reload();
   await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
   await page.getByRole('tab', { name: /Print/ }).click();
@@ -412,8 +441,7 @@ test('"Print in one colour" in the Print tab: the view shows one filament, saved
   await page.close();
 });
 
-test('"Send my view" and "Wait for my OK": saved after a reload; a concept picture is built after a countdown unless stopped', async () => {
-  assert.ok(browser, 'runs after the first test');
+test('"Send my view" and "Wait for my OK": saved after a reload; a concept picture is built after a countdown unless stopped', TEST, async () => {
   const fid = 'ui-smoke-00000004';
   const saved = await fetch(`${A}/api/designs/${fid}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
@@ -421,7 +449,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
       versions: [{ code, summary: 'A 20 mm cube', createdAt: 1000, source: 'manual' }] }),
   });
   assert.equal(saved.status, 200, await saved.text());
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+  const page = await newPage();
   // As if Jig had a Meshy key and an image model; the replies are stand-ins: a concept picture, or
   // (for an approval) a short answer.
   await page.route('**/api/capabilities', async (route) => {
@@ -520,7 +548,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.equal(sent[3].renderValues, undefined);
   // Left alone, the countdown sends the approval by itself (the one 10 s wait).
   await ask('A fourth knight');
-  await page.waitForFunction(() => document.querySelectorAll('.msg.user .bubble').length === 6, undefined, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.msg.user .bubble').length === 6, undefined, { timeout: 30_000 });
   assert.equal(sent.length, 6);
   assert.equal(sent[5].prompt, 'Approved – build it.');
   assert.equal(await card.count(), 0);
@@ -536,11 +564,8 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   await page.close();
 });
 
-test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded one the 3D view beside a pane', async () => {
-  assert.ok(browser, 'runs after the first test');
-  // A Galaxy Z Fold's cover screen (as CSS pixels), touch only.
-  const phone = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
-  const page = await phone.newPage();
+test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded one the 3D view beside a pane', TEST, async () => {
+  const page = await newPage(PHONE);
   await page.goto(`${A}/?design=${id}`);
   await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
   await page.locator('.app.layout-phone').waitFor();
@@ -575,11 +600,10 @@ test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded 
   await page.reload();
   await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
   assert.equal(await tab('Panel').getAttribute('aria-selected'), 'true');
-  await phone.close();
+  await page.context().close();
 
   // Unfolded (the inner screen): the 3D view always, beside the chat or the side panel.
-  const unfolded = await browser.newContext({ viewport: { width: 880, height: 1000 }, isMobile: true, hasTouch: true });
-  const big = await unfolded.newPage();
+  const big = await newPage({ viewport: { width: 880, height: 1000 }, isMobile: true, hasTouch: true });
   await big.goto(`${A}/?design=${id}`);
   await big.waitForFunction(() => document.title === 'Jig - Smoke cube');
   await big.locator('.app.layout-split').waitFor();
@@ -599,5 +623,86 @@ test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded 
   assert.ok(await width() > narrow + 200, 'the 3D view takes the width');
   await big.getByRole('button', { name: 'Show the panel' }).tap();
   assert.equal(await big.locator('.side-panel').isVisible(), true);
-  await unfolded.close();
+});
+
+test('on a phone the picture mode menu fits the screen and every mode can be picked; Line art has its style ▾', TEST, async () => {
+  const page = await newPage(PHONE);
+  // As if Jig had a Meshy key and an image model, so every mode is offered and can be chosen.
+  await page.route('**/api/capabilities', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), meshy: true, artwork: 'Image model' } });
+  });
+  await page.route('**/api/meshy/balance', (route) => route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200 } }));
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.locator('.app.layout-phone').waitFor();
+  const inView = async (what: string, el: Locator) => {
+    const b = await el.boundingBox();
+    assert.ok(b && b.x >= 0 && b.y >= 0 && b.x + b.width <= PHONE.viewport!.width && b.y + b.height <= PHONE.viewport!.height, `${what} in view: ${JSON.stringify(b)}`);
+  };
+  const button = page.getByRole('button', { name: /^Picture mode:/ });
+  await button.tap();
+  const menu = page.getByRole('menu', { name: 'Picture mode' });
+  await inView('the picture mode menu', menu);
+  assert.equal(await menu.getByRole('menuitemradio').count(), 6);
+  await page.screenshot({ path: path.join(shots, '16-phone-picture-menu.png') });
+  // Picking another mode keeps the menu open, so each one in turn (3D model, the default, last).
+  for (const mode of ['AI artwork', 'LayerTone', 'Lithophane', 'Line art', '3D figure', '3D model']) {
+    const item = menu.getByRole('menuitemradio', { name: new RegExp(`^${mode}`) });
+    await inView(mode, item);
+    await item.tap();
+    assert.equal(await item.getAttribute('aria-checked'), 'true', mode);
+    assert.match(await button.getAttribute('aria-label') ?? '', new RegExp(`^Picture mode: ${mode}`));
+  }
+  // Line art: the chosen mode again closes the menu, its ▾ picks the style, named on the button.
+  await menu.getByRole('menuitemradio', { name: /^Line art/ }).tap();
+  await menu.getByRole('menuitemradio', { name: /^Line art/ }).tap();
+  await menu.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Line art style' }).tap();
+  const styles = page.getByRole('menu', { name: 'Line art style' });
+  await inView('the Line art style menu', styles);
+  assert.equal(await styles.getByRole('menuitemradio').count(), 6);
+  await styles.getByRole('menuitemradio', { name: /^Key holder/ }).tap();
+  assert.equal(await button.getAttribute('aria-label'), 'Picture mode: Line art – Key holder');
+  assert.equal(await button.locator('.mode-label').textContent(), 'Key holder');
+  await page.screenshot({ path: path.join(shots, '16-phone-lineart-style.png') });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll');
+});
+
+test('a part\'s filament: its swatch opens the picker at the panel\'s width, a pick recolours the part and is saved, ↺ resets it', TEST, async () => {
+  const pid = 'ui-smoke-00000005';
+  const parts = 'function build() { return [{ name: \'Base\', color: \'#d0d0d0\', shape: Manifold.cube([30, 30, 6]) }, { name: \'Lid\', color: \'#d0d0d0\', shape: Manifold.cube([20, 20, 4]).translate([5, 5, 10]) }]; }';
+  const r = await putDesign({ id: pid, name: 'Two parts', createdAt: 1, updatedAt: 1, code: parts, values: {}, messages: [], currentVersion: 0,
+    versions: [{ code: parts, summary: 'A base and a lid', createdAt: 1, source: 'manual' }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  await page.goto(`${A}/?design=${pid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Two parts');
+  await built(page);
+  const swatch = page.getByRole('button', { name: 'Filament of Lid', exact: true });
+  const background = () => swatch.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const was = await background();
+  const view = page.locator('.viewer-host canvas').first();
+  const before = await view.screenshot();
+  await swatch.click();
+  const picker = page.getByRole('dialog', { name: 'Add a filament' });
+  await picker.waitFor();
+  // Under its part, as wide as the row (not squeezed into the swatch).
+  const row = (await page.locator('.object-row', { has: swatch }).boundingBox())!, box = (await picker.boundingBox())!;
+  assert.ok(Math.abs(box.x - row.x) < 2 && Math.abs(box.width - row.width) < 2 && box.width > 200, `picker ${JSON.stringify(box)}, row ${JSON.stringify(row)}`);
+  await page.screenshot({ path: path.join(shots, '17-part-filament.png') });
+  await picker.getByRole('textbox', { name: 'Search the filaments' }).fill('red');
+  const option = picker.getByRole('option').first();
+  const colour = await option.evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert.notEqual(colour, was);
+  await option.click();
+  await picker.waitFor({ state: 'detached' });
+  assert.equal(await background(), colour);
+  // The 3D view follows, and the pick is saved with the design.
+  await until(async () => !before.equals(await view.screenshot()), 'the part is recoloured in the view');
+  await until(async () => !!JSON.parse((await getDesign(pid)).values?.$partColors ?? '{}').Lid?.color, 'the pick is saved with the design');
+  await page.screenshot({ path: path.join(shots, '17-part-recoloured.png') });
+  await page.getByRole('button', { name: 'Reset the filament of Lid' }).click();
+  assert.equal(await background(), was);
+  await until(async () => !(await getDesign(pid)).values?.$partColors, 'the reset is saved with the design');
 });
