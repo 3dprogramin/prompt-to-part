@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { load, store } from '../lib/storage';
 import {
   bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, LAYER_HEIGHTS, SEAMS, SETTING_LABELS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
@@ -29,7 +30,12 @@ function source(ai: PrintProfile, user: PrintProfile, key: Key, part: string | n
   return 'default';
 }
 
+/** More parts than this and the part choice folds away. */
+const MANY_PARTS = 6;
+
 export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
+  const [scopeOpen, setScopeOpen] = useState<boolean>(() => load('printScopeOpen', false));
+  useEffect(() => store('printScopeOpen', scopeOpen), [scopeOpen]);
   const [scope, setScope] = useState<string | null>(null); // null = whole model
   const part = scope && parts.includes(scope) ? scope : null;
   const eff = effectiveSettings(ai, user, part ?? undefined, base);
@@ -60,15 +66,24 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
         <span className="dim small">Only changes from this profile go into the 3MF (tick “Print settings” when exporting).{!bambu && ' Needs Bambu Studio installed.'}</span>
       </div>
 
-      {parts.length > 1 && (
-        <div className="pp-scope">
-          <button className={`chip ${part === null ? 'on' : ''}`} aria-pressed={part === null} onClick={() => setScope(null)}>Whole model</button>
-          {parts.map((n) => {
-            const marked = !!(ai.parts?.[n] || user.parts?.[n]);
-            return <button key={n} className={`chip ${part === n ? 'on' : ''}`} aria-pressed={part === n} onClick={() => setScope(n)}>{n}{marked && <><i className="pp-dot" aria-hidden /><span className="sr-only"> (has its own settings)</span></>}</button>;
-          })}
-        </div>
-      )}
+      {parts.length > 1 && (() => {
+        const chips = (
+          <div className="pp-scope">
+            <button className={`chip ${part === null ? 'on' : ''}`} aria-pressed={part === null} onClick={() => setScope(null)}>Whole model</button>
+            {parts.map((n) => {
+              const marked = !!(ai.parts?.[n] || user.parts?.[n]);
+              return <button key={n} className={`chip ${part === n ? 'on' : ''}`} aria-pressed={part === n} onClick={() => setScope(n)}>{n}{marked && <><i className="pp-dot" aria-hidden /><span className="sr-only"> (has its own settings)</span></>}</button>;
+            })}
+          </div>
+        );
+        // Many parts (a split line art has dozens): the choice folds away, closed by default (remembered).
+        return parts.length <= MANY_PARTS ? chips : (
+          <details className="pp-scope-fold" open={scopeOpen} onToggle={(e) => setScopeOpen((e.currentTarget as HTMLDetailsElement).open)}>
+            <summary className="small">Settings for: <b>{part ?? 'Whole model'}</b> <span className="dim">· {parts.length} parts</span></summary>
+            {chips}
+          </details>
+        );
+      })()}
 
       {KEYS.filter((k) => !(part && (k === 'layerHeight' || k === 'firstLayerHeight')) && !(k === 'supportsOnPlate' && eff.supports === 'off')).map((key) => {
         const src = source(ai, user, key, part);

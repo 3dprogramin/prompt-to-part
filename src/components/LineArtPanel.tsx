@@ -102,6 +102,11 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
   // The size typed here (before the design's overall scale, which applies to it too).
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
   const userSize = !!parseLineArtSize(values[LINEART_SIZE_KEY]);
+  // The list of pieces: folded unless opened (remembered).
+  const [listOpen, setListOpen] = useState<boolean>(() => load('lineArtPiecesOpen', false));
+  useEffect(() => store('lineArtPiecesOpen', listOpen), [listOpen]);
+  const [notesOpen, setNotesOpen] = useState<boolean>(() => load('lineArtNotesOpen', false));
+  useEffect(() => store('lineArtNotesOpen', notesOpen), [notesOpen]);
   // Pieces beyond the grid's cells: bits too far from the rest of their cell (A2b…), and the join that decides it.
   const loose = sp ? sp.pieces.filter((p) => /[a-z]$/.test(p.label)) : [];
   const userJoin = parseLineArtJoin(values[LINEART_JOIN_KEY]) != null;
@@ -200,23 +205,35 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
       {sp && (
         <>
           <SplitPicture result={result} split={sp} />
-          <ul className="lineart-pieces small">
-            {sp.pieces.map((p) => (
-              <li key={p.label} className={over(p) ? 'warn' : ''}>
-                <b className="mono">{p.label}</b>
-                <span className="mono">{p.size[0].toFixed(0)} × {p.size[1].toFixed(0)} mm</span>
-                <span className="dim">{[p.joints ? `${p.joints} dovetail${p.joints > 1 ? 's' : ''}` : '', p.labelSize ? 'named' : 'unnamed (no room)'].filter(Boolean).join(' · ')}</span>
-              </li>
-            ))}
-          </ul>
+          {/* The list of pieces folds away (a split can make dozens); folded, a piece too big still shows. */}
+          <details className="lineart-pieces-fold" open={listOpen} onToggle={(e) => setListOpen((e.currentTarget as HTMLDetailsElement).open)}>
+            <summary className="small">
+              Pieces ({sp.pieces.length}){!listOpen && tooBig.length > 0 && <span className="warn"> · {tooBig.length} bigger than the bed</span>}
+            </summary>
+            <ul className="lineart-pieces small">
+              {sp.pieces.map((p) => (
+                <li key={p.label} className={over(p) ? 'warn' : ''}>
+                  <b className="mono">{p.label}</b>
+                  <span className="mono">{p.size[0].toFixed(0)} × {p.size[1].toFixed(0)} mm</span>
+                  <span className="dim">{[p.joints ? `${p.joints} dovetail${p.joints > 1 ? 's' : ''}` : '', p.labelSize ? 'named' : 'unnamed (no room)'].filter(Boolean).join(' · ')}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
           {tooBig.length > 0 && <div className="lineart-edit-row small warn"><span><Icon name="alert" size={12} /> {tooBig.map((p) => p.label).join(', ')} {tooBig.length > 1 ? 'are' : 'is'} bigger than the {bed} mm bed: use more pieces</span></div>}
+          {/* Notes on putting it up, folded by default (remembered); repeated ones merged. */}
+          <details className="lineart-pieces-fold" open={notesOpen} onToggle={(e) => setNotesOpen((e.currentTarget as HTMLDetailsElement).open)}>
+          <summary className="small">Notes{!notesOpen && sp.noJoint.length > 0 && <span className="warn"> · no dovetail at {sp.noJoint.length} crossing{sp.noJoint.length > 1 ? 's' : ''}</span>}</summary>
           <ul className="litho-advice small">
             <li>The seams cut {crossings ? <><span className="mono">{crossings}</span> line{crossings > 1 ? 's' : ''}</> : 'no lines'}; lines just meet end to end on the wall{sp.joints.length ? <>, and <span className="mono">{sp.joints.length}</span> dovetail{sp.joints.length > 1 ? 's' : ''} lock the {la.style === 'framed' || la.style === 'medallion' ? 'frame' : 'bar'}</> : ''}.</li>
-            {sp.noJoint.map((j, i) => <li key={i} className="warn">No dovetail at one crossing: {j.why}.</li>)}
+            {[...sp.noJoint.reduce((m, j) => m.set(j.why, (m.get(j.why) ?? 0) + 1), new Map<string, number>())].map(([why, n]) => (
+              <li key={why} className="warn">No dovetail at {n > 1 ? `${n} crossings` : 'one crossing'}: {why}.</li>
+            ))}
             {apart && <li>{apart.label} and its like are bits of a square too far apart to join: each goes up on its own.</li>}
             <li>Each piece prints on its own plate. {unnamed.length ? `Names are engraved on the backs where there is room (not on ${unnamed.map((p) => p.label).join(', ')}).` : 'Each name is engraved on its back.'}</li>
             <li>Put it up from the top left (A1), along each row: mark a level line, tape each piece up and push it against the last.</li>
           </ul>
+          </details>
         </>
       )}
     </div>

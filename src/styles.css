@@ -504,6 +504,8 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .oc-filament { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
 .oc-filament select { flex: 1; min-width: 0; }
 .oc-filament .swatch { width: 12px; height: 12px; border: 1px solid var(--line-2); }
+.pp-scope-fold > summary { cursor: pointer; color: var(--text-2); padding: 2px 0; }
+.pp-scope-fold[open] > summary { margin-bottom: 6px; }
 .pp-scope { display: flex; flex-wrap: wrap; gap: 4px; }
 .pp-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 5px; vertical-align: 1px; }
 .pp-row { display: flex; flex-direction: column; gap: 4px; }
@@ -879,6 +881,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .lineart-lock.on { color: var(--accent-2); }
 .lineart-split-grid .num-box { width: 88px; }
 .lineart-split-picture { display: block; width: 100%; border: 1px solid var(--line-2); border-radius: 7px; }
+.lineart-pieces-fold > summary { cursor: pointer; color: var(--text-2); padding: 2px 0; }
+.lineart-pieces-fold > summary .warn { color: #f2c66d; }
+.lineart-pieces-fold[open] > summary { margin-bottom: 4px; }
 .lineart-pieces { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto auto 1fr; gap: 2px 10px; color: var(--text-2); }
 .lineart-pieces li { display: contents; }
 .lineart-pieces li.warn > * { color: #f2c66d; }
