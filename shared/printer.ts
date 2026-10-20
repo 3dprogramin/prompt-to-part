@@ -22,6 +22,21 @@ export function bedShift(boxes: Box3[]): Vec3 {
   return [PRINTER.bed[0] / 2 - (lo[0] + hi[0]) / 2, PRINTER.bed[1] / 2 - (lo[1] + hi[1]) / 2, -lo[2]];
 }
 
+/**
+ * What must fit one plate: the whole model, or – when parts have plates of their own (the pieces
+ * of a split model, PartMesh.plate) – each plate's parts, the biggest first.
+ */
+export function plateBounds(parts: { bbox: Box3; plate?: number }[], all: Box3 | null): Box3[] {
+  const ids = [...new Set(parts.map((p) => p.plate ?? 1))];
+  if (ids.length < 2) return all ? [all] : [];
+  const boxes = ids.map((id) => {
+    const on = parts.filter((p) => (p.plate ?? 1) === id);
+    return { min: [0, 1, 2].map((k) => Math.min(...on.map((p) => p.bbox.min[k]))) as Vec3, max: [0, 1, 2].map((k) => Math.max(...on.map((p) => p.bbox.max[k]))) as Vec3 };
+  });
+  const size = (b: Box3) => Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1]);
+  return boxes.sort((a, b) => size(b) - size(a));
+}
+
 /** Returns a problem description if the box doesn't fit the build volume (assuming it is centered on the plate). */
 export function fitProblem(b: Box3 | null): string | null {
   if (!b) return null;

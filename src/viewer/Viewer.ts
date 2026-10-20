@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
 import { buildGrid, buildPlate, updatePlate } from './stage';
+import { plateBounds } from '../../shared/printer';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
 import { linearColors, paintedGeometry, usableColors } from '../geometry/vertexColors';
@@ -617,7 +618,8 @@ export class Viewer {
 
   private buildGrid(size: number) { this.gridGroup.userData.step = buildGrid(this.gridGroup, size); }
   private buildPlate() { buildPlate(this.plateGroup); }
-  private updatePlate() { updatePlate(this.plateGroup, this.result?.bbox); }
+  // A split model's pieces each go on a plate of their own: the biggest plate's parts must fit.
+  private updatePlate() { updatePlate(this.plateGroup, this.result ? plateBounds(this.result.parts, this.result.bbox)[0] : null); }
 
   get gridStep(): number { return this.gridGroup.userData.step ?? 10; }
 

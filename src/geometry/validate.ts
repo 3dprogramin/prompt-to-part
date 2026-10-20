@@ -1,7 +1,7 @@
 // Printability / mesh validation, run in the geometry worker on the exact mesh being exported.
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { fitProblem, PRINTER } from '../../shared/printer';
+import { fitProblem, plateBounds, PRINTER } from '../../shared/printer';
 import { overlapVolume } from '../../shared/runtime';
 import type { EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import { exportedParts } from './parts';
@@ -219,8 +219,11 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
     add('warning', `Exporting the "${opts.layoutValue}" layout`, 'This layout shows the parts for display – they may float or overlap. Switch Layout to "print" before printing.');
   }
 
-  const fit = fitProblem(result.bbox);
-  if (fit) add('error', `Too big for the ${PRINTER.name}`, fit);
+  // Parts with plates of their own (the pieces of a split model) must each fit theirs.
+  for (const b of plateBounds(result.parts, result.bbox)) {
+    const fit = fitProblem(b);
+    if (fit) add('error', `Too big for the ${PRINTER.name}`, fit);
+  }
 
   const analyses = result.parts.map((p) => analysePart(p, rand));
   let overhangArea = 0, area = 0, bedContact = 0, volume = 0;

@@ -1,13 +1,13 @@
 // Warnings about an evaluated model that both the user (Model tab) and Claude (evaluate_model
 // report) see, so the two are always told the same thing.
-import { fitProblem } from './printer';
+import { fitProblem, plateBounds } from './printer';
 import type { Box3 } from './types';
 import { filamentLabel, MAX_MESH_COLORS, type PaintFilament } from './meshColors';
 
 interface Evaluated {
   bbox: Box3 | null;
   warnings: string[];
-  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] } }[];
+  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] }; bbox: Box3; plate?: number }[];
 }
 
 /** The filaments a design with coloured meshes prints with: each painted part's, and the colour of every other part (one per colour). */
@@ -23,7 +23,8 @@ export function designFilaments(parts: Evaluated['parts']): PaintFilament[] {
 /** The script's own warnings plus build-volume, plate-contact and disconnected-piece checks. */
 export function modelWarnings(r: Evaluated): string[] {
   const out = [...r.warnings];
-  const fit = fitProblem(r.bbox);
+  // Each plate's parts must fit (a split model has a plate per piece).
+  const fit = plateBounds(r.parts, r.bbox).map(fitProblem).find(Boolean);
   if (fit) out.push(fit);
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) out.push(`Model does not rest on the build plate: min Z = ${r.bbox.min[2].toFixed(2)} mm (should be 0)`);
   // A coloured figure prints in the AMS lite's 4 filaments, together with the design's other parts.
