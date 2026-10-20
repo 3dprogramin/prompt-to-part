@@ -873,6 +873,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .lineart-split-row > .seg { flex: 1; max-width: 230px; }
 .lineart-split-row select { background: var(--bg); border: 1px solid var(--input-line); border-radius: 6px; padding: 3px 6px; color: var(--text); font-size: 12px; }
 .lineart-split-grid { display: inline-flex; align-items: center; gap: 6px; }
+.lineart-count { display: inline-block; padding: 0 7px; border-radius: 10px; border: 1px solid var(--accent); background: #e0a43c22; color: var(--accent-2); font-weight: 600; white-space: nowrap; }
+.lineart-count.big { padding: 3px 11px; font-size: 14px; }
+.lineart-split-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 2px 0; }
 .lineart-lock { width: 22px; height: 22px; color: var(--text-3); }
 .lineart-lock.on { color: var(--accent-2); }
 .lineart-split-grid .num-box { width: 88px; }

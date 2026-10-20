@@ -133,6 +133,13 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
           <button {...radio(mode === 'grid')} onClick={() => set(grid[0] * grid[1] > 1 ? grid : [2, 1])} title="Columns × rows">Grid</button>
         </div>
       </div>
+      {/* How many pieces it makes, at a glance. */}
+      {sp && (
+        <div className="lineart-split-summary">
+          <span className="lineart-count big">{sp.pieces.length} pieces</span>
+          <span className="dim small">{sp.cols} × {sp.rows} grid · the biggest {Math.max(...sp.pieces.map((p) => p.size[0])).toFixed(0)} × {Math.max(...sp.pieces.map((p) => p.size[1])).toFixed(0)} mm</span>
+        </div>
+      )}
       {mode === 'pieces' && (
         <label className="lineart-split-row small">
           <span className="dim">Pieces</span>
@@ -314,7 +321,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
         <dd className={tooBig ? 'warn' : ''}>
           <span className="mono">{w.toFixed(0)} × {h.toFixed(0)} mm</span>
           {tooBig && <span className="lineart-why"><Icon name="alert" size={12} /> bigger than the {bed}'s bed ({PRINTER.bed[0]} mm): split it into pieces below</span>}
-          {la.split && <span className="dim"> in {la.split.pieces.length} pieces</span>}
+          {la.split && <> in <span className="lineart-count">{la.split.pieces.length} pieces</span></>}
         </dd>
         <dt>Thickness</dt><dd className="mono">{mm(la.thickness)}</dd>
         <dt>Lines</dt><dd><span className="mono">{mm(la.lineWidth)}</span>, {la.lines === 'even' ? 'even' : 'kept (thin ones thickened)'}</dd>
