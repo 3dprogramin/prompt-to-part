@@ -10,7 +10,7 @@ import { Icon } from './Icon';
 import { useEscape } from './useEscape';
 
 /** A photo being made (or that failed), per design. */
-export interface PhotoJob { id: string; designId: string; scene: string; startedAt: number; error?: string }
+export interface PhotoJob { id: string; designId: string; scene: string; startedAt: number; error?: string; change?: string }
 
 /** Photo requests in flight: they finish into their design even when another one is open by then. */
 export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => void) {
@@ -18,11 +18,11 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
   const done = useRef(onDone);
   done.current = onDone;
   const start = (designId: string, r: PhotoRequest) => {
-    const job: PhotoJob = { id: uid(), designId, scene: r.scene, startedAt: Date.now() };
+    const job: PhotoJob = { id: uid(), designId, scene: r.scene, startedAt: Date.now(), change: r.change };
     setJobs((j) => [...j, job]);
     api.photo(designId, r).then((out) => {
       setJobs((j) => j.filter((x) => x.id !== job.id));
-      done.current(designId, { url: out.photo, render: out.render, scene: r.scene, notes: r.notes, aspect: r.aspect, prompt: out.prompt, model: out.model, cost: out.cost, createdAt: Date.now() });
+      done.current(designId, { url: out.photo, render: out.render, scene: r.scene, notes: r.notes, ...(r.from ? { editOf: r.from.photo, change: r.change } : {}), aspect: r.aspect, prompt: out.prompt, model: out.model, cost: out.cost, createdAt: Date.now() });
     }, (e: Error) => setJobs((j) => j.map((x) => (x.id === job.id ? { ...x, error: e.message } : x))));
   };
   const dismiss = (id: string) => setJobs((j) => j.filter((x) => x.id !== id));
@@ -116,6 +116,29 @@ export function PhotosPanel(p: Props) {
 
   if (!p.open) return null;
 
+  // What the image model is told about the product (name, size, colours).
+  const product = (): PhotoRequest['product'] | null => (!size || !p.result ? null : {
+    name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn, lithophane,
+    // Per-vertex (LayerTone) parts are many colours: the render shows them.
+    // A coloured mesh's part: its filaments' colours.
+    colors: [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
+  });
+  // A photo made again with a change (the photo and its render go to the image model).
+  // `fromView`: the product from a new render at the 3D view's current angle (to change how it sits).
+  const redo = (ph: ProductPhoto, change: string, fromView: boolean) => {
+    const prod = product();
+    if (!prod) return setError('There is no model to describe the product with yet.');
+    setError(null);
+    const shape = (PHOTO_ASPECTS as readonly string[]).includes(ph.aspect) ? ph.aspect as PhotoAspect : aspect;
+    let shot: string | null = null;
+    if (fromView) {
+      try { shot = p.capture('current', ASPECT_RATIO[shape]); } catch (e) { return setError(`Couldn't render the model: ${(e as Error).message}`); }
+      if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
+    }
+    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, aspect: shape, notes: ph.notes, product: prod });
+    closeBig();
+  };
+
   const generate = () => {
     setError(null);
     if (!size || !p.result) return setError('There is no model to photograph yet.');
@@ -132,12 +155,7 @@ export function PhotosPanel(p: Props) {
       scene: choice.scene,
       aspect,
       notes: choice.notes.trim() || undefined,
-      product: {
-        name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn, lithophane,
-        // Per-vertex (LayerTone) parts are many colours: the render shows them.
-        // A coloured mesh's part: its filaments' colours.
-        colors: [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
-      },
+      product: product()!,
     });
   };
 
@@ -207,7 +225,7 @@ export function PhotosPanel(p: Props) {
             {j.error
               ? <><Icon name="alert" size={16} /><span className="small">{sceneLabel(j.scene)}: {j.error}</span>
                 <button className="link" onClick={() => p.onDismiss(j.id)}>Dismiss</button></>
-              : <><span className="spinner" /><span className="small">{sceneLabel(j.scene)}</span>
+              : <><span className="spinner" /><span className="small" title={j.change}>{sceneLabel(j.scene)}{j.change ? ' · changed' : ''}</span>
                 <span className="dim small mono">{Math.max(0, Math.round((elapsed - j.startedAt) / 1000))} s</span></>}
           </div>
         ))}
@@ -217,7 +235,7 @@ export function PhotosPanel(p: Props) {
               <img src={ph.url} alt="" loading="lazy" />
             </button>
             <div className="ph-tile-bar">
-              <span className="small" title={ph.notes}>{sceneLabel(ph.scene)}</span>
+              <span className="small" title={ph.change ?? ph.notes}>{sceneLabel(ph.scene)}{ph.editOf ? ' · changed' : ''}</span>
               <button className="icon-btn" onClick={() => void save(ph, photos.length - i)} title="Download" aria-label={`Download the ${sceneLabel(ph.scene)} photo`}><Icon name="download" size={13} /></button>
               <DeleteButton label={`${sceneLabel(ph.scene)} photo`} onDelete={() => p.onDelete(ph.url)} />
             </div>
@@ -229,6 +247,7 @@ export function PhotosPanel(p: Props) {
       {big && createPortal(
         <div className="lightbox ph-lightbox" role="dialog" aria-modal="true" aria-label="Product photo" onClick={closeBig}>
           <BigPhoto key={big.url} photo={big} onSave={() => void save(big, photos.length - photos.indexOf(big))} onDelete={() => { p.onDelete(big.url); closeBig(); }} onClose={closeBig}
+            onRedo={p.imageModel ? (change, fromView) => redo(big, change, fromView) : undefined}
             onSwipe={photos.length > 1 ? step : undefined} />
           {photos.length > 1 && <>
             <button className="lightbox-nav prev" onClick={(e) => { e.stopPropagation(); step(-1); }} title="Previous photo (←)" aria-label="Previous photo"><Icon name="chevron" size={20} /></button>
@@ -243,8 +262,11 @@ export function PhotosPanel(p: Props) {
 }
 
 /** The enlarged photo with what it was made from: scene, model, cost, the render and the prompt. */
-function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe }: { photo: ProductPhoto; onSave: () => void; onDelete: () => void; onClose: () => void; onSwipe?: (by: number) => void }) {
+function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe, onRedo }: { photo: ProductPhoto; onSave: () => void; onDelete: () => void; onClose: () => void; onSwipe?: (by: number) => void; onRedo?: (change: string, fromView: boolean) => void }) {
   const [render, setRender] = useState(false);
+  // Redo with a change: what to change, this photo as the scene, and the product from its render or from the 3D view's angle.
+  const [change, setChange] = useState('');
+  const [fromView, setFromView] = useState(false);
   // A sideways swipe on a touch screen goes to the next (left) or previous (right) photo.
   const swipe = useRef<{ x: number; y: number } | null>(null);
   return (
@@ -263,13 +285,26 @@ function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe }: { photo: Produc
           <b>{sceneLabel(photo.scene)}</b>
           <button className="icon-btn" autoFocus onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)"><Icon name="x" size={14} /></button>
         </div>
-        {photo.notes && <div className="small">{photo.notes}</div>}
+        {photo.change ? <div className="small">Changed: {photo.change}</div> : photo.notes && <div className="small">{photo.notes}</div>}
         <div className="dim small">{photo.aspect} · {photo.model} · {money(photo.cost)} · {new Date(photo.createdAt).toLocaleString()}</div>
         <div className="ph-big-actions">
           <button className="btn small-btn" onClick={onSave}><Icon name="download" size={13} /> Download</button>
           {photo.render && <button className="btn small-btn" aria-pressed={render} onClick={() => setRender(!render)}><Icon name="cube" size={13} /> {render ? 'Show the photo' : 'Show the render'}</button>}
           <DeleteButton label="photo" onDelete={onDelete} text />
         </div>
+        {onRedo && (
+          <div className="ph-redo">
+            <textarea className="text-param" rows={3} maxLength={MAX_NOTES_CHARS} value={change} onChange={(e) => setChange(e.target.value)} aria-label="What to change in this photo"
+              placeholder={'What to change, e.g. "lay it flat on the table", "warmer evening light", "add a plant behind it"'}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && change.trim()) onRedo(change.trim(), fromView); }} />
+            <label className="ph-redo-view small" title="To change how the product sits or is seen: turn the 3D view to that angle first (Esc closes this photo), then redo">
+              <input type="checkbox" checked={fromView} onChange={(e) => setFromView(e.target.checked)} /> Product at the 3D view's current angle
+            </label>
+            <button className="btn primary small-btn" disabled={!change.trim()} onClick={() => onRedo(change.trim(), fromView)} title="Make this photo again with the change (Ctrl+Enter): the same setting, the product as in the render; about $0.07">
+              <Icon name="camera" size={13} /> Redo with this change
+            </button>
+          </div>
+        )}
         <details className="ph-prompt">
           <summary>Prompt</summary>
           <pre>{photo.prompt}</pre>

@@ -74,8 +74,11 @@ export function suggestScene(text: string, size?: Vec3): string {
 
 /** POST /api/designs/:id/photos */
 export interface PhotoRequest {
-  /** The clean render of the model (PNG or JPEG). */
-  render: ImageData;
+  /** The clean render of the model (PNG or JPEG); with `from`, optional: a new angle for the product (else the photo's own render). */
+  render?: ImageData;
+  /** Change an existing photo instead of making a new one: its stored photo and render (/api/designs/:id/images/…), and what to change. */
+  from?: { photo: string; render?: string };
+  change?: string;
   /** A preset's id, or 'custom' with the scene in `notes`. */
   scene: string;
   aspect: PhotoAspect;
@@ -97,9 +100,9 @@ export interface PhotoRequest {
 }
 
 export interface PhotoResponse {
-  /** The stored photo and render (/api/designs/:id/images/…). */
+  /** The stored photo and render (/api/designs/:id/images/…; a changed photo keeps its original's render, if it had one). */
   photo: string;
-  render: string;
+  render?: string;
   prompt: string;
   model: string;
   /** USD (null if OpenRouter didn't say). */
@@ -109,8 +112,15 @@ export interface PhotoResponse {
 /** What is wrong with a photo request, or null. */
 export function photoProblem(b: PhotoRequest): string | null {
   if (!b || typeof b !== 'object') return 'Send the render, the scene and the aspect';
-  const r = b.render as Partial<ImageData> | undefined;
-  if (!r || typeof r.data !== 'string' || !r.data || (r.mediaType !== 'image/png' && r.mediaType !== 'image/jpeg')) return 'render must be a PNG or JPEG image';
+  if (b.render != null) {
+    const r = b.render as Partial<ImageData>;
+    if (typeof r.data !== 'string' || !r.data || (r.mediaType !== 'image/png' && r.mediaType !== 'image/jpeg')) return 'render must be a PNG or JPEG image';
+  }
+  if (b.from != null) {
+    const ok = (u: unknown) => typeof u === 'string' && PHOTO_URL.test(u);
+    if (typeof b.from !== 'object' || !ok(b.from.photo) || (b.from.render != null && !ok(b.from.render))) return 'from: the photo (and render) to change, as /api/designs/<id>/images/<name> URLs';
+    if (typeof b.change !== 'string' || !b.change.trim() || b.change.length > MAX_NOTES_CHARS) return `change: what to change in the photo, up to ${MAX_NOTES_CHARS} characters`;
+  } else if (b.render == null) return 'render must be a PNG or JPEG image';
   if (typeof b.scene !== 'string' || (b.scene !== CUSTOM_SCENE && !sceneById(b.scene))) return `scene must be one of ${[...PHOTO_SCENES.map((s) => s.id), CUSTOM_SCENE].join(', ')}`;
   if (!PHOTO_ASPECTS.includes(b.aspect)) return `aspect must be one of ${PHOTO_ASPECTS.join(', ')}`;
   if (b.notes != null && (typeof b.notes !== 'string' || b.notes.length > MAX_NOTES_CHARS)) return `notes: text up to ${MAX_NOTES_CHARS} characters`;
@@ -123,6 +133,9 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (p.colors != null && (!Array.isArray(p.colors) || p.colors.length > 16 || !p.colors.every((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)))) return 'product.colors: up to 16 #rrggbb colours';
   return null;
 }
+
+/** A stored image of a design (a photo or its render). */
+export const PHOTO_URL = /^\/api\/designs\/[a-zA-Z0-9-]{8,64}\/images\/[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
 
 const mm = (v: number) => (v >= 100 ? Math.round(v) : +v.toFixed(1)).toString();
 
@@ -178,9 +191,27 @@ export function photoPrompt(b: PhotoRequest): string {
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
     wall && Math.max(x, y) < 350 ? 'It is a small piece for a wall: show a light switch, a door frame or a small framed picture near it so its real size is obvious, and photograph it from close by.' : null,
     preset && notes ? `Also: ${notes}.` : null,
-    'It rests naturally in the scene with real contact shadows and light that matches the surroundings.',
+    wall
+      ? 'It hangs flat against the wall, its back touching it, with a soft contact shadow, in light that matches the surroundings.'
+      : 'It rests ON the surface, not above it: its underside in full contact with the table or shelf, seen in the same perspective as that surface (it lies in its plane, never tilted against it, floating or hovering), with real contact shadows right under it and light that matches the surroundings.',
     '',
     'PHOTO: a professional lifestyle product photo for an online shop listing, shot on a full-frame camera with an 85 mm lens, natural light, shallow depth of field with the product in sharp focus and the background softly blurred, the product as the clear hero of the picture, well composed with some space around it.',
     'Only one of the product. No text, captions, logos, watermarks, price tags or borders anywhere in the picture.',
+  ].filter((l) => l !== null).join('\n');
+}
+
+/**
+ * The prompt for making a photo again with a change: a new photo from the render (the first
+ * picture, as photoPrompt), with the earlier photo (the second picture) as the scene to keep – its
+ * setting, props and light – and the change applied. Composed afresh rather than patched, so the
+ * product can sit differently (an edited picture keeps the product as it was drawn).
+ */
+export function photoEditPrompt(b: PhotoRequest): string {
+  return [
+    photoPrompt({ ...b, notes: undefined }),
+    '',
+    'THE SCENE TO KEEP: the second attached picture is an earlier photo of this product. Make the new photo in the same setting – the same place, surface, props, colours, light and mood – and compose it afresh around the product.',
+    `THE CHANGE (the reason for the new photo – make it clearly): ${b.change!.trim()}.`,
+    b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
   ].filter((l) => l !== null).join('\n');
 }

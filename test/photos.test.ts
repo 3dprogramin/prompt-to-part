@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { photoProblem, photoPrompt, suggestScene, type PhotoRequest } from '../shared/photos';
+import { photoEditPrompt, photoProblem, photoPrompt, suggestScene, type PhotoRequest } from '../shared/photos';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
   render: { mediaType: 'image/png', data: 'iVBORw0KGgo=' },
@@ -70,4 +70,20 @@ test('photo requests are checked', () => {
   assert.match(photoProblem(request({ product: { name: 'x', size: [1, 2, 3], colors: ['red'] } }))!, /colors/);
   assert.match(photoProblem(request({ product: { name: 'x'.repeat(300), size: [1, 2, 3] } }))!, /name/);
   assert.match(photoProblem(null as unknown as PhotoRequest)!, /render/);
+});
+
+test('a photo made again with a change: its photo is the scene, the product from its render or a new angle', () => {
+  const from = { photo: '/api/designs/abcdefgh-1234/images/0123456789abcdef0123456789abcdef.png', render: '/api/designs/abcdefgh-1234/images/fedcba9876543210fedcba9876543210.png' };
+  const { render: _r, ...noRender } = request();
+  assert.equal(photoProblem({ ...noRender, from, change: 'add a plant behind it' }), null);
+  assert.equal(photoProblem({ ...request(), from, change: 'seen from lower' }), null, 'a new angle may come with it');
+  assert.match(photoProblem({ ...noRender, from, change: ' ' })!, /change/);
+  assert.match(photoProblem({ ...noRender, from: { photo: 'https://example.com/x.png' }, change: 'x' })!, /from/);
+  assert.match(photoProblem(noRender)!, /render/);
+  const p = photoEditPrompt({ ...noRender, from, change: 'add a plant behind it', notes: 'evening light' });
+  assert.match(p, /THE SCENE TO KEEP: the second attached picture is an earlier photo/);
+  assert.match(p, /THE CHANGE \(the reason for the new photo – make it clearly\): add a plant behind it\./);
+  assert.match(p, /Earlier wishes that still apply: evening light\./);
+  assert.match(p, /KEEP THE OBJECT EXACTLY AS IN THE RENDER/);
+  assert.match(photoPrompt(request()), /rests ON the surface, not above it/);
 });

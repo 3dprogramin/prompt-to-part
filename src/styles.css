@@ -1052,6 +1052,10 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-big-side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; padding: 12px; overflow-y: auto; align-self: flex-start; max-height: calc(100dvh - 48px); }
 .ph-big-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .ph-big-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ph-redo { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.ph-redo textarea { width: 100%; resize: vertical; }
+.ph-redo .btn { align-self: flex-start; }
+.ph-redo-view { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
 .ph-prompt summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
 .ph-prompt pre { white-space: pre-wrap; font: 11px/1.45 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px; margin: 6px 0 0; max-height: 40dvh; overflow-y: auto; }
 @media (max-width: 900px) {

@@ -20,7 +20,7 @@ import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
-import { photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
+import { photoEditPrompt, photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
 import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
@@ -324,6 +324,13 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     res.json({ url });
   });
 
+  /** A render sent with a photo request as bytes, or what is wrong with it. */
+  const checkedRender = (r: { mediaType: string; data: string }): Buffer | string => {
+    const bytes = Buffer.from(r.data, 'base64');
+    const png = bytes[0] === 0x89 && bytes[1] === 0x50, jpg = bytes[0] === 0xff && bytes[1] === 0xd8;
+    return bytes.length > MAX_RENDER_BYTES || !(r.mediaType === 'image/png' ? png : jpg) ? `The render must be a PNG or JPEG of up to ${MAX_RENDER_BYTES / 1024 / 1024} MB` : bytes;
+  };
+
   // Product photos: the image model turns a clean render of the model into a photo of the printed
   // product in a scene. The photo and the render are stored with the design's images; the app
   // lists them in the design (Design.photos).
@@ -333,24 +340,49 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     const body = req.body as PhotoRequest;
     const problem = photoProblem(body);
     if (problem) return void res.status(400).json({ error: problem });
-    const render = Buffer.from(body.render.data, 'base64');
-    const png = render[0] === 0x89 && render[1] === 0x50, jpg = render[0] === 0xff && render[1] === 0xd8;
-    if (render.length > MAX_RENDER_BYTES || !(body.render.mediaType === 'image/png' ? png : jpg)) {
-      return void res.status(400).json({ error: `The render must be a PNG or JPEG of up to ${MAX_RENDER_BYTES / 1024 / 1024} MB` });
-    }
     if (!artworkAvailable()) return void res.status(503).json({ error: 'Product photos need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.' });
     if (deleted.has(id)) return void res.status(410).json({ error: 'This design was deleted' });
-    const prompt = photoPrompt(body);
+    // A new photo is made from the render sent; a change starts from a stored photo of this design
+    // (and its render, as the product's reference).
+    let references: string[], render: Buffer | null = null, renderUrl: string | null = null, prompt: string;
+    if (body.from) {
+      const stored = async (url: string) => {
+        const [, owner, name] = /^\/api\/designs\/([^/]+)\/images\/([^/]+)$/.exec(url) ?? [];
+        if (owner !== id || !IMAGE_NAME.test(name ?? '')) throw new Error('Only a photo of this design can be changed');
+        const type = Object.keys(IMAGE_TYPES).find((t) => IMAGE_TYPES[t] === name.split('.')[1])!;
+        return `data:${type};base64,${(await readFile(path.join(imageDir(id), name))).toString('base64')}`;
+      };
+      // The product from a new render (the view turned to another angle) or the photo's own.
+      if (body.render) {
+        const sent = checkedRender(body.render);
+        if (typeof sent === 'string') return void res.status(400).json({ error: sent });
+        render = sent;
+      } else if (!body.from.render) return void res.status(400).json({ error: 'That photo has no render stored: make a new photo instead' });
+      try {
+        references = [body.render ? `data:${body.render.mediaType};base64,${body.render.data}` : await stored(body.from.render!), await stored(body.from.photo)];
+      } catch (e) {
+        return void res.status((e as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 400).json({ error: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'That photo is no longer stored' : (e as Error).message });
+      }
+      renderUrl = body.render ? null : body.from.render!;
+      prompt = photoEditPrompt(body);
+    } else {
+      const r = body.render!;
+      const sent = checkedRender(r);
+      if (typeof sent === 'string') return void res.status(400).json({ error: sent });
+      render = sent;
+      references = [`data:${r.mediaType};base64,${r.data}`];
+      prompt = photoPrompt(body);
+    }
     const abort = new AbortController();
     res.on('close', () => { if (!res.writableFinished) abort.abort(); });
     try {
-      const out = await image(prompt, body.aspect, [`data:${body.render.mediaType};base64,${body.render.data}`], abort.signal);
+      const out = await image(prompt, body.aspect, references, abort.signal);
       const ext = IMAGE_TYPES[out.image.mediaType];
       if (!ext) throw new Error(`The image model returned a picture format Jig can't store (${out.image.mediaType})`);
       const photo = await storeImage(id, Buffer.from(out.image.data, 'base64'), ext);
-      const renderUrl = photo && await storeImage(id, render, IMAGE_TYPES[body.render.mediaType]);
-      if (!photo || !renderUrl) return void res.status(410).json({ error: 'This design was deleted' });
-      res.json({ photo, render: renderUrl, prompt, model: out.model, cost: out.cost } satisfies PhotoResponse);
+      if (render) renderUrl = photo && await storeImage(id, render, IMAGE_TYPES[body.render!.mediaType]);
+      if (!photo || (render && !renderUrl)) return void res.status(410).json({ error: 'This design was deleted' });
+      res.json({ photo, render: renderUrl ?? undefined, prompt, model: out.model, cost: out.cost } satisfies PhotoResponse);
     } catch (e) {
       if (abort.signal.aborted) return;
       console.error('[photos]', (e as Error).message);

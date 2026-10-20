@@ -274,6 +274,9 @@ export interface ProductPhoto {
   scene: string;
   /** The custom scene or the extra wishes. */
   notes?: string;
+  /** A redo of another photo (its URL), with what was changed. */
+  editOf?: string;
+  change?: string;
   aspect: string;
   prompt: string;
   model: string;
