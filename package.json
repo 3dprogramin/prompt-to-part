@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "dev:watch": "concurrently -k -n server,web -c blue,green \"tsx watch --clear-screen=false server/index.ts\" \"vite\"",
     "test": "node --import tsx --test \"test/*.test.ts\"",
+    "rebuild": "scripts/rebuild.sh",
     "test:ui": "vite build && node --import tsx --test test/ui/smoke.ts",
     "mock:meshy": "tsx server/meshyMock.ts",
     "dev:litho": "vite -c litho/vite.config.ts",

@@ -79,7 +79,7 @@ docker compose restart jig
 
 The Bambu template is rebuilt by the container's Bambu Studio when its version differs. Claude sessions are not moved: a design's next message starts a fresh session with a summary of the conversation.
 
-**Updating:** `git pull && docker compose up -d --build`. Old images can then be removed with `docker image prune`.
+**Updating:** `git pull && npm run rebuild`: it waits until no reply is being generated (and no Bambu Studio slice runs), rebuilds with `docker compose up -d --build` and waits until Jig is healthy again (`--check` only says whether Jig is busy, `--now` skips the wait). Old images can then be removed with `docker image prune`.
 
 **Logs:** `docker compose logs -f jig` (add `DEBUG_AGENT=1` to `.env` to include Claude Code's own output). `docker compose ps` shows whether the container is healthy.
 
