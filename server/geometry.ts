@@ -241,12 +241,27 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   return report.length > MAX_REPORT ? `${report.slice(0, MAX_REPORT)}\n… report cut at ${MAX_REPORT} characters` : report;
 }
 
-/** A line-art part in one line: style, drawings, size, lines, what Jig fixed and the key holder's pegs. */
+/** A line-art part in one line: style, drawings, size, lines, what Jig fixed and the key holder's pegs; split, the pieces (on the first). */
 export function lineArtLine(a: LineArtInfo): string {
   const g = (n: number) => String(+n.toFixed(1));
+  if (a.piece && !a.split) return `Piece ${a.piece.label} of the split line art (see the first piece for the split)`;
   const fixed = `${a.bridges ? `${a.bridges} bridge${a.bridges > 1 ? 's' : ''} added (longest ${g(a.longestBridge)} mm)` : 'no bridges needed'}, ${a.dropped ? `${a.dropped} speck${a.dropped > 1 ? 's' : ''} dropped` : 'no specks dropped'}`;
   // Openings that closed: lines drawn closer together than the print can keep apart.
   const ends = a.endsJoined || a.endsFree ? `; ${a.endsJoined ? `${a.endsJoined} loose line${a.endsJoined > 1 ? 's' : ''} joined to a nearby line` : 'no loose lines joined'}${a.endsFree ? `, ${a.endsFree} still loose (held at one point only, nothing within reach to join – they can lift off the wall)` : ''}` : '';
   const lost = a.closed ? `; ${a.closed} of ${a.openings} openings between lines closed up (${Math.round((100 * a.closed) / Math.max(1, a.openings))} %: detail lost – the drawing is too fine for this size)` : '';
-  return `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${a.lines === 'keep' ? `lines at least ${g(a.lineWidth)} mm (the drawing's own weights)` : `${g(a.lineWidth)} mm lines (even)`}; ${fixed}${ends}${lost}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}`;
+  const line = `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${a.lines === 'keep' ? `lines at least ${g(a.lineWidth)} mm (the drawing's own weights)` : `${g(a.lineWidth)} mm lines (even)`}; ${fixed}${ends}${lost}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}`;
+  return a.split ? `${line}${splitLines(a.split, g)}` : line;
+}
+
+/** A split line art: the grid, each piece (size, what Jig fixed on it alone, dovetails, its name), the seams and joints. */
+function splitLines(sp: NonNullable<LineArtInfo['split']>, g: (n: number) => string): string {
+  const bed = PRINTER.bed[0];
+  const pieces = sp.pieces.map((p) => {
+    const fixed = [p.bridges ? `${p.bridges} bridge${p.bridges > 1 ? 's' : ''} (longest ${g(p.longestBridge)} mm)` : '', p.dropped ? `${p.dropped} speck${p.dropped > 1 ? 's' : ''} dropped` : '', p.endsJoined ? `${p.endsJoined} loose line${p.endsJoined > 1 ? 's' : ''} joined` : '', p.endsFree ? `${p.endsFree} still loose` : ''].filter(Boolean).join(', ');
+    return `\n      ${p.label}: ${g(p.size[0])} × ${g(p.size[1])} mm${p.size[0] > bed || p.size[1] > bed ? ` – BIGGER THAN THE ${bed} mm BED` : ''}${fixed ? `; ${fixed}` : ''}${p.joints ? `; ${p.joints} dovetail${p.joints > 1 ? 's' : ''}` : ''}; ${p.labelSize ? `name engraved on the back (${g(p.labelSize)} mm)` : 'no room for its name on the back'}`;
+  }).join('');
+  const crossings = sp.seams.reduce((n, m) => n + m.crossings, 0);
+  const apart = sp.pieces.filter((p) => /[a-z]$/.test(p.label)).map((p) => p.label);
+  return `\n    Split into ${sp.pieces.length} pieces (${sp.spec === 'auto' ? 'Auto' : sp.spec}: ${sp.cols} column${sp.cols > 1 ? 's' : ''} × ${sp.rows} row${sp.rows > 1 ? 's' : ''}), each on its own plate; Jig's clean-up ran on each piece alone (the counts above are totals):${pieces}`
+    + `\n      The seams cut ${crossings} line${crossings === 1 ? '' : 's'} of the drawing (they meet end to end, no joint); ${sp.joints.length} dovetail${sp.joints.length === 1 ? '' : 's'} on the bar or frame${sp.joints.length ? ` (${sp.joints.map((j) => `${j.tab}→${j.socket}`).join(', ')})` : ''}${sp.noJoint.length ? `; no dovetail at ${sp.noJoint.length} crossing${sp.noJoint.length > 1 ? 's' : ''}: ${[...new Set(sp.noJoint.map((j) => j.why))].join('; ')}` : ''}${apart.length ? `; ${apart.join(', ')} ${apart.length > 1 ? 'are bits' : 'is a bit'} of a square too far from the rest to bridge, so a piece of its own` : ''}`;
 }

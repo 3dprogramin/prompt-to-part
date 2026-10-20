@@ -18,7 +18,7 @@ import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
-import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, parseLineArtEdits } from '../shared/lineart';
+import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtSplit } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -225,6 +225,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(layerToneImages).length ? { [LAYERTONE_IMAGES_KEY]: JSON.stringify(layerToneImages) } : {}),
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
     ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
+    ...(typeof pictureValues[LINEART_SPLIT_KEY] === 'string' ? { [LINEART_SPLIT_KEY]: pictureValues[LINEART_SPLIT_KEY] } : {}),
+    ...(typeof pictureValues[LINEART_LAYOUT_KEY] === 'string' ? { [LINEART_LAYOUT_KEY]: pictureValues[LINEART_LAYOUT_KEY] } : {}),
     ...(typeof pictureValues[PART_COLORS_KEY] === 'string' ? { [PART_COLORS_KEY]: pictureValues[PART_COLORS_KEY] } : {}),
   };
   // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
@@ -315,7 +317,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const edits = parseLineArtEdits(pictureValues[LINEART_EDITS_KEY]);
     const handEdited = (n: string) => { const e = edits[n]; return e && e.fp === drawingFingerprint(drawings[n]) ? `, ${e.strokes.length} hand edit${e.strokes.length > 1 ? 's' : ''} by the user` : ''; };
     const available = names.length ? `Drawings available to H.lineart: ${names.map((n) => `"${n}" (${drawings[n].aspect.toFixed(2)} times as wide as high${handEdited(n)})`).join(', ')}.` : none;
-    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a one-piece line-art cut-out with H.lineart (see the system prompt).`, attached, available].filter(Boolean).join(' '));
+    // The user's split choice in the Print tab wins over the script's split option.
+    const split = parseLineArtSplit(pictureValues[LINEART_SPLIT_KEY]);
+    const splitNote = split === undefined ? '' : split === 'off'
+      ? 'The user turned Split into pieces off in the Print tab: it stays one piece whatever the script\'s split option says (they turn it on there; say so if it is bigger than the bed).'
+      : `The user split it into pieces in the Print tab (${split === 'auto' ? 'Auto: the fewest that fit the bed' : Array.isArray(split) ? `a grid of ${split[0]} × ${split[1]}` : `${split} pieces`}), which wins over the script's split option; the renders and reports already use it.`;
+    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote].filter(Boolean).join(' '));
   }
   // Mesh files attached now: a picture of each as imported, and what the import did.
   for (const name of attachedMeshes) {
