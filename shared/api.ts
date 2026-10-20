@@ -1,5 +1,6 @@
 // Request and response shapes of the HTTP API, shared by the server and the browser app so the
 // two can't drift apart.
+import type { LineArtStyle } from './lineart';
 import type { AgentStep, ParamValues } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
@@ -50,9 +51,12 @@ export interface GenerateRequest {
    * shapes (H.svg); 'layertone' = a LayerTone filament painting (H.layertone) from the attached
    * photo or an AI picture; 'lithophane' = a backlit white-PLA panel (H.lithophane) from one;
    * 'figure' = a 3D figure: an AI mesh from Meshy (generate_3d, H.mesh) from a description or the
-   * attached photo; 'off' (default) = Claude models subjects as 3D objects.
+   * attached photo; 'lineart' = a one-piece wall cut-out of a drawing (H.lineart) from an attached
+   * SVG or picture, or one the image model draws; 'off' (default) = Claude models subjects as 3D objects.
    */
-  imageMode?: 'off' | 'artwork' | 'layertone' | 'lithophane' | 'figure';
+  imageMode?: 'off' | 'artwork' | 'layertone' | 'lithophane' | 'lineart' | 'figure';
+  /** Line art mode's style (its ▾ menu): what the piece is – key holder, outline, framed, … (the message may ask for another). */
+  lineArtStyle?: LineArtStyle;
   /** 3D figure mode's Colour: figures in colour (a textured Meshy model, printed in up to 4 filaments; more Meshy credits). */
   figureColor?: boolean;
   /** Names (in the design's MESHES_KEY index, sent in `pictures`) of meshes attached with this message: Claude gets a render and report of each. */
