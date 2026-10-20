@@ -1131,6 +1131,14 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     parts.push({ name: 'Stand base', shape: base.translate([0, -barHeight - 10 - depth, 0]), color });
     slotNote = ` Print the base as well and push the bar into its slot (${slotW.toFixed(1)} mm wide, ${slotDepth.toFixed(0)} mm deep).`;
   }
+  // Everything centred on the plate (the origin), as the 3MF export places it.
+  let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+  for (const p of parts) { const b = (p.shape as any).boundingBox(); lo = [Math.min(lo[0], b.min[0]), Math.min(lo[1], b.min[1])]; hi = [Math.max(hi[0], b.max[0]), Math.max(hi[1], b.max[1])]; }
+  const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2;
+  if (Math.abs(cx) > 1e-6 || Math.abs(cy) > 1e-6) {
+    for (const p of parts) p.shape = (p.shape as any).translate([-cx, -cy, 0]);
+    moveFrames(-cx, -cy);
+  }
   const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller.` : '';
   const note = `Print it flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
   return { parts, print: lineArtPrint(), lineArt: info, note };
