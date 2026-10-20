@@ -806,7 +806,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 @keyframes auto-build-left { from { width: 100%; } to { width: 0; } }
 .auto-build-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .auto-build-actions .btn { padding: 4px 10px; }
-.mode-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 -10px 40px #000a; padding: 4px; z-index: 30; }
+.mode-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); overflow-y: auto; overscroll-behavior: contain; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 -10px 40px #000a; padding: 4px; z-index: 30; }
 .mode-menu button { display: flex; align-items: flex-start; gap: 6px; width: 100%; background: none; border: 0; border-radius: 6px; padding: 7px 10px 7px 6px; text-align: left; }
 .mode-menu button:hover, .mode-menu button:focus-visible { background: #ffffff0d; outline: none; }
 .mode-menu button:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }

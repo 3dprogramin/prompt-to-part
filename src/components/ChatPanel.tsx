@@ -479,12 +479,12 @@ export function ChatPanel(p: Props) {
 
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 
-const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; hint: (artworkModel: string | null, meshy: boolean) => string }[] = [
-  { mode: 'off', label: '3D model (no picture)', icon: 'cube', hint: () => 'Jig models people, characters and animals as 3D objects.' },
-  { mode: 'artwork', label: 'AI artwork (flat colour layers)', short: 'Artwork', icon: 'palette', hint: (m) => `For people, characters, animals and scenes Jig has ${m ?? 'an image model'} draw flat artwork, then turns it into colour layers for wall art, reliefs and signs.` },
-  { mode: 'layertone', label: 'LayerTone (filament painting)', short: 'LayerTone', icon: 'layers', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Jig makes one' : ''}; set the filaments in the Print tab.` },
-  { mode: 'lithophane', label: 'Lithophane (backlit photo)', short: 'Lithophane', icon: 'lamp', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
-  { mode: 'figure', label: '3D figure (AI mesh)', short: 'Figure', icon: 'figure', hint: (art, meshy) => (!meshy
+const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; desc: (meshy: boolean) => string; hint: (artworkModel: string | null, meshy: boolean) => string }[] = [
+  { mode: 'off', label: '3D model', icon: 'cube', desc: () => 'Everything modelled in 3D', hint: () => 'Jig models people, characters and animals as 3D objects.' },
+  { mode: 'artwork', label: 'AI artwork', short: 'Artwork', icon: 'palette', desc: () => 'Flat colour layers for reliefs and signs', hint: (m) => `For people, characters, animals and scenes Jig has ${m ?? 'an image model'} draw flat artwork, then turns it into colour layers for wall art, reliefs and signs.` },
+  { mode: 'layertone', label: 'LayerTone', short: 'LayerTone', icon: 'layers', desc: () => 'A picture painted by stacked filaments', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Jig makes one' : ''}; set the filaments in the Print tab.` },
+  { mode: 'lithophane', label: 'Lithophane', short: 'Lithophane', icon: 'lamp', desc: () => 'A photo that glows lit from behind', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
+  { mode: 'figure', label: '3D figure', short: 'Figure', icon: 'figure', desc: (meshy) => (meshy ? 'A sculpted AI mesh · Meshy credits' : 'Needs a Meshy API key'), hint: (art, meshy) => (!meshy
     ? 'Needs a Meshy API key: set MESHY_API_KEY in .env and restart Jig.'
     : art ? 'Jig draws a concept picture of the person, character or animal for you to approve, then Meshy sculpts it as a real 3D model (1–3 min, Meshy credits); or attach a photo. Jig adds the base, name or mount. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.'
     : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.') },
@@ -513,6 +513,20 @@ function useChipMenu() {
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   usePopover(open, () => setOpen(false), wrap, trigger);
+  // The menu opens upwards: on a short screen (a phone) it may not be taller than the room above
+  // its chip, so it scrolls instead of running off the top.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const fit = () => {
+      const el = menu.current, t = trigger.current;
+      if (!el || !t) return;
+      el.style.maxHeight = `${Math.max(120, t.getBoundingClientRect().top - (window.visualViewport?.offsetTop ?? 0) - 12)}px`;
+    };
+    fit();
+    window.visualViewport?.addEventListener('resize', fit);
+    window.addEventListener('resize', fit);
+    return () => { window.visualViewport?.removeEventListener('resize', fit); window.removeEventListener('resize', fit); };
+  }, [open]);
   return {
     open, setOpen, wrap, trigger, menu,
     triggerProps: {
@@ -667,10 +681,11 @@ function ImageModeMenu({ mode, artworkModel, meshy, credits, color, split, autoB
             // Without a Meshy key the mode is shown, saying what it needs, but can't be chosen.
             const off = m.mode === 'figure' && !meshy && mode !== 'figure';
             return (
-              <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} aria-disabled={off || undefined} className={`${m.mode === mode ? 'on' : ''} ${off ? 'unavailable' : ''}`} onClick={() => { if (!off) pick(m.mode); }}>
+              <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} aria-disabled={off || undefined} className={`${m.mode === mode ? 'on' : ''} ${off ? 'unavailable' : ''}`} onClick={() => { if (!off) pick(m.mode); }}
+                title={`${m.hint(artworkModel, meshy)}${m.mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''}`}>
                 <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
                 <span className="mode-icon" aria-hidden><Icon name={m.icon} size={16} /></span>
-                <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.hint(artworkModel, meshy)}{m.mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''}</span></span>
+                <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.desc(meshy)}</span></span>
               </button>
             );
           })}
