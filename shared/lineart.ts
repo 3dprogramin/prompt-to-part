@@ -5,7 +5,7 @@
 // the style's bar, frame, hooks or stand.
 import type { Brim } from './print';
 import { defaultColors, type SvgDrawing } from './svgFeatures';
-import { dovetail, extendSeam, fitBox, formatSplitSpec, MAX_PIECE, parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid, type Seam, type SplitGrid, type SplitSpec } from './split';
+import { boxFitter, dovetail, formatSplitSpec, keepTogether, MAX_PIECE, parseSplitSpec, pieceLabel, routeSeam, seamAt, seamGeometry, splitGrid, type Seam, type SplitGrid, type SplitSpec } from './split';
 
 export const LINE_ART_STYLES = ['outline', 'keyholder', 'framed', 'medallion', 'sign', 'stand'] as const;
 export type LineArtStyle = (typeof LINE_ART_STYLES)[number];
@@ -623,11 +623,6 @@ function capsuleXY(img: Uint8Array, w: number, h: number, [ax, ay]: Pt, [bx, by]
   }
 }
 
-/** Draws a round-capped line of radius `r` px from pixel a to pixel b. */
-function capsule(img: Uint8Array, w: number, h: number, a: number, b: number, r: number) {
-  capsuleXY(img, w, h, [a % w, (a / w) | 0], [b % w, (b / w) | 0], r);
-}
-
 export interface LineArtMaskOptions {
   lineWidth: number;
   /** Bridge every loose bit, however small (they were dropped beforehand, from the drawing itself). */
@@ -640,6 +635,8 @@ export interface LineArtMaskOptions {
    */
   maxBridge?: number;
   minPart?: number;
+  /** Where bridges and joins may go (a piece of a split: its outline); default anywhere. */
+  inside?: Uint8Array | null;
   fill: number;
   minIsland: number;
   lines: 'even' | 'keep';
@@ -766,7 +763,7 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
     const src = new Int32Array(N).fill(-1);
     let queue: number[] = [];
     for (let i = 0; i < N; i++) if (label[i]) { src[i] = i; queue.push(i); }
-    const best = new Map<number, [number, number, number]>();
+    const best = new Map<number, [number, number, number, number]>(), more = new Map<number, [number, number, number, number][]>();
     const L = sizes.length;
     const dist = (a: number, b: number) => Math.hypot((a % w) - (b % w), ((a / w) | 0) - ((b / w) | 0));
     const meet = (i: number, j: number) => {
@@ -774,14 +771,28 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       if (!b || a === b) return;
       const key = a < b ? a * L + b : b * L + a, d = dist(src[i], src[j]);
       const cur = best.get(key);
-      if (!cur || d < cur[0]) best.set(key, [d, src[i], src[j]]);
+      if (!cur || d < cur[0]) best.set(key, [d, src[i], src[j], i]);
+      // Kept inside the piece, the nearest points may not do: a few more of the nearest pairs.
+      if (o.inside) {
+        // (Spread out: one per line width along the two.)
+        const list = more.get(key) ?? more.set(key, []).get(key)!, si = src[i], sj = src[j];
+        if (list.length < 24 || d < list[list.length - 1][0]) {
+          const near = list.findIndex((c) => dist(c[1], si) < 2 * r && dist(c[2], sj) < 2 * r);
+          if (near < 0 || d < list[near][0]) {
+            if (near >= 0) list.splice(near, 1);
+            list.push([d, si, sj, i]);
+            list.sort((x, y) => x[0] - y[0]);
+            if (list.length > 24) list.pop();
+          }
+        }
+      }
     };
     while (queue.length) {
       const next: number[] = [];
       for (const i of queue) {
         for (const k of nb) {
           const j = i + k;
-          if (j < 0 || j >= N) continue;
+          if (j < 0 || j >= N || (o.inside && !o.inside[j])) continue;
           if (!label[j]) { label[j] = label[i]; src[j] = src[i]; next.push(j); } else meet(i, j);
         }
       }
@@ -790,20 +801,37 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
     const parent = Array.from({ length: L }, (_, l) => l);
     const find = (l: number): number => (parent[l] === l ? l : (parent[l] = find(parent[l])));
     const size = sizes.slice(), minPart = (o.minPart ?? 0) / (px * px);
-    for (const [key, [d, a, b]] of [...best].sort((x, y) => x[1][0] - y[1][0])) {
+    for (const [key, [d0, a0, b0, m0]] of [...best].sort((x, y) => x[1][0] - y[1][0])) {
       const ra = find(Math.floor(key / L)), rb = find(key % L);
       if (ra === rb) continue;
+      const xy = (i: number): Pt => [i % w, (i / w) | 0];
+      // Kept inside the piece: the nearest points straight, else the next nearest, else bent where the two grew together.
+      let path: Pt[] | null = [xy(a0), xy(b0)], d = d0;
+      if (o.inside && !within(o.inside, w, path[0], path[1])) {
+        const cands = more.get(key) ?? [[d0, a0, b0, m0]];
+        const ok = cands.find(([, a, b]) => within(o.inside!, w, xy(a), xy(b))) ?? cands.find(([, a, b, m]) => within(o.inside!, w, xy(a), xy(m)) && within(o.inside!, w, xy(m), xy(b)));
+        path = !ok ? null : within(o.inside, w, xy(ok[1]), xy(ok[2])) ? [xy(ok[1]), xy(ok[2])] : [xy(ok[1]), xy(ok[3]), xy(ok[2])];
+        if (path) d = path.reduce((n, p, k) => (k ? n + Math.hypot(p[0] - path![k - 1][0], p[1] - path![k - 1][1]) : 0), 0);
+      }
+      if (!path) continue;
       if (o.maxBridge != null && d * px - o.lineWidth > o.maxBridge && size[ra] >= minPart && size[rb] >= minPart) continue;
       parent[ra] = rb;
       size[rb] += size[ra];
-      capsule(out, w, h, a, b, r);
-      paths.push([[a % w, (a / w) | 0], [b % w, (b / w) | 0]]);
+      for (let k = 0; k + 1 < path.length; k++) capsuleXY(out, w, h, path[k], path[k + 1], r);
+      paths.push(path);
       bridges++;
       longest = Math.max(longest, Math.max(0, d * px - o.lineWidth));
     }
   }
-  const ends = o.joinEnds ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths) : { joined: 0, free: 0 };
+  const ends = o.joinEnds ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths, o.inside) : { joined: 0, free: 0 };
   return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings, endsJoined: ends.joined, endsFree: ends.free };
+}
+
+/** Whether the straight line from pixel a to pixel b stays on set pixels of `mask` (w wide). */
+function within(mask: Uint8Array, w: number, [ax, ay]: Pt, [bx, by]: Pt): boolean {
+  const n = Math.ceil(2 * Math.hypot(bx - ax, by - ay)) + 1;
+  for (let k = 0; k <= n; k++) if (!mask[Math.round(ay + ((by - ay) * k) / n) * w + Math.round(ax + ((bx - ax) * k) / n)]) return false;
+  return true;
 }
 
 /**
@@ -815,7 +843,7 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
  * shapes (windows, tyres) hold themselves and are never peeled. Bridges are drawn into `out`, and
  * their centre lines added to `paths`.
  */
-function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, lineWidth: number, reach: number, paths: Pt[][]): { joined: number; free: number } {
+function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, lineWidth: number, reach: number, paths: Pt[][], inside?: Uint8Array | null): { joined: number; free: number } {
   const { w, h, px } = g, N = w * h;
   const r = lineWidth / px / 2, R = reach / px, minArm = Math.max(3, 3 * lineWidth) / px;
   const whole = new Uint8Array(N), bg = new Uint8Array(N);
@@ -906,7 +934,7 @@ function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGri
         const cos = ((x - ex) * dx + (y - ey) * dy) / d;
         if (cos < -0.2) continue;
         const score = d * (2 - cos);
-        if (score < bestScore) { bestScore = score; best = i; }
+        if (score < bestScore && (!inside || within(inside, w, [ex, ey], [x, y]))) { bestScore = score; best = i; }
       }
       if (best < 0) continue;
       const bx = best % w, by = (best / w) | 0;
@@ -1389,7 +1417,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
 /** Room kept in each piece for seams that wander and for dovetails (mm): Auto picks enough pieces for it. */
 const SPLIT_RESERVE = 24;
 /** A split piece's bits farther apart than this (mm) aren't bridged when each is at least SPLIT_MIN_PART × lineWidth mm²: they become pieces of their own. */
-const SPLIT_MAX_BRIDGE = 15;
+const SPLIT_MAX_BRIDGE = 30;
 const SPLIT_MIN_PART = 200;
 /** How deep a piece's name is engraved in its back, mm. */
 const LABEL_DEPTH = 0.4;
@@ -1402,6 +1430,8 @@ interface SplitCached {
   /** Each piece's outline (with its tabs, without its sockets), its place in the grid and what the clean-up drew. */
   pieces: { col: number; row: number; region: Pt[][]; loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number }[];
   joints: LineArtSplitInfo['joints'];
+  /** Each joint's tab (as joints). */
+  tabs: Pt[][];
   noJoint: LineArtSplitInfo['noJoint'];
   /** Where each piece's name goes (found when first asked). */
   labels: ({ x: number; y: number; size: number; rot: boolean } | null | undefined)[];
@@ -1487,7 +1517,7 @@ function splitPieces(o: SplitInput): SplitResult {
       }
       return { ink, anchor: anc, heavy, avoid };
     };
-    const seams: Seam[] = [];
+    let seams: Seam[] = [];
     for (let k = 1; k < cols; k++) {
       const xi = x0 + k * Wc, px = pxFor(2 * Bv * (H + 2 * margin));
       const g: SplitGrid = { px, x0: xi - Bv, y1: y1 + margin, w: Math.ceil((2 * Bv) / px) + 1, h: Math.ceil((H + 2 * margin) / px) };
@@ -1503,6 +1533,11 @@ function splitPieces(o: SplitInput): SplitResult {
         seams.push({ ...routeSeam(g, sample(g, (y) => [seamAt(left, y, 1), seamAt(right, y, 1)]), 'h', yi, Bh, lineWidth), col, row: r });
       }
     }
+    // A bit of the drawing a seam leaves on its own in a piece goes to the piece it carries on into.
+    const pa = Math.max(lineWidth / 2, Math.sqrt(((Xr - Xl) * (Yt - Yb)) / 4e6));
+    const ga: SplitGrid = { px: pa, x0: Xl, y1: Yt, w: Math.ceil((Xr - Xl) / pa), h: Math.ceil((Yt - Yb) / pa) };
+    const kept = keepTogether({ g: ga, ink: rasterize(artPolys, ga), anchor: anchorPolys ? rasterize(anchorPolys, ga) : null, seams, cols, rows, box: [Xl, Xr, Yt, Yb], maxBridge: o.maxBridge, minPart: o.minPart, maxPiece: MAX_PIECE - 2 });
+    seams = kept.seams;
     const geo = seamGeometry(seams, cols, rows, Xl, Xr, Yt, Yb);
     // Each piece's outline: its column's strip ∩ its row's strip in that column.
     const strip = (a: Pt[], b: Pt[]) => new C([[...a, ...[...b].reverse()]], 'EvenOdd');
@@ -1510,7 +1545,7 @@ function splitPieces(o: SplitInput): SplitResult {
     for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) regions.push(strip(geo.vLine(col), geo.vLine(col + 1)).intersect(strip(geo.hLine(col, r), geo.hLine(col, r + 1))));
     // Dovetails where a seam runs straight across the bar or frame: a tab on the piece before the
     // seam, its socket (with clearance) in the next one.
-    const joints: LineArtSplitInfo['joints'] = [], noJoint: LineArtSplitInfo['noJoint'] = [];
+    const joints: LineArtSplitInfo['joints'] = [], noJoint: LineArtSplitInfo['noJoint'] = [], tabs: Pt[][] = [];
     for (const m of seams) for (const run of m.runs) {
       const mid: Pt = [(run.a[0] + run.b[0]) / 2, (run.a[1] + run.b[1]) / 2];
       const n = m.dir === 'v' ? [1, 0] : [0, -1];
@@ -1532,6 +1567,7 @@ function splitPieces(o: SplitInput): SplitResult {
       regions[owner] = regions[owner].add(tab);
       regions[other] = regions[other].subtract(tab.offset(o.clearance, 'Miter'));
       joints.push({ at: mid, tab: pieceLabel(owner % cols, Math.floor(owner / cols)), socket: pieceLabel(other % cols, Math.floor(other / cols)), width: made.head });
+      tabs.push(made.tab);
     }
     // Each piece cleaned up on its own.
     const pieces: SplitCached['pieces'] = [];
@@ -1544,7 +1580,7 @@ function splitPieces(o: SplitInput): SplitResult {
       let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
       px = Math.max(px, Math.sqrt(((b.max[0] - b.min[0] + 8 * px) * (b.max[1] - b.min[1] + 8 * px)) / MAX_PIXELS[d.quality]));
       const g: LineArtGrid = { px, x0: b.min[0] - 4 * px, y1: b.max[1] + 4 * px, w: Math.ceil((b.max[0] - b.min[0]) / px) + 8, h: Math.ceil((b.max[1] - b.min[1]) / px) + 8 };
-      const m = lineArtMask(rasterize(pa.cs.toPolygons(), g), pan && !pan.isEmpty() ? rasterize(pan.toPolygons(), g) : null, g, { lineWidth, fill: o.fill, minIsland: o.minIsland, lines: o.lines, keepSpecks: o.lines === 'keep', joinEnds: o.joinEnds, maxBridge: o.maxBridge, minPart: o.minPart });
+      const m = lineArtMask(rasterize(pa.cs.toPolygons(), g), pan && !pan.isEmpty() ? rasterize(pan.toPolygons(), g) : null, g, { lineWidth, fill: o.fill, minIsland: o.minIsland, lines: o.lines, keepSpecks: o.lines === 'keep', joinEnds: o.joinEnds, maxBridge: o.maxBridge, minPart: o.minPart, inside: rasterize(region.toPolygons(), g) });
       const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
       pieces.push({
         col, row, region: region.toPolygons(),
@@ -1552,14 +1588,15 @@ function splitPieces(o: SplitInput): SplitResult {
         bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped + pa.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree,
       });
     });
-    c = { seams, pieces, joints, noJoint, labels: [] };
+    c = { seams, pieces, joints, tabs, noJoint, labels: [] };
     splitCache.set(o.key, c);
     if (splitCache.size > 2) splitCache.delete(splitCache.keys().next().value!);
   }
   const cached = c;
   const geo = seamGeometry(cached.seams, cols, rows, Xl, Xr, Yt, Yb);
-  const pieces: SplitResult['pieces'] = [];
-  const mainOf = new Map<number, number>();
+  // Each cell's parts: its main one (`mains`: the cells whose main part it is) and bits too far to bridge.
+  interface Part { cell: number; lc: any; an: any; region: any; stats: SplitCached['pieces'][number][]; mains: number[] }
+  const parts: Part[] = [];
   for (const p of cached.pieces) {
     const region = new C(p.region, 'EvenOdd');
     const pan = anchor ? anchor.intersect(region) : null;
@@ -1575,23 +1612,76 @@ function splitPieces(o: SplitInput): SplitResult {
     const groups = big.length > 1 ? big.map((q: { cs: any }) => q.cs) : [null];
     // Smaller loose bits (cut apart by an erase) stay with the first.
     if (big.length > 1) for (const q of comps) if (q.area < o.minPart) groups[0] = groups[0].add(q.cs);
-    const cell = pieceLabel(p.col, p.row);
-    mainOf.set(p.row * cols + p.col, pieces.length);
+    const cell = p.row * cols + p.col;
     groups.forEach((g: any, k: number) => {
       const lc = g ? lineCs.intersect(g) : lineCs, an = anc && g ? anc.intersect(g) : anc;
-      const a2 = an && !an.isEmpty() ? an : null;
-      const bb = (a2 ? lc.add(a2) : lc).bounds();
-      const label = k ? `${cell}${String.fromCharCode(97 + k)}` : cell;
-      const info: LineArtPieceInfo = {
-        label, col: p.col, row: p.row, size: [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]], box: [bb.min[0], bb.min[1], bb.max[0], bb.max[1]],
-        bridges: k ? 0 : p.bridges, longestBridge: k ? 0 : p.longestBridge, dropped: k ? 0 : p.dropped, endsJoined: k ? 0 : p.endsJoined, endsFree: k ? 0 : p.endsFree,
-        joints: k ? 0 : cached.joints.filter((j) => j.tab === cell || j.socket === cell).length, labelSize: 0,
-      };
-      pieces.push({ info, region: k ? null : region, lineCs: lc, anchor: a2, closed: k ? 0 : p.closed, openings: k ? 0 : p.openings });
+      parts.push({ cell, lc, an: an && !an.isEmpty() ? an : null, region: k ? null : region, stats: k ? [] : [p], mains: k ? [] : [cell] });
     });
   }
+  // A strip of the bar or frame with nothing else on it joins the strip it meets in the next piece
+  // when the two still fit the bed (the dovetail between them filled in): no short sliver of frame
+  // is a piece of its own.
+  const boxOf = (q: Part) => (q.an ? q.lc.add(q.an) : q.lc).bounds();
+  const alive = parts.map(() => true), tabs = cached.tabs.map((t) => new C([t], 'EvenOdd'));
+  const jointLive = cached.joints.map(() => true);
+  const bare = (q: Part) => !!q.an && q.lc.isEmpty();
+  for (;;) {
+    let best: [number, number] | null = null, bestSize = Infinity;
+    for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+      const a = parts[i], b = parts[j];
+      if (!alive[i] || !alive[j] || !bare(a) || !bare(b)) continue;
+      const ba = boxOf(a), bb = boxOf(b);
+      const size = Math.max(Math.max(ba.max[0], bb.max[0]) - Math.min(ba.min[0], bb.min[0]), Math.max(ba.max[1], bb.max[1]) - Math.min(ba.min[1], bb.min[1]));
+      if (size > MAX_PIECE || size >= bestSize) continue;
+      // They meet (across a seam, or a dovetail's clearance).
+      if (ba.min[0] > bb.max[0] + 1 || bb.min[0] > ba.max[0] + 1 || ba.min[1] > bb.max[1] + 1 || bb.min[1] > ba.max[1] + 1) continue;
+      if (a.an.offset(o.clearance + 0.05, 'Miter').intersect(b.an).isEmpty()) continue;
+      best = [i, j]; bestSize = size;
+    }
+    if (!best) break;
+    const [i, j] = best, a = parts[i], b = parts[j];
+    let an = a.an.add(b.an);
+    // A dovetail between them: its clearance filled.
+    tabs.forEach((t: any, k: number) => {
+      if (!jointLive[k]) return;
+      const around = t.offset(o.clearance + 0.05, 'Miter');
+      if (around.intersect(a.an).isEmpty() || around.intersect(b.an).isEmpty()) return;
+      an = an.add(anchor.intersect(around));
+      jointLive[k] = false;
+    });
+    parts[i] = { cell: a.cell, lc: a.lc, an, region: a.region && b.region ? a.region.add(b.region) : a.region ?? b.region, stats: [...a.stats, ...b.stats], mains: [...a.mains, ...b.mains] };
+    alive[j] = false;
+  }
+  // Names: each piece's cell, then b, c… for more parts of that cell.
+  const pieces: SplitResult['pieces'] = [];
+  const mainOf = new Map<number, number>(), count = new Map<number, number>();
+  parts.forEach((q, i) => {
+    if (!alive[i]) return;
+    const k = count.get(q.cell) ?? 0;
+    count.set(q.cell, k + 1);
+    for (const m of q.mains) mainOf.set(m, pieces.length);
+    const label = `${pieceLabel(q.cell % cols, Math.floor(q.cell / cols))}${k ? String.fromCharCode(97 + k) : ''}`;
+    const bb = boxOf(q), sum = (f: (s: SplitCached['pieces'][number]) => number) => q.stats.reduce((n, s) => n + f(s), 0);
+    const info: LineArtPieceInfo = {
+      label, col: q.cell % cols, row: Math.floor(q.cell / cols), size: [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]], box: [bb.min[0], bb.min[1], bb.max[0], bb.max[1]],
+      bridges: sum((s) => s.bridges), longestBridge: Math.max(0, ...q.stats.map((s) => s.longestBridge)), dropped: sum((s) => s.dropped), endsJoined: sum((s) => s.endsJoined), endsFree: sum((s) => s.endsFree),
+      joints: 0, labelSize: 0,
+    };
+    pieces.push({ info, region: q.region, lineCs: q.lc, anchor: q.an, closed: sum((s) => s.closed), openings: sum((s) => s.openings) });
+  });
+  // The dovetails left, named by the pieces they join: the tab's piece holds it, the socket's piece meets it.
+  const joints: LineArtSplitInfo['joints'] = [];
+  cached.joints.forEach((jt, k) => {
+    if (!jointLive[k]) return;
+    const t = tabs[k], around = t.offset(o.clearance + 0.3, 'Miter');
+    const tab = pieces.findIndex((q) => q.anchor && !q.anchor.intersect(t).isEmpty());
+    const socket = pieces.findIndex((q, i) => i !== tab && q.anchor && !q.anchor.intersect(around).isEmpty());
+    const named = { ...jt, tab: tab >= 0 ? pieces[tab].info.label : jt.tab, socket: socket >= 0 ? pieces[socket].info.label : jt.socket };
+    joints.push(named);
+    for (const q of pieces) if (q.info.label === named.tab || q.info.label === named.socket) q.info.joints++;
+  });
   return {
-    seams: cached.seams, pieces, joints: cached.joints, noJoint: cached.noJoint,
+    seams: cached.seams, pieces, joints, noJoint: cached.noJoint,
     pieceAt: (q) => mainOf.get(geo.pieceAt(q)) ?? -1,
     label: (i) => {
       if (cached.labels[i] === undefined) cached.labels[i] = placeLabel(d, pieces[i]);
@@ -1608,39 +1698,35 @@ function dropSpecks(C: any, cs: any, anchor: any, minIsland: number): { cs: any;
   return kept.length === comps.length ? { cs, dropped: 0 } : { cs: C.compose(kept), dropped: comps.length - kept.length };
 }
 
-/** The seams' lines stretched over the whole piece, and which piece (row-major index) a point is in. */
-function seamGeometry(seams: Seam[], cols: number, rows: number, Xl: number, Xr: number, Yt: number, Yb: number) {
-  const vs = seams.filter((m) => m.dir === 'v').sort((a, b) => a.col - b.col);
-  const vLine = (k: number): Pt[] => (k === 0 ? [[Xl, Yt], [Xl, Yb]] : k === cols ? [[Xr, Yt], [Xr, Yb]] : extendSeam(vs[k - 1], Yt, Yb));
-  const hs = Array.from({ length: cols }, (_, col) => seams.filter((m) => m.dir === 'h' && m.col === col).sort((a, b) => a.row - b.row));
-  const hLine = (col: number, r: number): Pt[] => (r === 0 ? [[Xl, Yt], [Xr, Yt]] : r === rows ? [[Xl, Yb], [Xr, Yb]] : extendSeam(hs[col][r - 1], Xl, Xr));
-  const pieceAt = ([x, y]: Pt) => {
-    let col = 0;
-    for (let k = 1; k < cols; k++) if (x > seamAt(vLine(k), y, 1)) col = k;
-    let row = 0;
-    for (let r = 1; r < rows; r++) if (y < seamAt(hLine(col, r), x, 0)) row = r;
-    return row * cols + col;
-  };
-  return { vLine, hLine, pieceAt };
-}
-
 /**
  * Where a piece's name fits on its back: on the bar or frame if it can, else on the drawing's
- * solid areas – the biggest size that fits (8 mm cap height down to 3 mm, lying or standing), as
- * near the piece's middle as it can; null when it fits nowhere.
+ * solid areas – the biggest size that fits (8 mm cap height down to 3 mm, lying or standing; then
+ * 2.5 mm, for a narrow frame, bar or line), as near the piece's middle as it can; null when it fits
+ * nowhere.
  */
 function placeLabel(d: LineArtDeps, p: { info: LineArtPieceInfo; lineCs: any; anchor: any }): { x: number; y: number; size: number; rot: boolean } | null {
   const [bx0, by0, bx1, by1] = p.info.box, prefer: Pt = [(bx0 + bx1) / 2, (by0 + by1) / 2];
   // A little of the piece all round the letters (they are only engraved 0.4 mm into its back).
-  const margin = 0.6, lp = 0.25;
-  const texts = [8, 6, 5, 4, 3].map((size) => { const b = d.text(p.info.label, { size, halign: 'center', valign: 'center' }).bounds(); return { size, w: b.max[0] - b.min[0] + 2 * margin, h: b.max[1] - b.min[1] + 2 * margin }; });
-  for (const cs of [p.anchor, p.lineCs]) {
+  const lp = 0.25;
+  const texts = [8, 6, 5, 4, 3, 2.5].map((size) => {
+    const b = d.text(p.info.label, { size, halign: 'center', valign: 'center' }).bounds(), margin = size < 3 ? 0.4 : 0.6;
+    return { size, w: b.max[0] - b.min[0] + 2 * margin, h: b.max[1] - b.min[1] + 2 * margin };
+  });
+  const fitters = new Map<any, { g: LineArtGrid; fit: ReturnType<typeof boxFitter> }>();
+  const fitter = (cs: any) => {
+    if (!fitters.has(cs)) {
+      const b = cs.bounds();
+      const g: LineArtGrid = { px: lp, x0: b.min[0] - lp, y1: b.max[1] + lp, w: Math.ceil((b.max[0] - b.min[0]) / lp) + 3, h: Math.ceil((b.max[1] - b.min[1]) / lp) + 3 };
+      fitters.set(cs, { g, fit: boxFitter(rasterize(cs.toPolygons(), g), g.w, g.h) });
+    }
+    return fitters.get(cs)!;
+  };
+  for (const [cs, small] of [[p.anchor, false], [p.lineCs, false], [p.anchor, true], [p.lineCs, true]] as const) {
     if (!cs || cs.isEmpty()) continue;
-    const b = cs.bounds();
-    const g: LineArtGrid = { px: lp, x0: b.min[0] - lp, y1: b.max[1] + lp, w: Math.ceil((b.max[0] - b.min[0]) / lp) + 3, h: Math.ceil((b.max[1] - b.min[1]) / lp) + 3 };
-    const mask = rasterize(cs.toPolygons(), g);
+    const { g, fit: fitBox } = fitter(cs);
     for (const t of texts) for (const rot of [false, true]) {
-      const fit = fitBox(mask, g.w, g.h, Math.ceil((rot ? t.h : t.w) / lp), Math.ceil((rot ? t.w : t.h) / lp), (prefer[0] - g.x0) / lp, (g.y1 - prefer[1]) / lp);
+      if (t.size < 3 !== small) continue;
+      const fit = fitBox(Math.ceil((rot ? t.h : t.w) / lp), Math.ceil((rot ? t.w : t.h) / lp), (prefer[0] - g.x0) / lp, (g.y1 - prefer[1]) / lp);
       if (fit) return { x: g.x0 + fit.x * lp, y: g.y1 - fit.y * lp, size: t.size, rot };
     }
   }

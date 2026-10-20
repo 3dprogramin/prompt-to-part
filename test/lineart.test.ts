@@ -6,7 +6,7 @@ import { withFonts } from '../shared/text';
 import { loadFontBuffers } from '../server/fonts';
 import { DRAWINGS_KEY, type SvgDrawing } from '../shared/svgFeatures';
 import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
-import { parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
+import { keepTogether, parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
 import type { Vec2 } from '../shared/types';
 
 const circle = (cx: number, cy: number, r: number, n = 48): Vec2[] => Array.from({ length: n }, (_, k) => [cx + r * Math.cos((2 * Math.PI * k) / n), cy + r * Math.sin((2 * Math.PI * k) / n)]);
@@ -168,4 +168,39 @@ test('H.lineart split: pieces fit the bed, each one piece, dovetails on the bar,
   assert.equal(off.parts.length, 1);
   assert.equal(off.parts[0].volume, plain.parts[0].volume);
   assert.equal(off.parts[0].triCount, plain.parts[0].triCount);
+});
+
+test('split: a bit a seam cuts off goes to the piece it carries on into, the seam stepping round it', () => {
+  const g = { px: 1, x0: 0, y1: 60, w: 100, h: 60 };
+  // A blob in each piece, and a line from the right one reaching 7 mm past the seam (x = 50).
+  const ink = rasterize([box(5, 20, 20, 40), box(60, 20, 90, 40), box(43, 29, 61, 31)], g);
+  const seam = { dir: 'v' as const, col: 1, row: 0, points: [[50, 60], [50, 0]] as Vec2[], crossings: 1, runs: [] };
+  const r = keepTogether({ g, ink, anchor: null, seams: [seam], cols: 2, rows: 1, box: [0, 100, 60, 0], maxBridge: 10, minPart: 50, maxPiece: 200 });
+  assert.equal(r.moved.length, 1);
+  assert.deepEqual([r.moved[0].from, r.moved[0].to], [0, 1]);
+  const s = r.seams[0].points;
+  assert.ok(seamAt(s, 30, 1) < 43, `round the line's end (x = ${seamAt(s, 30, 1)})`);
+  assert.equal(seamAt(s, 50, 1), 50, 'straight elsewhere');
+  assert.equal(r.seams[0].crossings, 0);
+});
+
+// A line across the lower half, a dot in two corners, and a disc 22 mm under the top frame.
+const marks: SvgDrawing = {
+  name: 'marks', aspect: 2,
+  shapes: [{ rule: 'NonZero', contours: [box(-1, -0.21, 1, -0.19), circle(-0.98, 0.48, 0.02), circle(0.98, -0.48, 0.02), circle(-0.5, 0.33, 0.06)], color: '#000000' }],
+};
+const framed = (split: string) => withFonts(() => evaluateScript("function build() { return H.lineart('marks', { style: 'framed', width: 420, frameWidth: 8 }); }", { [DRAWINGS_KEY]: JSON.stringify({ marks }), [LINEART_SPLIT_KEY]: split }, 'draft'), loadFontBuffers);
+
+test("H.lineart split: a bit near its piece's frame is bridged to it; strips of frame with nothing on them join up", async () => {
+  const two = await framed('auto');
+  assert.deepEqual(two.parts.map((p) => p.name), ['A1', 'A2']);
+  for (const p of two.parts) assert.equal(p.components, 1, `${p.name}: one piece`);
+  const a1 = two.parts[0].lineArt!.split!.pieces[0];
+  assert.ok(a1.longestBridge > 15 && a1.longestBridge < 30, `the disc bridged to the frame (${a1.longestBridge} mm)`);
+  // Cut in eight, bare strips of frame side by side join (the dovetail between them filled in).
+  const eight = await framed('4x2');
+  for (const p of eight.parts) assert.equal(p.components, 1, `${p.name}: one piece`);
+  const pieces = eight.parts[0].lineArt!.split!.pieces;
+  assert.ok(pieces.some((p) => p.size[0] > 180 && p.size[1] < 12), `a long strip of frame: ${pieces.map((p) => `${p.label} ${p.size.map((v) => v.toFixed(0)).join('×')}`).join(', ')}`);
+  assert.ok(pieces.every((p) => Math.max(...p.size) > 40), 'no short sliver');
 });
