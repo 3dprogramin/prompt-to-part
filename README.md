@@ -126,6 +126,7 @@ The container runs as a non-root user with a read-only file system (only the vol
 
 ## Designs and versions
 
+- **Designs menu:** your designs, most recent first (starred ones marked), 10 at a time with *Load more*. Type in its search box to list only the designs whose name contains the text – case and accents don't matter, Enter opens the first match.
 - **Tabs:** designs you open appear as tabs in the top bar, so parallel generations are one click apart. A spinner marks designs Jig is working on, and a dot marks ones that finished while you were looking at another. *Close all* closes every tab except designs Jig is working on (nothing is deleted). Every saved design is in *Designs*. Right-click the logo to start a new design in a new browser tab.
 - **Versions:** click *v2 of 5* in the top bar to jump to any version. Gold versions are Jig's or your own code edits, blue ones are settings you saved. A design has one chat and one Claude session: after you jump back, Jig knows which version you are on and works from it, and its new version is added at the end. To start over from a version without that history, use the branch button next to it (*New design from vN*): a new design with that version's script and settings, an empty chat and its own Claude session (handy for product variants). The original design stays as it is.
 - **Code (Code tab):** edit `model.js` by hand, with syntax colours, and *Apply* it (Ctrl+S) to make a new version. Edits you haven't applied stay there while you look at other tabs or designs.

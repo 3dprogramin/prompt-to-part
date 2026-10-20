@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Connection } from '../../shared/api';
 import { currentWindow, formatReset, usageSummary } from '../../shared/usage';
 import { api } from '../lib/api';
@@ -50,6 +50,13 @@ export function TopBar(p: Props) {
   // The most recent designs, PAGE at a time; starred ones (the important ones) are marked. A star
   // shows at once and stays until the refreshed list arrives.
   const [shown, setShown] = useState(PAGE);
+  // Search by name: case and accents don't matter (ș finds s), the matches page like the list.
+  const [query, setQuery] = useState('');
+  const fold = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const matches = useMemo(() => {
+    const q = fold(query.trim());
+    return q ? p.designs.filter((d) => fold(d.name).includes(q)) : p.designs;
+  }, [p.designs, query]);
   const [starNow, setStarNow] = useState<Record<string, boolean>>({});
   useEffect(() => setStarNow({}), [p.designs]);
   const isStarred = (d: DesignSummary) => starNow[d.id] ?? !!d.starred;
@@ -127,15 +134,25 @@ export function TopBar(p: Props) {
       {!p.compact && <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>}
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} aria-label="Designs"
-          onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShown(PAGE); setShowList(!showList); }}><Icon name="folder" size={14} /> <span className="btn-label">Designs</span></button>
+          onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShown(PAGE); setQuery(''); setShowList(!showList); }}><Icon name="folder" size={14} /> <span className="btn-label">Designs</span></button>
         {showList && (
           <div className="menu">
+            {p.designs.length > 0 && (
+              <div className="menu-search">
+                <Icon name="search" size={13} />
+                <input autoFocus type="search" placeholder="Search designs" aria-label="Search designs" value={query}
+                  onChange={(e) => { setQuery(e.target.value); setShown(PAGE); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && matches[0]) open(matches[0].id); }} />
+                {query && <button className="icon-btn" title="Clear the search" aria-label="Clear the search" onClick={() => { setQuery(''); setShown(PAGE); }}><Icon name="x" size={12} /></button>}
+              </div>
+            )}
             {p.listError
               ? <div className="menu-empty">Could not load your designs: {p.listError} <button className="link" onClick={p.onRefreshList}>Try again</button></div>
-              : p.designs.length === 0 && <div className="menu-empty">No saved designs yet</div>}
-            {p.designs.slice(0, shown).map(row)}
-            {p.designs.length > shown && (
-              <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({p.designs.length - shown} more)</button>
+              : p.designs.length === 0 ? <div className="menu-empty">No saved designs yet</div>
+              : matches.length === 0 && <div className="menu-empty">No design's name contains “{query.trim()}”</div>}
+            {matches.slice(0, shown).map(row)}
+            {matches.length > shown && (
+              <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({matches.length - shown} more)</button>
             )}
             <div className="menu-foot">
               {p.compact && (
