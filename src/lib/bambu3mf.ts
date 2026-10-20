@@ -4,7 +4,7 @@
 // it). Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
 import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
-import { bedShift } from '../../shared/printer';
+import { bedShift, PRINTER } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import { CONTENT_TYPES, esc, num } from './threeMf';
@@ -36,6 +36,25 @@ function objectSettings(main: Required<PrintSettings>, all: Required<PrintSettin
 }
 
 /** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine); a LayerTone part is always its own. */
+/**
+ * The build plates: parts without a plate of their own all on plate 1 (moved as one block onto it,
+ * as the viewer places them), parts with one (PartMesh.plate: the pieces of a split model) each on
+ * theirs. Bambu Studio lays plates out in a grid (as many columns as the square root of their
+ * number, rounded up) a fifth of a bed apart; a part goes at its plate's place.
+ */
+function platesOf(parts: PartMesh[], tpl: BambuTemplate): { parts: number[]; shift: [number, number, number]; name: string }[] {
+  const ids = [...new Set(parts.map((p) => p.plate ?? 1))].sort((a, b) => a - b);
+  const area = ((tpl.settings.printable_area as string[] | undefined) ?? []).map((p) => p.split('x').map(Number)).filter((p) => p.every(Number.isFinite));
+  const bedW = area.length ? Math.max(...area.map((p) => p[0])) : PRINTER.bed[0], bedD = area.length ? Math.max(...area.map((p) => p[1])) : PRINTER.bed[1];
+  const cols = Math.ceil(Math.sqrt(ids.length) - 1e-9);
+  return ids.map((id, k) => {
+    const mine = parts.flatMap((p, i) => ((p.plate ?? 1) === id ? [i] : []));
+    const [x, y, z] = bedShift(mine.map((i) => parts[i].bbox));
+    const own = parts[mine[0]].plate != null && ids.length > 1;
+    return { parts: mine, shift: [x + (k % cols) * bedW * 1.2, y - Math.floor(k / cols) * bedD * 1.2, z], name: own ? mine.map((i) => parts[i].name).join(', ') : '' };
+  });
+}
+
 function clusters(parts: PartMesh[]): number[][] {
   const n = parts.length, parent = parts.map((_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
@@ -222,16 +241,19 @@ export function toBambuProject(
   const colours = multi ? plan.filaments.map((f) => f.colour) : [hex(opts.oneColour!)];
   const slot = parts.map((_, i) => (multi ? plan.slot[i] : 1));
 
-  // Whole model moved as one onto the plate (same placement as the viewer).
-  const shift = bedShift(parts.map((p) => p.bbox));
+  // Whole model moved as one onto the plate (same placement as the viewer); parts with plates of
+  // their own (a big piece split into pieces) each onto theirs, centred there.
+  const plates = platesOf(parts, tpl);
 
   const files: Record<string, Uint8Array> = {};
   const resources: string[] = [], items: string[] = [], rels: string[] = [], objectCfg: string[] = [], instances: string[] = [];
   const header = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n`;
   let nextId = 1;
 
-  const groups = clusters(parts);
+  const groups = plates.flatMap((pl) => clusters(pl.parts.map((i) => parts[i])).map((g) => g.map((k) => pl.parts[k])));
+  const plateOfGroup = groups.map((g) => plates.findIndex((pl) => pl.parts.includes(g[0])));
   groups.forEach((group, gi) => {
+    const shift = plates[plateOfGroup[gi]].shift;
     const gb = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
     for (const i of group) for (let k = 0; k < 3; k++) { gb.min[k] = Math.min(gb.min[k], parts[i].bbox.min[k]); gb.max[k] = Math.max(gb.max[k], parts[i].bbox.max[k]); }
     const c = [0, 1, 2].map((k) => (gb.min[k] + gb.max[k]) / 2);
@@ -257,7 +279,7 @@ export function toBambuProject(
       return `<part id="${meshIds[k]}" subtype="normal_part"><metadata key="name" value="${esc(parts[i].name)}"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${slot[i]}"/>${partOverrides.map(([key, v]) => `<metadata key="${key}" value="${esc(v)}"/>`).join('')}</part>`;
     }).join('');
     objectCfg.push(`<object id="${objId}"><metadata key="name" value="${esc(name)}"/><metadata key="extruder" value="${slot[main]}"/>${Object.entries(overrides).map(([k, v]) => `<metadata key="${k}" value="${esc(v)}"/>`).join('')}${partCfg}</object>`);
-    instances.push(`<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`);
+    instances[plateOfGroup[gi]] = (instances[plateOfGroup[gi]] ?? '') + `<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`;
   });
 
   if (multi) Object.assign(files, filamentChangeFiles(parts, groups, plan, globalSettings.layerHeight, String(tpl.settings.machine_pause_gcode ?? 'M400 U1')));
@@ -293,7 +315,7 @@ export function toBambuProject(
 
   files['3D/3dmodel.model'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="Application">BambuStudio-${bambuAppVersion(tpl.version)}</metadata>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n<metadata name="Title">${esc(title)}</metadata>\n<metadata name="Designer">Jig</metadata>\n<resources>${resources.join('')}</resources>\n<build>${items.join('')}</build>\n</model>`);
   files['3D/_rels/3dmodel.model.rels'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>`);
-  files['Metadata/model_settings.config'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<config>${objectCfg.join('')}<plate><metadata key="plater_id" value="1"/><metadata key="plater_name" value=""/><metadata key="locked" value="false"/>${instances.join('')}</plate><assemble></assemble></config>`);
+  files['Metadata/model_settings.config'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<config>${objectCfg.join('')}${plates.map((pl, k) => `<plate><metadata key="plater_id" value="${k + 1}"/><metadata key="plater_name" value="${esc(pl.name)}"/><metadata key="locked" value="false"/>${instances[k] ?? ''}</plate>`).join('')}<assemble></assemble></config>`);
   files['Metadata/project_settings.config'] = strToU8(JSON.stringify(settings, null, 4));
   files['[Content_Types].xml'] = strToU8(CONTENT_TYPES);
   files['_rels/.rels'] = strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>');

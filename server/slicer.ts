@@ -18,7 +18,7 @@ const TIMEOUT_MS = 5 * 60_000;
 let chain: Promise<unknown> = Promise.resolve();
 
 /**
- * Slice plate 1 of a Bambu Studio project (.3mf); rejects with Bambu Studio's reason if it can't.
+ * Slice a Bambu Studio project (.3mf), every plate; rejects with Bambu Studio's reason if it can't.
  * Filament changes in the project (LayerTone prints) are sliced too, so each filament's grams are its own.
  */
 export async function sliceProject(project: Uint8Array): Promise<SliceStats> {
@@ -57,14 +57,20 @@ async function slice(project: Uint8Array): Promise<Record<string, Uint8Array>> {
   }
 }
 
-/** Print time and filament of plate 1 from a sliced project's Metadata/slice_info.config. */
+/** Print time and filament from a sliced project's Metadata/slice_info.config, over all its plates (a split model has one per piece). */
 export function parseSliceInfo(xml: string): SliceStats {
-  const meta = (key: string) => Number(new RegExp(`<metadata key="${key}" value="([^"]*)"`).exec(xml)?.[1]);
-  const filaments = [...xml.matchAll(/<filament\b([^>]*)\/?>/g)].map(([, attrs]) => ({
-    color: /\bcolor="([^"]*)"/.exec(attrs)?.[1] ?? '',
-    grams: Number(/\bused_g="([^"]*)"/.exec(attrs)?.[1]),
-  })).filter((f) => Number.isFinite(f.grams));
-  const seconds = meta('prediction'), weight = meta('weight');
+  const meta = (key: string) => [...xml.matchAll(new RegExp(`<metadata key="${key}" value="([^"]*)"`, 'g'))].map((m) => Number(m[1]));
+  const sum = (vs: number[]) => (vs.length && vs.every(Number.isFinite) ? +vs.reduce((a, b) => a + b, 0).toFixed(2) : NaN);
+  // Each filament once, its grams summed over the plates.
+  const byId = new Map<string, { color: string; grams: number }>();
+  for (const [, attrs] of xml.matchAll(/<filament\b([^>]*)\/?>/g)) {
+    const color = /\bcolor="([^"]*)"/.exec(attrs)?.[1] ?? '', grams = Number(/\bused_g="([^"]*)"/.exec(attrs)?.[1]);
+    const id = /\bid="([^"]*)"/.exec(attrs)?.[1] ?? color, f = byId.get(id);
+    if (!Number.isFinite(grams)) continue;
+    if (f) f.grams = +(f.grams + grams).toFixed(2); else byId.set(id, { color, grams });
+  }
+  const filaments = [...byId.values()];
+  const seconds = sum(meta('prediction')), weight = sum(meta('weight'));
   const grams = Number.isFinite(weight) ? weight : filaments.reduce((s, f) => s + f.grams, 0);
   if (!Number.isFinite(seconds) || !Number.isFinite(grams)) throw new Error('Bambu Studio reported no print time or filament');
   return { seconds, grams, filaments };
