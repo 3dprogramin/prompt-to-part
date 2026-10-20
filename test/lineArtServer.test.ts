@@ -8,6 +8,7 @@ import { lineArtLine } from '../server/geometry';
 import { evaluateScript } from '../shared/runtime';
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import type { AgentEvent } from '../shared/api';
+import { drawingFingerprint, LINEART_EDITS_KEY } from '../shared/lineart';
 
 /** A 200×120 photo-like picture of line art: a black ring and a bar under it, 3–4 px lines, on a mid-grey, textured wall (half of it darker than mid grey). */
 function picture() {
@@ -82,6 +83,19 @@ test('trace_line_art and generate_line_art store a drawing for H.lineart', async
   assert.deepEqual(asked[0].references, references);
   assert.match(asked[0].prompt, /ground line/);
   assert.deepEqual(Object.keys(parseDrawings(base[DRAWINGS_KEY])), ['ring', 'bike-and-car']);
+
+  // A partial edit: the drawing as it is, hand edits drawn in, goes first; the edits are baked in and dropped.
+  const ring = parseDrawings(base[DRAWINGS_KEY]).ring;
+  base[LINEART_EDITS_KEY] = JSON.stringify({ ring: { fp: drawingFingerprint(ring), strokes: [{ mode: 'draw', points: [[0, 0], [0.2, 0]] }] } });
+  const edited = await tools.generate_line_art.handler({ name: 'ring', edit: 'ring', subject: 'make the ring thicker at the bottom' }, {});
+  assert.ok(!edited.isError, JSON.stringify(edited));
+  const last = asked[asked.length - 1];
+  assert.match(last.prompt, /Change only this: make the ring thicker/);
+  assert.equal(last.references?.length, 1);
+  assert.match(last.references![0], /^data:image\/png;base64,/);
+  assert.equal(base[LINEART_EDITS_KEY], undefined);
+  assert.ok(events.some((e) => e.type === 'lineArtEditsBaked' && e.name === 'ring'));
+  assert.match((await tools.generate_line_art.handler({ name: 'x', edit: 'nope', subject: 'change something here' }, {})).content[0].text!, /no drawing "nope"/);
 });
 
 test('the report\'s line-art line', () => {

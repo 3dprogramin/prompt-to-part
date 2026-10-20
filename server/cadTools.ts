@@ -6,8 +6,9 @@ import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
-import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, lineArtPrompt, paintPrompt, picturePrompt, requestImage, traceLineArt } from './artwork';
-import { LINE_ART_STYLE_INFO, LINE_ART_STYLES, type LineArtStyle } from '../shared/lineart';
+import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, lineArtEditPrompt, lineArtPrompt, paintPrompt, picturePrompt, requestImage, traceLineArt } from './artwork';
+import { encode as encodePng } from 'fast-png';
+import { drawingFingerprint, drawingPicture, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtStyle } from '../shared/lineart';
 import { checkSwaps, cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, toLayerToneImage, type LayerToneSetup } from '../shared/layertone';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
@@ -75,6 +76,17 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
     if (!drawings[name] && Object.keys(drawings).length >= MAX_DRAWINGS) throw new Error(`This design already has ${MAX_DRAWINGS} drawings (${Object.keys(drawings).join(', ')}): reuse one of the names to replace it.`);
     base[DRAWINGS_KEY] = JSON.stringify({ ...drawings, [name]: traced.drawing });
     emit({ type: 'drawing', name, drawing: traced.drawing });
+  };
+  // Where a drawing sits in the current model (its scale, for drawing hand edits at their width), if the model uses it.
+  const lineArtFrame = async (name: string) => {
+    const code = await readModel();
+    if (!code) return null;
+    try {
+      const r = await geometry.evaluate(code, v(), 'draft');
+      const la = r.ok ? r.parts.find((p) => p.lineArt?.frames.some((f) => f.name === name))?.lineArt : undefined;
+      const f = la?.frames.find((x) => x.name === name);
+      return f && la ? { k: f.k, lineWidth: la.lineWidth } : null;
+    } catch { return null; }
   };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
   // Code of model.js at the last successful render: submit requires the current file to have been looked at.
@@ -234,17 +246,37 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (their own car, bike, pet or person)'),
         width: z.number().min(40).max(1000).optional().describe('The piece\'s planned width in mm (default by style, e.g. 240 for a key holder): the line weight and the detail are drawn for it'),
         line_width: z.number().min(0.4).max(10).optional().describe('The planned lineWidth in mm (default 1)'),
+        edit: z.string().regex(/^[\w-]{1,40}$/).optional().describe('Change part of an existing drawing instead of drawing a new one: its name. The image model gets that drawing as it is now (with the user\'s hand edits) and changes only what `subject` says (e.g. "replace the exhaust with a short angular Akrapovic silencer"), keeping every other line; use it for any change to part of a drawing the user likes'),
       }, async (a) => {
         if (a.use_attached_photos && !lineArt.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
         const style = a.style ?? lineArt.style;
         const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
-        status(`Drawing line art "${a.name}" with ${imageModel()}…`);
+        const drawings = parseDrawings(base[DRAWINGS_KEY]);
+        const old = a.edit ? drawings[a.edit] : undefined;
+        if (a.edit && !old) return { content: [{ type: 'text', text: `There is no drawing "${a.edit}" to edit (drawings: ${Object.keys(drawings).map((n) => `"${n}"`).join(', ') || 'none'}).` }], isError: true };
+        status(old ? `Changing line art "${a.edit}" with ${imageModel()}…` : `Drawing line art "${a.name}" with ${imageModel()}…`);
         try {
-          const references = a.use_attached_photos ? lineArt.references : undefined;
-          const prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look, width: a.width, lineWidth: a.line_width });
-          const { image, model, cost } = await drawImage(prompt, a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), references, lineArt.signal, status);
+          const photos = a.use_attached_photos ? lineArt.references : undefined;
+          let prompt: string, references = photos, aspect = a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1');
+          // A change to part of a drawing: the drawing as it is (hand edits drawn in) goes first.
+          const edits = old ? parseLineArtEdits(base[LINEART_EDITS_KEY])[a.edit!] : undefined;
+          const hand = edits && edits.fp === drawingFingerprint(old!) ? edits.strokes : [];
+          if (old) {
+            const frame = await lineArtFrame(a.edit!);
+            const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, frame?.lineWidth ?? a.line_width ?? 1);
+            references = [`data:image/png;base64,${Buffer.from(encodePng({ width: pic.width, height: pic.height, data: pic.rgba, channels: 4 })).toString('base64')}`, ...(photos ?? [])];
+            prompt = lineArtEditPrompt({ change: a.subject, references: photos, width: a.width, style });
+            aspect = a.aspect ?? nearestAspect(old.aspect);
+          } else prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look, width: a.width, lineWidth: a.line_width });
+          const { image, model, cost } = await drawImage(prompt, aspect, references, lineArt.signal, status);
           const traced = traceLineArt(decodeImage(Buffer.from(image.data, 'base64')), a.name);
           storeLineArt(a.name, traced);
+          // The hand edits are in the new picture now: the drawing they were made on is gone.
+          if (old && a.name === a.edit && hand.length) {
+            const { [a.name]: _baked, ...rest } = parseLineArtEdits(base[LINEART_EDITS_KEY]);
+            if (Object.keys(rest).length) base[LINEART_EDITS_KEY] = JSON.stringify(rest); else delete base[LINEART_EDITS_KEY];
+            emit({ type: 'lineArtEditsBaked', name: a.name });
+          }
           emit({ type: 'step', step: {
             kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
             text: `Line art "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
@@ -588,6 +620,12 @@ function oneLine(r: { ok: true; bbox: { min: number[]; max: number[] } | null; t
 const BAR_STYLES = new Set<LineArtStyle>(['keyholder', 'sign', 'stand']);
 
 /** What Claude is told when a line-art drawing is stored. */
+/** The image model's picture shape closest to `aspect` (width ÷ height). */
+function nearestAspect(aspect: number): (typeof ASPECTS)[number] {
+  const ratio = (a: string) => { const [w, h] = a.split(':').map(Number); return w / h; };
+  return ASPECTS.reduce((best, a) => (Math.abs(Math.log(ratio(a) / aspect)) < Math.abs(Math.log(ratio(best) / aspect)) ? a : best));
+}
+
 function lineArtReady(name: string, aspect: number, style: LineArtStyle) {
   return `Line art "${name}" is ready for H.lineart("${name}", { style: '${style}', width, thickness, lineWidth, … }) (${aspect.toFixed(3)} times as wide as high; its white is open). Check the piece with render_model: the report's line-art line says how many bridges Jig had to add and how many specks it dropped.`;
 }

@@ -206,6 +206,24 @@ export function lineArtPrompt(r: { subject: string; style: LineArtStyle; referen
 }
 
 /**
+ * The prompt for changing part of a line-art drawing (generate_line_art with edit): the drawing as
+ * it is now is the attached picture, and only `change` may differ – same subjects, layout, lines
+ * and line weight everywhere else, under the same print rules.
+ */
+export function lineArtEditPrompt(r: { change: string; references?: string[]; width?: number; style: LineArtStyle }): string {
+  return [
+    `Edit the attached picture: it is black line art for a one-piece wall cut-out, about ${Math.round(r.width ?? LINE_ART_WIDTH[r.style])} mm wide, 3D-printed in black.`,
+    `Change only this: ${r.change.trim()}`,
+    r.references?.length ? 'The other attached photo(s) show the real subject: use them for the part you change.' : '',
+    'Keep everything else exactly as it is: the same picture size and framing, the same subjects in the same places and poses, and every other line where it is, at the same weight – copy them, don\'t redraw them.',
+    'Rules for what you change:',
+    '- pure black (#000000) lines on pure white (#FFFFFF), the same line weight and bold, simplified style as the rest of the picture; no grey, shading, hatching or textures',
+    '- it joins the lines around it, so the drawing stays ONE connected piece with nothing floating or dangling',
+    '- no detail smaller than about three line widths; no text, signature or watermark',
+  ].filter(Boolean).join('\n');
+}
+
+/**
  * Line art (black on white: the image model's, or an attached picture that already is line art)
  * as a drawing for H.lineart: one black shape, the white between its lines as holes in it (EvenOdd)
  * and the white background touching the edges dropped. A white shape on top would only repeat

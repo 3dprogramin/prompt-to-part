@@ -17,7 +17,7 @@ import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
-import { DEFAULT_LINE_ART_STYLE, isLineArt, LINE_ART_STYLE_INFO } from '../shared/lineart';
+import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, parseLineArtEdits } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -223,6 +223,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
     ...(Object.keys(layerToneImages).length ? { [LAYERTONE_IMAGES_KEY]: JSON.stringify(layerToneImages) } : {}),
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
+    ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
   };
   // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
   const myFilaments = layerTone ? await readMyFilaments() : [];
@@ -298,7 +299,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const none = artworkAvailable()
       ? 'There is no drawing yet: make one with generate_line_art (or trace an attached line-art picture with trace_line_art).'
       : 'There is no drawing yet, and Jig has no image model without OPENROUTER_API_KEY: trace an attached line-art picture with trace_line_art, or ask the user to attach an SVG or a picture of line art (dark lines on white).';
-    const available = names.length ? `Drawings available to H.lineart: ${names.map((n) => `"${n}" (${drawings[n].aspect.toFixed(2)} times as wide as high)`).join(', ')}.` : none;
+    // The user's brush edits, per drawing (only those made on the drawing as it is now apply).
+    const edits = parseLineArtEdits(pictureValues[LINEART_EDITS_KEY]);
+    const handEdited = (n: string) => { const e = edits[n]; return e && e.fp === drawingFingerprint(drawings[n]) ? `, ${e.strokes.length} hand edit${e.strokes.length > 1 ? 's' : ''} by the user` : ''; };
+    const available = names.length ? `Drawings available to H.lineart: ${names.map((n) => `"${n}" (${drawings[n].aspect.toFixed(2)} times as wide as high${handEdited(n)})`).join(', ')}.` : none;
     parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a one-piece line-art cut-out with H.lineart (see the system prompt).`, attached, available].filter(Boolean).join(' '));
   }
   // Mesh files attached now: a picture of each as imported, and what the import did.

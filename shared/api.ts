@@ -79,6 +79,8 @@ export type AgentEvent =
   | { type: 'error'; message: string; resetsAt?: number }
   /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
+  /** Line art: the hand edits of a drawing are now part of it (a partial edit by the image model redrew it with them), so the design drops them. */
+  | { type: 'lineArtEditsBaked'; name: string }
   /** A picture for H.layertone or H.lithophane (an attached photo or one the image model drew), kept with the design under LAYERTONE_IMAGES_KEY. */
   | { type: 'layerToneImage'; name: string; image: LayerToneImage }
   /** A mesh Claude had made (generate_3d), kept in the design's MESHES_KEY index for H.mesh. */

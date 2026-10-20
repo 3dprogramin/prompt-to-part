@@ -4,7 +4,7 @@
 // size, joins loose bits to the rest with short bridges, drops specks too small to print, and adds
 // the style's bar, frame, hooks or stand.
 import type { Brim } from './print';
-import type { SvgDrawing } from './svgFeatures';
+import { defaultColors, type SvgDrawing } from './svgFeatures';
 
 export const LINE_ART_STYLES = ['outline', 'keyholder', 'framed', 'medallion', 'sign', 'stand'] as const;
 export type LineArtStyle = (typeof LINE_ART_STYLES)[number];
@@ -197,6 +197,40 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
     if (strokes.length) out[name.slice(0, 120)] = { fp: e.fp.slice(0, 80), strokes };
   }
   return out;
+}
+
+/**
+ * A drawing as a black-on-white picture `heightPx` high (RGBA, anti-aliased), with its hand edits
+ * drawn in – what the image model gets to change part of a drawing. `mmPerUnit`: the drawing's
+ * size in the piece (its frame's k), for the strokes' widths.
+ */
+export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx: number, mmPerUnit: number, lineWidth = 1): { width: number; height: number; rgba: Uint8Array } {
+  const S = 2, H = Math.round(heightPx) * S, W = Math.round(d.aspect * heightPx) * S;
+  const g: LineArtGrid = { w: W, h: H, px: 1 / H, x0: -d.aspect / 2, y1: 0.5 };
+  const ink = new Uint8Array(W * H);
+  // Shapes in paint order: the line colours add ink, the others (white-ish paper) cover it.
+  const dark = defaultColors(d), lines = dark ? new Set(dark) : null;
+  for (const sh of d.shapes) {
+    const m = rasterize(sh.contours as Pt[][], g);
+    const on = !lines || lines.has(sh.color ?? '');
+    for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = on ? 1 : 0;
+  }
+  const toPx = ([x, y]: [number, number]): Pt => [(x - g.x0) * H - 0.5, (g.y1 - y) * H - 0.5];
+  for (const st of strokes) {
+    const r = ((st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit) * H;
+    const m = new Uint8Array(W * H), pts = st.points.map(toPx);
+    if (pts.length === 1) capsuleXY(m, W, H, pts[0], pts[0], r);
+    for (let k = 0; k + 1 < pts.length; k++) capsuleXY(m, W, H, pts[k], pts[k + 1], r);
+    for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = st.mode === 'draw' ? 1 : 0;
+  }
+  const w = W / S, h = H / S, rgba = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let n = 0;
+    for (let dy = 0; dy < S; dy++) for (let dx = 0; dx < S; dx++) n += ink[(y * S + dy) * W + x * S + dx];
+    const v = 255 - Math.round((255 * n) / (S * S)), o = (y * w + x) * 4;
+    rgba[o] = rgba[o + 1] = rgba[o + 2] = v; rgba[o + 3] = 255;
+  }
+  return { width: w, height: h, rgba };
 }
 
 /** Print settings for line art: flat, one colour, solid (2 mm is all top and bottom layers anyway), no brim to pick out of the lines. */
