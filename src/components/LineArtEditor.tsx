@@ -11,9 +11,9 @@ import { Icon } from './Icon';
 type Pt = [number, number];
 type Tool = 'draw' | 'erase';
 /** A step of this session, for Undo / Redo: a stroke added, or edits cleared. */
-type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke } | { kind: 'clear'; names: string[]; before: LineArtEdits };
-/** A stroke on the screen (mm, the piece's XY), drawn over the piece until the rebuild shows it. */
-interface ShownStroke { mode: Tool; width: number; points: Pt[] }
+type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown: ShownStroke } | { kind: 'clear'; names: string[]; before: LineArtEdits; shown: ShownStroke[] };
+/** A stroke of this session on the screen (mm, the piece's XY), drawn over the piece: it is only built when the editor closes with Done. `src` is the stroke as saved. */
+interface ShownStroke { mode: Tool; width: number; points: Pt[]; name?: string; src?: LineArtStroke; live?: boolean }
 
 /** Brush widths (mm): draw, erase. */
 const WIDTH = { draw: { min: 0.6, max: 5 }, erase: { min: 1, max: 15 } };
@@ -24,6 +24,7 @@ const SNAP_PX = 10;
 const INK = '#141414';
 const RAISED = ['#3a3d42', '#6a6e75'];
 const ERASE = 'rgba(229, 103, 95, 0.5)';
+const PAPER = '#fff';
 /** The hit-test grid: this many mm per cell at least, and at most this many cells. */
 const MASK_RES = 0.05;
 const MASK_CELLS = 8_000_000;
@@ -87,6 +88,22 @@ function pieceImage(part: PartMesh, thickness: number) {
   return { fill, bitmap, mask, box: { x0, y0, x1, y1 } };
 }
 
+/** A stroke stamped into the ink grid: a drawn line adds ink, erasing takes it away. */
+function stamp(m: InkMask, st: ShownStroke) {
+  const r = st.width / 2 / m.res, v = st.mode === 'draw' ? 1 : 0;
+  const px = st.points.map(([x, y]): Pt => [(x - m.x0) / m.res, (m.y1 - y) / m.res]);
+  const segs = px.length === 1 ? [[px[0], px[0]]] : px.slice(1).map((p, i) => [px[i], p]);
+  for (const [[ax, ay], [bx, by]] of segs) {
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-12;
+    const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r)), x1 = Math.min(m.w - 1, Math.ceil(Math.max(ax, bx) + r));
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r)), y1 = Math.min(m.h - 1, Math.ceil(Math.max(ay, by) + r));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2));
+      if ((x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 <= r * r) m.data[y * m.w + x] = v;
+    }
+  }
+}
+
 interface Props {
   part: PartMesh & { lineArt: LineArtInfo };
   /** The design's values: LINEART_EDITS_KEY (the edits), DRAWINGS_KEY (the drawings' proportions), SCALE_KEY. */
@@ -101,15 +118,21 @@ interface Props {
 
 /**
  * The Edit drawing brush: the piece large and straight on, to draw lines on (they go through Jig's
- * clean-up like the drawing's own) or erase (also what Jig drew there). Each stroke is saved at once
- * in the design (LINEART_EDITS_KEY), in the drawing's own units; the model rebuilds and the piece
- * shown here follows. Closing keeps the edits.
+ * clean-up like the drawing's own) or erase (also what Jig drew there). The strokes are a draft,
+ * drawn over the piece, until Done (or Escape) saves them in the design at once (LINEART_EDITS_KEY,
+ * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft.
  */
 export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: Props) {
-  useEscape(true, onClose);
   const layout = useLayoutMode();
   const la = part.lineArt;
-  const edits = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
+  const saved = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
+  // The edits as they will be saved: the saved ones as the editor opened, and this session's changes.
+  const [edits, setEdits] = useState<LineArtEdits>(saved);
+  const changed = useMemo(() => JSON.stringify(edits) !== JSON.stringify(saved), [edits, saved]);
+  const finish = useRef(() => {});
+  finish.current = () => { if (changed) onEdits(() => edits); onClose(); };
+  const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
+  useEscape(true, () => finish.current());
   const drawings = useMemo(() => parseDrawings(values[DRAWINGS_KEY]), [values[DRAWINGS_KEY]]);
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
   const image = useMemo(() => pieceImage(part, la.thickness), [part, la.thickness]);
@@ -121,10 +144,16 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const [note, setNote] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
-  // Strokes saved but not in the shown piece yet: drawn over it until the rebuild arrives.
+  // This session's strokes, drawn over the piece (it is built only when the editor closes).
   const [shown, setShown] = useState<ShownStroke[]>([]);
-  useEffect(() => setShown([]), [part]);
-  useEffect(() => { if (error) setShown([]); }, [error]);
+  // The ink to snap to: the piece, with this session's lines drawn in and its erasing taken out.
+  const ink = useMemo(() => {
+    if (!image) return null;
+    if (!shown.length) return image.mask;
+    const m = { ...image.mask, data: image.mask.data.slice() };
+    for (const st of shown) stamp(m, st);
+    return m;
+  }, [image, shown]);
   const width = widths[tool];
   const stale = staleEdits(edits, la.frames);
   const applied = la.frames.reduce((n, f) => n + strokesOf(edits, f.name, f.fp).length, 0);
@@ -144,8 +173,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const hover = useRef<{ at: Pt; snap: Pt | null; show: boolean }>({ at: [0, 0], snap: null, show: false });
   const keys = useRef({ space: false, shift: false });
   // The latest of everything the pointer and key handlers use.
-  const now = useRef({ tool, width, snap, image, la, edits, scale, shown, hist });
-  now.current = { tool, width, snap, image, la, edits, scale, shown, hist };
+  const now = useRef({ tool, width, snap, image, ink, la, edits, scale, shown, hist });
+  now.current = { tool, width, snap, image, ink, la, edits, scale, shown, hist };
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -201,7 +230,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
     const stroke = (st: ShownStroke) => {
-      ctx.fillStyle = ctx.strokeStyle = st.mode === 'draw' ? INK : ERASE;
+      // Erased: the paper shows (red while it is being drawn).
+      ctx.fillStyle = ctx.strokeStyle = st.mode === 'draw' ? INK : st.live ? ERASE : PAPER;
       if (st.points.length === 1 || st.points.every((p) => p[0] === st.points[0][0] && p[1] === st.points[0][1])) {
         ctx.beginPath(); ctx.arc(st.points[0][0], st.points[0][1], st.width / 2, 0, 2 * Math.PI); ctx.fill();
         return;
@@ -212,7 +242,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       ctx.stroke();
     };
     for (const st of n.shown) stroke(st);
-    if (a.mode === 'draw' && a.points.length) stroke({ mode: n.tool, width: n.width, points: livePoints() });
+    if (a.mode === 'draw' && a.points.length) stroke({ mode: n.tool, width: n.width, points: livePoints(), live: true });
     // Screen-sized marks: where a line will snap to, and the brush.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const ring = (p: Pt, r: number, color: string, lw: number) => { const [x, y] = toScreen(p); ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.stroke(); };
@@ -281,8 +311,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   /** Where a line starting or ending at p would snap to, if it would. */
   const snapAt = (p: Pt, prev?: Pt): Pt | null => {
     const n = now.current;
-    if (n.tool !== 'draw' || !n.snap || !n.image) return null;
-    return snapEnd(n.image.mask, p, prev, n.width, snapRadius());
+    if (n.tool !== 'draw' || !n.snap || !n.ink) return null;
+    return snapEnd(n.ink, p, prev, n.width, snapRadius());
   };
   /** The stroke being drawn as it will be saved: straight with Shift, its ends snapped. */
   function livePoints(): Pt[] {
@@ -304,9 +334,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     if (!raw.length) return;
     let pts = leanStroke(raw);
     // Snapped ends, worked out again on the lean stroke (its last segment can point another way).
-    if (n.tool === 'draw' && n.snap && n.image && pts.length > 1) {
-      const s0 = snapEnd(n.image.mask, pts[0], pts[1], n.width, snapRadius());
-      const s1 = snapEnd(n.image.mask, pts[pts.length - 1], pts[pts.length - 2], n.width, snapRadius());
+    if (n.tool === 'draw' && n.snap && n.ink && pts.length > 1) {
+      const s0 = snapEnd(n.ink, pts[0], pts[1], n.width, snapRadius());
+      const s1 = snapEnd(n.ink, pts[pts.length - 1], pts[pts.length - 2], n.width, snapRadius());
       if (s0) pts = [s0, ...pts.slice(1)];
       if (s1) pts = [...pts.slice(0, -1), s1];
     }
@@ -323,15 +353,20 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       width: round(n.width / n.scale, 3),
       points: pts.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt),
     };
-    onEdits((e) => addStroke(e, f.name, f.fp, stroke));
-    setHist((h) => ({ undo: [...h.undo, { kind: 'add', name: f.name, fp: f.fp, stroke }], redo: [] }));
-    setShown((s) => [...s, { mode: n.tool, width: n.width, points: pts }]);
+    const view: ShownStroke = { mode: n.tool, width: n.width, points: pts, name: f.name, src: stroke };
+    setEdits((e) => addStroke(e, f.name, f.fp, stroke));
+    setHist((h) => ({ undo: [...h.undo, { kind: 'add', name: f.name, fp: f.fp, stroke, shown: view }], redo: [] }));
+    setShown((s) => [...s, view]);
     setNote(null);
   };
   const apply = (op: Op, undo: boolean) => {
-    if (op.kind === 'add') onEdits((e) => (undo ? removeStroke(e, op.name, op.stroke) : addStroke(e, op.name, op.fp, op.stroke)));
-    else onEdits((e) => (undo ? { ...e, ...op.before } : withoutDrawings(e, op.names)));
-    setShown([]);
+    if (op.kind === 'add') {
+      setEdits((e) => (undo ? removeStroke(e, op.name, op.stroke) : addStroke(e, op.name, op.fp, op.stroke)));
+      setShown((s) => (undo ? s.filter((x) => x !== op.shown) : [...s, op.shown]));
+    } else {
+      setEdits((e) => (undo ? { ...e, ...op.before } : withoutDrawings(e, op.names)));
+      setShown((s) => (undo ? [...s, ...op.shown] : s.filter((x) => !op.names.includes(x.name ?? ''))));
+    }
   };
   const undo = () => {
     const op = now.current.hist.undo.at(-1);
@@ -349,7 +384,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     const e = now.current.edits;
     names = names.filter((k) => e[k]);
     if (!names.length) return;
-    const op: Op = { kind: 'clear', names, before: Object.fromEntries(names.map((k) => [k, e[k]])) };
+    const op: Op = { kind: 'clear', names, before: Object.fromEntries(names.map((k) => [k, e[k]])), shown: now.current.shown.filter((x) => names.includes(x.name ?? '')) };
     apply(op, false);
     setHist((h) => ({ undo: [...h.undo, op], redo: [] }));
   };
@@ -478,7 +513,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const barMm = niceLength(90 / zoom);
   const phone = layout === 'phone';
   const lim = WIDTH[tool];
-  const updating = busy || shown.length > 0;
+  // Clearing edits the piece was built with only shows once it is rebuilt.
+  const clearedBuilt = la.edits > 0 && applied === 0;
   return (
     <div className={`la-editor ${phone ? 'phone' : ''}`} role="dialog" aria-modal="true" aria-label="Edit the drawing" ref={dialog} tabIndex={-1}>
       <div className="la-ed-bar" role="toolbar" aria-label="Brush">
@@ -509,9 +545,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         </button>
         <span className="spacer" />
         <span className="la-ed-status small" aria-live="polite">
-          {updating ? <><span className="spinner" /> updating…</> : `${applied} hand edit${applied === 1 ? '' : 's'}`}
+          {busy ? <><span className="spinner" /> updating…</> : changed ? 'Not built yet: Done builds it' : `${applied} hand edit${applied === 1 ? '' : 's'}`}
         </span>
-        <button className="btn primary" onClick={onClose} title="Done (Esc): the edits stay">Done</button>
+        <button className="btn" onClick={cancel} title="Close without the changes made now">Cancel</button>
+        <button className="btn primary" onClick={() => finish.current()} title="Done (Esc): build the piece with the edits">Done</button>
       </div>
       <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
@@ -521,7 +558,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
           {stale.strokes > 0 && (
             <div className="la-ed-note warn"><Icon name="alert" size={13} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing <button className="link" onClick={() => clear(stale.names)}>Clear</button></div>
           )}
-          {part.components > 1 && !updating && (
+          {clearedBuilt && <div className="la-ed-note">The cleared edits go when you click Done.</div>}
+          {part.components > 1 && !busy && !changed && (
             <div className="la-ed-note warn"><Icon name="alert" size={13} /> The piece is in {part.components} pieces{erased ? ' – an erase cut it apart' : ''}</div>
           )}
           {error && <div className="la-ed-note warn"><Icon name="alert" size={13} /> The model didn't build: {error}</div>}
