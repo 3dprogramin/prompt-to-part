@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValue, ParamValues, PartMesh } from '../../shared/types';
-import { formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, MAX_LINEART_SIZE, parseLineArtEdits, parseLineArtSize, parseLineArtSplit, type LineArtEdits, type LineArtInfo, type LineArtSplitInfo } from '../../shared/lineart';
+import { DEFAULT_SPLIT_JOIN, formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_JOIN_KEY, parseLineArtJoin, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, MAX_LINEART_SIZE, parseLineArtEdits, parseLineArtSize, parseLineArtSplit, type LineArtEdits, type LineArtInfo, type LineArtSplitInfo } from '../../shared/lineart';
 import { formatSplitSpec, MAX_PIECE, parseSplitSpec, type SplitSpec } from '../../shared/split';
 import { NumBox } from './NumBox';
 import { staleEdits, withoutDrawings } from '../lib/lineArtEdit';
@@ -102,6 +102,10 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
   // The size typed here (before the design's overall scale, which applies to it too).
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
   const userSize = !!parseLineArtSize(values[LINEART_SIZE_KEY]);
+  // Pieces beyond the grid's cells: bits too far from the rest of their cell (A2b…), and the join that decides it.
+  const loose = sp ? sp.pieces.filter((p) => /[a-z]$/.test(p.label)) : [];
+  const userJoin = parseLineArtJoin(values[LINEART_JOIN_KEY]) != null;
+  const join = parseLineArtJoin(values[LINEART_JOIN_KEY]) ?? DEFAULT_SPLIT_JOIN;
   // The size boxes: locked (the default, remembered), one side follows the other at the drawing's
   // proportions. A typed size shows at once and stays until the rebuild brings the piece's own.
   const [lock, setLock] = useState<boolean>(() => load('lineArtSizeLock', true));
@@ -136,9 +140,23 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
       {/* How many pieces it makes, at a glance. */}
       {sp && (
         <div className="lineart-split-summary">
-          <span className="lineart-count big">{sp.pieces.length} pieces</span>
-          <span className="dim small">{sp.cols} × {sp.rows} grid · the biggest {Math.max(...sp.pieces.map((p) => p.size[0])).toFixed(0)} × {Math.max(...sp.pieces.map((p) => p.size[1])).toFixed(0)} mm</span>
+          <span className="lineart-count">{sp.pieces.length} pieces</span>
+          <span className="dim small">
+            {loose.length
+              ? <>{sp.cols * sp.rows} cells + {loose.length} loose bit{loose.length > 1 ? 's' : ''} ({loose.map((p) => p.label).join(', ')}): too far from the rest of their cell to join</>
+              : <>{sp.cols} × {sp.rows} grid</>}
+            {' · '}the biggest {Math.max(...sp.pieces.map((p) => p.size[0])).toFixed(0)} × {Math.max(...sp.pieces.map((p) => p.size[1])).toFixed(0)} mm
+          </span>
         </div>
+      )}
+      {sp && (
+        <label className="lineart-split-row small" title="The longest join Jig adds inside a piece to hold a bit of the drawing to the rest. Longer joins mean fewer loose pieces but visible struts on the wall.">
+          <span className="dim">Longest join</span>
+          <span className="lineart-split-grid">
+            <NumBox value={join} min={5} max={300} label="Longest join, mm" onCommit={(v) => onValue(LINEART_JOIN_KEY, String(v))} />
+            {userJoin && <button className="icon-btn" title={`Back to ${DEFAULT_SPLIT_JOIN} mm`} aria-label={`Back to ${DEFAULT_SPLIT_JOIN} mm`} onClick={() => onValue(LINEART_JOIN_KEY, '')}><Icon name="restore" size={12} /></button>}
+          </span>
+        </label>
       )}
       {mode === 'pieces' && (
         <label className="lineart-split-row small">
@@ -321,7 +339,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
         <dd className={tooBig ? 'warn' : ''}>
           <span className="mono">{w.toFixed(0)} × {h.toFixed(0)} mm</span>
           {tooBig && <span className="lineart-why"><Icon name="alert" size={12} /> bigger than the {bed}'s bed ({PRINTER.bed[0]} mm): split it into pieces below</span>}
-          {la.split && <> in <span className="lineart-count">{la.split.pieces.length} pieces</span></>}
+          {la.split && <> in <b>{la.split.pieces.length} pieces</b></>}
         </dd>
         <dt>Thickness</dt><dd className="mono">{mm(la.thickness)}</dd>
         <dt>Lines</dt><dd><span className="mono">{mm(la.lineWidth)}</span>, {la.lines === 'even' ? 'even' : 'kept (thin ones thickened)'}</dd>

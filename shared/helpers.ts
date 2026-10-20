@@ -77,7 +77,7 @@ export interface LayerToneInput {
 export interface PaintedMesh { id: number; name: string; url: string }
 
 /** `painted` collects the coloured meshes H.mesh gave out (see PaintedMesh). */
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[], lineArtEdits: LineArtEdits = {}, lineArtDesign: Pick<LineArtDeps, 'split' | 'layout' | 'size'> = {}) {
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[], lineArtEdits: LineArtEdits = {}, lineArtDesign: Pick<LineArtDeps, 'split' | 'layout' | 'size' | 'join'> = {}) {
   const { wasm } = rt;
   // Meshes this evaluation uses: they stay in meshCache until it is over.
   const meshesInUse = new Set<string>();

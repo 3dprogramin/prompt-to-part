@@ -94,6 +94,8 @@ export interface LineArtOptions {
    * (LINEART_SPLIT_KEY) wins over it.
    */
   split?: SplitSpec | 'off';
+  /** Split: the longest join (bridge, mm) Jig adds inside a piece, default 30; bits farther apart become pieces of their own (a small detail is joined up to 60 mm, or this when it is more). */
+  splitJoin?: number;
   /** A split piece: 'print' (default: the pieces side by side to print), 'assembled' (together as on the wall) or 'exploded' (pulled apart). */
   layout?: 'print' | 'assembled' | 'exploded';
   /** A split piece: engrave each piece's name (A1, A2, B1…) on its back, default true. */
@@ -270,6 +272,13 @@ export function parseLineArtSize(raw: unknown): { width?: number; height?: numbe
   const ok = (v?: string) => (v && Number(v) >= 20 && Number(v) <= MAX_LINEART_SIZE ? Number(v) : undefined);
   const width = ok(m[1]), height = ok(m[2]);
   return width || height ? { ...(width ? { width } : {}), ...(height ? { height } : {}) } : undefined;
+}
+/** The longest join (bridge) Jig may add inside a split piece, mm, as the user set it in the Print tab; beyond it, a bit becomes a piece of its own. */
+export const LINEART_JOIN_KEY = '$lineartJoin';
+export const DEFAULT_SPLIT_JOIN = 30;
+export function parseLineArtJoin(raw: unknown): number | undefined {
+  const v = Number(raw);
+  return raw != null && raw !== '' && Number.isFinite(v) && v >= 5 && v <= 300 ? v : undefined;
 }
 export const formatLineArtSize = (s: { width?: number; height?: number }) => `${s.width ? +s.width.toFixed(1) : ''}x${s.height ? +s.height.toFixed(1) : ''}`;
 /** The most strokes kept per drawing, and points per stroke. */
@@ -681,6 +690,30 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
   const bg = new Uint8Array(N);
   for (let i = 0; i < N; i++) bg[i] = art[i] ? 0 : 1;
   const inside = sqDistance(bg, w, h);
+  // A piece of a split: a sliver a seam cut off along a line's edge (thinner than half a line and
+  // touching the piece's edge) goes before anything is joined to it.
+  if (o.inside) {
+    const seen = new Uint8Array(N), comp: number[] = [];
+    for (let s0 = 0; s0 < N; s0++) {
+      if (!art[s0] || seen[s0]) continue;
+      comp.length = 0; comp.push(s0); seen[s0] = 1;
+      let deepest = 0, edge = false, anchored = false;
+      for (let q = 0; q < comp.length; q++) {
+        const i = comp[q];
+        deepest = Math.max(deepest, inside[i]);
+        if (anchor?.[i]) anchored = true;
+        for (const k of nb) {
+          const j = i + k;
+          if (!o.inside[j]) edge = true;
+          if (art[j] && !seen[j]) { seen[j] = 1; comp.push(j); }
+        }
+      }
+      if (edge && !anchored && (2 * Math.sqrt(deepest) - 1) * px < 0.5 * o.lineWidth) {
+        for (const i of comp) { art[i] = 0; bg[i] = 1; inside[i] = 0; }
+        dropped++;
+      }
+    }
+  }
   const R = Math.max(r + 1, (o.fill / px + 1) / 2);
   const core = new Uint8Array(N);
   let anyCore = false;
@@ -814,9 +847,9 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
         if (path) d = path.reduce((n, p, k) => (k ? n + Math.hypot(p[0] - path![k - 1][0], p[1] - path![k - 1][1]) : 0), 0);
       }
       if (!path) continue;
-      // Big bits farther apart than maxBridge aren't bridged (they become pieces of their own), and a
-      // small bit is bridged at most twice as far: never a long strut across a piece.
-      if (o.maxBridge != null && d * px - o.lineWidth > (size[ra] >= minPart && size[rb] >= minPart ? o.maxBridge : 2 * o.maxBridge)) continue;
+      // Big bits farther apart than maxBridge aren't bridged (they become pieces of their own); a
+      // small bit (a detail) may be joined a little farther, 60 mm at most unless maxBridge is more.
+      if (o.maxBridge != null && d * px - o.lineWidth > (size[ra] >= minPart && size[rb] >= minPart ? o.maxBridge : Math.max(o.maxBridge, 60))) continue;
       parent[ra] = rb;
       size[rb] += size[ra];
       for (let k = 0; k + 1 < path.length; k++) capsuleXY(out, w, h, path[k], path[k + 1], r);
@@ -1108,6 +1141,8 @@ export interface LineArtDeps {
   layout?: string;
   /** The whole piece's size the user typed (LINEART_SIZE_KEY), which wins over the script's width and height. */
   size?: { width?: number; height?: number };
+  /** The longest join in a split piece the user set (LINEART_JOIN_KEY), mm. */
+  join?: number;
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
@@ -1337,10 +1372,10 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       const f = frames[i];
       for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); erase = erase ? erase.add(b) : b; }
     });
-    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, units.map((u) => u.edits), d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null]);
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, units.map((u) => u.edits), d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
     sp = splitPieces({
       d, key, art, anchor, erase, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
-      clearance: num('clearance', 0.15, 0, 1), maxBridge: SPLIT_MAX_BRIDGE, minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,
+      clearance: num('clearance', 0.15, 0, 1), maxBridge: d.join ?? (opts.splitJoin != null ? num('splitJoin', DEFAULT_SPLIT_JOIN, 5, 300) : DEFAULT_SPLIT_JOIN), minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,
     });
     const totals = sp.pieces.reduce((t, p) => ({ bridges: t.bridges + p.info.bridges, longestBridge: Math.max(t.longestBridge, p.info.longestBridge), dropped: t.dropped + p.info.dropped, endsJoined: t.endsJoined + p.info.endsJoined, endsFree: t.endsFree + p.info.endsFree, closed: t.closed + p.closed, openings: t.openings + p.openings }), { bridges: 0, longestBridge: 0, dropped: vectorDropped, endsJoined: 0, endsFree: 0, closed: 0, openings: 0 });
     info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, ...totals, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
@@ -1418,8 +1453,6 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
 
 /** Room kept in each piece for seams that wander and for dovetails (mm): Auto picks enough pieces for it. */
 const SPLIT_RESERVE = 24;
-/** A split piece's bits farther apart than this (mm) aren't bridged when each is at least SPLIT_MIN_PART × lineWidth mm²: they become pieces of their own. */
-const SPLIT_MAX_BRIDGE = 30;
 const SPLIT_MIN_PART = 200;
 /** A split's pieces together get at most this many times the pixels the whole would get unsplit (MAX_PIXELS). */
 const SPLIT_PIXELS = 2;
