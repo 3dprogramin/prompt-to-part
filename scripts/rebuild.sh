@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Rebuilds the Docker Jig once it is idle: waits while a reply is being generated (a Claude Code
-# process in the container) or Bambu Studio is slicing, then `docker compose up -d --build` and
-# waits for the container to be healthy again.
+# Rebuilds the Docker Jig without cutting off a reply: builds the new image first (Jig keeps
+# running), then waits while a reply is being generated (a Claude Code process in the container) or
+# Bambu Studio is slicing, and only then swaps the container (`docker compose up -d`, seconds) and
+# waits for it to be healthy again.
 #   scripts/rebuild.sh          wait for idle (up to 30 min), then rebuild
 #   scripts/rebuild.sh --check  only say whether Jig is busy (exit 0 idle, 1 busy)
 #   scripts/rebuild.sh --now    rebuild without waiting
@@ -15,6 +16,16 @@ busy() {
 }
 
 case "${1:-}" in
+  --check|--now|"") ;;
+  *) echo "usage: $0 [--check | --now]"; exit 2 ;;
+esac
+
+if [ "${1:-}" != "--check" ]; then
+  echo "Building the new image (Jig keeps running)…"
+  docker compose build
+fi
+
+case "${1:-}" in
   --check)
     if busy; then echo "Jig is busy (a reply is being generated or a slice is running)"; exit 1; fi
     echo "Jig is idle"; exit 0 ;;
@@ -26,10 +37,10 @@ case "${1:-}" in
       [ "$waited" -eq 0 ] && echo "Jig is busy – waiting for it to finish…"
       sleep 10; waited=$((waited + 10))
     done ;;
-  *) echo "usage: $0 [--check | --now]"; exit 2 ;;
 esac
 
-docker compose up -d --build
+# The swap: the container restarts on the image just built.
+docker compose up -d
 for _ in $(seq 1 60); do
   status=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo missing)
   if [ "$status" = healthy ]; then echo "Jig is rebuilt and healthy ($(node -p "require('./package.json').version" 2>/dev/null || echo '?'))"; exit 0; fi
