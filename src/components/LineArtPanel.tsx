@@ -8,6 +8,7 @@ import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFe
 import { PRINTER } from '../../shared/printer';
 import { Icon } from './Icon';
 import { SCALE_KEY } from '../../shared/params';
+import { load, store } from '../lib/storage';
 
 /** A line-art part (H.lineart): its style, drawings and what Jig fixed. */
 type LineArtPart = PartMesh & { lineArt: LineArtInfo };
@@ -101,6 +102,19 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
   // The size typed here (before the design's overall scale, which applies to it too).
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
   const userSize = !!parseLineArtSize(values[LINEART_SIZE_KEY]);
+  // The size boxes: locked (the default, remembered), one side follows the other at the drawing's
+  // proportions. A typed size shows at once and stays until the rebuild brings the piece's own.
+  const [lock, setLock] = useState<boolean>(() => load('lineArtSizeLock', true));
+  useEffect(() => store('lineArtSizeLock', lock), [lock]);
+  const [typed, setTyped] = useState<[number, number] | null>(null);
+  useEffect(() => setTyped(null), [w, h]);
+  const [sw, sh] = typed ?? [w, h];
+  const ratio = w / h || 1;
+  const setSize = (nw: number, nh: number) => {
+    nw = Math.min(MAX_LINEART_SIZE, nw); nh = Math.min(MAX_LINEART_SIZE, nh);
+    setTyped([nw, nh]);
+    onValue(LINEART_SIZE_KEY, formatLineArtSize(lock ? { width: nw / scale } : { width: nw / scale, height: nh / scale }));
+  };
   const bed = PRINTER.bed[0];
   const over = (p: { size: [number, number] }) => p.size[0] > PRINTER.bed[0] || p.size[1] > PRINTER.bed[1];
   const tooBig = sp ? sp.pieces.filter(over) : [];
@@ -144,10 +158,13 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
       <div className="lineart-split-row small">
         <span className="dim">Whole piece</span>
         <span className="lineart-split-grid">
-          {/* The size typed here wins over the script's sliders (their limits too); the other side follows the drawing. */}
-          <NumBox value={+w.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label="Width of the whole piece (the height follows)" onCommit={(v) => onValue(LINEART_SIZE_KEY, formatLineArtSize({ width: v / scale }))} />
-          <span className="dim">×</span>
-          <NumBox value={+h.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label="Height of the whole piece (the width follows)" onCommit={(v) => onValue(LINEART_SIZE_KEY, formatLineArtSize({ width: Math.min(MAX_LINEART_SIZE, (w * v) / h / scale) }))} />
+          {/* The size typed here wins over the script's sliders (their limits too). Locked, the other side
+              keeps the drawing's proportions (shown at once, before the rebuild); unlocked, both are set. */}
+          <NumBox value={+sw.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label={lock ? 'Width of the whole piece (the height follows)' : 'Width of the whole piece'} onCommit={(v) => setSize(v, lock ? v / ratio : sh)} />
+          <button className={`icon-btn lineart-lock ${lock ? 'on' : ''}`} aria-pressed={lock} onClick={() => setLock(!lock)}
+            title={lock ? 'Proportions locked: changing one side changes the other. Click to set width and height separately' : 'Width and height set separately (the drawing is fitted inside, never stretched). Click to keep the proportions'}
+            aria-label={lock ? 'Unlock the proportions' : 'Lock the proportions'}><Icon name={lock ? 'link' : 'unlink'} size={13} /></button>
+          <NumBox value={+sh.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label={lock ? 'Height of the whole piece (the width follows)' : 'Height of the whole piece'} onCommit={(v) => setSize(lock ? v * ratio : sw, v)} />
           {userSize && <button className="icon-btn" title="Back to the size Jig chose" aria-label="Back to the size Jig chose" onClick={() => onValue(LINEART_SIZE_KEY, '')}><Icon name="restore" size={12} /></button>}
         </span>
       </div>

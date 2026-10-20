@@ -20,6 +20,8 @@ const PATHS: Record<string, string> = {
   home: 'M3 11 12 4l9 7M5 9.5V20h5v-6h4v6h5V9.5',
   fit: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5M8 11h6M11 8v6',
   search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5',
+  link: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2',
+  unlink: 'M9.5 14.5 8 16a3.5 3.5 0 0 1-5-5l1.5-1.5M14.5 9.5 16 8a3.5 3.5 0 0 1 5 5l-1.5 1.5M7 2.5v3M2.5 7h3M17 21.5v-3M21.5 17h-3',
   fullscreen: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   fullscreenExit: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
   printer: 'M7 9V4h10v5M6 18H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-2M7 14h10v6H7z',
