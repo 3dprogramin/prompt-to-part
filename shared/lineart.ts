@@ -263,8 +263,9 @@ export function rasterize(contours: Pt[][], g: LineArtGrid, out = new Uint8Array
       const [ax, ay] = c[k], [bx, by] = c[(k + 1) % c.length];
       if (ay === by) continue;
       const lo = Math.min(ay, by), hi = Math.max(ay, by);
-      // Rows whose centre Y lies in [lo, hi).
-      const jTop = Math.max(0, Math.ceil((g.y1 - hi) / g.px - 0.5)), jBot = Math.min(g.h - 1, Math.floor((g.y1 - lo) / g.px - 0.5));
+      // Rows whose centre Y may lie in [lo, hi) – a row more each way, as rounding here may differ
+      // from the crossing test below, which decides (a missed crossing would streak a whole row).
+      const jTop = Math.max(0, Math.ceil((g.y1 - hi) / g.px - 0.5) - 1), jBot = Math.min(g.h - 1, Math.floor((g.y1 - lo) / g.px - 0.5) + 1);
       if (jTop > jBot) continue;
       const e = edges.length;
       edges.push(ax, ay, bx, by, jBot);

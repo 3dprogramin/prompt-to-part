@@ -1,18 +1,12 @@
 // AI artwork for designs that need real illustration (people, characters, animals, scenes): an
 // image model on OpenRouter draws it in a few flat, print-friendly colours, and Jig traces each
 // colour into polygons – an SVG drawing that model scripts use with H.svg, like an attached one.
-import { createRequire } from 'node:module';
 import jpeg from 'jpeg-js';
 import { decode as decodePng } from 'fast-png';
 import { MAX_SVG_POINTS, type SvgDrawing } from '../shared/svgFeatures';
 import type { Vec2 } from '../shared/types';
 import type { PlannedColor } from '../shared/meshes';
 import { traceField, type LineArtStyle } from '../shared/lineart';
-
-interface TracePath { segments: { type: 'L' | 'Q'; x1: number; y1: number; x2: number; y2: number; x3?: number; y3?: number }[] }
-const ImageTracer = createRequire(import.meta.url)('imagetracerjs') as {
-  imagedataToTracedata(img: { width: number; height: number; data: Uint8ClampedArray }, o: Record<string, unknown>): { layers: TracePath[][] };
-};
 
 export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-image';
 export const imageModel = () => process.env.JIG_IMAGE_MODEL || DEFAULT_IMAGE_MODEL;
@@ -337,7 +331,7 @@ const rgb = (h: string) => { const v = parseInt(h.slice(1), 16); return [(v >> 1
  * Colours in `omit` are traced (they are holes in the others) but left out of the drawing.
  */
 export function traceArtwork(input: Raster, colors: string[] | undefined, tones: number, name: string, omit: string[] = []): Pick<Artwork, 'drawing' | 'tones' | 'points'> {
-  const img = downscale(input, 1400);
+  const img = downscale(input, 2400);
   const { width: W, height: H, data } = img;
   const N = W * H;
   const px = (i: number) => [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]];
@@ -397,43 +391,48 @@ export function traceArtwork(input: Raster, colors: string[] | undefined, tones:
   }
   // White inside the subject that isn't one of the colours joins the nearest real colour.
   if (bgExtra) for (let i = 0; i < N; i++) if (label[i] === cent.length) label[i] = nearest(cent, px(i));
-  mergeSpecks(label, W, H, Math.round(N * 0.00004) + 12);
+  // Strips a pixel wide where two colours meet (their blend read as a third colour) join their
+  // neighbours; then specks too small to matter join their surroundings.
+  cleanSlivers(label, W, H, 2);
+  mergeSpecks(label, W, H, Math.round(N * 0.00001) + 8);
 
-  // Trace each colour (the background traced too, then left out).
-  const pal = [...cent.map(([r, g, b]) => ({ r: Math.round(r), g: Math.round(g), b: Math.round(b), a: 255 })), { r: 255, g: 0, b: 255, a: 255 }];
-  const rgba = new Uint8ClampedArray(N * 4);
   const counts = new Array(cent.length).fill(0);
-  for (let i = 0; i < N; i++) {
-    const l = label[i] === BG ? cent.length : label[i];
-    if (l < cent.length) counts[l]++;
-    const p = pal[l];
-    rgba[i * 4] = p.r; rgba[i * 4 + 1] = p.g; rgba[i * 4 + 2] = p.b; rgba[i * 4 + 3] = 255;
-  }
+  for (let i = 0; i < N; i++) if (label[i] !== BG) counts[label[i]]++;
   const colorOf = (j: number) => (colors ? colors[j].toLowerCase() : hex(cent[j]));
-  for (const res of [1, 2, 4, 8]) {
-    const td = ImageTracer.imagedataToTracedata({ width: W, height: H, data: rgba }, {
-      pal, colorsampling: 0, numberofcolors: pal.length, colorquantcycles: 1, ltres: res, qtres: res, pathomit: 8 * res, rightangleenhance: false, blurradius: 0,
-    });
+  // Darkest first, so lighter colours are painted on top.
+  const order = cent.map((_, j) => j).filter((j) => counts[j]).sort((a, b) => lum(cent[a]) - lum(cent[b]));
+  const rank = new Int16Array(N).fill(-1);
+  order.forEach((j, k) => { for (let i = 0; i < N; i++) if (label[i] === j) rank[i] = k; });
+  // Each colour is traced with everything painted on top of it (the lighter colours inside it), so
+  // two colours that meet share one edge – no gaps between them – and the shapes painted on top cut
+  // the rest out again. Marching squares on the lightly smoothed area (a 2-pixel empty border
+  // closes the outlines) keeps curves smooth and short details whole.
+  const GW = W + 4, GH = H + 4;
+  const grid = { w: GW, h: GH, px: 1 / H, x0: -W / 2 / H - 2 / H, y1: 0.5 + 2 / H };
+  const fields = order.map((_, k) => {
+    const m = new Uint8Array(GW * GH);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (rank[y * W + x] >= k) m[(y + 2) * GW + x + 2] = 1;
+    const v = new Float32Array(GW * GH);
+    for (let y = 1; y < GH - 1; y++) for (let x = 1; x < GW - 1; x++) {
+      const i = y * GW + x;
+      v[i] = (m[i - GW - 1] + m[i - GW] + m[i - GW + 1] + m[i - 1] + m[i] + m[i + 1] + m[i + GW - 1] + m[i + GW] + m[i + GW + 1]) / 9;
+    }
+    return v;
+  });
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  let out: Pick<Artwork, 'drawing' | 'tones' | 'points'> | null = null;
+  for (let tol = 0.3; !out; tol *= 2) {
     const shapes: SvgDrawing['shapes'] = [];
     let points = 0;
-    // Darkest first, so lighter colours are painted on top.
-    const order = cent.map((_, j) => j).filter((j) => counts[j]).sort((a, b) => lum(cent[a]) - lum(cent[b]));
-    for (const j of order) {
-      if (omit.includes(colorOf(j))) continue;
-      const contours = (td.layers[j] ?? []).map((p) => toContour(p, W, H)).filter((c) => c.length >= 3);
+    order.forEach((j, k) => {
+      if (omit.includes(colorOf(j))) return;
+      const contours = traceField(fields[k], grid, 0.5, tol / H) as Vec2[][];
       points += contours.reduce((n, c) => n + c.length, 0);
       if (contours.length) shapes.push({ rule: 'EvenOdd', contours, color: colorOf(j) });
-    }
-    if (points <= MAX_SVG_POINTS || res === 8) {
-      const total = counts.reduce((a, b) => a + b, 0) || 1;
-      return {
-        drawing: { name, aspect: W / H, shapes },
-        tones: order.map((j) => ({ color: colorOf(j), share: counts[j] / total })),
-        points,
-      };
-    }
+    });
+    if (points <= MAX_SVG_POINTS || tol > 8) out = { drawing: { name, aspect: W / H, shapes }, tones: order.map((j) => ({ color: colorOf(j), share: counts[j] / total })), points };
   }
-  throw new Error('unreachable');
+  return out;
 }
 
 function dist(a: number[], b: number[]) { return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2; }
@@ -441,6 +440,25 @@ function nearest(cs: number[][], c: number[]) {
   let best = 0, bd = Infinity;
   for (let j = 0; j < cs.length; j++) { const d = dist(cs[j], c); if (d < bd) { bd = d; best = j; } }
   return best;
+}
+
+/** Pixels with at most two of the same label around them (a strip one pixel wide) take the label most of their neighbours have. */
+function cleanSlivers(label: Uint8Array, W: number, H: number, passes: number) {
+  const tally = new Map<number, number>();
+  for (let pass = 0; pass < passes; pass++) {
+    const was = label.slice();
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x, l = was[i];
+      let same = 0;
+      tally.clear();
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const n = was[i + dy * W + dx];
+        if (n === l) same++; else tally.set(n, (tally.get(n) ?? 0) + 1);
+      }
+      if (same <= 2 && tally.size) label[i] = [...tally].sort((a, b) => b[1] - a[1])[0][0];
+    }
+  }
 }
 
 /** Connected areas smaller than `min` pixels take the label most of their neighbours have. */
@@ -465,16 +483,6 @@ function mergeSpecks(label: Uint8Array, W: number, H: number, min: number) {
   }
 }
 
-/** A traced path as a polygon: centred on (0, 0), y up, 1 unit = the picture's height. */
-function toContour(p: TracePath, W: number, H: number): Vec2[] {
-  const out: Vec2[] = [];
-  const pt = (x: number, y: number) => out.push([(x - W / 2) / H, (H / 2 - y) / H]);
-  for (const s of p.segments) {
-    pt(s.x1, s.y1);
-    if (s.type === 'Q') pt(0.25 * s.x1 + 0.5 * s.x2 + 0.25 * s.x3!, 0.25 * s.y1 + 0.5 * s.y2 + 0.25 * s.y3!);
-  }
-  return out;
-}
 
 /** Box-filtered down to at most `max` pixels on the long side. */
 function downscale(img: Raster, max: number): Raster {
