@@ -13,6 +13,8 @@ export function lineArtPart(result: EvalResult | null): LineArtPart | undefined 
   return result?.parts.find((p): p is LineArtPart => !!p.lineArt);
 }
 
+/** Closed-up gaps beyond this share of them, and the drawing is too fine for its size. */
+const BLOTCHY_SHARE = 0.1;
 /** More bridges than this, or a longer one (mm), and the drawing is worth asking again for. */
 const MANY_BRIDGES = 10;
 const LONG_BRIDGE = 15;
@@ -49,6 +51,8 @@ export function LineArtPanel({ part, values }: Props) {
   const bed = PRINTER.name.replace(/^Bambu Lab /, '');
   const tooBig = w > PRINTER.bed[0] || h > PRINTER.bed[1];
   const loose = la.bridges > MANY_BRIDGES || la.longestBridge > LONG_BRIDGE;
+  // Lines closer together than the print keeps apart merge into blotches.
+  const blotchy = la.closed > Math.max(3, la.openings * BLOTCHY_SHARE);
   const mm = (v: number) => `${v.toFixed(1)} mm`;
   return (
     <div className="lineart-panel">
@@ -77,6 +81,11 @@ export function LineArtPanel({ part, values }: Props) {
           {loose && <span className="lineart-why"><Icon name="alert" size={12} /> ask Jig for a more connected drawing</span>}
         </dd>
         <dt>Specks</dt><dd>{la.dropped ? <><span className="mono">{la.dropped}</span> dropped (too small to print)</> : 'none dropped'}</dd>
+        <dt>Detail</dt>
+        <dd className={blotchy ? 'warn' : ''}>
+          {la.closed ? <><span className="mono">{la.closed}</span> of <span className="mono">{la.openings}</span> gaps between lines closed up</> : 'every gap between lines kept'}
+          {blotchy && <span className="lineart-why"><Icon name="alert" size={12} /> too fine for this size: ask Jig for a bolder, simpler drawing, or make it larger</span>}
+        </dd>
         {la.hooks > 0 && <><dt>Pegs</dt><dd className="mono">{la.hooks}</dd></>}
       </dl>
       <ul className="litho-advice small">

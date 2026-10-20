@@ -55,6 +55,11 @@ export function renderIso(parts: PartMesh[], size = 720): RenderOutput {
   return renderViews(parts, [isoView()], 1, size);
 }
 
+/** The TOP view alone, large: line art seen straight on, as it hangs, so fine detail can be judged. */
+export function renderTop(parts: PartMesh[], size = 1400): RenderOutput {
+  return renderViews(parts, VIEWS.filter((v) => v.name === 'TOP'), 1, size);
+}
+
 function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: number): RenderOutput {
   const rows = Math.ceil(views.length / cols);
   const W = VIEW * cols, Hh = VIEW * rows;

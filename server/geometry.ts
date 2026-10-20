@@ -160,7 +160,8 @@ export interface ImportedMesh {
   palette?: MeshColor[];
 }
 
-export type RenderResult = (EvalSummary | EvalFailure) & { png?: string; gridStep?: number };
+/** `top`: line art only – the piece seen straight on, large. */
+export type RenderResult = (EvalSummary | EvalFailure) & { png?: string; gridStep?: number; top?: string };
 export interface StressResult { failures: { case: string; error: string }[]; tested: number; skipped: number }
 
 export const geometry = {
@@ -244,5 +245,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
 export function lineArtLine(a: LineArtInfo): string {
   const g = (n: number) => String(+n.toFixed(1));
   const fixed = `${a.bridges ? `${a.bridges} bridge${a.bridges > 1 ? 's' : ''} added (longest ${g(a.longestBridge)} mm)` : 'no bridges needed'}, ${a.dropped ? `${a.dropped} speck${a.dropped > 1 ? 's' : ''} dropped` : 'no specks dropped'}`;
-  return `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${g(a.lineWidth)} mm lines (${a.lines}); ${fixed}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}`;
+  // Openings that closed: lines drawn closer together than the print can keep apart.
+  const lost = a.closed ? `; ${a.closed} of ${a.openings} openings between lines closed up (${Math.round((100 * a.closed) / Math.max(1, a.openings))} %: detail lost – the drawing is too fine for this size)` : '';
+  return `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${a.lines === 'keep' ? `lines at least ${g(a.lineWidth)} mm (the drawing's own weights)` : `${g(a.lineWidth)} mm lines (even)`}; ${fixed}${lost}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}`;
 }

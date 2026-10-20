@@ -32,11 +32,11 @@ export interface LineArtOptions {
   height?: number;
   /** Thickness of the drawing, default 2. */
   thickness?: number;
-  /** Width of the drawing's lines, default 1. */
+  /** The drawing's line width (with lines 'keep', the thinnest a line may be), default 1. */
   lineWidth?: number;
-  /** 'even' (default): every line redrawn at lineWidth; 'keep': the drawing's own widths, only lines thinner than lineWidth thickened. */
+  /** 'keep' (default): the drawing's own line weights, only lines thinner than lineWidth thickened; 'even': every line redrawn at lineWidth. */
   lines?: 'even' | 'keep';
-  /** Areas of the drawing wider than this stay solid fills (tyres, hair, shadows), default 3 × lineWidth. */
+  /** lines 'even': areas of the drawing wider than this stay solid fills (tyres, hair, shadows), default 3 × lineWidth. */
   fill?: number;
   /** Loose bits smaller than this (mm²) are dropped rather than bridged, default 4 × lineWidth². */
   minIsland?: number;
@@ -100,6 +100,10 @@ export interface LineArtInfo {
   longestBridge: number;
   /** Loose bits too small to print that were dropped. */
   dropped: number;
+  /** Openings of the drawing (spaces between its lines) that closed up because the lines are too close at this size: detail lost. */
+  closed: number;
+  /** Openings of the drawing at all (at least minIsland big), to judge `closed` by. */
+  openings: number;
   /** Key holder pegs. */
   hooks: number;
 }
@@ -129,8 +133,8 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   const count = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? (v as number) : 0);
   return {
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
-    size: [w, h], thickness, lineWidth, lines: o.lines === 'keep' ? 'keep' : 'even',
-    bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), hooks: count(o.hooks),
+    size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
+    bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), hooks: count(o.hooks),
   };
 }
 
@@ -312,7 +316,7 @@ export interface LineArtMaskOptions {
  * only thin ones thickened), specks dropped, and loose bits bridged to the rest and to `anchor`
  * (the bar or frame, which is not part of the result).
  */
-export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; bridges: number; longestBridge: number; dropped: number } {
+export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number } {
   const { w, h, px } = g, N = w * h;
   const r = o.lineWidth / px / 2;
   // Keep the outermost pixels empty (thinning and tracing rely on it).
@@ -375,6 +379,8 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
   const along = sqDistance(skel, w, h);
   const out = o.lines === 'keep' ? art.slice() : solid;
   for (let i = 0; i < N; i++) if (along[i] <= r * r) out[i] = 1;
+  // Detail lost: openings between the lines that were there and aren't any more.
+  const openings = countOpenings(art, w, h, minPx), closed = Math.max(0, openings - countOpenings(out, w, h, minPx));
 
   // Pieces (8-connected), with the bar or frame.
   const label = new Int32Array(N);
@@ -430,25 +436,57 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       longest = Math.max(longest, Math.max(0, d * px - o.lineWidth));
     }
   }
-  return { mask: out, bridges, longestBridge: longest, dropped };
+  return { mask: out, bridges, longestBridge: longest, dropped, closed, openings };
+}
+
+/** Enclosed empty areas of `img` (4-connected, not touching the border) of at least `min` pixels. */
+function countOpenings(img: Uint8Array, w: number, h: number, min: number): number {
+  const seen = new Uint8Array(w * h), stack: number[] = [];
+  let n = 0;
+  for (let s = 0; s < w * h; s++) {
+    if (img[s] || seen[s]) continue;
+    let size = 0, edge = false;
+    seen[s] = 1; stack.push(s);
+    while (stack.length) {
+      const i = stack.pop()!, x = i % w, y = (i / w) | 0;
+      size++;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) { edge = true; }
+      if (x > 0 && !img[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack.push(i - 1); }
+      if (x < w - 1 && !img[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack.push(i + 1); }
+      if (y > 0 && !img[i - w] && !seen[i - w]) { seen[i - w] = 1; stack.push(i - w); }
+      if (y < h - 1 && !img[i + w] && !seen[i + w]) { seen[i + w] = 1; stack.push(i + w); }
+    }
+    if (!edge && size >= min) n++;
+  }
+  return n;
 }
 
 /** The outlines of `mask` (lightly smoothed, then marching squares at half height), simplified to `tol` mm; mm coordinates, even-odd. */
 export function traceMask(mask: Uint8Array, g: LineArtGrid, tol: number): Pt[][] {
-  const { w, h, px } = g;
+  const { w, h } = g;
   // A 3×3 box blur rounds the pixel steps off.
   const v = new Float32Array(w * h);
   for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
     const i = y * w + x;
     v[i] = (mask[i - w - 1] + mask[i - w] + mask[i - w + 1] + mask[i - 1] + mask[i] + mask[i + 1] + mask[i + w - 1] + mask[i + w] + mask[i + w + 1]) / 9;
   }
+  return traceField(v, g, 0.5, tol);
+}
+
+/**
+ * The outlines where `v` crosses `iso` (marching squares, the crossing placed between pixels by
+ * their values, so an anti-aliased picture gives sub-pixel edges), simplified to `tol`; mm
+ * coordinates of grid `g`, even-odd. The outermost pixels must be below `iso`.
+ */
+export function traceField(v: ArrayLike<number>, g: LineArtGrid, iso: number, tol: number): Pt[][] {
+  const { w, h, px } = g;
   // Crossing points on cell edges: horizontal edge (x, y)–(x+1, y) is 2·(y·w + x), vertical (x, y)–(x, y+1) is 2·(y·w + x) + 1.
   const pts = new Map<number, Pt>();
   const at = (e: number): Pt => {
     let p = pts.get(e);
     if (p) return p;
     const i = e >> 1, x = i % w, y = (i / w) | 0, j = e & 1 ? i + w : i + 1;
-    const t = (0.5 - v[i]) / (v[j] - v[i]);
+    const t = (iso - v[i]) / (v[j] - v[i]);
     const fx = e & 1 ? x : x + t, fy = e & 1 ? y + t : y;
     p = [g.x0 + (fx + 0.5) * px, g.y1 - (fy + 0.5) * px];
     pts.set(e, p);
@@ -461,14 +499,14 @@ export function traceMask(mask: Uint8Array, g: LineArtGrid, tol: number): Pt[][]
   };
   for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) {
     const i = y * w + x;
-    const a = v[i] > 0.5, b = v[i + 1] > 0.5, c = v[i + w + 1] > 0.5, d = v[i + w] > 0.5;
+    const a = v[i] > iso, b = v[i + 1] > iso, c = v[i + w + 1] > iso, d = v[i + w] > iso;
     if (a === b && b === c && c === d) continue;
     const T = 2 * i, B = 2 * (i + w), Lf = 2 * i + 1, Rt = 2 * (i + 1) + 1;
     const cross = [a !== b && T, b !== c && Rt, d !== c && B, a !== d && Lf].filter((e) => e !== false) as number[];
     if (cross.length === 2) link(cross[0], cross[1]);
     else {
       // A saddle: the centre decides which corners are joined.
-      const mid = (v[i] + v[i + 1] + v[i + w + 1] + v[i + w]) / 4 > 0.5;
+      const mid = (v[i] + v[i + 1] + v[i + w + 1] + v[i + w]) / 4 > iso;
       if (a === mid) { link(T, Rt); link(B, Lf); } else { link(T, Lf); link(Rt, B); }
     }
   }
@@ -533,7 +571,7 @@ export interface LineArtDeps {
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
-const cache = new Map<string, { loops: Pt[][]; bridges: number; longestBridge: number; dropped: number }>();
+const cache = new Map<string, { loops: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number }>();
 const CACHE_SIZE = 6;
 /** The most pixels of a grid (the pixels grow past it). */
 const MAX_PIXELS = { draft: 1_500_000, normal: 4_000_000, high: 8_000_000 };
@@ -555,7 +593,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   const width = num('width', 200, 20, 1000);
   const thickness = num('thickness', 2, 0.6, 20);
   const lineWidth = num('lineWidth', 1, 0.4, 10);
-  const lines = opts.lines === 'keep' ? 'keep' : 'even';
+  const lines = opts.lines === 'even' ? 'even' : 'keep';
   const fill = num('fill', 3 * lineWidth, lineWidth, 200);
   const minIsland = num('minIsland', 4 * lineWidth * lineWidth, 0, 10000);
   const gap = num('gap', 0, -500, 500);
@@ -653,7 +691,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   if (!res) {
     const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
     const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines });
-    res = { loops: traceMask(m.mask, g, px * 0.35), bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped };
+    res = { loops: traceMask(m.mask, g, px * 0.35), bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings };
     cache.set(key, res);
     if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
   }
@@ -685,7 +723,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     t = t.translate([-(cb.min[0] + cb.max[0]) / 2, -barHeight / 2 - (cb.min[1] + cb.max[1]) / 2]);
     shape = shape.add(t.extrude(depth).translate([0, 0, barThickness]));
   }
-  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped, hooks };
+  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped, closed: res.closed, openings: res.openings, hooks };
   const parts: LineArtResult['parts'] = [{ name: 'Line art', shape, color, lineArt: info }];
   // Desk stand: a base with a slot the bar pushes into, printed beside the piece.
   let slotNote = '';

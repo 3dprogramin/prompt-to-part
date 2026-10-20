@@ -7,7 +7,7 @@ import { decode as decodePng } from 'fast-png';
 import { MAX_SVG_POINTS, type SvgDrawing } from '../shared/svgFeatures';
 import type { Vec2 } from '../shared/types';
 import type { PlannedColor } from '../shared/meshes';
-import type { LineArtStyle } from '../shared/lineart';
+import { traceField, type LineArtStyle } from '../shared/lineart';
 
 interface TracePath { segments: { type: 'L' | 'Q'; x1: number; y1: number; x2: number; y2: number; x3?: number; y3?: number }[] }
 const ImageTracer = createRequire(import.meta.url)('imagetracerjs') as {
@@ -171,23 +171,35 @@ const LINE_ART_COMPOSITION: Record<LineArtStyle, string> = {
   medallion: 'a compact subject that fills a circle: its outline roughly round, reaching close to the edge of the circle all around',
 };
 
+/** The width a piece of each style usually has (mm), for the line weight the image model draws at. */
+export const LINE_ART_WIDTH: Record<LineArtStyle, number> = { outline: 200, keyholder: 240, framed: 200, medallion: 180, sign: 220, stand: 150 };
+
 /**
- * The prompt for line art (generate_line_art): Jig's house style – bold, even, black lines on white
- * that join into ONE piece, so a shop's designs look alike – around the subject, composed for the
- * style (a key holder's subjects stand on one ground line, a framed one fills the picture, …).
+ * The prompt for line art (generate_line_art): Jig's house style – bold, simplified black line art
+ * on white, like a laser-cut metal sign or a vinyl decal, that joins into ONE piece, so a shop's
+ * designs look alike – around the subject, composed for the style (a key holder's subjects stand
+ * on one ground line, a framed one fills the picture, …). The line weight and the detail suit the
+ * print: at `width` mm wide with `lineWidth` mm lines, a stroke is a fixed share of the picture's
+ * width, and anything finer than a few strokes can't be printed, so it is left out.
  */
-export function lineArtPrompt(r: { subject: string; style: LineArtStyle; references?: string[]; look?: string }): string {
+export function lineArtPrompt(r: { subject: string; style: LineArtStyle; references?: string[]; look?: string; width?: number; lineWidth?: number }): string {
+  const width = r.width ?? LINE_ART_WIDTH[r.style];
+  // A little bolder than the thinnest printable line, so the drawing's own lines carry the look.
+  const stroke = (1.4 * (r.lineWidth ?? 1)) / width;
+  const at1600 = Math.max(4, Math.round(stroke * 1600));
   return [
-    'Line art to be cut out of a sheet as ONE piece (a 3D-printed wall decoration in black, like laser-cut metal wall art): the black lines are the piece, the white is empty space.',
+    `Line art to be cut out of a sheet as ONE piece, about ${Math.round(width)} mm wide (a 3D-printed wall decoration in black, like laser-cut metal wall art or a vinyl car decal): the black lines are the piece, the white is empty space.`,
     `Subject: ${r.subject.trim()}`,
-    r.references?.length ? 'Work from the attached photo(s): keep the real subject\'s exact model, proportions and distinctive features (a vehicle\'s body shape, lights and wheels; a person\'s or pet\'s likeness, hair and build), in a clean side or three-quarter view unless the subject asks for another view.' : '',
-    `Look: ${r.look?.trim() || 'bold, clean, even-weight black line art on pure white, like laser-cut metal wall art; recognisable detail without clutter'}.`,
+    r.references?.length ? 'Work from the attached photo(s): keep the real subject\'s exact model, proportions and signature features (a vehicle\'s body shape, lights and wheels; a person\'s or pet\'s likeness, hair and build), in a clean side or three-quarter view unless the subject asks for another view.' : '',
+    `Look: ${r.look?.trim() || 'bold, simplified black line art on pure white, like a laser-cut metal wall sign or a vinyl decal: smooth, confident strokes, a heavier outer outline and lighter inner lines, only the lines that make the subject recognisable'}.`,
     `Composition: ${LINE_ART_COMPOSITION[r.style]}.`,
     'Rules:',
     '- pure black (#000000) lines on pure white (#FFFFFF) only: no grey, shading, hatching, gradients, textures or colour',
-    '- bold lines of one even weight, never hair-thin; no sketchy, broken or doubled strokes',
-    '- every line joins the others so the whole drawing is ONE connected piece: no floating details – an eye, a logo, a wheel hub, a window must touch a line',
-    '- solid black only for small dark masses (a tyre, window tint, hair); everything else stays open line work',
+    `- thick strokes: every line about 1/${Math.round(1 / stroke)} of the picture's width thick (about ${at1600} px on a 1600 px wide picture), the outer outline up to twice that; never thinner, never hair-thin; smooth, unbroken, not sketchy or doubled`,
+    `- open space: any two lines at least one stroke width apart; leave out every detail smaller than about three stroke widths – it can't be printed at this size`,
+    '- simplified: the main body contours, wheels as a thick tyre ring with a few bold spokes or rim shapes, lights, windows and a few main panel or fold lines; no small parts, mechanical internals, cables, bolts, mesh or grille patterns, textures, or small text and logos',
+    '- every line joins the others so the whole drawing is ONE connected piece: no floating details – an eye, a badge, a wheel hub, a window must touch a line',
+    '- solid black only for a few areas that help it read (window glass, a tyre, hair); everything else stays open line work',
     '- the subject isolated with a white margin around it; no text, signature, watermark, frame, border, panel or background scenery',
   ].filter(Boolean).join('\n');
 }
@@ -199,10 +211,10 @@ export function lineArtPrompt(r: { subject: string; style: LineArtStyle; referen
  * those holes, so it is left out: half the points, so finer tracing within MAX_SVG_POINTS.
  */
 export function traceLineArt(input: Raster, name: string): Pick<Artwork, 'drawing' | 'points'> {
-  // Pure black and white first, split where the picture's own tones split (Otsu), so a pencil
-  // sketch on cream paper or a grey-ish JPEG keeps its lines.
-  const n = input.width * input.height, lum = new Uint8Array(n), hist = new Array(256).fill(0);
-  for (let i = 0; i < n; i++) hist[lum[i] = Math.round(0.2126 * input.data[i * 4] + 0.7152 * input.data[i * 4 + 1] + 0.0722 * input.data[i * 4 + 2])]++;
+  // Ink and paper split where the picture's own tones split (Otsu), so a pencil sketch on cream
+  // paper or a grey-ish JPEG keeps its lines.
+  const n = input.width * input.height, hist = new Array(256).fill(0);
+  for (let i = 0; i < n; i++) hist[Math.round(0.2126 * input.data[i * 4] + 0.7152 * input.data[i * 4 + 1] + 0.0722 * input.data[i * 4 + 2])]++;
   let sum = 0;
   for (let t = 0; t < 256; t++) sum += t * hist[t];
   let best = 128, bestVar = -1, wB = 0, sumB = 0;
@@ -214,10 +226,24 @@ export function traceLineArt(input: Raster, name: string): Pick<Artwork, 'drawin
     if (v > bestVar) { bestVar = v; best = t; }
   }
   const cut = Math.min(200, Math.max(60, best));
-  const data = new Uint8Array(n * 4);
-  for (let i = 0; i < n; i++) { const v = lum[i] <= cut ? 0 : 255; data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v; data[i * 4 + 3] = 255; }
-  const { drawing, points } = traceArtwork({ width: input.width, height: input.height, data }, ['#000000', '#ffffff'], 2, name, ['#ffffff']);
-  if (!drawing.shapes.length) throw new Error('The picture has no black lines to trace: line art must be dark lines on a white background.');
+  // The ink traced straight from the picture's own pixels (not the colour tracer, which would cut
+  // curves into a few chords and drop short lines): marching squares on the darkness, at the
+  // threshold, so anti-aliased edges land between pixels. A 2-pixel empty border closes every outline.
+  const img = downscale(input, 2400);
+  const W = img.width + 4, H = img.height + 4, ink = new Float32Array(W * H);
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const i = (y * img.width + x) * 4;
+    ink[(y + 2) * W + x + 2] = 1 - (0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2]) / 255;
+  }
+  // Drawing units: 1 = the picture's height, centred, y up.
+  const px = 1 / img.height;
+  const grid = { w: W, h: H, px, x0: -img.width / 2 / img.height - 2 * px, y1: 0.5 + 2 * px };
+  let contours: Vec2[][] = [], points = Infinity;
+  for (let tol = 0.3; points > MAX_SVG_POINTS && tol < 20; tol *= 1.6) {
+    contours = traceField(ink, grid, 1 - (cut + 0.5) / 255, tol * px) as Vec2[][];
+    points = contours.reduce((n, c) => n + c.length, 0);
+  }
+  const drawing: SvgDrawing = { name, aspect: img.width / img.height, shapes: contours.length ? [{ rule: 'EvenOdd', contours, color: '#000000' }] : [] };
   return { drawing, points };
 }
 

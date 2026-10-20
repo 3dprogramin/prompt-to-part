@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, importMeshFile, inspectScript, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../shared/runtime';
-import { renderIso, renderSheet } from './render';
+import { renderIso, renderSheet, renderTop } from './render';
 import { withFonts } from '../shared/text';
 import { decodeMesh, encodeMesh, withMeshes, type MeshData } from '../shared/meshes';
 import type { ImportOptions } from '../shared/meshRepair';
@@ -187,7 +187,10 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
       const { result, out } = await run(req.code, req.values, 'normal');
       let png: Buffer | undefined, gridStep: number | undefined;
       if (result && result.parts.length) ({ png, gridStep } = renderSheet(result.parts));
-      post({ data: { ...out, png: png?.toString('base64'), gridStep } });
+      // Line art: also the piece straight on and large, where merged lines show.
+      const lineArt = result?.parts.filter((p) => p.lineArt);
+      const top = lineArt?.length ? renderTop(lineArt).png.toString('base64') : undefined;
+      post({ data: { ...out, png: png?.toString('base64'), gridStep, ...(top ? { top } : {}) } });
     } else if (req.cmd === 'iso') {
       const { result, out } = await run(req.code, req.values, 'normal');
       const png = result && result.parts.length ? renderIso(result.parts).png.toString('base64') : undefined;

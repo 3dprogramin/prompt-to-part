@@ -26,7 +26,10 @@ function picture() {
 test('line-art prompt: the house style and each style\'s composition', () => {
   const p = lineArtPrompt({ subject: 'a sport motorbike and a classic car side by side', style: 'keyholder' });
   assert.match(p, /Subject: a sport motorbike and a classic car/);
-  assert.match(p, /bold, clean, even-weight black line art on pure white/);
+  assert.match(p, /bold, simplified black line art on pure white/);
+  assert.match(p, /about 240 mm wide/);
+  assert.match(p, /every line about 1\/171 of the picture's width thick \(about 9 px/);
+  assert.match(lineArtPrompt({ subject: 'a cat', style: 'outline', width: 100, lineWidth: 1 }), /1\/71 of the picture's width/);
   assert.match(p, /ONE connected piece: no floating details/);
   assert.match(p, /no grey, shading, hatching, gradients/);
   assert.match(p, /no text, signature, watermark, frame, border/);
@@ -35,7 +38,7 @@ test('line-art prompt: the house style and each style\'s composition', () => {
   assert.match(lineArtPrompt({ subject: 'a woman in a long dress', style: 'framed' }), /filling the picture[\s\S]*all four sides/);
   assert.match(lineArtPrompt({ subject: 'a cat sitting', style: 'medallion' }), /fills a circle/);
   const ref = lineArtPrompt({ subject: 'my car', style: 'outline', references: ['data:image/png;base64,AA'], look: 'thin single-line drawing' });
-  assert.match(ref, /exact model, proportions and distinctive features/);
+  assert.match(ref, /exact model, proportions and signature features/);
   assert.match(ref, /Look: thin single-line drawing/);
 });
 
@@ -82,8 +85,8 @@ test('trace_line_art and generate_line_art store a drawing for H.lineart', async
 
 test('the report\'s line-art line', () => {
   assert.equal(
-    lineArtLine({ style: 'keyholder', sources: ['bike-and-car'], size: [240, 118.04], thickness: 2, lineWidth: 1, lines: 'even', bridges: 3, longestBridge: 6.21, dropped: 2, hooks: 3 }),
+    lineArtLine({ style: 'keyholder', sources: ['bike-and-car'], size: [240, 118.04], thickness: 2, lineWidth: 1, lines: 'even', bridges: 3, longestBridge: 6.21, dropped: 2, closed: 0, openings: 40, hooks: 3 }),
     'Line art (key holder) from "bike-and-car": 240 × 118 mm, 2 mm thick, 1 mm lines (even); 3 bridges added (longest 6.2 mm), 2 specks dropped; 3 pegs',
   );
-  assert.match(lineArtLine({ style: 'outline', sources: ['a', 'b'], size: [200, 90], thickness: 2, lineWidth: 1.2, lines: 'keep', bridges: 0, longestBridge: 0, dropped: 0, hooks: 0 }), /from "a" \+ "b": .*\(keep\); no bridges needed, no specks dropped$/);
+  assert.match(lineArtLine({ style: 'outline', sources: ['a', 'b'], size: [200, 90], thickness: 2, lineWidth: 1.2, lines: 'keep', bridges: 0, longestBridge: 0, dropped: 0, closed: 6, openings: 20, hooks: 0 }), /from "a" \+ "b": .*at least 1\.2 mm \(the drawing's own weights\); no bridges needed, no specks dropped; 6 of 20 openings between lines closed up \(30 %/);
 });

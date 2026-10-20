@@ -113,6 +113,10 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
             content: [
               { type: 'image', data: r.png, mimeType: 'image/png' },
               { type: 'text', text: `Grid spacing on FRONT/RIGHT/TOP views: ${r.gridStep} mm (darker lines = X/Y/Z axes through the origin).\n${formatReport(r)}` },
+              ...(r.top ? [
+                { type: 'image' as const, data: r.top, mimeType: 'image/png' },
+                { type: 'text' as const, text: 'The line art straight on and large, as it will hang. Judge it as the product photo the user will see: lines clean and smooth, every detail readable, nothing merged into dark blotches. If it looks cluttered or blotchy, the drawing is too fine for this size: redraw it bolder and simpler – don\'t just report it.' },
+              ] : []),
             ],
           };
         } catch (e) {
@@ -221,13 +225,15 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       })] : []),
-      ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in Jig's house style – bold, even, black lines on white that join into one piece – traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
+      ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in Jig's house style – bold, simplified black lines on white, like a laser-cut metal sign, that join into one piece, drawn with a line weight and detail for the piece's width – traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
         name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "bike-and-car"; an existing name is replaced'),
         subject: z.string().min(10).max(2000).describe('What to draw: the subject(s), left to right, their view and pose – be specific (e.g. "a sport motorbike on the left and a 1967 Ford Mustang fastback on the right, both in side view facing right")'),
         style: z.enum(LINE_ART_STYLES).optional().describe(`The piece it is drawn for, which sets the composition (default "${lineArt.style}", the user's menu): ${LINE_ART_STYLES.map((s) => `${s} = ${LINE_ART_STYLE_INFO[s].desc.toLowerCase()}`).join('; ')}`),
         aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 16:9 for keyholder, sign and stand, else 1:1); 16:9 or 21:9 for a key holder with several subjects side by side, 3:4 or 4:5 for a standing figure'),
         look: z.string().max(400).optional().describe('A different line style, only when the user asks for one (e.g. "thin elegant single-line drawing", "bold comic outlines")'),
         use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (their own car, bike, pet or person)'),
+        width: z.number().min(40).max(1000).optional().describe('The piece\'s planned width in mm (default by style, e.g. 240 for a key holder): the line weight and the detail are drawn for it'),
+        line_width: z.number().min(0.4).max(10).optional().describe('The planned lineWidth in mm (default 1)'),
       }, async (a) => {
         if (a.use_attached_photos && !lineArt.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
         const style = a.style ?? lineArt.style;
@@ -235,7 +241,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         status(`Drawing line art "${a.name}" with ${imageModel()}…`);
         try {
           const references = a.use_attached_photos ? lineArt.references : undefined;
-          const prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look });
+          const prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look, width: a.width, lineWidth: a.line_width });
           const { image, model, cost } = await drawImage(prompt, a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), references, lineArt.signal, status);
           const traced = traceLineArt(decodeImage(Buffer.from(image.data, 'base64')), a.name);
           storeLineArt(a.name, traced);
