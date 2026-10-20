@@ -117,6 +117,8 @@ export interface PartMesh {
   scriptColor?: string;
   /** Line-art part (H.lineart): its style, drawings, size and what Jig fixed (bridges, dropped specks). */
   lineArt?: LineArtInfo;
+  /** The build plate the part prints on (1, 2…; a big piece split into pieces puts each on its own); unset: plate 1 with the rest. */
+  plate?: number;
   /**
    * A part coloured per triangle (it has a coloured mesh, H.mesh): its filaments and each triangle's
    * index into them. Triangles of the script's own geometry are in the part's colour.

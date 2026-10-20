@@ -9,7 +9,7 @@ import { normalizeParams, parsePartColors, PART_COLORS_KEY, resolveValues, SCALE
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
-import { cleanLineArtInfo, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtInfo } from './lineart';
+import { cleanLineArtInfo, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtSplit, type LineArtInfo } from './lineart';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import { cleanProfile } from './print';
 import { getMeshData, MESHES_KEY, MeshMissingError, parseMeshes, type MeshData, type MeshEntry } from './meshes';
@@ -299,7 +299,10 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const painted: PaintedMesh[] = [];
     const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
       images: parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]), setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
-    }, meshes, painted, parseLineArtEdits(inputValues?.[LINEART_EDITS_KEY]));
+    }, meshes, painted, parseLineArtEdits(inputValues?.[LINEART_EDITS_KEY]), {
+      split: parseLineArtSplit(inputValues?.[LINEART_SPLIT_KEY]),
+      layout: typeof inputValues?.[LINEART_LAYOUT_KEY] === 'string' ? inputValues[LINEART_LAYOUT_KEY] as string : undefined,
+    });
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
@@ -352,6 +355,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     rawParts.forEach((rp, i) => {
       let shape: any, name = '', color = '';
       let layerColors: LayerColor[] | undefined, layerTone: LayerToneSource | undefined, lithophane: LithophaneSource | undefined, lineArt: LineArtInfo | undefined;
+      let plate: number | undefined;
       if (rp instanceof M) shape = rp;
       else if (rp && typeof rp === 'object') {
         const o = rp as Record<string, unknown>;
@@ -366,6 +370,8 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         lithophane = layerColors ? undefined : cleanLithophaneSource(o.lithophane, scale);
         // A line-art part (H.lineart): its style, drawings and what was fixed, scaled with the part.
         lineArt = cleanLineArtInfo(o.lineArt, scale);
+        // Its own build plate (a piece of a split model).
+        if (Number.isInteger(o.plate) && (o.plate as number) >= 1 && (o.plate as number) <= 200) plate = o.plate as number;
       }
       if (!(shape instanceof M)) throw new ScriptError({ message: `Part ${i + 1} is not a Manifold (got ${shape instanceof C ? 'CrossSection' : typeof shape})`, stage: 'output' });
       if (scale !== 1) shape = shape.scale(scale);
@@ -401,7 +407,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }
       if (opts.lite) {
         const bb = shape.boundingBox();
-        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...keepScript });
+        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...(plate ? { plate } : {}), ...keepScript });
         return;
       }
       const mesh = shape.getMesh();
@@ -430,6 +436,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         ...(layerTone ? { layerTone } : {}),
         ...(lithophane ? { lithophane, ...(litColors ? { vertexColors: litColors } : {}) } : {}),
         ...(lineArt ? { lineArt } : {}),
+        ...(plate ? { plate } : {}),
         ...keepScript,
         ...(paint ? { paint } : {}),
       });

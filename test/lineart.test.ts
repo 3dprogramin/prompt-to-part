@@ -5,7 +5,8 @@ import { evaluateScript } from '../shared/runtime';
 import { withFonts } from '../shared/text';
 import { loadFontBuffers } from '../server/fonts';
 import { DRAWINGS_KEY, type SvgDrawing } from '../shared/svgFeatures';
-import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
+import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
+import { parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
 import type { Vec2 } from '../shared/types';
 
 const circle = (cx: number, cy: number, r: number, n = 48): Vec2[] => Array.from({ length: n }, (_, k) => [cx + r * Math.cos((2 * Math.PI * k) / n), cy + r * Math.sin((2 * Math.PI * k) / n)]);
@@ -108,4 +109,50 @@ test('line-art info: cleaned and scaled; isLineArt', () => {
   assert.equal(info?.lineWidth, 2);
   assert.equal(cleanLineArtInfo({ style: 'nope', sources: [], size: [1, 1] }), undefined);
   assert.ok(isLineArt("return H.lineart('x', {})") && !isLineArt('H.svg("x")'));
+});
+
+test('split: choices parsed, grids picked, pieces named', () => {
+  assert.equal(parseSplitSpec('auto'), 'auto');
+  assert.equal(parseSplitSpec('off'), 'off');
+  assert.equal(parseSplitSpec('4'), 4);
+  assert.deepEqual(parseSplitSpec('3x2'), [3, 2]);
+  assert.equal(parseSplitSpec([1, 1]), 'off');
+  assert.equal(parseSplitSpec('lots'), undefined);
+  assert.deepEqual(splitGrid(600, 229, 'auto'), { cols: 3, rows: 1 });
+  assert.deepEqual(splitGrid(600, 400, 6), { cols: 3, rows: 2 });
+  assert.deepEqual(splitGrid(600, 200, 3), { cols: 3, rows: 1 });
+  assert.deepEqual([pieceLabel(0, 0), pieceLabel(2, 1), pieceLabel(0, 26)], ['A1', 'B3', 'AA1']);
+});
+
+test('split: a seam goes round a line instead of cutting along it', () => {
+  const g = { px: 0.25, x0: -10, y1: 10, w: 80, h: 80 };
+  // A vertical line right on the ideal cut, and a gap in a horizontal line beside it.
+  const ink = rasterize([box(-0.5, -10, 0.5, 10), box(-10, -0.5, 3, 0.5), box(6, -0.5, 10, 0.5)], g);
+  const s = routeSeam(g, { ink }, 'v', 0, 10, 1);
+  assert.equal(s.crossings, 0);
+  assert.ok(s.points.every(([x]) => Math.abs(x) > 1), 'clear of the vertical line');
+  const x = seamAt(s.points, 0, 1);
+  assert.ok(x > 3 && x < 6, `through the gap (x = ${x})`);
+});
+
+test('H.lineart split: pieces fit the bed, each one piece, dovetails on the bar, names on the back; off is unchanged', async () => {
+  const opts = "style: 'keyholder', width: 420, split: 'auto', layout: 'assembled'";
+  const r = await withFonts(() => run(opts), loadFontBuffers);
+  const sp = r.parts[0].lineArt!.split!;
+  assert.deepEqual([sp.cols, sp.rows], [2, 1]);
+  for (const p of r.parts) {
+    assert.equal(p.components, 1, `${p.name}: one piece`);
+    assert.ok(p.bbox.max[0] - p.bbox.min[0] <= 250 && p.bbox.max[1] - p.bbox.min[1] <= 250, `${p.name} fits the bed`);
+  }
+  assert.equal(sp.joints.length, 1);
+  assert.equal(sp.joints[0].tab, 'A1');
+  assert.ok(sp.pieces.filter((p) => p.label === 'A1' || p.label === 'A2').every((p) => p.labelSize >= 5), 'names on the bar');
+  assert.deepEqual(r.parts.map((p) => p.plate), r.parts.map((_, i) => i + 1));
+  assert.equal(r.assembly.length, r.parts.length - 1);
+  // The user's choice wins over the script's; off builds exactly the piece as before.
+  const plain = run("style: 'keyholder', width: 420");
+  const off = evaluateScript(`function build() { return H.lineart('bike', { ${opts} }); }`, { ...values, [LINEART_SPLIT_KEY]: 'off' }, 'draft');
+  assert.equal(off.parts.length, 1);
+  assert.equal(off.parts[0].volume, plain.parts[0].volume);
+  assert.equal(off.parts[0].triCount, plain.parts[0].triCount);
 });

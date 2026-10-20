@@ -5,6 +5,7 @@
 // the style's bar, frame, hooks or stand.
 import type { Brim } from './print';
 import { defaultColors, type SvgDrawing } from './svgFeatures';
+import { dovetail, extendSeam, fitBox, formatSplitSpec, MAX_PIECE, parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid, type Seam, type SplitGrid, type SplitSpec } from './split';
 
 export const LINE_ART_STYLES = ['outline', 'keyholder', 'framed', 'medallion', 'sign', 'stand'] as const;
 export type LineArtStyle = (typeof LINE_ART_STYLES)[number];
@@ -86,6 +87,56 @@ export interface LineArtOptions {
   standDepth?: number;
   /** Desk stand: height of the base, default 12 (the slot is 2 mm less). */
   standHeight?: number;
+
+  /**
+   * Split a piece bigger than the bed into pieces that each fit it: 'auto' (the fewest), a number of
+   * pieces, or a grid [columns, rows]; default off. The user's choice in the Print tab
+   * (LINEART_SPLIT_KEY) wins over it.
+   */
+  split?: SplitSpec | 'off';
+  /** A split piece: 'print' (default: the pieces side by side to print), 'assembled' (together as on the wall) or 'exploded' (pulled apart). */
+  layout?: 'print' | 'assembled' | 'exploded';
+  /** A split piece: engrave each piece's name (A1, A2, B1…) on its back, default true. */
+  labels?: boolean;
+  /** A split piece: space per side between a dovetail and its socket, default 0.15 mm. */
+  clearance?: number;
+}
+
+/** One piece of a split line art, and what Jig fixed on it. */
+export interface LineArtPieceInfo {
+  /** Row letter from the top + column number from the left, as seen from the front: A1, A2, B1… */
+  label: string;
+  col: number;
+  row: number;
+  /** Its size [width, height] and box [x0, y0, x1, y1] on the wall (the assembled piece's XY), mm. */
+  size: [number, number];
+  box: [number, number, number, number];
+  bridges: number;
+  longestBridge: number;
+  dropped: number;
+  endsJoined: number;
+  endsFree: number;
+  /** Dovetail tabs and sockets on it. */
+  joints: number;
+  /** Cap height of its engraved name, mm (0: no room for it). */
+  labelSize: number;
+}
+
+/** How a line art was split into pieces (on the first piece's lineArt), in the assembled piece's XY, mm. */
+export interface LineArtSplitInfo {
+  /** What it was split by: 'auto', a number of pieces ('4') or a grid ('3x2'). */
+  spec: string;
+  cols: number;
+  rows: number;
+  pieces: LineArtPieceInfo[];
+  /** The cuts: vertical ones top to bottom, horizontal ones left to right; lines of the drawing each cuts. */
+  seams: { dir: 'v' | 'h'; points: [number, number][]; crossings: number }[];
+  /** Dovetails where a seam crosses the bar or frame: the tab's and socket's pieces, its head width. */
+  joints: { at: [number, number]; tab: string; socket: string; width: number }[];
+  /** Crossings of the bar or frame without a dovetail, and why. */
+  noJoint: { at: [number, number]; why: string }[];
+  /** The bar or frame's outline, for the layout picture. */
+  anchor: [number, number][][];
 }
 
 /** What a line-art part was made from and what Jig fixed, for the Print tab and Claude's report (PartMesh.lineArt). */
@@ -120,16 +171,22 @@ export interface LineArtInfo {
   frames: { name: string; k: number; tx: number; ty: number; fp: string }[];
   /** Hand edits (LINEART_EDITS_KEY) applied, over all drawings. */
   edits: number;
+  /** Split into pieces (bridges, specks and loose lines above are then the totals over the pieces); only on the first piece. */
+  split?: LineArtSplitInfo;
+  /** This part is one piece of a split line art: its name, and how far the layout moved it from its place on the wall (mm). */
+  piece?: { label: string; offset: [number, number] };
 }
 
 /** What H.lineart returns; a script returns it as it is (or adds to its parts). */
 export interface LineArtResult {
-  /** The piece (lineArt on it), plus the base for a desk stand. */
-  parts: { name: string; shape: unknown; color: string; lineArt?: LineArtInfo }[];
+  /** The piece (lineArt on it), plus the base for a desk stand; split, one part per piece (named by its label), each on its own plate. */
+  parts: { name: string; shape: unknown; color: string; lineArt?: LineArtInfo; plate?: number }[];
   print: { layerHeight: number; walls: number; infill: number; infillPattern: string; brim: Brim };
   lineArt: LineArtInfo;
   /** How to print and hang it. */
   note: string;
+  /** A split piece: putting it up, piece by piece (the app animates it). */
+  assembly?: { label: string; parts: string[]; from: [number, number, number] }[];
 }
 
 /** Whether a model script builds line art (H.lineart): its follow-ups stay line art. */
@@ -149,14 +206,53 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
     .map((f) => ({ name: f.name.slice(0, 120), k: f.k * scale, tx: f.tx * scale, ty: f.ty * scale, fp: String(f.fp ?? '').slice(0, 80) }));
   return {
     frames, edits: count(o.edits),
+    ...cleanSplit(o, scale),
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
     size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
     bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
   };
 }
 
+/** A line art's split and piece info (LineArtInfo.split, .piece), checked and scaled. */
+function cleanSplit(o: LineArtInfo, scale: number): Pick<LineArtInfo, 'split' | 'piece'> {
+  const out: Pick<LineArtInfo, 'split' | 'piece'> = {};
+  const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const count = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? (v as number) : 0);
+  const pt = (p: unknown): [number, number] | null => (Array.isArray(p) && fin(p[0]) && fin(p[1]) ? [p[0] * scale, p[1] * scale] : null);
+  const line = (ps: unknown, max: number) => (Array.isArray(ps) ? ps.slice(0, max).map(pt).filter((p): p is [number, number] => !!p) : []);
+  const pc = o.piece;
+  if (pc && typeof pc.label === 'string' && pt(pc.offset)) out.piece = { label: pc.label.slice(0, 12), offset: pt(pc.offset)! };
+  const s = o.split;
+  if (!s || typeof s !== 'object' || !Number.isInteger(s.cols) || !Number.isInteger(s.rows) || !Array.isArray(s.pieces)) return out;
+  const str = (v: unknown, n: number) => String(v ?? '').slice(0, n);
+  out.split = {
+    spec: str(s.spec, 12), cols: s.cols, rows: s.rows,
+    pieces: s.pieces.slice(0, 100).filter((p) => p && typeof p.label === 'string' && Array.isArray(p.size) && Array.isArray(p.box) && [...p.size, ...p.box].every(fin)).map((p) => ({
+      label: p.label.slice(0, 12), col: count(p.col), row: count(p.row),
+      size: [p.size[0] * scale, p.size[1] * scale], box: p.box.map((v) => v * scale) as LineArtPieceInfo['box'],
+      bridges: count(p.bridges), longestBridge: fin(p.longestBridge) ? p.longestBridge * scale : 0, dropped: count(p.dropped),
+      endsJoined: count(p.endsJoined), endsFree: count(p.endsFree), joints: count(p.joints), labelSize: fin(p.labelSize) ? p.labelSize * scale : 0,
+    })),
+    seams: (Array.isArray(s.seams) ? s.seams : []).slice(0, 200).filter((m) => m && (m.dir === 'v' || m.dir === 'h')).map((m) => ({ dir: m.dir, points: line(m.points, 5000), crossings: count(m.crossings) })),
+    joints: (Array.isArray(s.joints) ? s.joints : []).slice(0, 400).filter((j) => j && pt(j.at)).map((j) => ({ at: pt(j.at)!, tab: str(j.tab, 12), socket: str(j.socket, 12), width: fin(j.width) ? j.width * scale : 0 })),
+    noJoint: (Array.isArray(s.noJoint) ? s.noJoint : []).slice(0, 400).filter((j) => j && pt(j.at)).map((j) => ({ at: pt(j.at)!, why: str(j.why, 200) })),
+    anchor: (Array.isArray(s.anchor) ? s.anchor : []).slice(0, 8).map((c) => line(c, 2000)).filter((c) => c.length >= 3),
+  };
+  return out;
+}
+
 /** Hand edits of line-art drawings (the Line art editor's brush), by drawing name: { fp, strokes }. */
 export const LINEART_EDITS_KEY = '$lineartEdits';
+/** The user's split choice (Print tab): 'off', 'auto', a number of pieces ('4') or a grid ('3x2'); wins over the script's split option. */
+export const LINEART_SPLIT_KEY = '$lineartSplit';
+/** The layout of a split piece when the script has no layout parameter of its own ('print', 'assembled', 'exploded'). */
+export const LINEART_LAYOUT_KEY = '$lineartLayout';
+export const LINEART_LAYOUTS = ['print', 'assembled', 'exploded'] as const;
+
+/** The split choice from the design's values (LINEART_SPLIT_KEY), checked; undefined when the script decides. */
+export function parseLineArtSplit(raw: unknown): SplitSpec | 'off' | undefined {
+  return parseSplitSpec(raw);
+}
 /** The most strokes kept per drawing, and points per stroke. */
 export const MAX_LINEART_STROKES = 400;
 export const MAX_STROKE_POINTS = 2000;
@@ -505,6 +601,12 @@ export interface LineArtMaskOptions {
   keepSpecks?: boolean;
   /** Join loose line ends to the nearest line within this many mm (0: leave them). */
   joinEnds?: number;
+  /**
+   * No bridge longer than this (mm) between two bits that are both at least `minPart` mm² (a big
+   * piece split into pieces: such bits become pieces of their own rather than get a long strut).
+   */
+  maxBridge?: number;
+  minPart?: number;
   fill: number;
   minIsland: number;
   lines: 'even' | 'keep';
@@ -654,10 +756,13 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
     }
     const parent = Array.from({ length: L }, (_, l) => l);
     const find = (l: number): number => (parent[l] === l ? l : (parent[l] = find(parent[l])));
+    const size = sizes.slice(), minPart = (o.minPart ?? 0) / (px * px);
     for (const [key, [d, a, b]] of [...best].sort((x, y) => x[1][0] - y[1][0])) {
       const ra = find(Math.floor(key / L)), rb = find(key % L);
       if (ra === rb) continue;
+      if (o.maxBridge != null && d * px - o.lineWidth > o.maxBridge && size[ra] >= minPart && size[rb] >= minPart) continue;
       parent[ra] = rb;
+      size[rb] += size[ra];
       capsule(out, w, h, a, b, r);
       paths.push([[a % w, (a / w) | 0], [b % w, (b / w) | 0]]);
       bridges++;
@@ -934,6 +1039,10 @@ export interface LineArtDeps {
   /** The hand edits made on a drawing (already matched to its fingerprint). */
   edits: (name: string) => LineArtStroke[];
   text: (s: string, o: { size: number; font?: string; halign: 'center'; valign: 'center' }) => any;
+  /** The user's split choice (LINEART_SPLIT_KEY), which wins over the script's split option. */
+  split?: SplitSpec | 'off';
+  /** The layout of a split piece when the script passes none (LINEART_LAYOUT_KEY). */
+  layout?: string;
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
@@ -943,6 +1052,8 @@ const CACHE_SIZE = 6;
 const MAX_PIXELS = { draft: 1_500_000, normal: 4_000_000, high: 8_000_000 };
 /** The A1's bed. */
 const BED = 256;
+/** The largest piece H.lineart makes (split into pieces that fit the bed), mm. */
+const MAX_SIZE = 3000;
 
 export function buildLineArt(d: LineArtDeps, source: string | string[], opts: LineArtOptions = {}): LineArtResult {
   const { M, C } = d;
@@ -956,7 +1067,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     return v;
   };
   const bar = style === 'keyholder' || style === 'sign' || style === 'stand';
-  const width = num('width', 200, 20, 1000);
+  const width = num('width', 200, 20, MAX_SIZE);
   const thickness = num('thickness', 2, 0.6, 20);
   const lineWidth = num('lineWidth', 1, 0.4, 10);
   const lines = opts.lines === 'even' ? 'even' : 'keep';
@@ -1017,7 +1128,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   if (!(s > 0)) throw new Error('H.lineart: the drawing has no room – make width larger or gap, overhang or frameWidth smaller');
   // A height limit shrinks the art.
   if (opts.height != null) {
-    const H = num('height', 0, 5, 1000);
+    const H = num('height', 0, 5, MAX_SIZE);
     const room = style === 'outline' ? H : bar ? H - barHeight + overlap : style === 'framed' ? H - 2 * (frameWidth + padding - ov) : H - 2 * frameWidth;
     if (!(room > 0)) throw new Error('H.lineart: height leaves no room for the drawing');
     s = Math.min(s, room);
@@ -1074,65 +1185,128 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     if (vectorDropped) art = C.compose(kept);
   }
 
-  // The drawing made printable, on a pixel grid over the whole piece.
+
+  // The split the user chose in the Print tab wins over the script's own.
+  const optSplit = parseSplitSpec(opts.split);
+  if (opts.split != null && optSplit === undefined) throw new Error("H.lineart: split must be 'auto', 'off', a number of pieces (2–100) or [columns, rows]");
+  const layout = opts.layout ?? d.layout ?? 'print';
+  if (!(LINEART_LAYOUTS as readonly string[]).includes(layout)) throw new Error(`H.lineart: layout must be one of ${LINEART_LAYOUTS.map((l) => `'${l}'`).join(', ')}`);
   const ab = (anchor ? art.add(anchor) : art).bounds();
-  let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
-  const area = (ab.max[0] - ab.min[0] + 8 * px) * (ab.max[1] - ab.min[1] + 8 * px);
-  px = Math.max(px, Math.sqrt(area / MAX_PIXELS[d.quality]));
-  const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, units.map((u) => u.edits)]);
-  let res = cache.get(key);
-  if (!res) {
-    const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
-    const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines, keepSpecks: lines === 'keep', joinEnds });
-    const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
-    res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree };
-    cache.set(key, res);
-    if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
-  }
-  // Lines kept as drawn: the drawing itself, exactly, with what Jig drew (thickened lines, bridges) added as exact shapes.
-  let lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
-  // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge).
-  units.forEach((u, i) => {
-    const f = frames[i];
-    for (const st of u.edits) if (st.mode === 'erase') lineCs = lineCs.subtract(brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1));
-  });
-  let shape = lineCs.extrude(thickness);
-  if (anchor) shape = shape.add(anchor.extrude(anchorThickness));
+  const splitSpec = d.split ?? optSplit ?? 'off';
+  const grid = splitSpec === 'off' ? null : splitGrid(ab.max[0] - ab.min[0], ab.max[1] - ab.min[1], splitSpec, MAX_PIECE, SPLIT_RESERVE);
 
   // Key holder: pegs out of the bar's front, printed standing up: a flared foot, the stem, and a
   // cap that keeps the keys on (its underside a 45° cone, no support).
-  let hooks = 0;
+  let hooks = 0, peg: any = null, pegFoot = 0;
+  const pegAt: Pt[] = [];
   if (style === 'keyholder') {
     hooks = Math.round(num('hooks', Math.max(2, Math.round(width / 70)), 1, 20));
     const len = num('hookLength', 15, 6, 60), dia = num('hookDiameter', 6, 3, 20);
     const r = dia / 2, foot = 1, cap = 1.5, flare = 1.5;
-    const peg = M.cylinder(foot, r + foot, r, segs / 2)
+    peg = M.cylinder(foot, r + foot, r, segs / 2)
       .add(M.cylinder(len - cap - flare, r, r, segs / 2))
       .add(M.cylinder(flare, r, r + flare, segs / 2).translate([0, 0, len - cap - flare]))
       .add(M.cylinder(cap, r + flare, r + flare, segs / 2).translate([0, 0, len - cap]));
+    pegFoot = r + flare;
     const span = width - 2 * overhang;
-    for (let i = 0; i < hooks; i++) shape = shape.add(peg.translate([-span / 2 + (span * (i + 0.5)) / hooks, -barHeight / 2, barThickness]));
+    for (let i = 0; i < hooks; i++) pegAt.push([-span / 2 + (span * (i + 0.5)) / hooks, -barHeight / 2]);
   }
   // Name sign: the text raised on the bar, as large as fits.
+  let signText: any = null, textDepth = 0;
   if (style === 'sign' && opts.text?.trim()) {
-    const depth = num('textDepth', 1, 0.2, 10);
+    textDepth = num('textDepth', 1, 0.2, 10);
     let t = d.text(opts.text.trim(), { size: num('textHeight', barHeight * 0.6, 2, 200), font: opts.font, halign: 'center', valign: 'center' });
     const tb = t.bounds(), room = width - 2 * Math.max(overhang, barHeight * 0.3), tw = tb.max[0] - tb.min[0];
     if (tw > room) t = t.scale(room / tw);
     const cb = t.bounds();
-    t = t.translate([-(cb.min[0] + cb.max[0]) / 2, -barHeight / 2 - (cb.min[1] + cb.max[1]) / 2]);
-    shape = shape.add(t.extrude(depth).translate([0, 0, barThickness]));
+    signText = t.translate([-(cb.min[0] + cb.max[0]) / 2, -barHeight / 2 - (cb.min[1] + cb.max[1]) / 2]);
   }
-  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
-  const parts: LineArtResult['parts'] = [{ name: 'Line art', shape, color, lineArt: info }];
-  // Desk stand: a base with a slot the bar pushes into, printed beside the piece.
+  // The pegs (those `on` says are on this piece) and the text on the bar (what is on `region`; null: none).
+  const decorate = (shape: any, on: (p: Pt) => boolean = () => true, region?: any) => {
+    for (const p of pegAt) if (on(p)) shape = shape.add(peg.translate([p[0], p[1], barThickness]));
+    const t = !signText || region === null ? null : region ? signText.intersect(region) : signText;
+    if (t && !t.isEmpty()) shape = shape.add(t.extrude(textDepth).translate([0, 0, barThickness]));
+    return shape;
+  };
+
+  let parts: LineArtResult['parts'];
+  let info: LineArtInfo;
+  let sp: SplitResult | null = null;
+  if (!grid || grid.cols * grid.rows < 2) {
+    // The drawing made printable, on a pixel grid over the whole piece.
+    let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
+    const area = (ab.max[0] - ab.min[0] + 8 * px) * (ab.max[1] - ab.min[1] + 8 * px);
+    px = Math.max(px, Math.sqrt(area / MAX_PIXELS[d.quality]));
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, units.map((u) => u.edits)]);
+    let res = cache.get(key);
+    if (!res) {
+      const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
+      const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines, keepSpecks: lines === 'keep', joinEnds });
+      const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
+      res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree };
+      cache.set(key, res);
+      if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
+    }
+    // Lines kept as drawn: the drawing itself, exactly, with what Jig drew (thickened lines, bridges) added as exact shapes.
+    let lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
+    // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge).
+    units.forEach((u, i) => {
+      const f = frames[i];
+      for (const st of u.edits) if (st.mode === 'erase') lineCs = lineCs.subtract(brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1));
+    });
+    let shape = lineCs.extrude(thickness);
+    if (anchor) shape = shape.add(anchor.extrude(anchorThickness));
+    shape = decorate(shape);
+    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
+    parts = [{ name: 'Line art', shape, color, lineArt: info }];
+  } else {
+    // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by itself.
+    let erase: any = null;
+    units.forEach((u, i) => {
+      const f = frames[i];
+      for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); erase = erase ? erase.add(b) : b; }
+    });
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, units.map((u) => u.edits), d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null]);
+    sp = splitPieces({
+      d, key, art, anchor, erase, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
+      clearance: num('clearance', 0.15, 0, 1), maxBridge: SPLIT_MAX_BRIDGE, minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,
+    });
+    const totals = sp.pieces.reduce((t, p) => ({ bridges: t.bridges + p.info.bridges, longestBridge: Math.max(t.longestBridge, p.info.longestBridge), dropped: t.dropped + p.info.dropped, endsJoined: t.endsJoined + p.info.endsJoined, endsFree: t.endsFree + p.info.endsFree, closed: t.closed + p.closed, openings: t.openings + p.openings }), { bridges: 0, longestBridge: 0, dropped: vectorDropped, endsJoined: 0, endsFree: 0, closed: 0, openings: 0 });
+    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, ...totals, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
+    const labels = opts.labels !== false;
+    const res = sp;
+    parts = res.pieces.map((p, i) => {
+      let shape = p.lineCs.isEmpty() ? p.anchor.extrude(anchorThickness) : p.lineCs.extrude(thickness);
+      if (p.anchor && !p.lineCs.isEmpty()) shape = shape.add(p.anchor.extrude(anchorThickness));
+      shape = decorate(shape, (q) => res.pieceAt(q) === i, p.region);
+      // Its name engraved on the back, mirrored so it reads from the back.
+      const at = labels ? res.label(i) : null;
+      if (at) {
+        let t = d.text(p.info.label, { size: at.size, halign: 'center', valign: 'center' });
+        const tb = t.bounds();
+        t = t.translate([-(tb.min[0] + tb.max[0]) / 2, -(tb.min[1] + tb.max[1]) / 2]).mirror([1, 0]);
+        if (at.rot) t = t.rotate(90);
+        shape = shape.subtract(t.translate([at.x, at.y]).extrude(LABEL_DEPTH + 1).translate([0, 0, -1]));
+      }
+      p.info.labelSize = at ? at.size : 0;
+      return { name: p.info.label, shape, color, lineArt: info, plate: i + 1 };
+    });
+  }
+
+  // Desk stand: a base with a slot the bar pushes into, printed beside the piece (split, cut where the bar is).
   let slotNote = '';
   if (style === 'stand') {
     const depth = num('standDepth', 30, 10, 200), height = num('standHeight', 12, 4, 100);
     const slotDepth = Math.min(height - 2, barHeight - 2), slotW = barThickness + 0.3, len = width + 16;
     const base = M.cube([len, depth, height]).translate([-len / 2, 0, 0])
-      .subtract(M.cube([width + 0.6, slotW, slotDepth + 1]).translate([-(width + 0.6) / 2, (depth - slotW) / 2, height - slotDepth]));
-    parts.push({ name: 'Stand base', shape: base.translate([0, -barHeight - 10 - depth, 0]), color });
+      .subtract(M.cube([width + 0.6, slotW, slotDepth + 1]).translate([-(width + 0.6) / 2, (depth - slotW) / 2, height - slotDepth]))
+      .translate([0, -barHeight - 10 - depth, 0]);
+    const cuts = sp ? sp.seams.filter((m) => m.dir === 'v').map((m) => seamAt(m.points, -barHeight / 2, 1)).sort((a, b) => a - b) : [];
+    const edges = [-len / 2 - 1, ...cuts, len / 2 + 1];
+    for (let k = 0; k + 1 < edges.length; k++) {
+      const slab = edges.length > 2 ? base.intersect(M.cube([edges[k + 1] - edges[k], 1000, 1000]).translate([edges[k], -500, -1])) : base;
+      parts.push({ name: edges.length > 2 ? `Stand base ${k + 1}` : 'Stand base', shape: slab, color, ...(sp ? { plate: parts.length + 1 } : {}) });
+    }
     slotNote = ` Print the base as well and push the bar into its slot (${slotW.toFixed(1)} mm wide, ${slotDepth.toFixed(0)} mm deep).`;
   }
   // Everything centred on the plate (the origin), as the 3MF export places it.
@@ -1143,7 +1317,355 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     for (const p of parts) p.shape = (p.shape as any).translate([-cx, -cy, 0]);
     moveFrames(-cx, -cy);
   }
-  const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller.` : '';
-  const note = `Print it flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
-  return { parts, print: lineArtPrint(), lineArt: info, note };
+  let note: string, assembly: LineArtResult['assembly'];
+  if (!sp) {
+    const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller${grid ? '' : ', or split it into pieces'}.` : '';
+    note = `Print it flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
+  } else {
+    const split = splitInfo(sp, splitSpec as SplitSpec, grid!, -cx, -cy, anchor);
+    info.split = split;
+    // The layout: on the wall with hairline gaps (assembled), pulled apart (exploded), or each piece in a grid to print.
+    const n = sp.pieces.length;
+    const offsets = layoutOffsets(parts, n, split, layout, Math.max(pieceW, pieceH));
+    parts.forEach((p, i) => {
+      const [dx, dy] = offsets[i];
+      if (dx || dy) p.shape = (p.shape as any).translate([dx, dy, 0]);
+      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), piece: { label: p.name, offset: [dx, dy] } };
+    });
+    const big = split.pieces.filter((p) => p.size[0] > BED || p.size[1] > BED);
+    const order = split.pieces.map((p) => p.label);
+    assembly = order.slice(1).map((l) => ({ label: `Stick ${l} on the wall against the pieces already up`, parts: [l], from: [0, 0, Math.max(30, 0.15 * Math.max(pieceW, pieceH))] }));
+    const lab = split.pieces.filter((p) => p.labelSize > 0).length;
+    note = `Split into ${n} pieces (${grid!.cols} × ${grid!.rows}: ${order.join(', ')}), each on its own plate. Print each flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}`
+      + `${split.joints.length ? `The ${split.joints.length} dovetail${split.joints.length > 1 ? 's' : ''} on the ${anchorWord(style)} lock the pieces together; ` : ''}lines that cross a seam just meet end to end, so each piece is taped up on its own. `
+      + `${lab ? `Each piece's name (row letter from the top, column number from the left) is engraved on its back${lab < n ? ` (${n - lab} had no room for it)` : ''}. ` : ''}`
+      + `Put it up from the top left: A1 first, then along the row and down. Mark a level line, tape each piece up and push it against the one before.${slotNote}`
+      + `${big.length ? ` ${big.map((p) => `${p.label} is ${p.size[0].toFixed(0)} × ${p.size[1].toFixed(0)} mm`).join(', ')}: bigger than the A1's ${BED} mm bed – use more pieces.` : ''}`;
+  }
+  return { parts, print: lineArtPrint(), lineArt: info, note, ...(assembly ? { assembly } : {}) };
+}
+
+/** Room kept in each piece for seams that wander and for dovetails (mm): Auto picks enough pieces for it. */
+const SPLIT_RESERVE = 24;
+/** A split piece's bits farther apart than this (mm) aren't bridged when each is at least SPLIT_MIN_PART × lineWidth mm²: they become pieces of their own. */
+const SPLIT_MAX_BRIDGE = 15;
+const SPLIT_MIN_PART = 200;
+/** How deep a piece's name is engraved in its back, mm. */
+const LABEL_DEPTH = 0.4;
+
+const anchorWord = (style: LineArtStyle) => (style === 'framed' || style === 'medallion' ? 'frame' : 'bar');
+
+/** A split as cached: the seams, each piece's outline and cleaned-up drawing, the dovetails, where the names go. */
+interface SplitCached {
+  seams: Seam[];
+  /** Each piece's outline (with its tabs, without its sockets), its place in the grid and what the clean-up drew. */
+  pieces: { col: number; row: number; region: Pt[][]; loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number }[];
+  joints: LineArtSplitInfo['joints'];
+  noJoint: LineArtSplitInfo['noJoint'];
+  /** Where each piece's name goes (found when first asked). */
+  labels: ({ x: number; y: number; size: number; rot: boolean } | null | undefined)[];
+}
+/** Recent splits, like `cache`. */
+const splitCache = new Map<string, SplitCached>();
+
+interface SplitResult {
+  seams: Seam[];
+  /** The pieces in label order; `region` is the cell's outline on the first piece of a cell (null on A2b…). */
+  pieces: { info: LineArtPieceInfo; region: any; lineCs: any; anchor: any; closed: number; openings: number }[];
+  joints: LineArtSplitInfo['joints'];
+  noJoint: LineArtSplitInfo['noJoint'];
+  /** The piece (its index) a point is on, -1 for none. */
+  pieceAt: (p: Pt) => number;
+  /** Where a piece's name goes on its back. */
+  label: (i: number) => { x: number; y: number; size: number; rot: boolean } | null;
+}
+
+interface SplitInput {
+  d: LineArtDeps;
+  key: string;
+  art: any;
+  anchor: any;
+  /** What the user erased by hand (mm), taken off each piece after the clean-up. */
+  erase: any;
+  ab: { min: number[]; max: number[] };
+  cols: number;
+  rows: number;
+  lineWidth: number;
+  fill: number;
+  minIsland: number;
+  lines: 'even' | 'keep';
+  joinEnds: number;
+  segs: number;
+  clearance: number;
+  /** Bits of a piece farther apart than maxBridge (mm) and at least minPart mm² each become pieces of their own. */
+  maxBridge: number;
+  minPart: number;
+  /** Key holder pegs on the bar: a seam keeps clear of each one's foot (`pegZone` mm) and room for a dovetail. */
+  pegAt: Pt[];
+  pegZone: number;
+  barHeight: number;
+  signText: any;
+}
+
+/**
+ * The piece cut into cols × rows pieces: the seams (vertical ones the whole height, horizontal ones
+ * per column), each piece's outline with dovetails where a seam crosses the bar or frame, and each
+ * piece's drawing cleaned up on its own (specks dropped, loose bits bridged, dangling lines joined),
+ * so a piece holds together without its neighbours.
+ */
+function splitPieces(o: SplitInput): SplitResult {
+  const { d, art, anchor, ab, cols, rows, lineWidth } = o;
+  const { C } = d;
+  const x0 = ab.min[0], x1 = ab.max[0], y0 = ab.min[1], y1 = ab.max[1], W = x1 - x0, H = y1 - y0;
+  const Wc = W / cols, Hr = H / rows;
+  // How far a seam may wander from the ideal cut: the pieces must still fit the bed.
+  const bandFor = (cell: number) => Math.max(3, Math.min(40, 0.3 * cell, (MAX_PIECE - 10 - cell) / 2));
+  const Bv = bandFor(Wc), Bh = bandFor(Hr), margin = 3;
+  const Yt = y1 + 2 * margin + 1, Yb = y0 - 2 * margin - 1, Xl = x0 - 2 * margin - 1, Xr = x1 + 2 * margin + 1;
+  let c = splitCache.get(o.key);
+  if (!c) {
+    const artPolys = art.toPolygons(), anchorPolys = anchor ? anchor.toPolygons() : null;
+    const textPolys = o.signText ? o.signText.offset(0.5, 'Round').toPolygons() : null;
+    const pxFor = (area: number) => Math.max(lineWidth / 4, Math.sqrt(area / 3e6));
+    // What a seam's band holds; `rowSpan` (horizontal seams) keeps only what is in the seam's column.
+    const sample = (g: SplitGrid, rowSpan?: (y: number) => [number, number]) => {
+      const ink = rasterize(artPolys, g), anc = anchorPolys ? rasterize(anchorPolys, g) : null;
+      const heavy = textPolys ? rasterize(textPolys, g) : null;
+      // A peg's foot, and room beside it for a dovetail's tab and socket.
+      const zone = o.pegZone + 12;
+      const avoid = o.pegAt.length ? new Uint8Array(g.w * g.h) : null;
+      if (avoid) for (const [x, y] of o.pegAt) rasterize([[[x - zone, y - o.barHeight], [x + zone, y - o.barHeight], [x + zone, y + o.barHeight], [x - zone, y + o.barHeight]]], g, avoid);
+      if (rowSpan) for (let j = 0; j < g.h; j++) {
+        const [a, b] = rowSpan(g.y1 - (j + 0.5) * g.px);
+        for (let i = 0; i < g.w; i++) {
+          const x = g.x0 + (i + 0.5) * g.px;
+          if (x >= a && x <= b) continue;
+          const k = j * g.w + i;
+          ink[k] = 0; if (anc) anc[k] = 0; if (heavy) heavy[k] = 0; if (avoid) avoid[k] = 0;
+        }
+      }
+      return { ink, anchor: anc, heavy, avoid };
+    };
+    const seams: Seam[] = [];
+    for (let k = 1; k < cols; k++) {
+      const xi = x0 + k * Wc, px = pxFor(2 * Bv * (H + 2 * margin));
+      const g: SplitGrid = { px, x0: xi - Bv, y1: y1 + margin, w: Math.ceil((2 * Bv) / px) + 1, h: Math.ceil((H + 2 * margin) / px) };
+      seams.push({ ...routeSeam(g, sample(g), 'v', xi, Bv, lineWidth), col: k, row: 0 });
+    }
+    const vg = seamGeometry(seams, cols, rows, Xl, Xr, Yt, Yb);
+    for (let col = 0; col < cols; col++) {
+      const left = vg.vLine(col), right = vg.vLine(col + 1);
+      const xl = Math.min(...left.map((p) => p[0])) - 1, xr = Math.max(...right.map((p) => p[0])) + 1;
+      for (let r = 1; r < rows; r++) {
+        const yi = y1 - r * Hr, px = pxFor((xr - xl) * 2 * Bh);
+        const g: SplitGrid = { px, x0: xl, y1: yi + Bh, w: Math.ceil((xr - xl) / px), h: Math.ceil((2 * Bh) / px) + 1 };
+        seams.push({ ...routeSeam(g, sample(g, (y) => [seamAt(left, y, 1), seamAt(right, y, 1)]), 'h', yi, Bh, lineWidth), col, row: r });
+      }
+    }
+    const geo = seamGeometry(seams, cols, rows, Xl, Xr, Yt, Yb);
+    // Each piece's outline: its column's strip ∩ its row's strip in that column.
+    const strip = (a: Pt[], b: Pt[]) => new C([[...a, ...[...b].reverse()]], 'EvenOdd');
+    const regions: any[] = [];
+    for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) regions.push(strip(geo.vLine(col), geo.vLine(col + 1)).intersect(strip(geo.hLine(col, r), geo.hLine(col, r + 1))));
+    // Dovetails where a seam runs straight across the bar or frame: a tab on the piece before the
+    // seam, its socket (with clearance) in the next one.
+    const joints: LineArtSplitInfo['joints'] = [], noJoint: LineArtSplitInfo['noJoint'] = [];
+    for (const m of seams) for (const run of m.runs) {
+      const mid: Pt = [(run.a[0] + run.b[0]) / 2, (run.a[1] + run.b[1]) / 2];
+      const n = m.dir === 'v' ? [1, 0] : [0, -1];
+      const owner = geo.pieceAt([mid[0] - n[0], mid[1] - n[1]]), other = geo.pieceAt([mid[0] + n[0], mid[1] + n[1]]);
+      if (owner === other) continue;
+      const across = Math.hypot(run.b[0] - run.a[0], run.b[1] - run.a[1]);
+      let made: { tab: Pt[]; head: number } | null = null, r2 = run, why = '';
+      for (let k = 0; k < 4 && !made; k++) {
+        const t = dovetail(r2, m.dir, o.clearance);
+        if (!t) { why = k ? 'no room for a dovetail inside it here' : `only ${across.toFixed(1)} mm across here, too narrow for a dovetail (needs about ${(3 + 2.4 + 2 * o.clearance).toFixed(1)} mm)`; break; }
+        // Its socket and a wall around it must stay inside the bar or frame.
+        if (new C([t.tab], 'EvenOdd').offset(o.clearance + 0.6, 'Miter').subtract(anchor).area() < 0.01) { made = t; break; }
+        why = 'no room for a dovetail inside it here';
+        const sh = 0.85, cxm = (r2.a[0] + r2.b[0]) / 2, cym = (r2.a[1] + r2.b[1]) / 2;
+        r2 = { a: [cxm + (r2.a[0] - cxm) * sh, cym + (r2.a[1] - cym) * sh], b: [cxm + (r2.b[0] - cxm) * sh, cym + (r2.b[1] - cym) * sh] };
+      }
+      if (!made) { noJoint.push({ at: mid, why }); continue; }
+      const tab = new C([made.tab], 'EvenOdd');
+      regions[owner] = regions[owner].add(tab);
+      regions[other] = regions[other].subtract(tab.offset(o.clearance, 'Miter'));
+      joints.push({ at: mid, tab: pieceLabel(owner % cols, Math.floor(owner / cols)), socket: pieceLabel(other % cols, Math.floor(other / cols)), width: made.head });
+    }
+    // Each piece cleaned up on its own.
+    const pieces: SplitCached['pieces'] = [];
+    regions.forEach((region, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const pan = anchor ? anchor.intersect(region) : null;
+      const pa = dropSpecks(C, art.intersect(region), pan, o.minIsland);
+      if (pa.cs.isEmpty() && (!pan || pan.isEmpty())) return;
+      const b = (pan && !pan.isEmpty() ? pa.cs.add(pan) : pa.cs).bounds();
+      let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
+      px = Math.max(px, Math.sqrt(((b.max[0] - b.min[0] + 8 * px) * (b.max[1] - b.min[1] + 8 * px)) / MAX_PIXELS[d.quality]));
+      const g: LineArtGrid = { px, x0: b.min[0] - 4 * px, y1: b.max[1] + 4 * px, w: Math.ceil((b.max[0] - b.min[0]) / px) + 8, h: Math.ceil((b.max[1] - b.min[1]) / px) + 8 };
+      const m = lineArtMask(rasterize(pa.cs.toPolygons(), g), pan && !pan.isEmpty() ? rasterize(pan.toPolygons(), g) : null, g, { lineWidth, fill: o.fill, minIsland: o.minIsland, lines: o.lines, keepSpecks: o.lines === 'keep', joinEnds: o.joinEnds, maxBridge: o.maxBridge, minPart: o.minPart });
+      const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
+      pieces.push({
+        col, row, region: region.toPolygons(),
+        loops: o.lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: o.lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [],
+        bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped + pa.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree,
+      });
+    });
+    c = { seams, pieces, joints, noJoint, labels: [] };
+    splitCache.set(o.key, c);
+    if (splitCache.size > 2) splitCache.delete(splitCache.keys().next().value!);
+  }
+  const cached = c;
+  const geo = seamGeometry(cached.seams, cols, rows, Xl, Xr, Yt, Yb);
+  const pieces: SplitResult['pieces'] = [];
+  const mainOf = new Map<number, number>();
+  for (const p of cached.pieces) {
+    const region = new C(p.region, 'EvenOdd');
+    const pan = anchor ? anchor.intersect(region) : null;
+    const pa = dropSpecks(C, art.intersect(region), pan, o.minIsland).cs;
+    let lineCs = o.lines === 'keep' ? (p.paths.length ? pa.add(new C(strokeOutlines(p.paths, lineWidth / 2, o.segs / 4), 'NonZero')) : pa) : new C(p.loops, 'EvenOdd');
+    if (o.erase) lineCs = lineCs.subtract(o.erase);
+    // What Jig drew stays on the piece: a bridge or a thickened line ends at the seam.
+    lineCs = lineCs.intersect(region);
+    const anc = pan && !pan.isEmpty() ? pan : null;
+    // Bits too far apart to bridge become pieces of their own (A2, A2b…): the one on the bar or frame, or the biggest, first.
+    const comps = (anc ? lineCs.add(anc) : lineCs).decompose().map((cs: any) => ({ cs, area: cs.area(), onAnchor: !!anc && !cs.intersect(anc).isEmpty() }));
+    const big = comps.filter((q: { area: number }) => q.area >= o.minPart).sort((a: { onAnchor: boolean; area: number }, b: { onAnchor: boolean; area: number }) => +b.onAnchor - +a.onAnchor || b.area - a.area);
+    const groups = big.length > 1 ? big.map((q: { cs: any }) => q.cs) : [null];
+    // Smaller loose bits (cut apart by an erase) stay with the first.
+    if (big.length > 1) for (const q of comps) if (q.area < o.minPart) groups[0] = groups[0].add(q.cs);
+    const cell = pieceLabel(p.col, p.row);
+    mainOf.set(p.row * cols + p.col, pieces.length);
+    groups.forEach((g: any, k: number) => {
+      const lc = g ? lineCs.intersect(g) : lineCs, an = anc && g ? anc.intersect(g) : anc;
+      const a2 = an && !an.isEmpty() ? an : null;
+      const bb = (a2 ? lc.add(a2) : lc).bounds();
+      const label = k ? `${cell}${String.fromCharCode(97 + k)}` : cell;
+      const info: LineArtPieceInfo = {
+        label, col: p.col, row: p.row, size: [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]], box: [bb.min[0], bb.min[1], bb.max[0], bb.max[1]],
+        bridges: k ? 0 : p.bridges, longestBridge: k ? 0 : p.longestBridge, dropped: k ? 0 : p.dropped, endsJoined: k ? 0 : p.endsJoined, endsFree: k ? 0 : p.endsFree,
+        joints: k ? 0 : cached.joints.filter((j) => j.tab === cell || j.socket === cell).length, labelSize: 0,
+      };
+      pieces.push({ info, region: k ? null : region, lineCs: lc, anchor: a2, closed: k ? 0 : p.closed, openings: k ? 0 : p.openings });
+    });
+  }
+  return {
+    seams: cached.seams, pieces, joints: cached.joints, noJoint: cached.noJoint,
+    pieceAt: (q) => mainOf.get(geo.pieceAt(q)) ?? -1,
+    label: (i) => {
+      if (cached.labels[i] === undefined) cached.labels[i] = placeLabel(d, pieces[i]);
+      return cached.labels[i] ?? null;
+    },
+  };
+}
+
+/** `cs` without its loose bits smaller than `minIsland` mm² (those touching `anchor` aren't loose), and how many went. */
+function dropSpecks(C: any, cs: any, anchor: any, minIsland: number): { cs: any; dropped: number } {
+  const comps = cs.decompose();
+  if (comps.length < 2) return { cs, dropped: 0 };
+  const kept = comps.filter((p: any) => p.area() >= minIsland || (anchor && !p.intersect(anchor).isEmpty()));
+  return kept.length === comps.length ? { cs, dropped: 0 } : { cs: C.compose(kept), dropped: comps.length - kept.length };
+}
+
+/** The seams' lines stretched over the whole piece, and which piece (row-major index) a point is in. */
+function seamGeometry(seams: Seam[], cols: number, rows: number, Xl: number, Xr: number, Yt: number, Yb: number) {
+  const vs = seams.filter((m) => m.dir === 'v').sort((a, b) => a.col - b.col);
+  const vLine = (k: number): Pt[] => (k === 0 ? [[Xl, Yt], [Xl, Yb]] : k === cols ? [[Xr, Yt], [Xr, Yb]] : extendSeam(vs[k - 1], Yt, Yb));
+  const hs = Array.from({ length: cols }, (_, col) => seams.filter((m) => m.dir === 'h' && m.col === col).sort((a, b) => a.row - b.row));
+  const hLine = (col: number, r: number): Pt[] => (r === 0 ? [[Xl, Yt], [Xr, Yt]] : r === rows ? [[Xl, Yb], [Xr, Yb]] : extendSeam(hs[col][r - 1], Xl, Xr));
+  const pieceAt = ([x, y]: Pt) => {
+    let col = 0;
+    for (let k = 1; k < cols; k++) if (x > seamAt(vLine(k), y, 1)) col = k;
+    let row = 0;
+    for (let r = 1; r < rows; r++) if (y < seamAt(hLine(col, r), x, 0)) row = r;
+    return row * cols + col;
+  };
+  return { vLine, hLine, pieceAt };
+}
+
+/**
+ * Where a piece's name fits on its back: on the bar or frame if it can, else on the drawing's
+ * solid areas – the biggest size that fits (8 mm cap height down to 3 mm, lying or standing), as
+ * near the piece's middle as it can; null when it fits nowhere.
+ */
+function placeLabel(d: LineArtDeps, p: { info: LineArtPieceInfo; lineCs: any; anchor: any }): { x: number; y: number; size: number; rot: boolean } | null {
+  const [bx0, by0, bx1, by1] = p.info.box, prefer: Pt = [(bx0 + bx1) / 2, (by0 + by1) / 2];
+  // A little of the piece all round the letters (they are only engraved 0.4 mm into its back).
+  const margin = 0.6, lp = 0.25;
+  const texts = [8, 6, 5, 4, 3].map((size) => { const b = d.text(p.info.label, { size, halign: 'center', valign: 'center' }).bounds(); return { size, w: b.max[0] - b.min[0] + 2 * margin, h: b.max[1] - b.min[1] + 2 * margin }; });
+  for (const cs of [p.anchor, p.lineCs]) {
+    if (!cs || cs.isEmpty()) continue;
+    const b = cs.bounds();
+    const g: LineArtGrid = { px: lp, x0: b.min[0] - lp, y1: b.max[1] + lp, w: Math.ceil((b.max[0] - b.min[0]) / lp) + 3, h: Math.ceil((b.max[1] - b.min[1]) / lp) + 3 };
+    const mask = rasterize(cs.toPolygons(), g);
+    for (const t of texts) for (const rot of [false, true]) {
+      const fit = fitBox(mask, g.w, g.h, Math.ceil((rot ? t.h : t.w) / lp), Math.ceil((rot ? t.w : t.h) / lp), (prefer[0] - g.x0) / lp, (g.y1 - prefer[1]) / lp);
+      if (fit) return { x: g.x0 + fit.x * lp, y: g.y1 - fit.y * lp, size: t.size, rot };
+    }
+  }
+  return null;
+}
+
+/** The split for the Print tab, Jig's report and the editor, moved by (dx, dy) like the piece. */
+function splitInfo(sp: SplitResult, spec: SplitSpec, grid: { cols: number; rows: number }, dx: number, dy: number, anchor: any): LineArtSplitInfo {
+  const mv = ([x, y]: Pt): [number, number] => [x + dx, y + dy];
+  return {
+    spec: formatSplitSpec(spec), cols: grid.cols, rows: grid.rows,
+    pieces: sp.pieces.map((p) => ({ ...p.info, box: [p.info.box[0] + dx, p.info.box[1] + dy, p.info.box[2] + dx, p.info.box[3] + dy] })),
+    seams: sp.seams.map((m) => ({ dir: m.dir, points: m.points.map(mv), crossings: m.crossings })),
+    joints: sp.joints.map((j) => ({ ...j, at: mv(j.at) })),
+    noJoint: sp.noJoint.map((j) => ({ ...j, at: mv(j.at) })),
+    anchor: anchor ? anchor.simplify(0.1).toPolygons().slice(0, 8).map((c: Pt[]) => c.map(mv)) : [],
+  };
+}
+
+/**
+ * How far the layout moves each part from its place on the wall: 'assembled' leaves hairline gaps
+ * between the pieces, 'exploded' pulls them apart, 'print' sets the pieces (and a stand's base
+ * pieces, below them) in a grid with room between them, centred on the origin.
+ */
+function layoutOffsets(parts: LineArtResult['parts'], n: number, split: LineArtSplitInfo, layout: string, size: number): [number, number][] {
+  const pieces = split.pieces;
+  if (layout !== 'print') {
+    const g = layout === 'assembled' ? 0.6 : Math.max(15, 0.06 * size);
+    return parts.map((_, i): [number, number] => (i < n ? [(pieces[i].col - (split.cols - 1) / 2) * g, -(pieces[i].row - (split.rows - 1) / 2) * g] : [0, 0]));
+  }
+  const gap = 10;
+  // A cell's pieces (A2, A2b…) side by side.
+  const cells = new Map<number, number[]>();
+  pieces.forEach((p, i) => { const k = p.row * split.cols + p.col; (cells.get(k) ?? cells.set(k, []).get(k)!).push(i); });
+  const cellW = (k: number) => (cells.get(k) ?? []).reduce((a, i, j) => a + pieces[i].size[0] + (j ? gap : 0), 0);
+  const colW: number[] = Array(split.cols).fill(0), rowH: number[] = Array(split.rows).fill(0);
+  for (const [k, list] of cells) {
+    const col = k % split.cols, row = Math.floor(k / split.cols);
+    colW[col] = Math.max(colW[col], cellW(k));
+    for (const i of list) rowH[row] = Math.max(rowH[row], pieces[i].size[1]);
+  }
+  const X = colW.map((_, c) => colW.slice(0, c).reduce((a, b) => a + b + gap, 0)), Y = rowH.map((_, r) => -rowH.slice(0, r).reduce((a, b) => a + b + gap, 0));
+  const out: [number, number][] = pieces.map(() => [0, 0]);
+  for (const [k, list] of cells) {
+    const col = k % split.cols, row = Math.floor(k / split.cols);
+    let x = X[col] + (colW[col] - cellW(k)) / 2;
+    for (const i of list) {
+      const p = pieces[i];
+      out[i] = [x - p.box[0], Y[row] - (rowH[row] - p.size[1]) / 2 - p.box[3]];
+      x += p.size[0] + gap;
+    }
+  }
+  // A stand's base pieces in a row under the pieces.
+  let bx = 0;
+  const by = Y[split.rows - 1] - rowH[split.rows - 1] - gap;
+  for (const p of parts.slice(n)) {
+    const b = (p.shape as any).boundingBox();
+    out.push([bx - b.min[0], by - b.max[1]]);
+    bx += b.max[0] - b.min[0] + gap;
+  }
+  // Centred on the origin.
+  let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+  parts.forEach((p, i) => {
+    const b = i < n ? { min: [pieces[i].box[0], pieces[i].box[1]], max: [pieces[i].box[2], pieces[i].box[3]] } : (p.shape as any).boundingBox();
+    lo = [Math.min(lo[0], b.min[0] + out[i][0]), Math.min(lo[1], b.min[1] + out[i][1])]; hi = [Math.max(hi[0], b.max[0] + out[i][0]), Math.max(hi[1], b.max[1] + out[i][1])];
+  });
+  const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2;
+  return out.map(([x, y]) => [x - cx, y - cy]);
 }
