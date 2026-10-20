@@ -18,7 +18,11 @@ const { createMeshyMock } = await import('../server/meshyMock');
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as AddressInfo).port;
 server.on('request', createApp({ port }));
-const mock = createMeshyMock({ pendingMs: 200, runMs: 800 });
+// The mock's clock moves only when Jig waits between polls (50 ms a wait, at once): quick, and
+// every status is seen however busy the machine is.
+let clock = Date.now();
+const sleep = async (ms: number) => { clock += Math.min(ms, 50); };
+const mock = createMeshyMock({ pendingMs: 200, runMs: 800, now: () => clock });
 await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
 after(() => { server.close(); mock.close(); geometry.stop(); rmSync(dataDir, { recursive: true, force: true }); });
 
@@ -94,7 +98,7 @@ test('a design started from a version gets its own copies; deleting a design del
 test('generate_3d: Meshy (the mock) makes a model, Jig repairs and stores it, Claude gets a render', async () => {
   const events: AgentEvent[] = [];
   const base: Record<string, string> = {};
-  const client = { key: 'msy_test', baseUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`, sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 50))) };
+  const client = { key: 'msy_test', baseUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`, sleep };
   const { server: cad } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { meshy: { client, designId: 'test-mesh-00000004', references: [] } });
   // The tool as the Agent SDK calls it.
   const tools = (cad.instance as unknown as { _registeredTools: Record<string, { handler: (a: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[]; isError?: boolean }> }> })._registeredTools;
@@ -132,7 +136,7 @@ const mockBase = () => `http://127.0.0.1:${(mock.address() as AddressInfo).port}
 function recordingClient() {
   const created: { path: string; body: Record<string, unknown> }[] = [];
   const client = {
-    key: 'msy_test', baseUrl: mockBase(), sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 50))),
+    key: 'msy_test', baseUrl: mockBase(), sleep,
     fetch: (async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
