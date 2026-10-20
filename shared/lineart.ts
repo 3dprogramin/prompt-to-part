@@ -253,6 +253,23 @@ export const LINEART_LAYOUTS = ['print', 'assembled', 'exploded'] as const;
 export function parseLineArtSplit(raw: unknown): SplitSpec | 'off' | undefined {
   return parseSplitSpec(raw);
 }
+
+/**
+ * The whole piece's size the user typed in the Print tab, which wins over the script's width and
+ * height (its sliders' limits and a height written in the script included): "800x" (that width,
+ * the height following the drawing), "x600" (that height) or "800x600" (fit inside both).
+ */
+export const LINEART_SIZE_KEY = '$lineartSize';
+export const MAX_LINEART_SIZE = 3000;
+export function parseLineArtSize(raw: unknown): { width?: number; height?: number } | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const m = /^(\d+(?:\.\d+)?)?x(\d+(?:\.\d+)?)?$/.exec(raw.trim());
+  if (!m || (!m[1] && !m[2])) return undefined;
+  const ok = (v?: string) => (v && Number(v) >= 20 && Number(v) <= MAX_LINEART_SIZE ? Number(v) : undefined);
+  const width = ok(m[1]), height = ok(m[2]);
+  return width || height ? { ...(width ? { width } : {}), ...(height ? { height } : {}) } : undefined;
+}
+export const formatLineArtSize = (s: { width?: number; height?: number }) => `${s.width ? +s.width.toFixed(1) : ''}x${s.height ? +s.height.toFixed(1) : ''}`;
 /** The most strokes kept per drawing, and points per stroke. */
 export const MAX_LINEART_STROKES = 400;
 export const MAX_STROKE_POINTS = 2000;
@@ -1043,6 +1060,8 @@ export interface LineArtDeps {
   split?: SplitSpec | 'off';
   /** The layout of a split piece when the script passes none (LINEART_LAYOUT_KEY). */
   layout?: string;
+  /** The whole piece's size the user typed (LINEART_SIZE_KEY), which wins over the script's width and height. */
+  size?: { width?: number; height?: number };
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
@@ -1056,6 +1075,9 @@ const BED = 256;
 const MAX_SIZE = 3000;
 
 export function buildLineArt(d: LineArtDeps, source: string | string[], opts: LineArtOptions = {}): LineArtResult {
+  // The size the user typed wins: a width alone frees the height (it follows the drawing), a
+  // height alone sets the largest width, so the height decides.
+  if (d.size) opts = { ...opts, width: d.size.width ?? MAX_LINEART_SIZE, height: d.size.height };
   const { M, C } = d;
   const names = Array.isArray(source) ? source : [source];
   if (!names.length || names.length > 8 || !names.every((n) => typeof n === 'string')) throw new Error('H.lineart: give a drawing name or a list of 1–8 names');

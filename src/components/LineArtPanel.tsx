@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValue, ParamValues, PartMesh } from '../../shared/types';
-import { LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtSplit, type LineArtEdits, type LineArtInfo, type LineArtSplitInfo } from '../../shared/lineart';
+import { formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, MAX_LINEART_SIZE, parseLineArtEdits, parseLineArtSize, parseLineArtSplit, type LineArtEdits, type LineArtInfo, type LineArtSplitInfo } from '../../shared/lineart';
 import { formatSplitSpec, MAX_PIECE, parseSplitSpec, type SplitSpec } from '../../shared/split';
 import { NumBox } from './NumBox';
 import { staleEdits, withoutDrawings } from '../lib/lineArtEdit';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import { PRINTER } from '../../shared/printer';
 import { Icon } from './Icon';
+import { SCALE_KEY } from '../../shared/params';
 
 /** A line-art part (H.lineart): its style, drawings and what Jig fixed. */
 type LineArtPart = PartMesh & { lineArt: LineArtInfo };
@@ -97,9 +98,9 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
   const guess: [number, number] = sp ? [sp.cols, sp.rows] : [w > MAX_PIECE ? Math.ceil(w / AUTO_ROOM) : 1, h > MAX_PIECE ? Math.ceil(h / AUTO_ROOM) : 1];
   const grid: [number, number] = Array.isArray(choice) ? choice : guess;
   const count = typeof choice === 'number' ? choice : Math.max(2, guess[0] * guess[1]);
-  // The size: the script's width and height parameters when it has them.
-  const num = (k: string) => (result.params[k]?.type === 'number' || result.params[k]?.type === 'integer' ? Number(result.values[k]) : null);
-  const pw = num('width'), ph = num('height');
+  // The size typed here (before the design's overall scale, which applies to it too).
+  const scale = Number(values[SCALE_KEY] ?? 1) || 1;
+  const userSize = !!parseLineArtSize(values[LINEART_SIZE_KEY]);
   const bed = PRINTER.bed[0];
   const over = (p: { size: [number, number] }) => p.size[0] > PRINTER.bed[0] || p.size[1] > PRINTER.bed[1];
   const tooBig = sp ? sp.pieces.filter(over) : [];
@@ -143,9 +144,11 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
       <div className="lineart-split-row small">
         <span className="dim">Whole piece</span>
         <span className="lineart-split-grid">
-          {pw != null ? <NumBox value={pw} min={20} max={3000} label="Width of the whole piece" onCommit={(v) => onValue('width', v)} /> : <span className="mono">{w.toFixed(0)} mm</span>}
+          {/* The size typed here wins over the script's sliders (their limits too); the other side follows the drawing. */}
+          <NumBox value={+w.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label="Width of the whole piece (the height follows)" onCommit={(v) => onValue(LINEART_SIZE_KEY, formatLineArtSize({ width: v / scale }))} />
           <span className="dim">×</span>
-          {ph != null ? <NumBox value={ph} min={5} max={3000} label="Most height of the whole piece" onCommit={(v) => onValue('height', v)} /> : <span className="mono" title="Follows the drawing's proportions">{h.toFixed(0)} mm</span>}
+          <NumBox value={+h.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label="Height of the whole piece (the width follows)" onCommit={(v) => onValue(LINEART_SIZE_KEY, formatLineArtSize({ width: Math.min(MAX_LINEART_SIZE, (w * v) / h / scale) }))} />
+          {userSize && <button className="icon-btn" title="Back to the size Jig chose" aria-label="Back to the size Jig chose" onClick={() => onValue(LINEART_SIZE_KEY, '')}><Icon name="restore" size={12} /></button>}
         </span>
       </div>
       {!sp && mode === 'off' && (w > bed || h > PRINTER.bed[1]) && (

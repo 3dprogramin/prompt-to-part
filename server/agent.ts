@@ -18,7 +18,7 @@ import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
-import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtSplit } from '../shared/lineart';
+import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtSize, parseLineArtSplit } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -226,6 +226,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
     ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
     ...(typeof pictureValues[LINEART_SPLIT_KEY] === 'string' ? { [LINEART_SPLIT_KEY]: pictureValues[LINEART_SPLIT_KEY] } : {}),
+    ...(typeof pictureValues[LINEART_SIZE_KEY] === 'string' ? { [LINEART_SIZE_KEY]: pictureValues[LINEART_SIZE_KEY] } : {}),
     ...(typeof pictureValues[LINEART_LAYOUT_KEY] === 'string' ? { [LINEART_LAYOUT_KEY]: pictureValues[LINEART_LAYOUT_KEY] } : {}),
     ...(typeof pictureValues[PART_COLORS_KEY] === 'string' ? { [PART_COLORS_KEY]: pictureValues[PART_COLORS_KEY] } : {}),
   };
@@ -322,7 +323,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const splitNote = split === undefined ? '' : split === 'off'
       ? 'The user turned Split into pieces off in the Print tab: it stays one piece whatever the script\'s split option says (they turn it on there; say so if it is bigger than the bed).'
       : `The user split it into pieces in the Print tab (${split === 'auto' ? 'Auto: the fewest that fit the bed' : Array.isArray(split) ? `a grid of ${split[0]} × ${split[1]}` : `${split} pieces`}), which wins over the script's split option; the renders and reports already use it.`;
-    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote].filter(Boolean).join(' '));
+    // The whole piece's size the user typed in the Print tab wins over the script's width and height.
+    const size = parseLineArtSize(pictureValues[LINEART_SIZE_KEY]);
+    const sizeNote = size ? `The user set the whole piece's size in the Print tab (${size.width ? `${size.width} mm wide` : ''}${size.width && size.height ? ', ' : ''}${size.height ? `${size.height} mm high` : ''}${size.width && !size.height ? ', the height following the drawing' : ''}), which wins over the script's width and height: the renders and reports already use it. Keep it; to change the size, ask them to change it there (or set the width and height parameters if they ask you to and they clear it).` : '';
+    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote, sizeNote].filter(Boolean).join(' '));
   }
   // Mesh files attached now: a picture of each as imported, and what the import did.
   for (const name of attachedMeshes) {
