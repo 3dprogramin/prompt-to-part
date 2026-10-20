@@ -74,10 +74,6 @@ export function ObjectPanel(p: Props) {
                       <button className={`swatch ${p.partColors[part.name] ? 'picked' : ''}`} style={{ background: part.color }} aria-label={`Filament of ${part.name}`}
                         title={`${p.partColors[part.name]?.name ? `${p.partColors[part.name].brand ? `${p.partColors[part.name].brand} ` : ''}${p.partColors[part.name].name} – ` : ''}click to choose the filament it prints with`}
                         onClick={(e) => { trigger.current = e.currentTarget; setPicking(picking === part.name ? null : part.name); }} />
-                      {picking === part.name && (
-                        <FilamentPicker trigger={trigger} current={p.partColors[part.name] ? { name: p.partColors[part.name].name ?? p.partColors[part.name].color, brand: p.partColors[part.name].brand, color: p.partColors[part.name].color, td: 1 } : undefined}
-                          onPick={(f) => { p.onPartColor(part.name, { color: f.color, name: f.name, brand: f.brand }); setPicking(null); }} onClose={() => setPicking(null)} />
-                      )}
                     </span>
                   )}
                 <button className="object-meta" title={p.selected === part.name ? 'Selected (highlighted in the view) – click to clear' : 'Select: highlight it in the view'} onClick={() => p.onSelect(p.selected === part.name ? null : part.name)}>
@@ -88,6 +84,11 @@ export function ObjectPanel(p: Props) {
                   <button className="icon-btn" title="Back to the colour Jig chose" aria-label={`Reset the filament of ${part.name}`} onClick={() => p.onPartColor(part.name, null)}><Icon name="restore" size={13} /></button>
                 )}
                 <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${part.name} as STL`} onClick={() => p.onExport('stl', part.name)}><Icon name="download" size={14} /></button>
+                {/* The picker spans the row (it sizes to the row, as in the LayerTone section). */}
+                {picking === part.name && (
+                  <FilamentPicker trigger={trigger} current={p.partColors[part.name] ? { name: p.partColors[part.name].name ?? p.partColors[part.name].color, brand: p.partColors[part.name].brand, color: p.partColors[part.name].color, td: 1 } : undefined}
+                    onPick={(f) => { p.onPartColor(part.name, { color: f.color, name: f.name, brand: f.brand }); setPicking(null); }} onClose={() => setPicking(null)} />
+                )}
               </div>
               {open && (
                 <ul role="group">
