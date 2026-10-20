@@ -7,6 +7,7 @@ import { decode as decodePng } from 'fast-png';
 import { MAX_SVG_POINTS, type SvgDrawing } from '../shared/svgFeatures';
 import type { Vec2 } from '../shared/types';
 import type { PlannedColor } from '../shared/meshes';
+import type { LineArtStyle } from '../shared/lineart';
 
 interface TracePath { segments: { type: 'L' | 'Q'; x1: number; y1: number; x2: number; y2: number; x3?: number; y3?: number }[] }
 const ImageTracer = createRequire(import.meta.url)('imagetracerjs') as {
@@ -160,6 +161,66 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
   ].filter(Boolean).join('\n');
 }
 
+/** How the subjects sit in the picture for each line-art style (Jig adds the bar, frame or base itself). */
+const LINE_ART_COMPOSITION: Record<LineArtStyle, string> = {
+  outline: 'one connected, silhouette-like drawing of the subject, readable from its outline alone',
+  keyholder: 'the subjects side by side as in the request, all standing on ONE straight, horizontal ground line across the very bottom of the picture (wheels and feet resting on it), neighbouring subjects touching or slightly overlapping; nothing below the line',
+  sign: 'the subjects side by side as in the request, all standing on ONE straight, horizontal ground line across the very bottom of the picture (wheels and feet resting on it), neighbouring subjects touching or slightly overlapping; nothing below the line',
+  stand: 'the subjects side by side as in the request, all standing on ONE straight, horizontal ground line across the very bottom of the picture (wheels and feet resting on it), neighbouring subjects touching or slightly overlapping; nothing below the line',
+  framed: 'the subject large, filling the picture, its outermost parts reaching close to all four sides of the picture',
+  medallion: 'a compact subject that fills a circle: its outline roughly round, reaching close to the edge of the circle all around',
+};
+
+/**
+ * The prompt for line art (generate_line_art): Jig's house style – bold, even, black lines on white
+ * that join into ONE piece, so a shop's designs look alike – around the subject, composed for the
+ * style (a key holder's subjects stand on one ground line, a framed one fills the picture, …).
+ */
+export function lineArtPrompt(r: { subject: string; style: LineArtStyle; references?: string[]; look?: string }): string {
+  return [
+    'Line art to be cut out of a sheet as ONE piece (a 3D-printed wall decoration in black, like laser-cut metal wall art): the black lines are the piece, the white is empty space.',
+    `Subject: ${r.subject.trim()}`,
+    r.references?.length ? 'Work from the attached photo(s): keep the real subject\'s exact model, proportions and distinctive features (a vehicle\'s body shape, lights and wheels; a person\'s or pet\'s likeness, hair and build), in a clean side or three-quarter view unless the subject asks for another view.' : '',
+    `Look: ${r.look?.trim() || 'bold, clean, even-weight black line art on pure white, like laser-cut metal wall art; recognisable detail without clutter'}.`,
+    `Composition: ${LINE_ART_COMPOSITION[r.style]}.`,
+    'Rules:',
+    '- pure black (#000000) lines on pure white (#FFFFFF) only: no grey, shading, hatching, gradients, textures or colour',
+    '- bold lines of one even weight, never hair-thin; no sketchy, broken or doubled strokes',
+    '- every line joins the others so the whole drawing is ONE connected piece: no floating details – an eye, a logo, a wheel hub, a window must touch a line',
+    '- solid black only for small dark masses (a tyre, window tint, hair); everything else stays open line work',
+    '- the subject isolated with a white margin around it; no text, signature, watermark, frame, border, panel or background scenery',
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * Line art (black on white: the image model's, or an attached picture that already is line art)
+ * as a drawing for H.lineart: one black shape, the white between its lines as holes in it (EvenOdd)
+ * and the white background touching the edges dropped. A white shape on top would only repeat
+ * those holes, so it is left out: half the points, so finer tracing within MAX_SVG_POINTS.
+ */
+export function traceLineArt(input: Raster, name: string): Pick<Artwork, 'drawing' | 'points'> {
+  // Pure black and white first, split where the picture's own tones split (Otsu), so a pencil
+  // sketch on cream paper or a grey-ish JPEG keeps its lines.
+  const n = input.width * input.height, lum = new Uint8Array(n), hist = new Array(256).fill(0);
+  for (let i = 0; i < n; i++) hist[lum[i] = Math.round(0.2126 * input.data[i * 4] + 0.7152 * input.data[i * 4 + 1] + 0.0722 * input.data[i * 4 + 2])]++;
+  let sum = 0;
+  for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let best = 128, bestVar = -1, wB = 0, sumB = 0;
+  for (let t = 0; t < 255; t++) {
+    wB += hist[t]; sumB += t * hist[t];
+    const wF = n - wB;
+    if (!wB || !wF) continue;
+    const v = wB * wF * (sumB / wB - (sum - sumB) / wF) ** 2;
+    if (v > bestVar) { bestVar = v; best = t; }
+  }
+  const cut = Math.min(200, Math.max(60, best));
+  const data = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) { const v = lum[i] <= cut ? 0 : 255; data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v; data[i * 4 + 3] = 255; }
+  const { drawing, points } = traceArtwork({ width: input.width, height: input.height, data }, ['#000000', '#ffffff'], 2, name, ['#ffffff']);
+  if (!drawing.shapes.length) throw new Error('The picture has no black lines to trace: line art must be dark lines on a white background.');
+  return { drawing, points };
+}
+
 /**
  * The prompt for a concept picture (generate_concept): the subject alone as a grey clay sculpture,
  * the way image-to-3D reads a picture best – one subject, whole, lit evenly, on plain white. Meshy
@@ -228,8 +289,9 @@ const rgb = (h: string) => { const v = parseInt(h.slice(1), 16); return [(v >> 1
  * The picture as an SvgDrawing with one shape per colour: pixels go to the nearest of the given
  * colours (or `tones` k-means colours), the white background touching the edges is dropped,
  * specks too small to print join their surroundings, and each colour is traced into polygons.
+ * Colours in `omit` are traced (they are holes in the others) but left out of the drawing.
  */
-export function traceArtwork(input: Raster, colors: string[] | undefined, tones: number, name: string): Pick<Artwork, 'drawing' | 'tones' | 'points'> {
+export function traceArtwork(input: Raster, colors: string[] | undefined, tones: number, name: string, omit: string[] = []): Pick<Artwork, 'drawing' | 'tones' | 'points'> {
   const img = downscale(input, 1400);
   const { width: W, height: H, data } = img;
   const N = W * H;
@@ -312,6 +374,7 @@ export function traceArtwork(input: Raster, colors: string[] | undefined, tones:
     // Darkest first, so lighter colours are painted on top.
     const order = cent.map((_, j) => j).filter((j) => counts[j]).sort((a, b) => lum(cent[a]) - lum(cent[b]));
     for (const j of order) {
+      if (omit.includes(colorOf(j))) continue;
       const contours = (td.layers[j] ?? []).map((p) => toContour(p, W, H)).filter((c) => c.length >= 3);
       points += contours.reduce((n, c) => n + c.length, 0);
       if (contours.length) shapes.push({ rule: 'EvenOdd', contours, color: colorOf(j) });
