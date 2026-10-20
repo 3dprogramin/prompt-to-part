@@ -6,6 +6,7 @@ import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
 import { findLayerTonePart } from './components/LayerTonePanel';
+import { LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
@@ -25,6 +26,8 @@ import type { DesignTab } from './components/DesignTabs';
 import { TopBar } from './components/TopBar';
 import { LayoutTabs, type LayoutTab } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
+import { LineArtEditor } from './components/LineArtEditor';
+import { lineArtPart } from './components/LineArtPanel';
 import { PhotosPanel, usePhotoJobs } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
@@ -342,6 +345,17 @@ export default function App() {
     if (setup) values[LAYERTONE_KEY] = JSON.stringify(setup); else delete values[LAYERTONE_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
+  // Line art hand edits (the Edit drawing brush): a setting like the LayerTone setup, saved with versions.
+  const setLineArtEdits = (update: (edits: LineArtEdits) => LineArtEdits) => setDesign((d) => {
+    const before = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
+    const after = update(before);
+    if (after === before) return d;
+    const values = { ...d.values };
+    if (Object.keys(after).length) values[LINEART_EDITS_KEY] = JSON.stringify(after); else delete values[LINEART_EDITS_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
+  const [editingLineArt, setEditingLineArt] = useState(false);
+  useEffect(() => setEditingLineArt(false), [design.id]);
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
@@ -1286,6 +1300,8 @@ export default function App() {
           onResetValues={() => setDesign((d) => ({ ...d, values: keepAppValues(d.values) }))}
           values={design.values}
           onLayerTone={setLayerTone}
+          onLineArtEdits={setLineArtEdits}
+          onEditLineArt={() => setEditingLineArt(true)}
           onMeshPalette={(name, palette) => setDesign((d) => {
             const meshes = parseMeshes(d.values[MESHES_KEY]);
             if (!meshes[name]) return d;
@@ -1332,6 +1348,16 @@ export default function App() {
           onSelectPart={setSelectedPart}
         />
       </main>
+      {editingLineArt && lineArtPart(shown) && (
+        <LineArtEditor
+          part={lineArtPart(shown)!}
+          values={design.values}
+          busy={busy}
+          error={error?.message ?? null}
+          onEdits={setLineArtEdits}
+          onClose={() => setEditingLineArt(false)}
+        />
+      )}
       {pendingRestore != null && (
         <RestoreDialog
           target={pendingRestore}
@@ -1350,10 +1376,10 @@ function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }
 
-/** The design's pictures, meshes, concept pictures and LayerTone setup, for the server (undefined when there are none). */
+/** The design's pictures, meshes, concept pictures, LayerTone setup and line-art hand edits, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, LINEART_EDITS_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 
