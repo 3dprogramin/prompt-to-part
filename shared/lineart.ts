@@ -814,7 +814,9 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
         if (path) d = path.reduce((n, p, k) => (k ? n + Math.hypot(p[0] - path![k - 1][0], p[1] - path![k - 1][1]) : 0), 0);
       }
       if (!path) continue;
-      if (o.maxBridge != null && d * px - o.lineWidth > o.maxBridge && size[ra] >= minPart && size[rb] >= minPart) continue;
+      // Big bits farther apart than maxBridge aren't bridged (they become pieces of their own), and a
+      // small bit is bridged at most twice as far: never a long strut across a piece.
+      if (o.maxBridge != null && d * px - o.lineWidth > (size[ra] >= minPart && size[rb] >= minPart ? o.maxBridge : 2 * o.maxBridge)) continue;
       parent[ra] = rb;
       size[rb] += size[ra];
       for (let k = 0; k + 1 < path.length; k++) capsuleXY(out, w, h, path[k], path[k + 1], r);
@@ -1614,12 +1616,18 @@ function splitPieces(o: SplitInput): SplitResult {
     // What Jig drew stays on the piece: a bridge or a thickened line ends at the seam.
     lineCs = lineCs.intersect(region);
     const anc = pan && !pan.isEmpty() ? pan : null;
-    // Bits too far apart to bridge become pieces of their own (A2, A2b…): the one on the bar or frame, or the biggest, first.
-    const comps = (anc ? lineCs.add(anc) : lineCs).decompose().map((cs: any) => ({ cs, area: cs.area(), onAnchor: !!anc && !cs.intersect(anc).isEmpty() }));
-    const big = comps.filter((q: { area: number }) => q.area >= o.minPart).sort((a: { onAnchor: boolean; area: number }, b: { onAnchor: boolean; area: number }) => +b.onAnchor - +a.onAnchor || b.area - a.area);
-    const groups = big.length > 1 ? big.map((q: { cs: any }) => q.cs) : [null];
-    // Smaller loose bits (cut apart by an erase) stay with the first.
-    if (big.length > 1) for (const q of comps) if (q.area < o.minPart) groups[0] = groups[0].add(q.cs);
+    // Bits too far apart to bridge become pieces of their own (A2, A2b…): the one on the bar or frame,
+    // or the biggest, first – every part one piece, nothing loose in it. Specks too small to print
+    // on their own (cut apart by an erase) go.
+    const comps = (anc ? lineCs.add(anc) : lineCs).decompose().map((cs: any) => ({ cs, area: cs.area(), onAnchor: !!anc && !cs.intersect(anc).isEmpty() }))
+      // (and slivers thinner than a line, where a seam ran along a line's edge)
+      .filter((q: { cs: any; area: number; onAnchor: boolean }) => {
+        if (q.onAnchor) return true;
+        const b = q.cs.bounds();
+        return q.area >= o.minIsland && Math.min(b.max[0] - b.min[0], b.max[1] - b.min[1]) >= 0.8 * lineWidth;
+      })
+      .sort((a: { onAnchor: boolean; area: number }, b: { onAnchor: boolean; area: number }) => +b.onAnchor - +a.onAnchor || b.area - a.area);
+    const groups = comps.length ? comps.map((q: { cs: any }) => q.cs) : [null];
     const cell = p.row * cols + p.col;
     groups.forEach((g: any, k: number) => {
       const lc = g ? lineCs.intersect(g) : lineCs, an = anc && g ? anc.intersect(g) : anc;
