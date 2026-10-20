@@ -5,7 +5,7 @@ import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
 import { layerToneLayers, layerToneMesh, resolveLayerToneOptions, type LayerToneImage, type LayerToneOptions, type LayerTonePart, type LayerToneSetup } from './layertone';
-import { buildLineArt, type LineArtOptions, type LineArtResult } from './lineart';
+import { buildLineArt, drawingFingerprint, type LineArtEdits, type LineArtOptions, type LineArtResult } from './lineart';
 import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
 import { getMeshData, type MeshEntry } from './meshes';
 
@@ -77,7 +77,7 @@ export interface LayerToneInput {
 export interface PaintedMesh { id: number; name: string; url: string }
 
 /** `painted` collects the coloured meshes H.mesh gave out (see PaintedMesh). */
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[]) {
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[], lineArtEdits: LineArtEdits = {}) {
   const { wasm } = rt;
   // Meshes this evaluation uses: they stay in meshCache until it is over.
   const meshesInUse = new Set<string>();
@@ -580,12 +580,8 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
           if (!cs) throw new Error(`H.lineart: "${n}" has no shape in the colours ${JSON.stringify(colors ?? defaultColors(d))}`);
           return cs;
         },
-        fingerprint: (n) => {
-          const d = known(n);
-          let h = 0, pts = 0;
-          for (const sh of d.shapes) for (const c of sh.contours) for (const [x, y] of c) { h = (h * 31 + Math.round(x * 1e5) * 7 + Math.round(y * 1e5)) | 0; pts++; }
-          return `${n}:${d.aspect}:${pts}:${h}`;
-        },
+        fingerprint: (n) => drawingFingerprint(known(n)),
+        edits: (n) => { const e = lineArtEdits[n]; return e && e.fp === drawingFingerprint(known(n)) ? e.strokes : []; },
         text: (str, o) => H.text(str, o),
       }, source, opts);
     },

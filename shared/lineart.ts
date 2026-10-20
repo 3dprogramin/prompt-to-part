@@ -4,6 +4,7 @@
 // size, joins loose bits to the rest with short bridges, drops specks too small to print, and adds
 // the style's bar, frame, hooks or stand.
 import type { Brim } from './print';
+import type { SvgDrawing } from './svgFeatures';
 
 export const LINE_ART_STYLES = ['outline', 'keyholder', 'framed', 'medallion', 'sign', 'stand'] as const;
 export type LineArtStyle = (typeof LINE_ART_STYLES)[number];
@@ -111,6 +112,14 @@ export interface LineArtInfo {
   endsFree: number;
   /** Key holder pegs. */
   hooks: number;
+  /**
+   * Where each drawing sits in the piece, for editing it by hand: a point (x, y) of the drawing
+   * (its own units: 1 = its height, centred, y up) is at (x·k + tx, y·k + ty) mm in the piece's XY.
+   * `fp` is the drawing's fingerprint (hand edits belong to it).
+   */
+  frames: { name: string; k: number; tx: number; ty: number; fp: string }[];
+  /** Hand edits (LINEART_EDITS_KEY) applied, over all drawings. */
+  edits: number;
 }
 
 /** What H.lineart returns; a script returns it as it is (or adds to its parts). */
@@ -136,11 +145,58 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   if (!len.every((v) => Number.isFinite(v) && v >= 0)) return undefined;
   const [w, h, thickness, lineWidth, longestBridge] = len.map((v) => v * scale);
   const count = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? (v as number) : 0);
+  const frames = (Array.isArray(o.frames) ? o.frames : []).slice(0, 8).filter((f) => f && typeof f.name === 'string' && [f.k, f.tx, f.ty].every((v) => Number.isFinite(v)) && f.k > 0)
+    .map((f) => ({ name: f.name.slice(0, 120), k: f.k * scale, tx: f.tx * scale, ty: f.ty * scale, fp: String(f.fp ?? '').slice(0, 80) }));
   return {
+    frames, edits: count(o.edits),
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
     size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
     bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
   };
+}
+
+/** Hand edits of line-art drawings (the Line art editor's brush), by drawing name: { fp, strokes }. */
+export const LINEART_EDITS_KEY = '$lineartEdits';
+/** The most strokes kept per drawing, and points per stroke. */
+export const MAX_LINEART_STROKES = 400;
+export const MAX_STROKE_POINTS = 2000;
+
+/**
+ * One brush stroke on a drawing: 'draw' adds a line `width` mm wide (default: the piece's
+ * lineWidth), 'erase' removes everything within width / 2 of its path (default 3 mm) – also what
+ * Jig drew there, so a join or bridge can be erased. Points are in the drawing's own units (1 = its
+ * height, centred, y up), so an edit stays put when the piece is resized.
+ */
+export interface LineArtStroke { mode: 'draw' | 'erase'; width?: number; points: [number, number][] }
+/** The strokes on a drawing, with the fingerprint of the drawing they were made on: a new drawing under the same name leaves them out. */
+export type LineArtEdits = Record<string, { fp: string; strokes: LineArtStroke[] }>;
+
+/** A drawing's fingerprint: hand edits only apply to the drawing they were drawn on. */
+export function drawingFingerprint(d: SvgDrawing): string {
+  let h = 0, pts = 0;
+  for (const sh of d.shapes) for (const c of sh.contours) for (const [x, y] of c) { h = (h * 31 + Math.round(x * 1e5) * 7 + Math.round(y * 1e5)) | 0; pts++; }
+  return `${d.aspect.toFixed(6)}:${pts}:${h}`;
+}
+
+/** Hand edits from the design's values (LINEART_EDITS_KEY), checked. */
+export function parseLineArtEdits(raw: unknown): LineArtEdits {
+  let o: unknown = raw;
+  if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch { return {}; } }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+  const out: LineArtEdits = {};
+  for (const [name, e] of Object.entries(o as Record<string, { fp?: unknown; strokes?: unknown }>).slice(0, 12)) {
+    if (!e || typeof e.fp !== 'string' || !Array.isArray(e.strokes)) continue;
+    const strokes: LineArtStroke[] = [];
+    for (const st of e.strokes.slice(-MAX_LINEART_STROKES) as LineArtStroke[]) {
+      if (!st || (st.mode !== 'draw' && st.mode !== 'erase') || !Array.isArray(st.points)) continue;
+      const points = st.points.slice(0, MAX_STROKE_POINTS).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [p[0], p[1]] as [number, number]);
+      if (!points.length) continue;
+      const width = Number(st.width);
+      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}) });
+    }
+    if (strokes.length) out[name.slice(0, 120)] = { fp: e.fp.slice(0, 80), strokes };
+  }
+  return out;
 }
 
 /** Print settings for line art: flat, one colour, solid (2 mm is all top and bottom layers anyway), no brim to pick out of the lines. */
@@ -837,8 +893,10 @@ export interface LineArtDeps {
   quality: 'draft' | 'normal' | 'high';
   /** A drawing at unit height as a CrossSection (its lines), or an error. */
   section: (name: string, colors?: string[]) => any;
-  /** A drawing's fingerprint, so a cached result is only reused for the same drawing. */
+  /** A drawing's fingerprint, so a cached result is only reused for the same drawing (and hand edits only apply to it). */
   fingerprint: (name: string) => string;
+  /** The hand edits made on a drawing (already matched to its fingerprint). */
+  edits: (name: string) => LineArtStroke[];
   text: (s: string, o: { size: number; font?: string; halign: 'center'; valign: 'center' }) => any;
 }
 
@@ -885,20 +943,31 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const b = cs.bounds();
     const h = b.max[1] - b.min[1];
     if (!(h > 0)) throw new Error(`H.lineart: drawing "${n}" is empty`);
-    return { cs: cs.translate([-b.min[0], -b.min[1]]).scale(1 / h), w: (b.max[0] - b.min[0]) / h };
+    return { name: n, cs: cs.translate([-b.min[0], -b.min[1]]).scale(1 / h), w: (b.max[0] - b.min[0]) / h, bx: b.min[0], by: b.min[1], h, edits: d.edits(n) };
   });
+  // Where each drawing lands in the piece (drawing units → mm), followed through the layout.
+  const frames: LineArtInfo['frames'] = [];
+  const brush = (st: LineArtStroke, toUnit: (p: Pt) => Pt, mmPerUnit: number) =>
+    new C(strokeOutlines([st.points.map(toUnit)], (st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit, segs / 4), 'NonZero');
   const sumW = units.reduce((a, u) => a + u.w, 0);
   // The art `s` mm high: its width, and the art placed with its box's bottom-left at the origin.
   const artWidth = (s: number) => s * sumW + gap * (names.length - 1);
   const placeArt = (s: number) => {
     let x = 0, art: any = null;
+    frames.length = 0;
     for (const u of units) {
-      const p = u.cs.scale(s).translate([x, 0]);
+      // Hand edits first, in the drawing's unit height (so Jig's clean-up treats them like the rest).
+      let cs = u.cs;
+      const toUnit = ([px_, py_]: Pt): Pt => [(px_ - u.bx) / u.h, (py_ - u.by) / u.h];
+      for (const st of u.edits) cs = st.mode === 'draw' ? cs.add(brush(st, toUnit, s)) : cs.subtract(brush(st, toUnit, s));
+      const p = cs.scale(s).translate([x, 0]);
       art = art ? art.add(p) : p;
+      frames.push({ name: u.name, k: s / u.h, tx: x - (u.bx * s) / u.h, ty: -(u.by * s) / u.h, fp: d.fingerprint(u.name) });
       x += u.w * s + gap;
     }
     return art;
   };
+  const moveFrames = (dx: number, dy: number, scale = 1) => { for (const f of frames) { f.k *= scale; f.tx = (f.tx + dx) * scale; f.ty = (f.ty + dy) * scale; } };
   const heightFor = (artW: number) => (artW - gap * (names.length - 1)) / sumW;
 
   // How far the art reaches into a bar or frame it touches.
@@ -922,14 +991,16 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   const aw = artWidth(s);
   let anchor: any = null, anchorThickness = 0;
   let pieceW = aw, pieceH = s;
-  if (style === 'outline') art = art.translate([-aw / 2, 0]);
+  if (style === 'outline') { art = art.translate([-aw / 2, 0]); moveFrames(-aw / 2, 0); }
   else if (bar) {
     art = art.translate([-aw / 2, -overlap]);
+    moveFrames(-aw / 2, -overlap);
     anchor = C.square([width, barHeight]).translate([-width / 2, -barHeight]);
     anchorThickness = barThickness;
     pieceW = width; pieceH = s - overlap + barHeight;
   } else if (style === 'framed') {
     art = art.translate([-aw / 2, -s / 2]);
+    moveFrames(-aw / 2, -s / 2);
     const hx = aw / 2 + padding - ov, hy = s / 2 + padding - ov;
     anchor = C.square([2 * (hx + frameWidth), 2 * (hy + frameWidth)], true).subtract(C.square([2 * hx, 2 * hy], true));
     anchorThickness = frameThickness;
@@ -943,10 +1014,12 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     if (!(ia > 0 && ib > 0)) throw new Error('H.lineart: frameWidth leaves no room inside the medallion');
     const fa = ia + ov - padding, fb = ib + ov - padding;
     art = art.translate([-aw / 2, -s / 2]);
+    moveFrames(-aw / 2, -s / 2);
     let k = 0;
     for (const c of art.toPolygons()) for (const [x, y] of c) k = Math.max(k, Math.hypot(x / fa, y / fb));
     if (!(k > 0)) throw new Error('H.lineart: the drawing is empty');
     art = art.scale(1 / k);
+    moveFrames(0, 0, 1 / k);
     s /= k;
     const ring = (rx: number, ry: number) => C.circle(1, segs).scale([rx, ry]);
     anchor = ring(a, b).subtract(ring(ia, ib));
@@ -968,7 +1041,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
   const area = (ab.max[0] - ab.min[0] + 8 * px) * (ab.max[1] - ab.min[1] + 8 * px);
   px = Math.max(px, Math.sqrt(area / MAX_PIXELS[d.quality]));
-  const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds]);
+  const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, units.map((u) => u.edits)]);
   let res = cache.get(key);
   if (!res) {
     const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
@@ -979,7 +1052,12 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
   }
   // Lines kept as drawn: the drawing itself, exactly, with what Jig drew (thickened lines, bridges) added as exact shapes.
-  const lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
+  let lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
+  // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge).
+  units.forEach((u, i) => {
+    const f = frames[i];
+    for (const st of u.edits) if (st.mode === 'erase') lineCs = lineCs.subtract(brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1));
+  });
   let shape = lineCs.extrude(thickness);
   if (anchor) shape = shape.add(anchor.extrude(anchorThickness));
 
@@ -1007,7 +1085,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     t = t.translate([-(cb.min[0] + cb.max[0]) / 2, -barHeight / 2 - (cb.min[1] + cb.max[1]) / 2]);
     shape = shape.add(t.extrude(depth).translate([0, 0, barThickness]));
   }
-  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks };
+  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
   const parts: LineArtResult['parts'] = [{ name: 'Line art', shape, color, lineArt: info }];
   // Desk stand: a base with a slot the bar pushes into, printed beside the piece.
   let slotNote = '';
