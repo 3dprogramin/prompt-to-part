@@ -109,6 +109,9 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
   useEffect(() => store('lineArtNotesOpen', notesOpen), [notesOpen]);
   // Pieces beyond the grid's cells: bits too far from the rest of their cell (A2b…), and the join that decides it.
   const loose = sp ? sp.pieces.filter((p) => /[a-z]$/.test(p.label)) : [];
+  // Cells that make no piece of their own: empty, or a strip of frame joined to the one beside it.
+  const used = sp ? sp.pieces.length - loose.length : 0, spare = sp ? sp.cols * sp.rows - used : 0;
+  const spareNote = `${spare} empty or joined to the one beside`;
   const userJoin = parseLineArtJoin(values[LINEART_JOIN_KEY]) != null;
   const join = parseLineArtJoin(values[LINEART_JOIN_KEY]) ?? DEFAULT_SPLIT_JOIN;
   // The size boxes: locked (the default, remembered), one side follows the other at the drawing's
@@ -148,8 +151,8 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
           <span className="lineart-count">{sp.pieces.length} pieces</span>
           <span className="dim small">
             {loose.length
-              ? <>{sp.cols * sp.rows} cells + {loose.length} loose bit{loose.length > 1 ? 's' : ''} ({loose.map((p) => p.label).join(', ')}): too far from the rest of their cell to join</>
-              : <>{sp.cols} × {sp.rows} grid</>}
+              ? <>{used} cells{spare > 0 && ` (${spareNote})`} + {loose.length} loose bit{loose.length > 1 ? 's' : ''} ({loose.map((p) => p.label).join(', ')}): too far from the rest of their cell to join</>
+              : <>{sp.cols} × {sp.rows} grid{spare > 0 && `, ${spareNote}`}</>}
             {' · '}the biggest {Math.max(...sp.pieces.map((p) => p.size[0])).toFixed(0)} × {Math.max(...sp.pieces.map((p) => p.size[1])).toFixed(0)} mm
           </span>
         </div>
@@ -281,15 +284,18 @@ function SplitPicture({ result, split }: { result: EvalResult; split: LineArtSpl
       ctx.fill(path);
     }
     ctx.lineWidth = 1.2; ctx.strokeStyle = SEAM; ctx.setLineDash([4, 3]);
-    for (const m of split.seams) {
+    // (Only where two pieces really meet.)
+    for (const m of split.seams) for (const cut of m.cuts ?? [m.points]) {
       ctx.beginPath();
-      m.points.forEach(([x, y], i) => { if (i) ctx.lineTo(X(x), Y(y)); else ctx.moveTo(X(x), Y(y)); });
+      cut.forEach(([x, y], i) => { if (i) ctx.lineTo(X(x), Y(y)); else ctx.moveTo(X(x), Y(y)); });
       ctx.stroke();
     }
     ctx.setLineDash([]);
     ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const p of split.pieces) {
-      const cx = X((p.box[0] + p.box[2]) / 2), cy = Y((p.box[1] + p.box[3]) / 2), tw = ctx.measureText(p.label).width + 8;
+      // (Inside the picture: a narrow strip of frame at its edge too.)
+      const tw = ctx.measureText(p.label).width + 8;
+      const cx = Math.min(width - tw / 2 - 1, Math.max(tw / 2 + 1, X((p.box[0] + p.box[2]) / 2))), cy = Math.min(height - 9, Math.max(9, Y((p.box[1] + p.box[3]) / 2)));
       ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'; ctx.strokeStyle = SEAM; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(cx - tw / 2, cy - 8, tw, 16, 4); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#1d1d1f'; ctx.fillText(p.label, cx, cy + 0.5);

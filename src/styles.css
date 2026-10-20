@@ -183,7 +183,9 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
    toolbar that wraps onto a second row in a narrow window is never covered. */
 .section-bar { position: absolute; top: calc(var(--toolbar-bottom, 42px) + 10px); left: 10px; max-width: calc(100% - 20px); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; background: #191b1fe6; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }
 .section-bar input[type='range'] { flex: 1 1 120px; width: 220px; min-width: 80px; }
-.parts-legend { position: absolute; left: 10px; bottom: 40px; display: flex; flex-direction: column; gap: 3px; }
+/* Many parts (a piece split in dozens): the list scrolls, clear of the toolbar above it. */
+.parts-legend { position: absolute; left: 10px; bottom: 40px; display: flex; flex-direction: column; gap: 3px; max-height: calc(100% - 130px); overflow-y: auto; scrollbar-width: thin; }
+.parts-legend > * { flex-shrink: 0; }
 .legend-item { display: flex; align-items: center; gap: 7px; background: #191b1fd9; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; font-size: 12px; }
 .legend-item.oc { color: var(--text-2); }
 .legend-item.off { opacity: 0.45; text-decoration: line-through; }

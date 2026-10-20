@@ -128,11 +128,17 @@ export interface LineArtPieceInfo {
 export interface LineArtSplitInfo {
   /** What it was split by: 'auto', a number of pieces ('4') or a grid ('3x2'). */
   spec: string;
+  /** How the pieces are laid out ('print', 'assembled', 'exploded'). */
+  layout?: 'print' | 'assembled' | 'exploded';
   cols: number;
   rows: number;
   pieces: LineArtPieceInfo[];
-  /** The cuts: vertical ones top to bottom, horizontal ones left to right; lines of the drawing each cuts. */
-  seams: { dir: 'v' | 'h'; points: [number, number][]; crossings: number }[];
+  /**
+   * The cuts: vertical ones top to bottom, horizontal ones left to right; lines of the drawing each
+   * cuts. `cuts`: the stretches of it where two pieces really meet, to draw (not where pieces were
+   * joined back into one, nor where a horizontal one runs past its column); all of it when missing.
+   */
+  seams: { dir: 'v' | 'h'; points: [number, number][]; crossings: number; cuts?: [number, number][][] }[];
   /** Dovetails where a seam crosses the bar or frame: the tab's and socket's pieces, its head width. */
   joints: { at: [number, number]; tab: string; socket: string; width: number }[];
   /** Crossings of the bar or frame without a dovetail, and why. */
@@ -228,14 +234,17 @@ function cleanSplit(o: LineArtInfo, scale: number): Pick<LineArtInfo, 'split' | 
   if (!s || typeof s !== 'object' || !Number.isInteger(s.cols) || !Number.isInteger(s.rows) || !Array.isArray(s.pieces)) return out;
   const str = (v: unknown, n: number) => String(v ?? '').slice(0, n);
   out.split = {
-    spec: str(s.spec, 12), cols: s.cols, rows: s.rows,
+    spec: str(s.spec, 12), cols: s.cols, rows: s.rows, ...((LINEART_LAYOUTS as readonly unknown[]).includes(s.layout) ? { layout: s.layout } : {}),
     pieces: s.pieces.slice(0, 100).filter((p) => p && typeof p.label === 'string' && Array.isArray(p.size) && Array.isArray(p.box) && [...p.size, ...p.box].every(fin)).map((p) => ({
       label: p.label.slice(0, 12), col: count(p.col), row: count(p.row),
       size: [p.size[0] * scale, p.size[1] * scale], box: p.box.map((v) => v * scale) as LineArtPieceInfo['box'],
       bridges: count(p.bridges), longestBridge: fin(p.longestBridge) ? p.longestBridge * scale : 0, dropped: count(p.dropped),
       endsJoined: count(p.endsJoined), endsFree: count(p.endsFree), joints: count(p.joints), labelSize: fin(p.labelSize) ? p.labelSize * scale : 0,
     })),
-    seams: (Array.isArray(s.seams) ? s.seams : []).slice(0, 200).filter((m) => m && (m.dir === 'v' || m.dir === 'h')).map((m) => ({ dir: m.dir, points: line(m.points, 5000), crossings: count(m.crossings) })),
+    seams: (Array.isArray(s.seams) ? s.seams : []).slice(0, 200).filter((m) => m && (m.dir === 'v' || m.dir === 'h')).map((m) => ({
+      dir: m.dir, points: line(m.points, 5000), crossings: count(m.crossings),
+      ...(Array.isArray(m.cuts) ? { cuts: m.cuts.slice(0, 200).map((c) => line(c, 5000)).filter((c) => c.length >= 2) } : {}),
+    })),
     joints: (Array.isArray(s.joints) ? s.joints : []).slice(0, 400).filter((j) => j && pt(j.at)).map((j) => ({ at: pt(j.at)!, tab: str(j.tab, 12), socket: str(j.socket, 12), width: fin(j.width) ? j.width * scale : 0 })),
     noJoint: (Array.isArray(s.noJoint) ? s.noJoint : []).slice(0, 400).filter((j) => j && pt(j.at)).map((j) => ({ at: pt(j.at)!, why: str(j.why, 200) })),
     anchor: (Array.isArray(s.anchor) ? s.anchor : []).slice(0, 8).map((c) => line(c, 2000)).filter((c) => c.length >= 3),
@@ -1428,7 +1437,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller${grid ? '' : ', or split it into pieces'}.` : '';
     note = `Print it flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
   } else {
-    const split = splitInfo(sp, splitSpec as SplitSpec, grid!, -cx, -cy, anchor);
+    const split = splitInfo(sp, splitSpec as SplitSpec, grid!, -cx, -cy, anchor, layout as LineArtSplitInfo['layout']);
     info.split = split;
     // The layout: on the wall with hairline gaps (assembled), pulled apart (exploded), or each piece in a grid to print.
     const n = sp.pieces.length;
@@ -1470,6 +1479,8 @@ interface SplitCached {
   /** Each joint's tab (as joints). */
   tabs: Pt[][];
   noJoint: LineArtSplitInfo['noJoint'];
+  /** The seam (its index) each of noJoint is on. */
+  noJointSeam: number[];
   /** Where each piece's name goes (found when first asked). */
   labels: ({ x: number; y: number; size: number; rot: boolean } | null | undefined)[];
 }
@@ -1482,6 +1493,8 @@ interface SplitResult {
   pieces: { info: LineArtPieceInfo; region: any; lineCs: any; anchor: any; closed: number; openings: number }[];
   joints: LineArtSplitInfo['joints'];
   noJoint: LineArtSplitInfo['noJoint'];
+  /** Each seam's stretches where two pieces really meet (as LineArtSplitInfo's seams' cuts). */
+  cuts: Pt[][][];
   /** The piece (its index) a point is on, -1 for none. */
   pieceAt: (p: Pt) => number;
   /** Where a piece's name goes on its back. */
@@ -1584,8 +1597,8 @@ function splitPieces(o: SplitInput): SplitResult {
     for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) regions.push(strip(geo.vLine(col), geo.vLine(col + 1)).intersect(strip(geo.hLine(col, r), geo.hLine(col, r + 1))));
     // Dovetails where a seam runs straight across the bar or frame: a tab on the piece before the
     // seam, its socket (with clearance) in the next one.
-    const joints: LineArtSplitInfo['joints'] = [], noJoint: LineArtSplitInfo['noJoint'] = [], tabs: Pt[][] = [];
-    for (const m of seams) for (const run of m.runs) {
+    const joints: LineArtSplitInfo['joints'] = [], noJoint: LineArtSplitInfo['noJoint'] = [], noJointSeam: number[] = [], tabs: Pt[][] = [];
+    for (const [si, m] of seams.entries()) for (const run of m.runs) {
       const mid: Pt = [(run.a[0] + run.b[0]) / 2, (run.a[1] + run.b[1]) / 2];
       const n = m.dir === 'v' ? [1, 0] : [0, -1];
       const owner = geo.pieceAt([mid[0] - n[0], mid[1] - n[1]]), other = geo.pieceAt([mid[0] + n[0], mid[1] + n[1]]);
@@ -1601,7 +1614,7 @@ function splitPieces(o: SplitInput): SplitResult {
         const sh = 0.85, cxm = (r2.a[0] + r2.b[0]) / 2, cym = (r2.a[1] + r2.b[1]) / 2;
         r2 = { a: [cxm + (r2.a[0] - cxm) * sh, cym + (r2.a[1] - cym) * sh], b: [cxm + (r2.b[0] - cxm) * sh, cym + (r2.b[1] - cym) * sh] };
       }
-      if (!made) { noJoint.push({ at: mid, why }); continue; }
+      if (!made) { noJoint.push({ at: mid, why }); noJointSeam.push(si); continue; }
       const tab = new C([made.tab], 'EvenOdd');
       regions[owner] = regions[owner].add(tab);
       regions[other] = regions[other].subtract(tab.offset(o.clearance, 'Miter'));
@@ -1630,7 +1643,7 @@ function splitPieces(o: SplitInput): SplitResult {
         bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped + pa.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree,
       });
     });
-    c = { seams, pieces, joints, tabs, noJoint, labels: [] };
+    c = { seams, pieces, joints, tabs, noJoint, noJointSeam, labels: [] };
     splitCache.set(o.key, c);
     if (splitCache.size > 2) splitCache.delete(splitCache.keys().next().value!);
   }
@@ -1704,11 +1717,14 @@ function splitPieces(o: SplitInput): SplitResult {
   // Names: each piece's cell, then b, c… for more parts of that cell.
   const pieces: SplitResult['pieces'] = [];
   const mainOf = new Map<number, number>(), count = new Map<number, number>();
+  // The pieces each cell's drawing and frame ended up in.
+  const cellPieces = new Map<number, Set<number>>();
   parts.forEach((q, i) => {
     if (!alive[i]) return;
     const k = count.get(q.cell) ?? 0;
     count.set(q.cell, k + 1);
     for (const m of q.mains) mainOf.set(m, pieces.length);
+    for (const c of [q.cell, ...q.mains]) (cellPieces.get(c) ?? cellPieces.set(c, new Set()).get(c)!).add(pieces.length);
     const label = `${pieceLabel(q.cell % cols, Math.floor(q.cell / cols))}${k ? String.fromCharCode(97 + k) : ''}`;
     const bb = boxOf(q), sum = (f: (s: SplitCached['pieces'][number]) => number) => q.stats.reduce((n, s) => n + f(s), 0);
     const info: LineArtPieceInfo = {
@@ -1729,14 +1745,73 @@ function splitPieces(o: SplitInput): SplitResult {
     joints.push(named);
     for (const q of pieces) if (q.info.label === named.tab || q.info.label === named.socket) q.info.joints++;
   });
+  // Where pieces really meet: on each side of a seam, the pieces of that side's cell there (whose
+  // box holds the point; all of the cell's away from them). No cut where both sides are one piece
+  // (two strips of frame joined), beside an empty cell, outside the whole piece, or where a
+  // horizontal seam runs on past its column.
+  const vl = Array.from({ length: cols + 1 }, (_, k) => geo.vLine(k));
+  const hl = Array.from({ length: cols }, (_, col) => Array.from({ length: rows + 1 }, (_, r) => geo.hLine(col, r)));
+  const rowIn = (col: number, [x, y]: Pt) => {
+    let row = 0;
+    for (let r = 1; r < rows; r++) if (y < seamAt(hl[col][r], x, 0)) row = r;
+    return row;
+  };
+  const near = 0.01;
+  const holds = (b: LineArtPieceInfo['box'], [x, y]: Pt, e: number) => x >= b[0] - e && x <= b[2] + e && y >= b[1] - e && y <= b[3] + e;
+  const whole: LineArtPieceInfo['box'] = [Math.min(...pieces.map((q) => q.info.box[0])), Math.min(...pieces.map((q) => q.info.box[1])), Math.max(...pieces.map((q) => q.info.box[2])), Math.max(...pieces.map((q) => q.info.box[3]))];
+  const sideAt = (cell: number, p: Pt) => {
+    const all = [...(cellPieces.get(cell) ?? [])], here = all.filter((i) => holds(pieces[i].info.box, p, near));
+    return here.length ? here : all;
+  };
+  const meets = (m: Seam, p: Pt): boolean => {
+    if (!holds(whole, p, 0)) return false;
+    let a: number, b: number;
+    if (m.dir === 'h') {
+      if (p[0] < seamAt(vl[m.col], p[1], 1) - 1e-6 || p[0] > seamAt(vl[m.col + 1], p[1], 1) + 1e-6) return false;
+      a = (m.row - 1) * cols + m.col; b = m.row * cols + m.col;
+    } else {
+      a = rowIn(m.col - 1, p) * cols + m.col - 1; b = rowIn(m.col, p) * cols + m.col;
+    }
+    const pa = sideAt(a, p), pb = sideAt(b, p);
+    return pa.length > 0 && pb.length > 0 && new Set([...pa, ...pb]).size > 1;
+  };
+  const cuts = cached.seams.map((m) => seamCuts(m.points, (p) => meets(m, p)));
   return {
-    seams: cached.seams, pieces, joints, noJoint: cached.noJoint,
+    seams: cached.seams, pieces, joints, cuts,
+    // (A crossing of the frame where two strips were joined needs no dovetail.)
+    noJoint: cached.noJoint.filter((j, k) => meets(cached.seams[cached.noJointSeam[k]], j.at)),
     pieceAt: (q) => mainOf.get(geo.pieceAt(q)) ?? -1,
     label: (i) => {
       if (cached.labels[i] === undefined) cached.labels[i] = placeLabel(d, pieces[i]);
       return cached.labels[i] ?? null;
     },
   };
+}
+
+/**
+ * The stretches of polyline `pts` where `on` holds (sampled every half millimetre, each end found
+ * exactly by bisection), as polylines.
+ */
+export function seamCuts(pts: Pt[], on: (p: Pt) => boolean): Pt[][] {
+  const out: Pt[][] = [];
+  if (!pts.length) return out;
+  const at = (a: Pt, b: Pt, t: number): Pt => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  let was = on(pts[0]), run: Pt[] | null = was ? [pts[0]] : null;
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const A = pts[k], B = pts[k + 1], n = Math.max(1, Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / 0.5));
+    for (let s = 1; s <= n; s++) {
+      if (on(at(A, B, s / n)) === was) continue;
+      let lo = (s - 1) / n, hi = s / n;
+      for (let it = 0; it < 30; it++) { const mid = (lo + hi) / 2; if (on(at(A, B, mid)) === was) lo = mid; else hi = mid; }
+      const X = at(A, B, (lo + hi) / 2);
+      if (run) { run.push(X); out.push(run); run = null; } else run = [X];
+      was = !was;
+    }
+    if (run) run.push(B);
+  }
+  if (run) out.push(run);
+  // (Not a stretch too short to see.)
+  return out.filter((r) => r.reduce((n, p, k) => (k ? n + Math.hypot(p[0] - r[k - 1][0], p[1] - r[k - 1][1]) : 0), 0) > 0.05);
 }
 
 /** `cs` without its loose bits smaller than `minIsland` mm² (those touching `anchor` aren't loose), and how many went. */
@@ -1783,12 +1858,12 @@ function placeLabel(d: LineArtDeps, p: { info: LineArtPieceInfo; lineCs: any; an
 }
 
 /** The split for the Print tab, Jig's report and the editor, moved by (dx, dy) like the piece. */
-function splitInfo(sp: SplitResult, spec: SplitSpec, grid: { cols: number; rows: number }, dx: number, dy: number, anchor: any): LineArtSplitInfo {
+function splitInfo(sp: SplitResult, spec: SplitSpec, grid: { cols: number; rows: number }, dx: number, dy: number, anchor: any, layout: LineArtSplitInfo['layout']): LineArtSplitInfo {
   const mv = ([x, y]: Pt): [number, number] => [x + dx, y + dy];
   return {
-    spec: formatSplitSpec(spec), cols: grid.cols, rows: grid.rows,
+    spec: formatSplitSpec(spec), cols: grid.cols, rows: grid.rows, layout,
     pieces: sp.pieces.map((p) => ({ ...p.info, box: [p.info.box[0] + dx, p.info.box[1] + dy, p.info.box[2] + dx, p.info.box[3] + dy] })),
-    seams: sp.seams.map((m) => ({ dir: m.dir, points: m.points.map(mv), crossings: m.crossings })),
+    seams: sp.seams.map((m, i) => ({ dir: m.dir, points: m.points.map(mv), crossings: m.crossings, cuts: sp.cuts[i].map((c) => c.map(mv)) })),
     joints: sp.joints.map((j) => ({ ...j, at: mv(j.at) })),
     noJoint: sp.noJoint.map((j) => ({ ...j, at: mv(j.at) })),
     anchor: anchor ? anchor.simplify(0.1).toPolygons().slice(0, 8).map((c: Pt[]) => c.map(mv)) : [],

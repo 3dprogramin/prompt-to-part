@@ -5,7 +5,7 @@ import { evaluateScript } from '../shared/runtime';
 import { withFonts } from '../shared/text';
 import { loadFontBuffers } from '../server/fonts';
 import { DRAWINGS_KEY, type SvgDrawing } from '../shared/svgFeatures';
-import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
+import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
 import { keepTogether, parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
 import type { Vec2 } from '../shared/types';
 
@@ -189,7 +189,24 @@ const marks: SvgDrawing = {
   name: 'marks', aspect: 2,
   shapes: [{ rule: 'NonZero', contours: [box(-1, -0.21, 1, -0.19), circle(-0.98, 0.48, 0.02), circle(0.98, -0.48, 0.02), circle(-0.5, 0.33, 0.06)], color: '#000000' }],
 };
-const framed = (split: string) => withFonts(() => evaluateScript("function build() { return H.lineart('marks', { style: 'framed', width: 420, frameWidth: 8 }); }", { [DRAWINGS_KEY]: JSON.stringify({ marks }), [LINEART_SPLIT_KEY]: split }, 'draft'), loadFontBuffers);
+const framed = (split: string, more: Record<string, string> = {}) => withFonts(() => evaluateScript("function build() { return H.lineart('marks', { style: 'framed', width: 420, frameWidth: 8 }); }", { [DRAWINGS_KEY]: JSON.stringify({ marks }), [LINEART_SPLIT_KEY]: split, ...more }, 'draft'), loadFontBuffers);
+/** The part whose top (seen from above) covers point p of the wall, each part put back by its layout offset; -1 for none. */
+const partAt = (parts: { positions: Float32Array; indices: Uint32Array; lineArt?: { piece?: { offset: [number, number] } } }[], [x, y]: Vec2) => parts.findIndex((q) => {
+  const [dx, dy] = q.lineArt?.piece?.offset ?? [0, 0], P = q.positions, I = q.indices;
+  for (let t = 0; t + 2 < I.length; t += 3) {
+    const [ax, ay, bx, by, cx, cy] = [I[t], I[t + 1], I[t + 2]].flatMap((k) => [P[k * 3] - dx, P[k * 3 + 1] - dy]);
+    const d = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if (d <= 1e-9) continue;
+    const u = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / d, v = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / d;
+    if (u >= 0 && v >= 0 && u + v <= 1) return true;
+  }
+  return false;
+});
+/** How far point p is from polylines `lines`. */
+const distTo = (lines: Vec2[][], [x, y]: Vec2) => Math.min(...lines.flatMap((l) => l.slice(1).map((b, k) => {
+  const a = l[k], dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy);
+})));
 
 test("H.lineart split: a bit near its piece's frame is bridged to it; strips of frame with nothing on them join up", async () => {
   const two = await framed('auto');
@@ -203,4 +220,38 @@ test("H.lineart split: a bit near its piece's frame is bridged to it; strips of 
   const pieces = eight.parts[0].lineArt!.split!.pieces;
   assert.ok(pieces.some((p) => p.size[0] > 180 && p.size[1] < 12), `a long strip of frame: ${pieces.map((p) => `${p.label} ${p.size.map((v) => v.toFixed(0)).join('×')}`).join(', ')}`);
   assert.ok(pieces.every((p) => Math.max(...p.size) > 40), 'no short sliver');
+  // Seams are drawn only where two pieces meet: not across a joined strip of frame.
+  const sp = eight.parts[0].lineArt!.split!, strip = pieces.find((p) => p.size[0] > 180 && p.size[1] < 12)!;
+  const ym = (strip.box[1] + strip.box[3]) / 2;
+  const inside = sp.seams.filter((m) => m.dir === 'v' && seamAt(m.points, ym, 1) > strip.box[0] + 5 && seamAt(m.points, ym, 1) < strip.box[2] - 5);
+  assert.ok(inside.length > 0, 'a seam ran through the strip');
+  for (const m of inside) assert.ok(distTo(m.cuts!, [seamAt(m.points, ym, 1), ym]) > 3, 'not drawn through the joined strip');
+});
+
+test('H.lineart split: hand edits land on every piece in every layout – a drawn line cut at the seam, an erase on both sides of it', async () => {
+  const fp = drawingFingerprint(marks);
+  // A line from frame to frame across the seam, and an erase across the seam over the drawing's line.
+  const strokes = [{ mode: 'draw', width: 2, points: [[-1.05, 0.1], [1.05, 0.1]] }, { mode: 'erase', width: 6, points: [[-0.02, -0.2], [0.02, -0.2]] }];
+  const edits = { [LINEART_EDITS_KEY]: JSON.stringify({ marks: { fp, strokes } }) };
+  const seen: number[][] = [];
+  for (const layout of ['print', 'assembled', 'exploded']) {
+    const r = await framed('auto', { ...edits, [LINEART_LAYOUT_KEY]: layout });
+    const la = r.parts[0].lineArt!, f = la.frames[0], sp = la.split!;
+    assert.equal(la.edits, 2);
+    assert.equal(sp.layout, layout);
+    for (const p of r.parts) assert.equal(p.components, 1, `${layout} ${p.name}: one piece`);
+    const at = (u: number, v: number): Vec2 => [u * f.k + f.tx, v * f.k + f.ty];
+    const yd = at(0, 0.1)[1], ye = at(0, -0.2)[1], xd = seamAt(sp.seams[0].points, yd, 1), xe = at(0, 0)[0];
+    // The drawn line on both pieces, cut at the seam.
+    const drawn = [partAt(r.parts, [xd - 1, yd]), partAt(r.parts, [xd + 1, yd])];
+    assert.deepEqual(drawn.map((i) => r.parts[i]?.name), ['A1', 'A2'], `${layout}: drawn line`);
+    // Erased 7 mm either side of the drawing's middle, across the seam; the line goes on beyond.
+    assert.ok(Math.abs(seamAt(sp.seams[0].points, ye, 1) - xe) < 4, 'the erase crosses the seam');
+    const erased = [-6, -2, 2, 6].map((d) => partAt(r.parts, [xe + d, ye]));
+    assert.deepEqual(erased, [-1, -1, -1, -1], `${layout}: erased`);
+    assert.deepEqual([-10, 10].map((d) => r.parts[partAt(r.parts, [xe + d, ye])]?.name), ['A1', 'A2'], `${layout}: the line goes on`);
+    seen.push([...drawn, ...erased]);
+  }
+  assert.deepEqual(seen[1], seen[0]);
+  assert.deepEqual(seen[2], seen[0]);
 });

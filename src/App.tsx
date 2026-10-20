@@ -502,9 +502,6 @@ export default function App() {
     return undefined;
   }, [design.versions, design.currentVersion]);
 
-  // Re-fit the camera only when a new script version arrives.
-  const fitKey = useMemo(() => `${design.id}:${design.currentVersion}:${design.code.length}`, [design.id, design.currentVersion, design.code.length]);
-
   /**
    * Follows Jig's reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
    * with one under way): its events update that design, even if another one is open by now.
@@ -800,6 +797,12 @@ export default function App() {
   const editorPart = useMemo(() => (editingLineArt ? assembledLineArt(shown) : undefined), [editingLineArt, shown]);
   const scriptLayoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
   const layoutKey = scriptLayoutKey ?? (splitArt ? LINEART_LAYOUT_KEY : undefined);
+  // Re-fit the camera when a new script version arrives, and when the model shown is laid out
+  // another way (Print spreads a split piece's pieces wide, Exploded pulls them apart; a line art
+  // split or put back in one piece): read from the model itself, so the camera fits the model
+  // built with the new layout, not the one before it. Not on other changes (a slider).
+  const shownLayout = shownLineArt ? shownLineArt.lineArt.split?.layout ?? (splitArt ? 'split' : 'whole') : scriptLayoutKey ? String(shown?.values[scriptLayoutKey] ?? '') : '';
+  const fitKey = `${design.id}:${design.currentVersion}:${design.code.length}:${shownLayout}`;
   const canAssemble = !!layoutKey && !!shown?.assembly.length;
   // The layout option that lays the parts out for printing ('print', or the first that isn't a view).
   const layoutDef: ParamDef | undefined = scriptLayoutKey ? shown?.params[scriptLayoutKey] : layoutKey ? LINEART_LAYOUT_PARAM : undefined;

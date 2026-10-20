@@ -253,9 +253,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     const seamLook: [string, number, number[]][] = [['#ffffffd0', 3.5, []], [SEAM, 1.5, [7, 5]]];
     for (const [color, lw, dash] of seamLook) {
       ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.setLineDash(dash);
-      for (const sm of seams.current) {
+      // (Only where two pieces really meet: not through strips of frame joined into one piece.)
+      for (const sm of seams.current) for (const cut of sm.cuts ?? [sm.points]) {
         ctx.beginPath();
-        sm.points.forEach((p, i) => { const [x, y] = toScreen(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        cut.forEach((p, i) => { const [x, y] = toScreen(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
         ctx.stroke();
       }
     }
