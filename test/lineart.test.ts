@@ -42,6 +42,20 @@ test('lineArtMask: even lines, loose bits bridged to the frame, specks dropped, 
   assert.ok(loops.length >= 2 && loops.every((l) => l.length >= 3));
 });
 
+test('lineArtMask: a dangling line is joined to the line ahead of it', () => {
+  const g: LineArtGrid = { px: 0.2, x0: -12, y1: 9, w: 120, h: 90 };
+  // A rectangle outline with a line from its left side that stops 3.5 mm short of the right side.
+  const art = () => rasterize([box(-10, -6, 10, 6), box(-9, -5, 9, 5), box(-9.2, -0.5, 5.5, 0.5)], g);
+  const joined = lineArtMask(art(), null, g, { lineWidth: 1, fill: 3, minIsland: 4, lines: 'keep', joinEnds: 8 });
+  assert.equal(joined.endsJoined, 1);
+  assert.equal(joined.endsFree, 0);
+  // The join runs on to the right side: the row through the line is solid from it to the edge.
+  const row = Math.round((9 - 0) / 0.2 - 0.5) * g.w;
+  for (let x = 6; x < 9; x += 0.4) assert.equal(joined.mask[row + Math.floor((x + 12) / 0.2)], 1, `joined at x = ${x.toFixed(1)}`);
+  const off = lineArtMask(art(), null, g, { lineWidth: 1, fill: 3, minIsland: 4, lines: 'keep', joinEnds: 0 });
+  assert.equal(off.endsJoined, 0);
+});
+
 test('H.lineart: every style builds one connected piece', async () => {
   for (const style of LINE_ART_STYLES) {
     const r = await withFonts(() => run(`style: '${style}', width: 210${style === 'sign' ? ", text: 'Garage'" : ''}`), loadFontBuffers);

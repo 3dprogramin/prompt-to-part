@@ -199,7 +199,8 @@ export function lineArtPrompt(r: { subject: string; style: LineArtStyle; referen
     `- open space: any two lines at least one stroke width apart; leave out every detail smaller than about three stroke widths – it can't be printed at this size`,
     '- simplified: the main body contours, wheels as a thick tyre ring with a few bold spokes or rim shapes, lights, windows and a few main panel or fold lines; no small parts, mechanical internals, cables, bolts, mesh or grille patterns, textures, or small text and logos',
     '- every line joins the others so the whole drawing is ONE connected piece: no floating details – an eye, a badge, a wheel hub, a window must touch a line',
-    '- solid black only for a few areas that help it read (window glass, a tyre, hair); everything else stays open line work',
+    '- it is stuck to a wall with tape on its back, so nothing may dangle: every line starts and ends on another line (no line ending in empty space), and parts such as mirrors, handles, brackets and badges are joined at two or more points, like a web',
+    '- a few larger solid black areas (window glass, tyres, a seat, hair) give the tape room to hold – include them where they suit the subject; everything else stays open line work',
     '- the subject isolated with a white margin around it; no text, signature, watermark, frame, border, panel or background scenery',
   ].filter(Boolean).join('\n');
 }

@@ -40,6 +40,8 @@ export interface LineArtOptions {
   fill?: number;
   /** Loose bits smaller than this (mm²) are dropped rather than bridged, default 4 × lineWidth². */
   minIsland?: number;
+  /** Loose lines and branches (held at one point only, so they would lift off the wall) are joined to the nearest line within this distance, mm; default 8, 0 = off. */
+  joinEnds?: number;
   /** Space between several drawings side by side (negative overlaps them), default 0. */
   gap?: number;
   /** Fill colours of the drawing that are its lines (default: all but white-ish ones). */
@@ -104,6 +106,9 @@ export interface LineArtInfo {
   closed: number;
   /** Openings of the drawing at all (at least minIsland big), to judge `closed` by. */
   openings: number;
+  /** Loose lines and branches (held at one point only) Jig joined to a nearby line, and those left loose (nothing within joinEnds). */
+  endsJoined: number;
+  endsFree: number;
   /** Key holder pegs. */
   hooks: number;
 }
@@ -134,7 +139,7 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   return {
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
     size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
-    bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), hooks: count(o.hooks),
+    bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
   };
 }
 
@@ -407,6 +412,8 @@ export interface LineArtMaskOptions {
   lineWidth: number;
   /** Bridge every loose bit, however small (they were dropped beforehand, from the drawing itself). */
   keepSpecks?: boolean;
+  /** Join loose line ends to the nearest line within this many mm (0: leave them). */
+  joinEnds?: number;
   fill: number;
   minIsland: number;
   lines: 'even' | 'keep';
@@ -419,7 +426,7 @@ export interface LineArtMaskOptions {
  * centre lines of what Jig drew (thickened lines and bridges, `lineWidth` wide, in pixels), which
  * lines 'keep' adds to the drawing as it was.
  */
-export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number } {
+export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number } {
   const { w, h, px } = g, N = w * h;
   const r = o.lineWidth / px / 2;
   // Keep the outermost pixels empty (thinning and tracing rely on it).
@@ -565,7 +572,126 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       longest = Math.max(longest, Math.max(0, d * px - o.lineWidth));
     }
   }
-  return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings };
+  const ends = o.joinEnds ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths) : { joined: 0, free: 0 };
+  return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings, endsJoined: ends.joined, endsFree: ends.free };
+}
+
+/**
+ * Joins what hangs loose: a line or a branch of lines (a bracket with a plate on it) attached to
+ * the rest at one point only lifts off the wall, as only the tape behind the rest holds it. The
+ * skeleton's loose ends are peeled off again and again, which leaves what is held at two or more
+ * points; each hanging branch longer than max(3 mm, 3 line widths) gets a bridge from its farthest
+ * end to the nearest other line within `reach` mm, preferring the way that line was going. Thick
+ * shapes (windows, tyres) hold themselves and are never peeled. Bridges are drawn into `out`, and
+ * their centre lines added to `paths`.
+ */
+function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, lineWidth: number, reach: number, paths: Pt[][]): { joined: number; free: number } {
+  const { w, h, px } = g, N = w * h;
+  const r = lineWidth / px / 2, R = reach / px, minArm = Math.max(3, 3 * lineWidth) / px;
+  const whole = new Uint8Array(N), bg = new Uint8Array(N);
+  for (let i = 0; i < N; i++) { whole[i] = out[i] || anchor?.[i] ? 1 : 0; bg[i] = whole[i] ? 0 : 1; }
+  const depth = sqDistance(bg, w, h);
+  const skel = whole.slice();
+  const chains = skeletonChains(skel, thin(skel, w), w);
+  const nb = N8(w);
+  const deg = (i: number) => nb.reduce((n, k) => n + skel[i + k], 0);
+  // A line is about lineWidth wide; a chain mostly deeper than this runs through something solid.
+  const lineDepth = (1.6 * r + 1) ** 2;
+  const thick = chains.map((c) => c.filter((i) => depth[i] > lineDepth).length * 2 > c.length);
+
+  // Peel: a chain with a loose end goes, and its other end may become loose in turn.
+  const at = new Map<number, number[]>();
+  chains.forEach((c, k) => { for (const e of [c[0], c[c.length - 1]]) (at.get(e) ?? at.set(e, []).get(e)!).push(k); });
+  const alive = chains.map(() => true);
+  const live = (node: number) => (at.get(node) ?? []).filter((k) => alive[k]).length;
+  const queue = [...at.keys()].filter((n) => live(n) === 1);
+  while (queue.length) {
+    const n = queue.pop()!;
+    if (live(n) !== 1) continue;
+    const k = at.get(n)!.find((c) => alive[c])!;
+    const c = chains[k];
+    if (thick[k] || c[0] === c[c.length - 1]) continue;
+    alive[k] = false;
+    const other = c[0] === n ? c[c.length - 1] : c[0];
+    if (live(other) === 1) queue.push(other);
+  }
+
+  // The hanging branches: peeled chains joined at their ends, each with the point it hangs from.
+  const seenChain = chains.map(() => false);
+  const stamp = new Int32Array(N), steps = new Int32Array(N);
+  let joined = 0, free = 0, run = 0;
+  for (let k0 = 0; k0 < chains.length; k0++) {
+    if (alive[k0] || seenChain[k0]) continue;
+    const tree: number[] = [], todo = [k0];
+    seenChain[k0] = true;
+    let hang = -1;
+    while (todo.length) {
+      const k = todo.pop()!;
+      tree.push(k);
+      for (const e of [chains[k][0], chains[k][chains[k].length - 1]]) {
+        if (live(e) > 0) hang = e;
+        for (const j of at.get(e) ?? []) if (!alive[j] && !seenChain[j]) { seenChain[j] = true; todo.push(j); }
+      }
+    }
+    const length = tree.reduce((n, k) => n + chains[k].length, 0);
+    // A whole piece without any loop has nothing to hang from: leave it.
+    if (hang < 0 || length < minArm) continue;
+    const hx = hang % w, hy = (hang / w) | 0;
+    // Its loose ends, farthest from where it hangs first, each with the chain leading to it.
+    const ends: { e: number; chain: number[] }[] = [];
+    for (const k of tree) {
+      const c = chains[k];
+      if (deg(c[0]) <= 1) ends.push({ e: c[0], chain: c });
+      if (deg(c[c.length - 1]) <= 1) ends.push({ e: c[c.length - 1], chain: [...c].reverse() });
+    }
+    ends.sort((a, b) => Math.hypot((b.e % w) - hx, ((b.e / w) | 0) - hy) - Math.hypot((a.e % w) - hx, ((a.e / w) | 0) - hy));
+    let done = false;
+    for (const { e, chain } of ends) {
+      const ex = e % w, ey = (e / w) | 0;
+      // What belongs to the branch itself: all within its length along the piece from this end.
+      run++;
+      const limit = length + 3 * r;
+      let wave = [e];
+      stamp[e] = run; steps[e] = 0;
+      while (wave.length) {
+        const next: number[] = [];
+        for (const i of wave) for (const o of nb) {
+          const j = i + o;
+          if (whole[j] && stamp[j] !== run && steps[i] + 1 <= limit) { stamp[j] = run; steps[j] = steps[i] + 1; next.push(j); }
+        }
+        wave = next;
+      }
+      // The way the line was going at its end.
+      const back = chain[Math.min(chain.length - 1, Math.round(3 * r))];
+      let dx = ex - (back % w), dy = ey - ((back / w) | 0);
+      const dl = Math.hypot(dx, dy) || 1;
+      dx /= dl; dy /= dl;
+      let best = -1, bestScore = Infinity;
+      const x0 = Math.max(1, Math.floor(ex - R)), x1 = Math.min(w - 2, Math.ceil(ex + R)), y0 = Math.max(1, Math.floor(ey - R)), y1 = Math.min(h - 2, Math.ceil(ey + R));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const i = y * w + x;
+        if (!whole[i] || stamp[i] === run) continue;
+        const d = Math.hypot(x - ex, y - ey);
+        if (d > R || d < 1) continue;
+        const cos = ((x - ex) * dx + (y - ey) * dy) / d;
+        if (cos < -0.2) continue;
+        const score = d * (2 - cos);
+        if (score < bestScore) { bestScore = score; best = i; }
+      }
+      if (best < 0) continue;
+      const bx = best % w, by = (best / w) | 0;
+      // Reach a little into the line it joins, so the two overlap.
+      const d = Math.hypot(bx - ex, by - ey), tx = bx + ((bx - ex) / d) * Math.min(r, d) * 0.5, ty = by + ((by - ey) / d) * Math.min(r, d) * 0.5;
+      capsuleXY(out, w, h, [ex, ey], [tx, ty], r);
+      capsuleXY(whole, w, h, [ex, ey], [tx, ty], r);
+      paths.push([[ex, ey], [tx, ty]]);
+      joined++;
+      done = true;
+      break;
+    }
+    if (!done) free++;
+  }
+  return { joined, free };
 }
 
 /** Enclosed empty areas of `img` (4-connected, not touching the border) of at least `min` pixels. */
@@ -717,7 +843,7 @@ export interface LineArtDeps {
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
-const cache = new Map<string, { loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number }>();
+const cache = new Map<string, { loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number }>();
 const CACHE_SIZE = 6;
 /** The most pixels of a grid (the pixels grow past it). */
 const MAX_PIXELS = { draft: 1_500_000, normal: 4_000_000, high: 8_000_000 };
@@ -743,6 +869,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   const fill = num('fill', 3 * lineWidth, lineWidth, 200);
   const minIsland = num('minIsland', 4 * lineWidth * lineWidth, 0, 10000);
   const gap = num('gap', 0, -500, 500);
+  const joinEnds = num('joinEnds', 8, 0, 50);
   const barHeight = num('barHeight', style === 'sign' ? 16 : 12, 3, 200);
   const barThickness = num('barThickness', style === 'keyholder' ? 4 : style === 'stand' ? thickness : thickness + 1, 0.6, 30);
   const overhang = num('overhang', 6, 0, 200);
@@ -841,13 +968,13 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
   const area = (ab.max[0] - ab.min[0] + 8 * px) * (ab.max[1] - ab.min[1] + 8 * px);
   px = Math.max(px, Math.sqrt(area / MAX_PIXELS[d.quality]));
-  const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px]);
+  const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds]);
   let res = cache.get(key);
   if (!res) {
     const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
-    const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines, keepSpecks: lines === 'keep' });
+    const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines, keepSpecks: lines === 'keep', joinEnds });
     const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
-    res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings };
+    res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree };
     cache.set(key, res);
     if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
   }
@@ -880,7 +1007,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     t = t.translate([-(cb.min[0] + cb.max[0]) / 2, -barHeight / 2 - (cb.min[1] + cb.max[1]) / 2]);
     shape = shape.add(t.extrude(depth).translate([0, 0, barThickness]));
   }
-  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, hooks };
+  const info: LineArtInfo = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks };
   const parts: LineArtResult['parts'] = [{ name: 'Line art', shape, color, lineArt: info }];
   // Desk stand: a base with a slot the bar pushes into, printed beside the piece.
   let slotNote = '';
