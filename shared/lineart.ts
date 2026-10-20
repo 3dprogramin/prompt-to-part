@@ -584,7 +584,8 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
   // A thin stretch shorter than this at a free end, joined to a thick line, is a corner's tip or a
   // thinning spur, not a line of its own: it keeps its drawn shape.
   const tip = Math.ceil(4 * r);
-  const thinAt = (i: number) => inside[i] < r * r;
+  // Thin: clearly under lineWidth (a line drawn at exactly lineWidth measures a little under it at its bends and on the pixel grid).
+  const thinAt = (i: number) => inside[i] < (r - 0.25) ** 2;
   for (const chain of skeletonChains(skel, fg, w)) {
     if (o.lines === 'even') { paths.push(strokePolyline(strokes, w, h, chain, r)); continue; }
     const deg = (i: number) => nb.reduce((n, k) => n + skel[i + k], 0);
@@ -1052,9 +1053,11 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     let k = 0;
     for (const c of art.toPolygons()) for (const [x, y] of c) k = Math.max(k, Math.hypot(x / fa, y / fb));
     if (!(k > 0)) throw new Error('H.lineart: the drawing is empty');
-    art = art.scale(1 / k);
-    moveFrames(0, 0, 1 / k);
+    // Placed again at its final size rather than scaled, so hand-drawn lines keep their widths.
     s /= k;
+    const aw2 = artWidth(s);
+    art = placeArt(s).translate([-aw2 / 2, -s / 2]);
+    moveFrames(-aw2 / 2, -s / 2);
     const ring = (rx: number, ry: number) => C.circle(1, segs).scale([rx, ry]);
     anchor = ring(a, b).subtract(ring(ia, ib));
     anchorThickness = frameThickness;

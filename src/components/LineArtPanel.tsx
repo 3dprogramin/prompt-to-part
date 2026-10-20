@@ -112,7 +112,7 @@ export function LineArtPanel({ part, values, onEdits, onEdit }: Props) {
         <dt>Specks</dt><dd>{la.dropped ? <><span className="mono">{la.dropped}</span> dropped (too small to print)</> : 'none dropped'}</dd>
         <dt>Loose lines</dt>
         <dd className={la.endsFree ? 'warn' : ''}>
-          {la.endsJoined ? <><span className="mono">{la.endsJoined}</span> joined to a nearby line</> : 'none dangling'}
+          {la.endsJoined ? <><span className="mono">{la.endsJoined}</span> joined to a nearby line</> : la.endsFree ? null : 'none dangling'}
           {la.endsFree > 0 && <span className="lineart-why"><Icon name="alert" size={12} /> {la.endsFree} still held at one point only: they can lift off the wall – ask Jig to redraw with every line ending on another</span>}
         </dd>
         <dt>Detail</dt>

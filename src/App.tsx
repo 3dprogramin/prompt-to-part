@@ -508,6 +508,13 @@ export default function App() {
     try {
       end = await stream((ev, count) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
+        else if (ev.type === 'lineArtEditsBaked') update((d) => {
+          // A partial edit drew the hand edits into the drawing: they're part of it now.
+          const { [ev.name]: _baked, ...rest } = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
+          const values = { ...d.values };
+          if (Object.keys(rest).length) values[LINEART_EDITS_KEY] = JSON.stringify(rest); else delete values[LINEART_EDITS_KEY];
+          return { ...d, values };
+        });
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
         else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
