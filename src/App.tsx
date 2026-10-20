@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
-import { resolveValues, SCALE_KEY } from '../shared/params';
+import { parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY, type PartFilament } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
@@ -352,6 +352,14 @@ export default function App() {
     if (after === before) return d;
     const values = { ...d.values };
     if (Object.keys(after).length) values[LINEART_EDITS_KEY] = JSON.stringify(after); else delete values[LINEART_EDITS_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
+  // A filament picked for a part (Object tab), or back to the script's colour.
+  const setPartColor = (part: string, filament: PartFilament | null) => setDesign((d) => {
+    const { [part]: _old, ...rest } = parsePartColors(d.values[PART_COLORS_KEY]);
+    const all = filament ? { ...rest, [part]: filament } : rest;
+    const values = { ...d.values };
+    if (Object.keys(all).length) values[PART_COLORS_KEY] = JSON.stringify(all); else delete values[PART_COLORS_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
   const [editingLineArt, setEditingLineArt] = useState(false);
@@ -1308,6 +1316,7 @@ export default function App() {
           values={design.values}
           onLayerTone={setLayerTone}
           onLineArtEdits={setLineArtEdits}
+          onPartColor={setPartColor}
           onEditLineArt={() => setEditingLineArt(true)}
           onMeshPalette={(name, palette) => setDesign((d) => {
             const meshes = parseMeshes(d.values[MESHES_KEY]);
@@ -1386,7 +1395,7 @@ function keepAppValues(values: ParamValues): ParamValues {
 /** The design's pictures, meshes, concept pictures, LayerTone setup and line-art hand edits, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, LINEART_EDITS_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 

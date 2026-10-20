@@ -695,6 +695,11 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .object-child-name { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .object-child-name:hover { color: var(--text); text-decoration: underline; }
 .object-row .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+/* A part's filament: its swatch opens the filament picker (anchored here); a picked one has a ring. */
+.swatch-pick { position: relative; display: inline-flex; flex-shrink: 0; }
+.object-row button.swatch { width: 14px; height: 14px; padding: 0; border: 1px solid var(--line-2); cursor: pointer; }
+.object-row button.swatch:hover, .object-row button.swatch:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+.object-row button.swatch.picked { box-shadow: 0 0 0 1px var(--panel), 0 0 0 2px var(--accent-2); }
 .object-meta .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .object-meta { background: none; border: 0; padding: 0; text-align: left; color: inherit; }

@@ -4,6 +4,23 @@ import type { ParamDef, ParamValues } from './types';
 /** Uniform scale applied after build (a reserved value key, not a script parameter). */
 export const SCALE_KEY = '$scale';
 
+/** Filaments the user picked for parts (Object tab), by part name: they win over the script's colours. */
+export const PART_COLORS_KEY = '$partColors';
+export interface PartFilament { color: string; name?: string; brand?: string }
+
+/** The user's part filaments from the design's values, checked (#rrggbb colours). */
+export function parsePartColors(raw: unknown): Record<string, PartFilament> {
+  let o: unknown = raw;
+  if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch { return {}; } }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+  const out: Record<string, PartFilament> = {};
+  for (const [part, f] of Object.entries(o as Record<string, PartFilament>).slice(0, 200)) {
+    if (!f || typeof f.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(f.color)) continue;
+    out[part.slice(0, 120)] = { color: f.color.toLowerCase(), ...(typeof f.name === 'string' ? { name: f.name.slice(0, 120) } : {}), ...(typeof f.brand === 'string' ? { brand: f.brand.slice(0, 60) } : {}) };
+  }
+  return out;
+}
+
 function niceStep(range: number) {
   const raw = range / 200;
   const p = Math.pow(10, Math.floor(Math.log10(raw)));

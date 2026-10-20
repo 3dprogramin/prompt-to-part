@@ -5,7 +5,7 @@ import { FontMissingError, takeFontSubstitutions } from './text';
 import { compile, locate, ScriptError } from './compile';
 import { makeHelpers, type PaintedMesh } from './helpers';
 import { sameFilament, storedSlots, type PaintFilament } from './meshColors';
-import { normalizeParams, resolveValues, SCALE_KEY } from './params';
+import { normalizeParams, parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
@@ -343,6 +343,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
 
     const parts: PartMesh[] = [];
     const textFeatures = parseTextFeatures(inputValues?.[TEXT_KEY]);
+    const partColors = parsePartColors(inputValues?.[PART_COLORS_KEY]);
     const svgFeatures = parseSvgFeatures(inputValues?.[SVG_KEY]);
     const partNames = rawParts.map((rp, i) => {
       const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name.slice(0, 120) : '';
@@ -389,7 +390,8 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
           warnings.push(`SVG feature failed: ${(e as Error).message}`);
         }
       }
-      color ||= PALETTE[i % PALETTE.length];
+      // A filament the user picked for this part (Object tab) wins over the script's colour.
+      color = (!layerColors && !lithophane && partColors[name]?.color) || color || PALETTE[i % PALETTE.length];
       const st = shape.status();
       if (st !== 'NoError') warnings.push(`Part "${name}" has status ${st}`);
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }

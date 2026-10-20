@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { EvalResult } from '../../shared/types';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { ExportFormat } from '../lib/export';
 import { Icon } from './Icon';
+import { FilamentPicker } from './FilamentPicker';
+import type { PartFilament } from '../../shared/params';
 
 interface Props {
   result: EvalResult;
@@ -19,6 +21,9 @@ interface Props {
   /** The selected part (highlighted in the view); clicking it again clears the selection. */
   selected: string | null;
   onSelect: (name: string | null) => void;
+  /** Filaments the user picked for parts (PART_COLORS_KEY), and changing one (null: back to the script's colour). */
+  partColors: Record<string, PartFilament>;
+  onPartColor: (part: string, filament: PartFilament | null) => void;
 }
 
 /**
@@ -32,6 +37,9 @@ export function ObjectPanel(p: Props) {
   const visible = names.filter((n) => !p.hiddenParts.includes(n));
   // Features without a (known) part go on the first one, as the runtime places them.
   const onPart = (f: { part?: string }, name: string) => (f.part && names.includes(f.part) ? f.part === name : name === names[0]);
+  // The filament picker of one part's swatch.
+  const [picking, setPicking] = useState<string | null>(null);
+  const trigger = useRef<HTMLElement | null>(null);
   const toggle = (name: string) => p.onHiddenParts(p.hiddenParts.includes(name) ? p.hiddenParts.filter((x) => x !== name) : [...p.hiddenParts, name]);
   return (
     <div className="object-panel">
@@ -57,11 +65,28 @@ export function ObjectPanel(p: Props) {
                 <button className="icon-btn" aria-pressed={!hidden} title={hidden ? 'Show (included in the view and exports)' : 'Hide (left out of the view and exports)'} aria-label={`${hidden ? 'Show' : 'Hide'} ${part.name}`} onClick={() => toggle(part.name)}>
                   <Icon name={hidden ? 'eyeOff' : 'eye'} size={14} />
                 </button>
-                <span className="swatch" style={{ background: part.paint ? `conic-gradient(${part.paint.filaments.map((f, i, a) => `${f.color} ${(i / a.length) * 360}deg ${((i + 1) / a.length) * 360}deg`).join(', ')})` : part.color }} title={part.paint ? `Coloured: ${part.paint.filaments.map((f) => f.name ?? f.color).join(', ')}` : undefined} />
+                {part.paint || part.layerColors || part.lithophane
+                  ? <span className="swatch" style={{ background: part.paint ? `conic-gradient(${part.paint.filaments.map((f, i, a) => `${f.color} ${(i / a.length) * 360}deg ${((i + 1) / a.length) * 360}deg`).join(', ')})` : part.color }}
+                    title={part.paint ? `Coloured: ${part.paint.filaments.map((f) => f.name ?? f.color).join(', ')} (change them under Filament colours)` : undefined} />
+                  : (
+                    // Its filament: the picker changes it (the 3D view, the 3MF and the cost follow).
+                    <span className="swatch-pick">
+                      <button className={`swatch ${p.partColors[part.name] ? 'picked' : ''}`} style={{ background: part.color }} aria-label={`Filament of ${part.name}`}
+                        title={`${p.partColors[part.name]?.name ? `${p.partColors[part.name].brand ? `${p.partColors[part.name].brand} ` : ''}${p.partColors[part.name].name} – ` : ''}click to choose the filament it prints with`}
+                        onClick={(e) => { trigger.current = e.currentTarget; setPicking(picking === part.name ? null : part.name); }} />
+                      {picking === part.name && (
+                        <FilamentPicker trigger={trigger} current={p.partColors[part.name] ? { name: p.partColors[part.name].name ?? p.partColors[part.name].color, brand: p.partColors[part.name].brand, color: p.partColors[part.name].color, td: 1 } : undefined}
+                          onPick={(f) => { p.onPartColor(part.name, { color: f.color, name: f.name, brand: f.brand }); setPicking(null); }} onClose={() => setPicking(null)} />
+                      )}
+                    </span>
+                  )}
                 <button className="object-meta" title={p.selected === part.name ? 'Selected (highlighted in the view) – click to clear' : 'Select: highlight it in the view'} onClick={() => p.onSelect(p.selected === part.name ? null : part.name)}>
                   <div className="object-name">{part.name}</div>
                   <div className="mono dim small">{(b.max[0] - b.min[0]).toFixed(1)} × {(b.max[1] - b.min[1]).toFixed(1)} × {(b.max[2] - b.min[2]).toFixed(1)} mm</div>
                 </button>
+                {p.partColors[part.name] && (
+                  <button className="icon-btn" title="Back to the colour Jig chose" aria-label={`Reset the filament of ${part.name}`} onClick={() => p.onPartColor(part.name, null)}><Icon name="restore" size={13} /></button>
+                )}
                 <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${part.name} as STL`} onClick={() => p.onExport('stl', part.name)}><Icon name="download" size={14} /></button>
               </div>
               {open && (
@@ -88,7 +113,7 @@ export function ObjectPanel(p: Props) {
           );
         })}
       </ul>
-      <p className="dim small text-tip">Hidden parts are left out of the 3D view, the STL/3MF and Blender exports, validation and the Cost tab.</p>
+      <p className="dim small text-tip">Click a part's colour to pick the filament it prints with. Hidden parts are left out of the 3D view, the STL/3MF and Blender exports, validation and the Cost tab.</p>
     </div>
   );
 }

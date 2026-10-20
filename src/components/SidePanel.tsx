@@ -6,6 +6,7 @@ import { TextPanel } from './TextPanel';
 import { OneColourSwitch, PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
 import { ObjectPanel } from './ObjectPanel';
+import { parsePartColors, PART_COLORS_KEY, type PartFilament } from '../../shared/params';
 import { MeshColorsPanel } from './MeshColorsPanel';
 import type { RepaintControls } from '../hooks/useRepaint';
 import { MESHES_KEY, parseMeshes } from '../../shared/meshes';
@@ -58,6 +59,8 @@ interface Props {
   onEditLineArt: () => void;
   /** A coloured mesh's colours and filaments changed (Object tab). */
   onMeshPalette: (name: string, palette: MeshColor[]) => void;
+  /** A filament picked for a part in the Object tab (null: back to the script's colour). */
+  onPartColor: (part: string, filament: PartFilament | null) => void;
   /** Repainting a coloured mesh's patches by hand (useRepaint); `onRepaintStart` turns it on for one. */
   repaint: RepaintControls;
   onRepaintStart: (name: string) => void;
@@ -165,6 +168,7 @@ export function SidePanel(p: Props) {
         {tab === 'object' && <>
           {section('parts', 'Parts', () => (shown
             ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport} selected={p.selectedPart} onSelect={p.onSelectPart}
+              partColors={parsePartColors(p.values[PART_COLORS_KEY])} onPartColor={p.onPartColor}
               textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={(t) => openSection('decorate', t)} />
             : noModel('The parts appear here once a model is generated.')))}
           {shown && Object.values(parseMeshes(p.values[MESHES_KEY])).some((m) => m.palette?.length) && section('colors', 'Filament colours', () => <MeshColorsPanel result={shown} meshes={parseMeshes(p.values[MESHES_KEY])} onPalette={p.onMeshPalette} repaint={p.repaint} onRepaintStart={p.onRepaintStart} />)}

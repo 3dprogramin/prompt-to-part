@@ -278,7 +278,7 @@ Your prices are kept in `data/cost.json`.
 
 ## Export
 
-Exports contain the visible parts only; hide a part to leave it out (Object tab, or the part list in the view), or export a single part as STL from the Object tab. Every export rebuilds the model at high resolution and validates exactly that mesh. Problems are reported, not blocking. If the high-resolution build fails, nothing is exported and the error is shown.
+Exports contain the visible parts only; hide a part to leave it out (Object tab, or the part list in the view), or export a single part as STL from the Object tab. A part's colour swatch in the Object tab opens the filament picker (your own filaments, the common colours and the library): the part then prints with that filament – in the 3D view, the 3MF's filaments, the cost and Jig's own renders – instead of the colour Jig chose, until you reset it (↺); the pick is kept per part name in the design. Every export rebuilds the model at high resolution and validates exactly that mesh. Problems are reported, not blocking. If the high-resolution build fails, nothing is exported and the error is shown.
 
 - **STL** (default): a single mesh, geometry only (a coloured figure's colours are only in the 3MF; the export menu says so).
 - **3MF:** one named object per part, positioned exactly as in the viewer and centred on the printer's bed. Options:

@@ -17,6 +17,7 @@ import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
+import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
 import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, parseLineArtEdits } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
@@ -224,6 +225,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(layerToneImages).length ? { [LAYERTONE_IMAGES_KEY]: JSON.stringify(layerToneImages) } : {}),
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
     ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
+    ...(typeof pictureValues[PART_COLORS_KEY] === 'string' ? { [PART_COLORS_KEY]: pictureValues[PART_COLORS_KEY] } : {}),
   };
   // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
   const myFilaments = layerTone ? await readMyFilaments() : [];
@@ -299,6 +301,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const names = Object.keys(layerToneImages);
     parts.push(`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
   }
+  // Filaments the user picked for parts in the Object tab: they win over the script's colours.
+  const picked = Object.entries(parsePartColors(pictureValues[PART_COLORS_KEY]));
+  if (picked.length) parts.push(`The user picked the filaments for these parts in the Object tab, which win over the script's colours: ${picked.map(([n, f]) => `"${n}" → ${f.brand ? `${f.brand} ` : ''}${f.name ?? ''} ${f.color}`.replace(/\s+/g, ' ')).join(', ')}. Keep those part names (a renamed part loses its pick); to change one of these colours, tell the user to pick it in the Object tab (or reset it there) rather than editing the script's colour.`);
   if (lineArt) {
     const info = LINE_ART_STYLE_INFO[lineArtStyle];
     const names = Object.keys(drawings);
