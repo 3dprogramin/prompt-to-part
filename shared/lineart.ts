@@ -1419,6 +1419,8 @@ const SPLIT_RESERVE = 24;
 /** A split piece's bits farther apart than this (mm) aren't bridged when each is at least SPLIT_MIN_PART × lineWidth mm²: they become pieces of their own. */
 const SPLIT_MAX_BRIDGE = 30;
 const SPLIT_MIN_PART = 200;
+/** A split's pieces together get at most this many times the pixels the whole would get unsplit (MAX_PIXELS). */
+const SPLIT_PIXELS = 2;
 /** How deep a piece's name is engraved in its back, mm. */
 const LABEL_DEPTH = 0.4;
 
@@ -1494,6 +1496,8 @@ function splitPieces(o: SplitInput): SplitResult {
   const Bv = bandFor(Wc), Bh = bandFor(Hr), margin = 3;
   const Yt = y1 + 2 * margin + 1, Yb = y0 - 2 * margin - 1, Xl = x0 - 2 * margin - 1, Xr = x1 + 2 * margin + 1;
   let c = splitCache.get(o.key);
+  // Each piece's outline and drawing as just cut (not cached: Manifold's objects), so they aren't cut twice.
+  const fresh: { region: any; pan: any; pa: any }[] = [];
   if (!c) {
     const artPolys = art.toPolygons(), anchorPolys = anchor ? anchor.toPolygons() : null;
     const textPolys = o.signText ? o.signText.offset(0.5, 'Round').toPolygons() : null;
@@ -1569,19 +1573,22 @@ function splitPieces(o: SplitInput): SplitResult {
       joints.push({ at: mid, tab: pieceLabel(owner % cols, Math.floor(owner / cols)), socket: pieceLabel(other % cols, Math.floor(other / cols)), width: made.head });
       tabs.push(made.tab);
     }
-    // Each piece cleaned up on its own.
+    // Each piece cleaned up on its own, its pixels as fine as for a piece this size, but all of them
+    // together no more than twice the pixels the whole would get unsplit (a wall-sized piece).
     const pieces: SplitCached['pieces'] = [];
+    const pxMin = Math.max(lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5), Math.sqrt((W * H) / (SPLIT_PIXELS * MAX_PIXELS[d.quality])));
     regions.forEach((region, i) => {
       const col = i % cols, row = Math.floor(i / cols);
       const pan = anchor ? anchor.intersect(region) : null;
       const pa = dropSpecks(C, art.intersect(region), pan, o.minIsland);
       if (pa.cs.isEmpty() && (!pan || pan.isEmpty())) return;
       const b = (pan && !pan.isEmpty() ? pa.cs.add(pan) : pa.cs).bounds();
-      let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
+      let px = pxMin;
       px = Math.max(px, Math.sqrt(((b.max[0] - b.min[0] + 8 * px) * (b.max[1] - b.min[1] + 8 * px)) / MAX_PIXELS[d.quality]));
       const g: LineArtGrid = { px, x0: b.min[0] - 4 * px, y1: b.max[1] + 4 * px, w: Math.ceil((b.max[0] - b.min[0]) / px) + 8, h: Math.ceil((b.max[1] - b.min[1]) / px) + 8 };
       const m = lineArtMask(rasterize(pa.cs.toPolygons(), g), pan && !pan.isEmpty() ? rasterize(pan.toPolygons(), g) : null, g, { lineWidth, fill: o.fill, minIsland: o.minIsland, lines: o.lines, keepSpecks: o.lines === 'keep', joinEnds: o.joinEnds, maxBridge: o.maxBridge, minPart: o.minPart, inside: rasterize(region.toPolygons(), g) });
       const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
+      fresh.push({ region, pan, pa: pa.cs });
       pieces.push({
         col, row, region: region.toPolygons(),
         loops: o.lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: o.lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [],
@@ -1597,10 +1604,11 @@ function splitPieces(o: SplitInput): SplitResult {
   // Each cell's parts: its main one (`mains`: the cells whose main part it is) and bits too far to bridge.
   interface Part { cell: number; lc: any; an: any; region: any; stats: SplitCached['pieces'][number][]; mains: number[] }
   const parts: Part[] = [];
-  for (const p of cached.pieces) {
-    const region = new C(p.region, 'EvenOdd');
-    const pan = anchor ? anchor.intersect(region) : null;
-    const pa = dropSpecks(C, art.intersect(region), pan, o.minIsland).cs;
+  for (const [i, p] of cached.pieces.entries()) {
+    const f = fresh[i];
+    const region = f ? f.region : new C(p.region, 'EvenOdd');
+    const pan = f ? f.pan : anchor ? anchor.intersect(region) : null;
+    const pa = f ? f.pa : dropSpecks(C, art.intersect(region), pan, o.minIsland).cs;
     let lineCs = o.lines === 'keep' ? (p.paths.length ? pa.add(new C(strokeOutlines(p.paths, lineWidth / 2, o.segs / 4), 'NonZero')) : pa) : new C(p.loops, 'EvenOdd');
     if (o.erase) lineCs = lineCs.subtract(o.erase);
     // What Jig drew stays on the piece: a bridge or a thickened line ends at the seam.

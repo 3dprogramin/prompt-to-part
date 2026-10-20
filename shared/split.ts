@@ -459,7 +459,8 @@ export function keepTogether(o: { g: SplitGrid; ink: Uint8Array; anchor: Uint8Ar
   const part = (l: number): number => (join[l] === l ? l : (join[l] = part(join[l])));
   const held = new Set(mains.values());
   const minPx = o.minPart / (px * px);
-  const members = (p: number) => [...groups.keys()].filter((r) => part(r) === p);
+  const memberLists = new Map([...groups.keys()].map((r) => [r, [r]]));
+  const members = (p: number) => memberLists.get(p) ?? [];
   const partBox = (p: number) => {
     let b: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
     for (const r of members(p)) { const q = groups.get(r)!.box; b = [Math.min(b[0], q[0]), Math.min(b[1], q[1]), Math.max(b[2], q[2]), Math.max(b[3], q[3])]; }
@@ -490,7 +491,7 @@ export function keepTogether(o: { g: SplitGrid; ink: Uint8Array; anchor: Uint8Ar
   for (let pass = 0; pass < 8; pass++) {
     let changed = false;
     // Loose parts (not held, not on the bar or frame), the smallest first.
-    const loose = [...new Set([...groups.keys()].map(part))].filter((p) => !held.has(p) && !members(p).some((r) => groups.get(r)!.anchored)).map((p) => ({ p, n: partSize(p) })).sort((a, b) => a.n - b.n);
+    const loose = [...memberLists.keys()].filter((p) => !held.has(p) && !members(p).some((r) => groups.get(r)!.anchored)).map((p) => ({ p, n: partSize(p) })).sort((a, b) => a.n - b.n);
     for (const { p } of loose) {
       if (part(p) !== p) continue;
       const mine = members(p), from = groups.get(p)!.cell, fc = from % cols, fr = Math.floor(from / cols);
@@ -541,6 +542,8 @@ export function keepTogether(o: { g: SplitGrid; ink: Uint8Array; anchor: Uint8Ar
         seams = trialSeams;
         for (const r of mine) groups.get(r)!.cell = to;
         join[p] = t;
+        memberLists.set(t, [...members(t), ...mine]);
+        memberLists.delete(p);
         moved.push({ from, to, at: [(pb[0] + pb[2]) / 2, (pb[1] + pb[3]) / 2], size: [pb[2] - pb[0], pb[3] - pb[1]] });
         changed = true;
         break;
