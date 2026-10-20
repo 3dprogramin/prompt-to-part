@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
-import { LINE_ART_STYLE_INFO, type LineArtInfo } from '../../shared/lineart';
+import { LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits, type LineArtInfo } from '../../shared/lineart';
+import { staleEdits, withoutDrawings } from '../lib/lineArtEdit';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import { PRINTER } from '../../shared/printer';
 import { Icon } from './Icon';
@@ -36,17 +37,23 @@ function DrawingPreview({ drawing }: { drawing: SvgDrawing }) {
 
 interface Props {
   part: LineArtPart;
-  /** The design's values: DRAWINGS_KEY (the attached and drawn drawings). */
+  /** The design's values: DRAWINGS_KEY (the attached and drawn drawings) and LINEART_EDITS_KEY (hand edits). */
   values: ParamValues;
+  onEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
+  /** Open the editor (the Edit drawing brush). */
+  onEdit: () => void;
 }
 
 /**
  * Print tab, Line art section: the drawing(s) the piece was made from, what Jig fixed (bridges,
  * dropped specks) and how to print and hang it. Sizes are the script's sliders (Parameters).
  */
-export function LineArtPanel({ part, values }: Props) {
+export function LineArtPanel({ part, values, onEdits, onEdit }: Props) {
   const drawings = useMemo(() => parseDrawings(values[DRAWINGS_KEY]), [values[DRAWINGS_KEY]]);
+  const edits = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
   const la = part.lineArt;
+  const stale = staleEdits(edits, la.frames);
+  const erased = la.frames.some((f) => edits[f.name]?.fp === f.fp && edits[f.name].strokes.some((st) => st.mode === 'erase'));
   const [w, h] = la.size;
   const bed = PRINTER.name.replace(/^Bambu Lab /, '');
   const tooBig = w > PRINTER.bed[0] || h > PRINTER.bed[1];
@@ -66,6 +73,28 @@ export function LineArtPanel({ part, values }: Props) {
           ))}
         </div>
       )}
+      <div className="lineart-edit">
+        <button className="btn wide" onClick={onEdit} disabled={!la.frames.length} title={la.frames.length ? 'Draw or erase on the piece by hand (B draw, E erase)' : 'Rebuild the model to edit it'}>
+          <Icon name="brush" size={14} /> Edit drawing
+        </button>
+        {la.edits > 0 && (
+          <div className="lineart-edit-row small">
+            <span><span className="mono">{la.edits}</span> hand edit{la.edits === 1 ? '' : 's'}</span>
+            <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)))}>Clear edits</button>
+          </div>
+        )}
+        {stale.strokes > 0 && (
+          <div className="lineart-edit-row small warn">
+            <span><Icon name="alert" size={12} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing</span>
+            <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, stale.names))}>Clear</button>
+          </div>
+        )}
+        {part.components > 1 && (
+          <div className="lineart-edit-row small warn">
+            <span><Icon name="alert" size={12} /> The piece is in {part.components} pieces{erased ? ' – an erase cut it apart' : ''}</span>
+          </div>
+        )}
+      </div>
       <dl className="lineart-facts small">
         <dt>Style</dt><dd>{LINE_ART_STYLE_INFO[la.style].label}</dd>
         <dt>Size</dt>

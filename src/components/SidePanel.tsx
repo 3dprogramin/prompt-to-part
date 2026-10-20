@@ -15,6 +15,7 @@ import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
 import { LineArtPanel, lineArtPart } from './LineArtPanel';
 import type { LayerToneImage, LayerToneSetup } from '../../shared/layertone';
+import type { LineArtEdits } from '../../shared/lineart';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
 import type { PrintProfile, PrintSettings } from '../../shared/print';
@@ -51,6 +52,10 @@ interface Props {
   /** The design's values (the LayerTone setup and pictures). */
   values: ParamValues;
   onLayerTone: (s: LayerToneSetup | null) => void;
+  /** Change the line-art hand edits (LINEART_EDITS_KEY). */
+  onLineArtEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
+  /** Open the line-art editor (the Edit drawing brush). */
+  onEditLineArt: () => void;
   /** A coloured mesh's colours and filaments changed (Object tab). */
   onMeshPalette: (name: string, palette: MeshColor[]) => void;
   /** Repainting a coloured mesh's patches by hand (useRepaint); `onRepaintStart` turns it on for one. */
@@ -179,7 +184,7 @@ export function SidePanel(p: Props) {
           {shown && <OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />}
           {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
-          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} values={p.values} />)}
+          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} values={p.values} onEdits={p.onLineArtEdits} onEdit={p.onEditLineArt} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
             : noModel('Print settings appear once a model is generated.')))}

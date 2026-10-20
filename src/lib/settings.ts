@@ -3,6 +3,7 @@ import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
 import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
+import { LINEART_EDITS_KEY } from '../../shared/lineart';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -43,6 +44,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === PRINT_KEY) return 'print settings';
     if (k === ONE_COLOUR_KEY) return v ? 'one colour' : 'colours (AMS)';
     if (k === LAYERTONE_KEY) return 'LayerTone filaments';
+    if (k === LINEART_EDITS_KEY) return 'line art edits';
     const d = params[k];
     return `${d?.label ?? k} ${fmt(v, d)}`;
   });
