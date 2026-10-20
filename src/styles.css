@@ -504,6 +504,11 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .oc-filament { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
 .oc-filament select { flex: 1; min-width: 0; }
 .oc-filament .swatch { width: 12px; height: 12px; border: 1px solid var(--line-2); }
+.pp-fold > summary { cursor: pointer; display: flex; align-items: baseline; gap: 2px; list-style: none; }
+.pp-fold > summary::-webkit-details-marker { display: none; }
+.pp-fold > summary::before { content: '▸'; color: var(--text-3); margin-right: 6px; transition: transform 0.15s; display: inline-block; }
+.pp-fold[open] > summary::before { transform: rotate(90deg); }
+.pp-fold > summary h4 { display: inline; margin: 0; }
 .pp-scope-fold > summary { cursor: pointer; color: var(--text-2); padding: 2px 0; }
 .pp-scope-fold[open] > summary { margin-bottom: 6px; }
 .pp-scope { display: flex; flex-wrap: wrap; gap: 4px; }

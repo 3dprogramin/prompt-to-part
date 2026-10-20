@@ -36,6 +36,8 @@ const MANY_PARTS = 6;
 export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
   const [scopeOpen, setScopeOpen] = useState<boolean>(() => load('printScopeOpen', false));
   useEffect(() => store('printScopeOpen', scopeOpen), [scopeOpen]);
+  const [writtenOpen, setWrittenOpen] = useState<boolean>(() => load('printWrittenOpen', false));
+  useEffect(() => store('printWrittenOpen', writtenOpen), [writtenOpen]);
   const [scope, setScope] = useState<string | null>(null); // null = whole model
   const part = scope && parts.includes(scope) ? scope : null;
   const eff = effectiveSettings(ai, user, part ?? undefined, base);
@@ -102,14 +104,18 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
         );
       })}
 
-      <div className="pp-summary">
-        <h4>Written to the 3MF</h4>
+      {/* What goes into the 3MF, folded by default (remembered). */}
+      <details className="pp-summary pp-fold" open={writtenOpen} onToggle={(e) => setWrittenOpen((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary>
+          <h4>Written to the 3MF</h4>
+          <span className="dim small">{changes.length === 0 ? ' · nothing, the A1 profile as is' : ` · changes for ${changes.length} part${changes.length > 1 ? 's' : ''}`}</span>
+        </summary>
         {changes.length === 0
           ? <div className="dim small">Nothing – the standard A1 profile is used as is.</div>
           : <ul>{changes.map((c) => (
             <li key={c.name}><b>{c.name}</b>: {Object.entries(c.keys).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(', ')}</li>
           ))}</ul>}
-      </div>
+      </details>
       <div className="pp-actions">
         <button className="btn ghost" disabled={!Object.keys(user).length} onClick={() => onChange({})}><Icon name="restore" size={14} /> {aiHasAny ? 'Back to AI settings' : 'Back to A1 defaults'}</button>
       </div>
