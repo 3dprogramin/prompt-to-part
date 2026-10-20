@@ -87,6 +87,8 @@ const PATHS: Record<string, string> = {
   magnet: 'M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4zM6 8h4M14 8h4',
   chat: 'M4 5h16v11H10l-4.5 4v-4H4z',
   star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+  bauble: 'M12 2.5v2.5M10 5h4v2.5h-4zM12 7.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM6 13c2-1.5 4-1.5 6 0s4 1.5 6 0',
+  gift: 'M4 10h16v10H4zM3 7h18v3H3zM12 7v13M12 7c-1.5-3.2-5.5-3.6-5.5-1.4S9.5 7 12 7zM12 7c1.5-3.2 5.5-3.6 5.5-1.4S14.5 7 12 7z',
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }) {

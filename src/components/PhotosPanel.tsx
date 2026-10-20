@@ -93,9 +93,9 @@ export function PhotosPanel(p: Props) {
   // The scenes after the first few show on "More scenes", or right away when one of them is picked or suggested.
   const expanded = allScenes || [choice.scene, suggested].some((x) => PHOTO_SCENES.findIndex((sc) => sc.id === x) >= MAIN_SCENES);
   const shownScenes = expanded ? PHOTO_SCENES : PHOTO_SCENES.slice(0, MAIN_SCENES);
-  // A flat print (wall art, a sign) goes on the wall face-on; anything else from a 3/4 angle.
+  // A flat print (wall art, a sign, an ornament on the tree) is shown face-on; anything else from a 3/4 angle.
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
-  const faceOn = camera === 'best' && !!preset?.wall && flat;
+  const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang) && flat;
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
   const photos = [...p.photos].reverse();
   // The enlarged photo's neighbours: the arrow buttons, ← and →, or a swipe; at either end it wraps around.

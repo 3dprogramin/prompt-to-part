@@ -57,6 +57,11 @@ test('the suggested scene follows what the design is', () => {
   assert.equal(suggestScene('Controller stand'), 'gaming');
   assert.equal(suggestScene('Car vent phone mount'), 'wall', 'a mount still goes on the wall first');
   assert.equal(suggestScene('Restaurant table number'), 'restaurant');
+  assert.equal(suggestScene('Snowflake Christmas Ornament'), 'xmas-tree');
+  assert.equal(suggestScene('Bauble with a name'), 'xmas-tree');
+  assert.equal(suggestScene('Santa sleigh line art'), 'xmas-wall');
+  assert.equal(suggestScene('Gingerbread house figurine'), 'xmas-gifts');
+  assert.equal(suggestScene('Ornament stand for a shelf'), 'shelf', 'not Christmas without a Christmas word');
 });
 
 test('photo requests are checked', () => {
@@ -86,4 +91,19 @@ test('a photo made again with a change: its photo is the scene, the product from
   assert.match(p, /Earlier wishes that still apply: evening light\./);
   assert.match(p, /KEEP THE OBJECT EXACTLY AS IN THE RENDER/);
   assert.match(photoPrompt(request()), /rests ON the surface, not above it/);
+});
+
+test('an ornament on the tree hangs face-on from a ribbon, the only thing added', () => {
+  const p = photoPrompt(request({ scene: 'xmas-tree', product: { name: 'Snowflake ornament', size: [80, 80, 3], faceOn: true } }));
+  assert.match(p, /Christmas tree/);
+  assert.match(p, /render shows its front face; it hangs with this face to the viewer/);
+  assert.match(p, /only the thin ribbon it hangs from/);
+  assert.match(p, /hangs freely from the branch on a thin red ribbon/);
+  assert.doesNotMatch(p, /rests ON the surface/);
+  assert.doesNotMatch(p, /hangs flat on the wall/);
+  const gifts = photoPrompt(request({ scene: 'xmas-gifts' }));
+  assert.match(gifts, /under a Christmas tree/);
+  assert.match(gifts, /rests ON the surface/);
+  assert.doesNotMatch(gifts, /ribbon it hangs from/);
+  assert.match(photoPrompt(request({ scene: 'xmas-wall', product: { name: 'Sign', size: [300, 200, 3], faceOn: true } })), /hangs flat against the wall/);
 });

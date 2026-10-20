@@ -14,6 +14,8 @@ export interface PhotoScene {
   scene: string;
   /** Wall scenes hang the product: a flat print is shown face-on. */
   wall?: boolean;
+  /** Hanging scenes dangle it from a ribbon (an ornament on a tree): face-on too. */
+  hang?: boolean;
 }
 
 /** The scene for lithophanes: lit from behind, so the picture shows. */
@@ -29,6 +31,10 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'garden', label: 'Outdoor / garden', icon: 'tree', scene: 'outdoors in a garden, on a weathered wooden garden table or a flat stone, green plants and sunlight blurred behind it, late-afternoon light' },
   { id: BACKLIT_SCENE, label: 'Backlit at night', icon: 'lamp', scene: 'standing on a bedside table or a windowsill in a dim, cosy room in the evening, with a warm LED light right behind it so the panel glows; the rest of the room in soft darkness with a few warm, blurred highlights' },
   { id: 'hand', label: 'Hand holding it', icon: 'hand', scene: 'held in a person\'s hand (only the hand and wrist in view, natural skin, relaxed grip that does not cover the important details), so its real size is obvious, plain softly blurred indoor background' },
+  // Christmas (seasonal, so in the main list).
+  { id: 'xmas-tree', label: 'On the Christmas tree', icon: 'bauble', hang: true, scene: 'hanging from a branch of a real, decorated Christmas tree (fresh green fir needles), next to a couple of glass baubles, with warm fairy lights glowing as soft bokeh in the blurred background, cosy evening light' },
+  { id: 'xmas-gifts', label: 'Under the tree', icon: 'gift', scene: 'on a wooden floor or low table under a Christmas tree, next to a few gifts wrapped in kraft paper with red and white ribbons, pine branches and pine cones around, warm fairy lights glowing as soft bokeh behind, cosy evening light' },
+  { id: 'xmas-wall', label: 'Christmas wall', icon: 'star', wall: true, scene: 'hanging on a light wall decorated for Christmas, mounted flat at eye level above a sideboard or mantel with a fresh pine garland, warm fairy lights and a few candles softly blurred below it, cosy warm evening light' },
   // Shown after "More scenes".
   { id: 'fridge', label: 'On the fridge', icon: 'fridge', wall: true, scene: 'stuck on the door of a white or brushed-steel fridge in a bright home kitchen, flat against the door at eye level, with a child\'s drawing or a photo held by another magnet softly blurred nearby, soft daylight' },
   { id: 'restaurant', label: 'Restaurant table', icon: 'fork', scene: 'on a table in a stylish restaurant or café, with a plate, a glass and cutlery softly blurred around it, warm ambient light and bokeh from the room behind' },
@@ -41,7 +47,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'flatlay', label: 'Flat lay', icon: 'grid', scene: 'a top-down flat lay on a light linen or concrete surface, neatly styled with a few small related props around it (leaves, a notebook, a coffee cup), soft even daylight' },
 ];
 /** How many scenes show before "More scenes". */
-export const MAIN_SCENES = 9;
+export const MAIN_SCENES = 12;
 export const CUSTOM_SCENE = 'custom';
 export const MAX_SCENE_CHARS = 600;
 export const MAX_NOTES_CHARS = 600;
@@ -52,8 +58,13 @@ export const sceneById = (id: string) => PHOTO_SCENES.find((s) => s.id === id);
 export function suggestScene(text: string, size?: Vec3): string {
   const t = text.toLowerCase();
   const has = (...words: string[]) => words.some((w) => new RegExp(`\\b${w}(e?s)?\\b`).test(t));
+  const onWall = has('wall', 'plaque', 'frame', 'poster', 'painting', 'layertone', 'lithophane', 'line ?art', 'key ?holder', 'portrait', 'sign', 'clock', 'hook', 'hanger', 'mount');
+  if (has('christmas', 'xmas', 'cr[aă]ciun', 'santa', 'reindeer', 'snowman', 'snowflake', 'bauble', 'advent', 'nativity', 'gingerbread')) {
+    if (has('ornament', 'bauble', 'snowflake', 'decoration')) return 'xmas-tree';
+    return onWall ? 'xmas-wall' : 'xmas-gifts';
+  }
   if (has('fridge', 'refrigerator', 'fridge magnet')) return 'fridge';
-  if (has('wall', 'plaque', 'frame', 'poster', 'painting', 'layertone', 'lithophane', 'line ?art', 'key ?holder', 'portrait', 'sign', 'clock', 'hook', 'hanger', 'mount')) return 'wall';
+  if (onWall) return 'wall';
   if (has('kitchen', 'spice', 'utensil', 'cutlery', 'egg', 'bottle', 'jar', 'lid', 'cookie', 'bag clip', 'sponge', 'knife')) return 'kitchen';
   if (has('desk', 'pen', 'pencil', 'organi[sz]er', 'cable', 'headphone', 'monitor', 'laptop', 'keyboard', 'phone stand', 'card holder', 'business card', 'office')) return 'office';
   if (has('plant', 'pot', 'planter', 'vase', 'succulent', 'book', 'figurine', 'statue', 'bust', 'ornament', 'sculpture')) return 'shelf';
@@ -155,6 +166,7 @@ export function photoPrompt(b: PhotoRequest): string {
   const notes = b.notes?.trim();
   const [x, y, z] = b.product.size;
   const wall = !!preset?.wall;
+  const hang = !!preset?.hang;
   const faceOn = !!b.product.faceOn;
   // A flat print shown face-on: its face and thickness; otherwise the box as printed.
   const size = faceOn
@@ -176,9 +188,9 @@ export function photoPrompt(b: PhotoRequest): string {
     '- the same shape, outline, proportions and thickness; every hole, edge, cut-out, relief and detail in the same place',
     '- the same colours on the same areas',
     '- any text, numbers, logos or patterns on it copied exactly from the render: the same typeface, letter shapes, stroke widths, spacing and position, letter for letter (never retyped in another font)',
-    '- do not add, remove, move, mirror, bend or redesign any part; add nothing to it (no hardware, cords, stands, labels or decorations that are not in the render)',
-    wall
-      ? `- ${faceOn ? 'the render shows its front face; ' : ''}it hangs flat on the wall with this face to the viewer, upright, photographed from almost straight in front, so the face reads exactly as in the render`
+    `- do not add, remove, move, mirror, bend or redesign any part; add nothing to it (no hardware, cords, stands, labels or decorations that are not in the render${hang ? ' – only the thin ribbon it hangs from' : ''})`,
+    wall || hang
+      ? `- ${faceOn ? 'the render shows its front face; ' : ''}it hangs ${wall ? 'flat on the wall ' : ''}with this face to the viewer, upright, photographed from almost straight in front, so the face reads exactly as in the render`
       : '- keep it in the same orientation and seen from about the same angle as in the render, so no unseen side has to be invented',
     '- the grey background of the render is not part of the product: replace it completely with the scene',
     '',
@@ -193,6 +205,8 @@ export function photoPrompt(b: PhotoRequest): string {
     preset && notes ? `Also: ${notes}.` : null,
     wall
       ? 'It hangs flat against the wall, its back touching it, with a soft contact shadow, in light that matches the surroundings.'
+      : hang
+      ? 'It hangs freely from the branch on a thin red ribbon threaded through its own hanging hole or loop (tied around its top if it has none), straight down under its own weight, turned to face the camera, in light that matches the surroundings.'
       : 'It rests ON the surface, not above it: its underside in full contact with the table or shelf, seen in the same perspective as that surface (it lies in its plane, never tilted against it, floating or hovering), with real contact shadows right under it and light that matches the surroundings.',
     '',
     'PHOTO: a professional lifestyle product photo for an online shop listing, shot on a full-frame camera with an 85 mm lens, natural light, shallow depth of field with the product in sharp focus and the background softly blurred, the product as the clear hero of the picture, well composed with some space around it.',
