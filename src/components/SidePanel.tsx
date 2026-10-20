@@ -13,6 +13,7 @@ import type { MeshColor } from '../../shared/meshColors';
 import { SvgPanel } from './SvgPanel';
 import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
+import { LineArtPanel, lineArtPart } from './LineArtPanel';
 import type { LayerToneImage, LayerToneSetup } from '../../shared/layertone';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
@@ -124,8 +125,9 @@ export function SidePanel(p: Props) {
   const decorations = p.textFeatures.length + p.svgFeatures.length;
   const layerTonePart = findLayerTonePart(shown);
   const lithoPart = lithophanePart(shown);
-  // Four tabs, each with two sections one under the other (a LayerTone print or a lithophane adds
-  // its own on top of the Print tab).
+  const lineArt = lineArtPart(shown);
+  // Four tabs, each with two sections one under the other (a LayerTone print, a lithophane or line
+  // art adds its own on top of the Print tab).
   const tabs: [Tab, React.ReactNode][] = [
     ['object', <><Icon name="cube" size={14} /> Object{hiddenCount ? <span className="count" aria-label={`${hiddenCount} parts hidden`}>{shown!.parts.length - hiddenCount}/{shown!.parts.length}</span> : null}</>],
     ['decorate', <><Icon name="shapes" size={14} /> Text &amp; SVG{decorations ? <span className="count" aria-label={`${decorations} texts and drawings`}>{decorations}</span> : null}</>],
@@ -177,6 +179,7 @@ export function SidePanel(p: Props) {
           {shown && <OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />}
           {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
+          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} values={p.values} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
             : noModel('Print settings appear once a model is generated.')))}
