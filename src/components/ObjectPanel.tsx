@@ -71,7 +71,7 @@ export function ObjectPanel(p: Props) {
                   : (
                     // Its filament: the picker changes it (the 3D view, the 3MF and the cost follow).
                     <span className="swatch-pick">
-                      <button className={`swatch ${p.partColors[part.name] ? 'picked' : ''}`} style={{ background: part.color }} aria-label={`Filament of ${part.name}`}
+                      <button className={`swatch ${p.partColors[part.name] ? 'picked' : ''}`} style={{ background: p.partColors[part.name]?.color ?? part.scriptColor ?? part.color }} aria-label={`Filament of ${part.name}`}
                         title={`${p.partColors[part.name]?.name ? `${p.partColors[part.name].brand ? `${p.partColors[part.name].brand} ` : ''}${p.partColors[part.name].name} – ` : ''}click to choose the filament it prints with`}
                         onClick={(e) => { trigger.current = e.currentTarget; setPicking(picking === part.name ? null : part.name); }} />
                     </span>

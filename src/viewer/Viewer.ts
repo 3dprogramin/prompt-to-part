@@ -370,6 +370,16 @@ export class Viewer {
     }
   }
 
+  /**
+   * Parts shown in other colours right away (a filament picked in the Object tab, or reset), while
+   * the rebuild that brings them runs; null shows the colours the parts were built with.
+   */
+  previewColors(colors: Record<string, string> | null) {
+    this.colorPreview = colors;
+    this.applyOptions();
+  }
+  private colorPreview: Record<string, string> | null = null;
+
   setOptions(opts: ViewerOptions) {
     const orthoChanged = opts.ortho !== this.opts.ortho;
     const measureChanged = opts.measure !== this.opts.measure;
@@ -394,7 +404,8 @@ export class Viewer {
       group.visible = !hiddenParts.includes(group.name);
       // Part colours (or the one filament of a print in one colour), or one neutral colour to judge the bare shape.
       const [front, back] = group.children as THREE.Mesh[];
-      const base = single ?? (front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
+      const preview = !front.userData.perVertex && this.colorPreview?.[group.name];
+      const base = single ?? (preview ? new THREE.Color(preview) : front.userData.color as THREE.Color | undefined) ?? NEUTRAL;
       if (front.userData.perVertex) {
         (front.material as THREE.MeshStandardMaterial).vertexColors = colors && !single;
         (back.material as THREE.MeshBasicMaterial).vertexColors = colors && !single;

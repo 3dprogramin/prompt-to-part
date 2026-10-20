@@ -340,6 +340,19 @@ export default function App() {
     return { part: part.name, layers: part.layerColors.map((l, i) => ({ ...l, color: want[i].color, td: want[i].td, name: want[i].name, brand: want[i].brand })) };
   }, [result, lastGood, design.values[LAYERTONE_KEY]]);
 
+  // A filament picked (or reset) in the Object tab shows at once, in the 3D view and the swatch,
+  // until the rebuild that brings it arrives: the part's colour as it should be now.
+  const partColorsNow = useMemo(() => parsePartColors(design.values[PART_COLORS_KEY]), [design.values[PART_COLORS_KEY]]);
+  const previewColors = useMemo(() => {
+    const parts = (result ?? lastGood)?.parts ?? [];
+    const out: Record<string, string> = {};
+    for (const part of parts) {
+      if (part.paint || part.layerColors || part.lithophane) continue;
+      const want = partColorsNow[part.name]?.color ?? part.scriptColor ?? part.color;
+      if (want.toLowerCase() !== part.color.toLowerCase()) out[part.name] = want;
+    }
+    return Object.keys(out).length ? out : null;
+  }, [result, lastGood, partColorsNow]);
   const setLayerTone = (setup: LayerToneSetup | null) => setDesign((d) => {
     const values = { ...d.values };
     if (setup) values[LAYERTONE_KEY] = JSON.stringify(setup); else delete values[LAYERTONE_KEY];
@@ -1236,6 +1249,7 @@ export default function App() {
           costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}
           result={playback ? playback.result : result ?? lastGood}
           recolor={playback ? null : recolor}
+          previewColors={previewColors}
           error={error}
           busy={busy}
           fitKey={fitKey}

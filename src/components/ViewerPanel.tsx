@@ -11,6 +11,8 @@ interface Props {
   result: EvalResult | null;
   /** A LayerTone part shown with other filaments until its rebuild arrives (Viewer.recolor). */
   recolor?: { part: string; layers: LayerColor[] } | null;
+  /** Parts shown in other colours until the rebuild arrives (Viewer.previewColors): part → #rrggbb. */
+  previewColors?: Record<string, string> | null;
   error: ScriptErrorInfo | null;
   busy: boolean;
   fitKey: string;
@@ -65,7 +67,7 @@ const f2 = (n: number) => n.toFixed(2);
 /** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
 const touch = window.matchMedia('(pointer: coarse)').matches;
 
-export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
+export function ViewerPanel({ costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -178,6 +180,7 @@ export function ViewerPanel({ costStatus, result, recolor, error, busy, fitKey, 
     viewer.current?.setModel(result, fit);
   }, [result, fitKey]);
   useEffect(() => { viewer.current?.recolor(recolor?.part ?? null, recolor?.layers ?? null); }, [recolor, result]);
+  useEffect(() => { viewer.current?.previewColors(previewColors ?? null); }, [previewColors, result]);
 
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
   useEffect(() => { viewer.current?.setRepaint(repaint ?? null); }, [repaint]);

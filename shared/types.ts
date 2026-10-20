@@ -113,6 +113,8 @@ export interface PartMesh {
   layerTone?: LayerToneSource;
   /** Lithophane part (H.lithophane): the picture and options it was built with (lengths scaled with the part), for simulateLithophane. */
   lithophane?: LithophaneSource;
+  /** The script's colour, when the user picked another filament for the part (PART_COLORS_KEY). */
+  scriptColor?: string;
   /** Line-art part (H.lineart): its style, drawings, size and what Jig fixed (bridges, dropped specks). */
   lineArt?: LineArtInfo;
   /**

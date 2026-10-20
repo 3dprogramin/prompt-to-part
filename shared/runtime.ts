@@ -390,14 +390,18 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
           warnings.push(`SVG feature failed: ${(e as Error).message}`);
         }
       }
-      // A filament the user picked for this part (Object tab) wins over the script's colour.
-      color = (!layerColors && !lithophane && partColors[name]?.color) || color || PALETTE[i % PALETTE.length];
+      // A filament the user picked for this part (Object tab) wins over the script's colour (kept
+      // as scriptColor, so the app shows it at once when the pick is reset).
+      const scriptColor = color || PALETTE[i % PALETTE.length];
+      const picked = (!layerColors && !lithophane && partColors[name]?.color) || '';
+      color = picked || scriptColor;
+      const keepScript = picked && picked !== scriptColor.toLowerCase() ? { scriptColor } : {};
       const st = shape.status();
       if (st !== 'NoError') warnings.push(`Part "${name}" has status ${st}`);
       if (shape.isEmpty()) { warnings.push(`Part "${name}" is empty`); return; }
       if (opts.lite) {
         const bb = shape.boundingBox();
-        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}) });
+        parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...keepScript });
         return;
       }
       const mesh = shape.getMesh();
@@ -426,6 +430,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         ...(layerTone ? { layerTone } : {}),
         ...(lithophane ? { lithophane, ...(litColors ? { vertexColors: litColors } : {}) } : {}),
         ...(lineArt ? { lineArt } : {}),
+        ...keepScript,
         ...(paint ? { paint } : {}),
       });
     });
