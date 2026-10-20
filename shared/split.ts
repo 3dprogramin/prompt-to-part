@@ -442,10 +442,10 @@ export function keepTogether(o: { g: SplitGrid; ink: Uint8Array; anchor: Uint8Ar
     let gr = groups.get(r);
     if (!gr) groups.set(r, gr = { cell: c.cell, n: 0, anchored: false, comps: [], box: [Infinity, Infinity, -Infinity, -Infinity] });
     gr.n += c.pixels.length; gr.anchored ||= c.anchored; gr.comps.push(l);
-    for (const i of c.pixels) {
-      const x = g.x0 + (i % w) * px, y = g.y1 - ((i / w) | 0) * px;
-      gr.box = [Math.min(gr.box[0], x), Math.min(gr.box[1], y - px), Math.max(gr.box[2], x + px), Math.max(gr.box[3], y)];
-    }
+    let [i0, j0, i1, j1] = [w, h, -1, -1];
+    for (const i of c.pixels) { const x = i % w, y = (i / w) | 0; if (x < i0) i0 = x; if (x > i1) i1 = x; if (y < j0) j0 = y; if (y > j1) j1 = y; }
+    const b = gr.box;
+    gr.box = [Math.min(b[0], g.x0 + i0 * px), Math.min(b[1], g.y1 - (j1 + 1) * px), Math.max(b[2], g.x0 + (i1 + 1) * px), Math.max(b[3], g.y1 - j0 * px)];
   }
   // Each piece's main part: the one on the bar or frame, else the biggest.
   const mains = new Map<number, number>();
