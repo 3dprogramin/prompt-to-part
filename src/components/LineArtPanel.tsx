@@ -160,7 +160,7 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
               <li key={p.label} className={over(p) ? 'warn' : ''}>
                 <b className="mono">{p.label}</b>
                 <span className="mono">{p.size[0].toFixed(0)} × {p.size[1].toFixed(0)} mm</span>
-                <span className="dim">{[p.joints ? `${p.joints} dovetail${p.joints > 1 ? 's' : ''}` : '', p.labelSize ? 'name on the back' : 'no room for its name'].filter(Boolean).join(' · ')}</span>
+                <span className="dim">{[p.joints ? `${p.joints} dovetail${p.joints > 1 ? 's' : ''}` : '', p.labelSize ? 'named' : 'unnamed (no room)'].filter(Boolean).join(' · ')}</span>
               </li>
             ))}
           </ul>
