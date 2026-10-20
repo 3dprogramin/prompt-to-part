@@ -6,12 +6,13 @@ import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
-import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, paintPrompt, picturePrompt, requestImage } from './artwork';
+import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, lineArtPrompt, paintPrompt, picturePrompt, requestImage, traceLineArt } from './artwork';
+import { LINE_ART_STYLE_INFO, LINE_ART_STYLES, type LineArtStyle } from '../shared/lineart';
 import { checkSwaps, cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, toLayerToneImage, type LayerToneSetup } from '../shared/layertone';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
 interface AiImages { references: string[]; signal?: AbortSignal }
-import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
+import { DRAWINGS_KEY, MAX_DRAWINGS, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../shared/svgFeatures';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../shared/meshes';
 import { forgetBalance, generateMeshyModel, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, type MeshyClient } from './meshy';
 import { readMyFilaments } from './myFilaments';
@@ -40,15 +41,20 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * Meshy make 3D models (generate_3d, at most meshyMaxPerReply() per reply) and, with `concepts`,
  * have a concept picture drawn first for the user to approve (generate_concept); `color` (the user
  * turned on Colour) makes figures coloured by default (a textured model, printed in up to 4 filaments).
+ * With `lineArt` (Line art mode, or a line-art design), Claude can trace an attached picture that
+ * already is line art (trace_line_art) and, with its `pictures`, have the image model draw some
+ * (generate_line_art); both store a drawing for H.lineart.
  */
 export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: {
   artwork?: AiImages; pictures?: AiImages; layerTone?: boolean; lithophane?: boolean;
   /** 3D models from Meshy (generate_3d), stored with this design; `concepts`: the image model can draw concept pictures for them. */
   meshy?: AiImages & { client: MeshyClient; designId: string; concepts?: boolean; color?: boolean };
+  /** Line art: the menu's style (generate_line_art's default) and whether the image model can draw (`pictures`); `references` are the attached images, traced or drawn from. */
+  lineArt?: AiImages & { style: LineArtStyle; pictures: boolean };
   /** The image model (replaceable in tests). */
   image?: typeof requestImage;
 } = {}) {
-  const { artwork, pictures, layerTone, lithophane, meshy } = extra;
+  const { artwork, pictures, layerTone, lithophane, meshy, lineArt } = extra;
   const drawImage = extra.image ?? requestImage;
   // What generate_picture's pictures are for.
   const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.layertone', what: 'a LayerTone filament painting (H.layertone)' };
@@ -61,6 +67,14 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   const newUserMessage = () => { state.meshyCalls = 0; state.newConcepts.clear(); };
   const readModel = async () => {
     try { return await readFile(file, 'utf8'); } catch { return null; }
+  };
+  // A traced line-art drawing: kept for every check and render from now on, and by the app with the design.
+  const storeLineArt = (name: string, traced: { drawing: SvgDrawing; points: number }) => {
+    if (traced.points > MAX_SVG_POINTS) throw new Error(`The drawing is too detailed to keep (${traced.points.toLocaleString('en')} points, at most ${MAX_SVG_POINTS.toLocaleString('en')}): ask for a simpler drawing with fewer, bolder lines.`);
+    const drawings = parseDrawings(base[DRAWINGS_KEY]);
+    if (!drawings[name] && Object.keys(drawings).length >= MAX_DRAWINGS) throw new Error(`This design already has ${MAX_DRAWINGS} drawings (${Object.keys(drawings).join(', ')}): reuse one of the names to replace it.`);
+    base[DRAWINGS_KEY] = JSON.stringify({ ...drawings, [name]: traced.drawing });
+    emit({ type: 'drawing', name, drawing: traced.drawing });
   };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
   // Code of model.js at the last successful render: submit requires the current file to have been looked at.
@@ -204,6 +218,59 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           };
         } catch (e) {
           emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Artwork: ${(e as Error).message}` } });
+          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+        }
+      })] : []),
+      ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in Jig's house style – bold, even, black lines on white that join into one piece – traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
+        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "bike-and-car"; an existing name is replaced'),
+        subject: z.string().min(10).max(2000).describe('What to draw: the subject(s), left to right, their view and pose – be specific (e.g. "a sport motorbike on the left and a 1967 Ford Mustang fastback on the right, both in side view facing right")'),
+        style: z.enum(LINE_ART_STYLES).optional().describe(`The piece it is drawn for, which sets the composition (default "${lineArt.style}", the user's menu): ${LINE_ART_STYLES.map((s) => `${s} = ${LINE_ART_STYLE_INFO[s].desc.toLowerCase()}`).join('; ')}`),
+        aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 16:9 for keyholder, sign and stand, else 1:1); 16:9 or 21:9 for a key holder with several subjects side by side, 3:4 or 4:5 for a standing figure'),
+        look: z.string().max(400).optional().describe('A different line style, only when the user asks for one (e.g. "thin elegant single-line drawing", "bold comic outlines")'),
+        use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (their own car, bike, pet or person)'),
+      }, async (a) => {
+        if (a.use_attached_photos && !lineArt.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
+        const style = a.style ?? lineArt.style;
+        const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
+        status(`Drawing line art "${a.name}" with ${imageModel()}…`);
+        try {
+          const references = a.use_attached_photos ? lineArt.references : undefined;
+          const prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look });
+          const { image, model, cost } = await drawImage(prompt, a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), references, lineArt.signal, status);
+          const traced = traceLineArt(decodeImage(Buffer.from(image.data, 'base64')), a.name);
+          storeLineArt(a.name, traced);
+          emit({ type: 'step', step: {
+            kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
+            text: `Line art "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
+            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nTraced for H.lineart (${traced.points.toLocaleString('en')} points).`,
+          } });
+          return {
+            content: [
+              { type: 'image', data: image.data, mimeType: image.mediaType },
+              { type: 'text', text: `${lineArtReady(a.name, traced.drawing.aspect, style)} Look at the picture: if it isn't one connected drawing (loose details, a broken outline) or the subject is wrong, call generate_line_art again with a better subject.` },
+            ],
+          };
+        } catch (e) {
+          if (lineArt.signal?.aborted) throw e;
+          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Line art: ${(e as Error).message}` } });
+          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+        }
+      })] : []),
+      ...(lineArt ? [tool('trace_line_art', 'Trace a picture the user attached that already IS line art (dark lines on a white background: a drawing, a scan, a design from their shop) into a drawing for H.lineart, exactly as it is – no image model, free. Not for a photo of a real subject (that needs generate_line_art with use_attached_photos to be redrawn as line art) or an attached SVG (already a drawing: use H.lineart with it directly).', {
+        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "woman"; an existing name is replaced'),
+        image: z.number().int().min(1).max(8).describe('Which attached image, 1 = the first the user attached to this message'),
+      }, async (a) => {
+        const url = lineArt.references[a.image - 1];
+        if (!url) return { content: [{ type: 'text', text: lineArt.references.length ? `The user attached ${lineArt.references.length} image${lineArt.references.length > 1 ? 's' : ''} to this message: image must be 1–${lineArt.references.length}.` : 'The user attached no images to this message.' }], isError: true };
+        try {
+          const m = /^data:image\/(png|jpeg);base64,(.+)$/s.exec(url);
+          if (!m) throw new Error(`Attached image ${a.image} isn't a PNG or JPEG picture, the only kinds Jig can trace.`);
+          const traced = traceLineArt(decodeImage(Buffer.from(m[2], 'base64')), a.name);
+          storeLineArt(a.name, traced);
+          emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Traced attached image ${a.image} as line art "${a.name}" (${traced.points.toLocaleString('en')} points)` } });
+          return { content: [{ type: 'text', text: lineArtReady(a.name, traced.drawing.aspect, lineArt.style) }] };
+        } catch (e) {
+          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Line art: ${(e as Error).message}` } });
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       })] : []),
@@ -509,4 +576,12 @@ function oneLine(r: { ok: true; bbox: { min: number[]; max: number[] } | null; t
   const size = b ? `${(b.max[0] - b.min[0]).toFixed(1)} × ${(b.max[1] - b.min[1]).toFixed(1)} × ${(b.max[2] - b.min[2]).toFixed(1)} mm` : 'empty';
   const tris = r.parts.reduce((s, p) => s + p.triCount, 0);
   return `${size} · ${r.parts.length} part(s) · ${tris.toLocaleString()} tris · ${Math.round(r.timeMs)} ms`;
+}
+
+/** Line-art styles whose drawing stands on a bar or base: their subjects share one ground line. */
+const BAR_STYLES = new Set<LineArtStyle>(['keyholder', 'sign', 'stand']);
+
+/** What Claude is told when a line-art drawing is stored. */
+function lineArtReady(name: string, aspect: number, style: LineArtStyle) {
+  return `Line art "${name}" is ready for H.lineart("${name}", { style: '${style}', width, thickness, lineWidth, … }) (${aspect.toFixed(3)} times as wide as high; its white is open). Check the piece with render_model: the report's line-art line says how many bridges Jig had to add and how many specks it dropped.`;
 }
