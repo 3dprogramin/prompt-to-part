@@ -188,7 +188,7 @@ export function SidePanel(p: Props) {
           {shown && <OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />}
           {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
-          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} values={p.values} onEdits={p.onLineArtEdits} onEdit={p.onEditLineArt} />)}
+          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onEdit={p.onEditLineArt} onValue={p.onValue} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
             : noModel('Print settings appear once a model is generated.')))}

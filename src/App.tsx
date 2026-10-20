@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
+import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamDef, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
 import { parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY, type PartFilament } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
 import { findLayerTonePart } from './components/LayerTonePanel';
-import { LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
+import { LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SPLIT_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
@@ -27,7 +27,7 @@ import { TopBar } from './components/TopBar';
 import { LayoutTabs, type LayoutTab } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
 import { LineArtEditor } from './components/LineArtEditor';
-import { lineArtPart } from './components/LineArtPanel';
+import { assembledLineArt, lineArtPart } from './components/LineArtPanel';
 import { PhotosPanel, usePhotoJobs } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
@@ -792,10 +792,17 @@ export default function App() {
       return { ...d, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };
-  const layoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
+  // The layout parameter (print / assembled / exploded). A line art split into pieces whose script
+  // has none keeps its layout in a design value (LINEART_LAYOUT_KEY) that H.lineart reads.
+  const shownLineArt = lineArtPart(shown);
+  const splitArt = !!shownLineArt?.lineArt.split;
+  // The editor draws on the whole piece: a split one put back together.
+  const editorPart = useMemo(() => (editingLineArt ? assembledLineArt(shown) : undefined), [editingLineArt, shown]);
+  const scriptLayoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
+  const layoutKey = scriptLayoutKey ?? (splitArt ? LINEART_LAYOUT_KEY : undefined);
   const canAssemble = !!layoutKey && !!shown?.assembly.length;
   // The layout option that lays the parts out for printing ('print', or the first that isn't a view).
-  const layoutDef = layoutKey ? shown?.params[layoutKey] : undefined;
+  const layoutDef: ParamDef | undefined = scriptLayoutKey ? shown?.params[scriptLayoutKey] : layoutKey ? LINEART_LAYOUT_PARAM : undefined;
   const printLayout = layoutDef?.type === 'select'
     ? (layoutDef.options.find((o) => o.value === 'print') ?? layoutDef.options.find((o) => o.value !== 'assembled' && o.value !== 'exploded'))?.value
     : undefined;
@@ -828,7 +835,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  const layoutValue = layoutKey ? String(design.values[layoutKey] ?? shown?.values[layoutKey] ?? '') : undefined;
+  const layoutValue = layoutKey ? String(design.values[layoutKey] ?? shown?.values[layoutKey] ?? layoutDef?.value ?? '') : undefined;
 
   const onValidate = async () => {
     if (!design.code || !shown) return;
@@ -851,8 +858,8 @@ export default function App() {
       const base: ParamValues = fullValues();
       const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality, { display: true });
       if (!a.result || !a.result.assembly.length) return;
-      const def = shown.params[layoutKey];
-      const hasExploded = def.type === 'select' && def.options.some((o) => o.value === 'exploded');
+      const def = layoutDef;
+      const hasExploded = def?.type === 'select' && def.options.some((o) => o.value === 'exploded');
       const e = hasExploded ? (await geo.evaluate(design.code, { ...base, [layoutKey]: 'exploded' }, quality)).result : undefined;
       const center = (b: { min: number[]; max: number[] }) => [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
       const size = a.result.bbox ? Math.max(...[0, 1, 2].map((k) => a.result!.bbox!.max[k] - a.result!.bbox!.min[k])) : 50;
@@ -1306,9 +1313,10 @@ export default function App() {
           notice={notice}
           onNoticeDetails={() => { setValidationOpen(true); setNotice(null); }}
           onNoticeClose={() => setNotice(null)}
-          layout={layoutKey && shown && shown.params[layoutKey].type === 'select' ? {
-            value: String(design.values[layoutKey] ?? shown.values[layoutKey]),
-            options: (shown.params[layoutKey] as { options: { value: string; label: string }[] }).options,
+          // A line art in one piece looks the same in every layout.
+          layout={layoutKey && shown && layoutDef?.type === 'select' && (!shownLineArt || splitArt) ? {
+            value: String(design.values[layoutKey] ?? shown.values[layoutKey] ?? layoutDef.value),
+            options: layoutDef.options,
           } : null}
           onLayout={(v) => layoutKey && onValue(layoutKey, v)}
           emptyState={generating
@@ -1378,9 +1386,9 @@ export default function App() {
           onSelectPart={setSelectedPart}
         />
       </main>
-      {editingLineArt && lineArtPart(shown) && (
+      {editingLineArt && editorPart && (
         <LineArtEditor
-          part={lineArtPart(shown)!}
+          part={editorPart}
           values={design.values}
           busy={busy}
           error={error?.message ?? null}
@@ -1406,10 +1414,13 @@ function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
 }
 
-/** The design's pictures, meshes, concept pictures, LayerTone setup and line-art hand edits, for the server (undefined when there are none). */
+/** The layouts of a line art split into pieces, when its script has no layout parameter (LINEART_LAYOUT_KEY). */
+const LINEART_LAYOUT_PARAM: ParamDef = { type: 'select', label: 'Layout', value: 'print', options: LINEART_LAYOUTS.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) };
+
+/** The design's pictures, meshes, concept pictures, LayerTone setup and line-art hand edits and split, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, LINEART_LAYOUT_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 

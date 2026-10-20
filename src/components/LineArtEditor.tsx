@@ -24,6 +24,8 @@ const SNAP_PX = 10;
 const INK = '#141414';
 const RAISED = ['#3a3d42', '#6a6e75'];
 const ERASE = 'rgba(229, 103, 95, 0.5)';
+/** The seams of a piece split into pieces. */
+const SEAM = '#2f80d1';
 const PAPER = '#fff';
 /** The hit-test grid: this many mm per cell at least, and at most this many cells. */
 const MASK_RES = 0.05;
@@ -125,6 +127,9 @@ interface Props {
 export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: Props) {
   const layout = useLayoutMode();
   const la = part.lineArt;
+  // A piece split into pieces: its seams, shown (read-only) over it.
+  const seams = useRef(la.split?.seams ?? []);
+  seams.current = la.split?.seams ?? [];
   const saved = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
   // The edits as they will be saved: the saved ones as the editor opened, and this session's changes.
   const [edits, setEdits] = useState<LineArtEdits>(saved);
@@ -243,8 +248,18 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     };
     for (const st of n.shown) stroke(st);
     if (a.mode === 'draw' && a.points.length) stroke({ mode: n.tool, width: n.width, points: livePoints(), live: true });
-    // Screen-sized marks: where a line will snap to, and the brush.
+    // Screen-sized marks: the seams of a piece split into pieces (where it is cut), where a line will snap to, and the brush.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const seamLook: [string, number, number[]][] = [['#ffffffd0', 3.5, []], [SEAM, 1.5, [7, 5]]];
+    for (const [color, lw, dash] of seamLook) {
+      ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.setLineDash(dash);
+      for (const sm of seams.current) {
+        ctx.beginPath();
+        sm.points.forEach((p, i) => { const [x, y] = toScreen(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
     const ring = (p: Pt, r: number, color: string, lw: number) => { const [x, y] = toScreen(p); ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.stroke(); };
     const snaps = a.mode === 'draw' ? [a.startSnap, a.endSnap] : [hover.current.show ? hover.current.snap : null];
     for (const p of snaps) if (p) { ring(p, 6, '#fff', 4); ring(p, 6, '#e0a43c', 2); }
