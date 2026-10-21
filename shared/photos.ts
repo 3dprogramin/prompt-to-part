@@ -376,7 +376,7 @@ function saleSizeProblem(b: PhotoRequest): string | null {
 }
 
 /** "1.5x", "0.67x" */
-const times = (r: number) => `${r >= 10 ? Math.round(r) : +r.toFixed(2)}x`;
+const timesX = (r: number) => `${r >= 10 ? Math.round(r) : +r.toFixed(2)}x`;
 
 /** A size as the photo prompt says it: a flat print face-on by its face and thickness. */
 const sizeWords = (s: Vec3, faceOn: boolean) => (faceOn
@@ -393,7 +393,7 @@ function ratioWords(now: Vec3, was: Vec3, faceOn: boolean): string {
   if (!changed.length) return 'the same size as in the earlier photo';
   // "1.5x as wide and as tall" when the axes change alike.
   const groups = new Map<string, string[]>();
-  for (const [w, r] of changed) groups.set(times(r), [...(groups.get(times(r)) ?? []), w]);
+  for (const [w, r] of changed) groups.set(timesX(r), [...(groups.get(timesX(r)) ?? []), w]);
   const said = [...groups].map(([t, ws]) => `${t} as ${ws.join(' and as ')}`).join(', and ');
   return `${said} as in the earlier photo${same.length ? ` (just as ${same.join(' and ')} as before)` : ''}`;
 }
@@ -431,7 +431,7 @@ export function sizeVariantPrompt(b: PhotoRequest): string {
   const ref = sizeReference(b);
   const area = (s: Vec3) => s[0] * s[1] * (faceOn ? 1 : s[2]);
   const bigger = area(now) >= area(base.size);
-  const refLine = ref && `${ref.sure ? 'In' : 'If the earlier photo shows a light switch: in'} the earlier photo the product was ${times(ref.measure(base.size) / ref.mm)} as ${ref.dim} as ${ref.what}; now it is ${times(ref.measure(now) / ref.mm)} as ${ref.dim} as it. The ${ref.what.split(' (')[0].replace('the ', '')} stays exactly the same size in the picture.`;
+  const refLine = ref && `${ref.sure ? 'In' : 'If the earlier photo shows a light switch: in'} the earlier photo the product was ${timesX(ref.measure(base.size) / ref.mm)} as ${ref.dim} as ${ref.what}; now it is ${timesX(ref.measure(now) / ref.mm)} as ${ref.dim} as it. The ${ref.what.split(' (')[0].replace('the ', '')} stays exactly the same size in the picture.`;
   return [
     photoPrompt({ ...b, notes: undefined }),
     '',
