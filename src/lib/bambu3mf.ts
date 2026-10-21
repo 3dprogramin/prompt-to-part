@@ -9,8 +9,54 @@ import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import { CONTENT_TYPES, esc, num } from './threeMf';
 
-/** Rough prime-tower depth per filament (mm), measured with Bambu Studio's slicer on the A1. */
-const TOWER_DEPTH_PER_FILAMENT = 12;
+/**
+ * The prime tower's footprint, measured with Bambu Studio 2.8's slicer on the A1 (its rib-wall
+ * tower, the same at any print height): a square from 3.2 mm before its wipe_tower_x/y, 31 mm
+ * across for two filaments and 7.5 mm more for each further one.
+ */
+const towerSize = (filaments: number) => 31 + 7.5 * (filaments - 2);
+const TOWER_LEAD = 3.2;
+/** Space kept between the prime tower and the model (the model's brim fits in it), the smaller one only when the bigger doesn't fit. */
+const TOWER_GAPS = [10, 5];
+
+/**
+ * Where the prime tower goes on a plate (its wipe_tower_x/y): beside the model, by one of its
+ * corners (the back ones first), as the template's spot near the bed's edge collides with a big
+ * model ("G-code conflicts"). `model` is the plate's parts' footprint; null when nothing fits.
+ */
+function towerSpot(model: { min: number[]; max: number[] }, filaments: number, bed: [number, number]): [number, number] | null {
+  const s = towerSize(filaments) + 1;
+  const [x0, y0] = model.min, [x1, y1] = model.max;
+  for (const g of TOWER_GAPS) {
+    // The tower's front-left corner: left or right of the model, level with its back, then its
+    // front; then behind or in front of it, level with its left, then its right side.
+    const tries: [number, number][] = [
+      [x0 - g - s, y1 - s], [x1 + g, y1 - s], [x0 - g - s, y0], [x1 + g, y0],
+      [x0, y1 + g], [x1 - s, y1 + g], [x0, y0 - g - s], [x1 - s, y0 - g - s],
+    ];
+    const spot = tries.find(([x, y]) => x >= 0 && y >= 0 && x + s <= bed[0] && y + s <= bed[1]);
+    if (spot) return [+(spot[0] + TOWER_LEAD).toFixed(1), +(spot[1] + TOWER_LEAD).toFixed(1)];
+  }
+  return null;
+}
+
+/** Space kept between a model moved aside for the prime tower and the bed's edge. */
+const EDGE = 5;
+
+/**
+ * The prime tower's spot on a plate (wipe_tower_x/y) and how far to move the plate's parts for it:
+ * not at all when it fits beside the centred model, else to a side of the bed (right, left, back,
+ * front) to make room. Null when it doesn't fit anywhere (a model about the size of the bed).
+ */
+function placeTower(model: { min: number[]; max: number[] }, filaments: number, bed: [number, number]): { spot: [number, number]; move: [number, number] } | null {
+  const [x0, y0] = model.min, [x1, y1] = model.max;
+  const moves: [number, number][] = [[0, 0], [bed[0] - EDGE - x1, 0], [EDGE - x0, 0], [0, bed[1] - EDGE - y1], [0, EDGE - y0]];
+  for (const move of moves) {
+    const spot = towerSpot({ min: [x0 + move[0], y0 + move[1]], max: [x1 + move[0], y1 + move[1]] }, filaments, bed);
+    if (spot) return { spot, move };
+  }
+  return null;
+}
 
 const NS = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"';
 const ID = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
@@ -35,26 +81,33 @@ function objectSettings(main: Required<PrintSettings>, all: Required<PrintSettin
   return out;
 }
 
-/** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine); a LayerTone part is always its own. */
+/** The bed's width and depth (mm) from the template's printable area. */
+function bedSize(tpl: BambuTemplate): [number, number] {
+  const area = ((tpl.settings.printable_area as string[] | undefined) ?? []).map((p) => p.split('x').map(Number)).filter((p) => p.every(Number.isFinite));
+  return area.length ? [Math.max(...area.map((p) => p[0])), Math.max(...area.map((p) => p[1]))] : [PRINTER.bed[0], PRINTER.bed[1]];
+}
+
 /**
  * The build plates: parts without a plate of their own all on plate 1 (moved as one block onto it,
  * as the viewer places them), parts with one (PartMesh.plate: the pieces of a split model) each on
  * theirs. Bambu Studio lays plates out in a grid (as many columns as the square root of their
  * number, rounded up) a fifth of a bed apart; a part goes at its plate's place.
  */
-function platesOf(parts: PartMesh[], tpl: BambuTemplate): { parts: number[]; shift: [number, number, number]; name: string }[] {
+function platesOf(parts: PartMesh[], tpl: BambuTemplate): { parts: number[]; shift: [number, number, number]; name: string; footprint: { min: number[]; max: number[] } }[] {
   const ids = [...new Set(parts.map((p) => p.plate ?? 1))].sort((a, b) => a - b);
-  const area = ((tpl.settings.printable_area as string[] | undefined) ?? []).map((p) => p.split('x').map(Number)).filter((p) => p.every(Number.isFinite));
-  const bedW = area.length ? Math.max(...area.map((p) => p[0])) : PRINTER.bed[0], bedD = area.length ? Math.max(...area.map((p) => p[1])) : PRINTER.bed[1];
+  const [bedW, bedD] = bedSize(tpl);
   const cols = Math.ceil(Math.sqrt(ids.length) - 1e-9);
   return ids.map((id, k) => {
     const mine = parts.flatMap((p, i) => ((p.plate ?? 1) === id ? [i] : []));
     const [x, y, z] = bedShift(mine.map((i) => parts[i].bbox));
     const own = parts[mine[0]].plate != null && ids.length > 1;
-    return { parts: mine, shift: [x + (k % cols) * bedW * 1.2, y - Math.floor(k / cols) * bedD * 1.2, z], name: own ? mine.map((i) => parts[i].name).join(', ') : '' };
+    // Where its parts are on the plate itself (x, y), for the prime tower.
+    const footprint = { min: [0, 1].map((a) => Math.min(...mine.map((i) => parts[i].bbox.min[a])) + [x, y][a]), max: [0, 1].map((a) => Math.max(...mine.map((i) => parts[i].bbox.max[a])) + [x, y][a]) };
+    return { parts: mine, shift: [x + (k % cols) * bedW * 1.2, y - Math.floor(k / cols) * bedD * 1.2, z], name: own ? mine.map((i) => parts[i].name).join(', ') : '', footprint };
   });
 }
 
+/** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine); a LayerTone part is always its own. */
 function clusters(parts: PartMesh[]): number[][] {
   const n = parts.length, parent = parts.map((_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
@@ -224,8 +277,6 @@ export function toBambuProject(
     /** Print everything in this one filament colour (#RRGGBB): no painting, no LayerTone filament changes. */
     oneColour?: string | null;
     print: { ai: PrintProfile; user: PrintProfile } | null;
-    /** false: no prime tower (Jig's own slice for the Cost tab, where a big model collides with it). */
-    primeTower?: boolean;
   },
 ): Blob {
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
@@ -235,7 +286,7 @@ export function toBambuProject(
   const globalChanges = bambuOverrides(globalSettings, base);
   // A LayerTone print changes filament once per layer, for the whole layer: no prime tower is needed,
   // and on the A1's bed it collides with a big picture ("G-code conflicts"). Purging goes to the chute.
-  if (parts.some((p) => p.layerColors?.length) || opts.primeTower === false) globalChanges.enable_prime_tower = '0';
+  if (parts.some((p) => p.layerColors?.length)) globalChanges.enable_prime_tower = '0';
 
   // Filament slots (1-based): one per distinct colour and LayerTone filament, or a single filament.
   const plan = filamentPlan(parts, globalSettings);
@@ -246,6 +297,14 @@ export function toBambuProject(
   // Whole model moved as one onto the plate (same placement as the viewer); parts with plates of
   // their own (a big piece split into pieces) each onto theirs, centred there.
   const plates = platesOf(parts, tpl);
+  // The prime tower (bigger with every filament) beside the model on each plate, the model moved
+  // aside if it doesn't fit beside it centred. Without room for it anywhere there is none: the A1
+  // purges into its chute.
+  const n = colours.length, tower = !globalChanges.enable_prime_tower && n > 1;
+  const bed = bedSize(tpl);
+  const towers = tower ? plates.map((pl) => placeTower(pl.footprint, n, bed)) : [];
+  if (towers.some((t) => !t)) globalChanges.enable_prime_tower = '0';
+  else towers.forEach((t, k) => { plates[k].shift[0] += t!.move[0]; plates[k].shift[1] += t!.move[1]; });
 
   const files: Record<string, Uint8Array> = {};
   const resources: string[] = [], items: string[] = [], rels: string[] = [], objectCfg: string[] = [], instances: string[] = [];
@@ -288,7 +347,6 @@ export function toBambuProject(
 
   // Project settings: the user's A1 + PLA + 0.20 Standard, with one filament per colour.
   const settings: Record<string, unknown> = structuredClone(tpl.settings);
-  const n = colours.length;
   for (const k of tpl.perFilament) {
     const v = settings[k];
     if (Array.isArray(v) && v.length) settings[k] = Array(n).fill(v[0]);
@@ -297,13 +355,10 @@ export function toBambuProject(
   settings.filament_colour = colours;
   settings.filament_self_index = colours.map((_, i) => String(i + 1));
   settings.filament_map = colours.map(() => '1');
-  // The prime tower gets deeper with every filament; the template's spot near the back edge only
-  // fits three (y = 220 on the 256 mm bed fails to slice with four). Move it forward so its
-  // estimated depth stays on the bed.
-  const bedY = Math.max(0, ...((tpl.settings.printable_area as string[] | undefined) ?? []).map((p) => Number(p.split('x')[1])).filter(Number.isFinite));
-  const towerY = Number((settings.wipe_tower_y as string[] | undefined)?.[0]);
-  const maxTowerY = bedY - 5 - TOWER_DEPTH_PER_FILAMENT * n;
-  if (n > 1 && bedY > 0 && Number.isFinite(towerY) && towerY > maxTowerY) settings.wipe_tower_y = [String(Math.max(0, Math.floor(maxTowerY)))];
+  if (tower && towers.every(Boolean)) {
+    settings.wipe_tower_x = towers.map((t) => String(t!.spot[0]));
+    settings.wipe_tower_y = towers.map((t) => String(t!.spot[1]));
+  }
   // Purge volumes between filaments: an n × n matrix (nothing on the diagonal) and two values per
   // filament; the slicer refuses a project whose matrix has a different size.
   const purge = (tpl.settings.flush_volumes_matrix as string[] | undefined)?.find((v) => v !== '0') ?? '280';

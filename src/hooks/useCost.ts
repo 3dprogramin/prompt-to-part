@@ -74,7 +74,7 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
       gotTemplate(tpl);
       const colour = single ? oneColourFilament(parts, single).colour : null;
       const colours = colour ? 1 : new Set(parts.map((p) => p.color.toLowerCase())).size;
-      const project = await buildProject({ kind: 'bambu', parts, title: o.result.meta.name || d.name, tpl, opts: { oneColour: colour, print: { ai: o.result.print, user }, primeTower: false } });
+      const project = await buildProject({ kind: 'bambu', parts, title: o.result.meta.name || d.name, tpl, opts: { oneColour: colour, print: { ai: o.result.print, user } } });
       stage('slicing');
       const stats = await api.slice(project);
       setResults((r) => ({ ...r, [d.id]: { key: k, stats, result: o.result, parts: parts.length, colours } }));
