@@ -16,10 +16,14 @@ export interface PhotoScene {
   wall?: boolean;
   /** Hanging scenes dangle it from a ribbon (an ornament on a tree): face-on too. */
   hang?: boolean;
+  /** A studio shot: studio light and everything sharp, not a lifestyle photo with a blurred room. */
+  studio?: boolean;
 }
 
 /** The scene for lithophanes: lit from behind, so the picture shows. */
 export const BACKLIT_SCENE = 'backlit';
+/** The scene of the shop set's studio photos: one light grey studio for every product, like one shoot. */
+export const SHOP_SCENE = 'grey-studio';
 
 export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'table', label: 'Wooden table', icon: 'table', scene: 'on a warm oak wooden table in a bright, cosy home interior, softly blurred background, natural window light from the side' },
@@ -28,6 +32,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'office', label: 'Office desk', icon: 'desk', scene: 'on a tidy modern office desk with a laptop, a notebook and a pen softly blurred around it, daylight from a window' },
   { id: 'shelf', label: 'Shelf with plants', icon: 'plant', scene: 'on a wooden wall shelf styled with small potted green plants and a couple of books, Scandinavian look, soft natural light' },
   { id: 'studio', label: 'Plain studio', icon: 'studio', scene: 'on a seamless pure white studio sweep, a clean e-commerce product shot with soft, even studio light and a soft natural shadow under it' },
+  { id: SHOP_SCENE, label: 'Grey studio', icon: 'studio', studio: true, scene: 'on a seamless light grey (#F3F3F3) studio sweep that curves up behind it with no visible horizon, no props and nothing else in the picture; soft, even light from a large softbox to the upper left and a white fill card to the right, so its shape reads clearly with gentle shading and no harsh highlights; a soft, natural contact shadow right under it. The same backdrop, light and camera for every product of the shop, so all its photos look like one shoot' },
   { id: 'garden', label: 'Outdoor / garden', icon: 'tree', scene: 'outdoors in a garden, on a weathered wooden garden table or a flat stone, green plants and sunlight blurred behind it, late-afternoon light' },
   { id: BACKLIT_SCENE, label: 'Backlit at night', icon: 'lamp', scene: 'standing on a bedside table or a windowsill in a dim, cosy room in the evening, with a warm LED light right behind it so the panel glows; the rest of the room in soft darkness with a few warm, blurred highlights' },
   { id: 'hand', label: 'Hand holding it', icon: 'hand', scene: 'held in a person\'s hand (only the hand and wrist in view, natural skin, relaxed grip that does not cover the important details), so its real size is obvious, plain softly blurred indoor background' },
@@ -47,7 +52,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'flatlay', label: 'Flat lay', icon: 'grid', scene: 'a top-down flat lay on a light linen or concrete surface, neatly styled with a few small related props around it (leaves, a notebook, a coffee cup), soft even daylight' },
 ];
 /** How many scenes show before "More scenes". */
-export const MAIN_SCENES = 12;
+export const MAIN_SCENES = 13;
 export const CUSTOM_SCENE = 'custom';
 export const MAX_SCENE_CHARS = 600;
 export const MAX_NOTES_CHARS = 600;
@@ -83,6 +88,48 @@ export function suggestScene(text: string, size?: Vec3): string {
   return 'table';
 }
 
+/** The camera of the render a photo is made from (Viewer.photo): Jig's own angles; 'current' is the view's. */
+export type PhotoCamera = 'angle' | 'face' | 'front' | 'top' | 'detail';
+
+// Shop photos: one click makes a set of listing photos for one product, all square at 2K (Shopify
+// zooms a picture of 2048 × 2048), the studio ones in the same grey studio so a shop's products look
+// like one shoot.
+export const SHOP_SHOTS = ['main', 'angle', 'top', 'detail', 'lifestyle', 'size'] as const;
+export type ShopShot = (typeof SHOP_SHOTS)[number];
+export const SHOP_SHOT_LABELS: Record<ShopShot, string> = { main: 'Main', angle: '3/4 view', top: 'Top view', detail: 'Detail', lifestyle: 'Lifestyle', size: 'Size' };
+/** The image model's size for shop photos (OpenRouter's image_config.image_size). */
+export const SHOP_IMAGE_SIZE = '2K';
+/** Longer than this (mm), a product is too big to hold up in one hand: its size photo puts a mug beside it. */
+const HANDHELD = 300;
+
+export interface ShopPlanItem { shot: ShopShot; camera: PhotoCamera; scene: string; faceOn: boolean }
+
+/**
+ * The shop set for a product: what each photo shows, from which angle its render is taken and in
+ * which scene. The image model keeps the render's angle (it never invents an unseen side), so each
+ * angle needs its own render. A flat print (wall art, a sign, a coaster) is shown face-on, at an
+ * angle that shows its thickness and as a close-up of its face; anything else from the front, at
+ * 3/4 and from high above. Then the scene `suggested` for the design, and its size: in a hand, on
+ * the wall beside a light switch for a wall piece, next to a mug for a big thing.
+ */
+export function shopPlan(o: { size: Vec3; suggested: string }): ShopPlanItem[] {
+  const [x, y, z] = o.size;
+  const flat = z < 0.25 * Math.min(x, y);
+  const look = sceneById(o.suggested);
+  const wallPiece = flat && !!look?.wall;
+  const size = wallPiece ? 'wall' : Math.max(x, y, z) > HANDHELD ? 'table' : 'hand';
+  // A small thing suggested in a hand: its lifestyle photo on a table, not a second one in a hand.
+  const lifestyle = o.suggested === 'hand' && size === 'hand' ? 'table' : o.suggested;
+  const lifeFaceOn = flat && !!(sceneById(lifestyle)?.wall || sceneById(lifestyle)?.hang);
+  return [
+    { shot: 'main', camera: flat ? 'face' : 'front', scene: SHOP_SCENE, faceOn: flat },
+    { shot: 'angle', camera: 'angle', scene: SHOP_SCENE, faceOn: false },
+    flat ? { shot: 'detail', camera: 'detail', scene: SHOP_SCENE, faceOn: true } : { shot: 'top', camera: 'top', scene: SHOP_SCENE, faceOn: false },
+    { shot: 'lifestyle', camera: lifeFaceOn ? 'face' : 'angle', scene: lifestyle, faceOn: lifeFaceOn },
+    { shot: 'size', camera: wallPiece ? 'face' : 'angle', scene: size, faceOn: wallPiece },
+  ];
+}
+
 /** POST /api/designs/:id/photos */
 export interface PhotoRequest {
   /** The clean render of the model (PNG or JPEG); with `from`, optional: a new angle for the product (else the photo's own render). */
@@ -95,6 +142,8 @@ export interface PhotoRequest {
   aspect: PhotoAspect;
   /** The custom scene, or extra wishes for a preset (light, mood, props). */
   notes?: string;
+  /** One of the shop set's photos (Shop photos): made at 2K, with what the shot shows in the prompt. */
+  shop?: ShopShot;
   product: {
     name: string;
     /** Claude's summary of the design. */
@@ -136,6 +185,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (!PHOTO_ASPECTS.includes(b.aspect)) return `aspect must be one of ${PHOTO_ASPECTS.join(', ')}`;
   if (b.notes != null && (typeof b.notes !== 'string' || b.notes.length > MAX_NOTES_CHARS)) return `notes: text up to ${MAX_NOTES_CHARS} characters`;
   if (b.scene === CUSTOM_SCENE && !b.notes?.trim()) return 'Describe the custom scene';
+  if (b.shop != null && !SHOP_SHOTS.includes(b.shop)) return `shop must be one of ${SHOP_SHOTS.join(', ')}`;
   const p = b.product;
   if (!p || typeof p.name !== 'string' || p.name.length > 200) return 'product.name: text up to 200 characters';
   if (p.description != null && (typeof p.description !== 'string' || p.description.length > 2000)) return 'product.description: text up to 2,000 characters';
@@ -160,6 +210,23 @@ function familiar(longest: number): string {
   return 'a large object, wider than a laptop';
 }
 
+/** What a shop photo must show, beyond its scene. */
+function shopLine(shot: ShopShot, scene: string): string | null {
+  const whole = 'the whole product centred, filling about three quarters of the square frame, nothing cut off';
+  switch (shot) {
+    case 'main': return `THE MAIN LISTING PHOTO: ${whole}.`;
+    case 'angle': return `A 3/4 VIEW FOR THE LISTING, showing its depth and thickness: ${whole}.`;
+    case 'top': return `A HIGH VIEW FROM ABOVE FOR THE LISTING, showing its top: ${whole}.`;
+    case 'detail': return 'A CLOSE-UP DETAIL PHOTO FOR THE LISTING: the render is cropped to part of the product, which goes on past the edges of the picture. Keep this close crop (do not show the whole product or shrink it to fit), so the surface, the edges and the fine detail of the print fill the photo, with a gentle depth of field.';
+    case 'lifestyle': return null;
+    case 'size': return scene === 'wall'
+      ? 'A SIZE PHOTO FOR THE LISTING: a standard white light switch (about 85 mm wide) on the wall right beside it, both fully in view and in focus, so its real size is obvious at a glance.'
+      : scene === 'hand'
+      ? 'A SIZE PHOTO FOR THE LISTING: the hand shows how big it is; the product and the hand fully in view.'
+      : 'A SIZE PHOTO FOR THE LISTING: a plain coffee mug (about 95 mm tall) beside it, both fully in view, so its real size is obvious at a glance.';
+  }
+}
+
 /** The prompt the image model gets with the render. */
 export function photoPrompt(b: PhotoRequest): string {
   const preset = sceneById(b.scene);
@@ -168,6 +235,7 @@ export function photoPrompt(b: PhotoRequest): string {
   const wall = !!preset?.wall;
   const hang = !!preset?.hang;
   const faceOn = !!b.product.faceOn;
+  const shop = b.shop && SHOP_SHOTS.includes(b.shop) ? b.shop : null;
   // A flat print shown face-on: its face and thickness; otherwise the box as printed.
   const size = faceOn
     ? `${mm(x)} mm wide, ${mm(y)} mm tall and ${mm(z)} mm thick`
@@ -177,7 +245,7 @@ export function photoPrompt(b: PhotoRequest): string {
     'Turn the attached render into a photorealistic product photo of the real, 3D-printed object.',
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
-    `Real size: ${size} (${familiar(Math.max(x, y, faceOn ? 0 : z))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide), and frame the photo around it so it is not lost in the room.`,
+    `Real size: ${size} (${familiar(Math.max(x, y, faceOn ? 0 : z))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
     b.product.lithophane
       ? 'It is a LITHOPHANE: one panel of white PLA whose thickness varies, so its picture appears only when light shines through it – thin areas glow bright warm white, thick areas stay dark. The render shows it lit from behind: in the photo it must glow from a warm light behind it, the picture showing through exactly as in the render, with the panel\'s frame and stand as they are.'
       : b.product.colors?.length
@@ -191,6 +259,8 @@ export function photoPrompt(b: PhotoRequest): string {
     `- do not add, remove, move, mirror, bend or redesign any part; add nothing to it (no hardware, cords, stands, labels or decorations that are not in the render${hang ? ' – only the thin ribbon it hangs from' : ''})`,
     wall || hang
       ? `- ${faceOn ? 'the render shows its front face; ' : ''}it hangs ${wall ? 'flat on the wall ' : ''}with this face to the viewer, upright, photographed from almost straight in front, so the face reads exactly as in the render`
+      : faceOn
+      ? '- the render shows its front face from above: it lies flat on the surface, face up, photographed from almost straight above, so the face reads exactly as in the render'
       : '- keep it in the same orientation and seen from about the same angle as in the render, so no unseen side has to be invented',
     '- the grey background of the render is not part of the product: replace it completely with the scene',
     '',
@@ -201,7 +271,8 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `SCENE: ${preset ? preset.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
-    wall && Math.max(x, y) < 350 ? 'It is a small piece for a wall: show a light switch, a door frame or a small framed picture near it so its real size is obvious, and photograph it from close by.' : null,
+    wall && Math.max(x, y) < 350 && shop !== 'size' ? 'It is a small piece for a wall: show a light switch, a door frame or a small framed picture near it so its real size is obvious, and photograph it from close by.' : null,
+    shop ? shopLine(shop, b.scene) : null,
     preset && notes ? `Also: ${notes}.` : null,
     wall
       ? 'It hangs flat against the wall, its back touching it, with a soft contact shadow, in light that matches the surroundings.'
@@ -209,7 +280,9 @@ export function photoPrompt(b: PhotoRequest): string {
       ? 'It hangs freely from the branch on a thin red ribbon threaded through its own hanging hole or loop (tied around its top if it has none), straight down under its own weight, turned to face the camera, in light that matches the surroundings.'
       : 'It rests ON the surface, not above it: its underside in full contact with the table or shelf, seen in the same perspective as that surface (it lies in its plane, never tilted against it, floating or hovering), with real contact shadows right under it and light that matches the surroundings.',
     '',
-    'PHOTO: a professional lifestyle product photo for an online shop listing, shot on a full-frame camera with an 85 mm lens, natural light, shallow depth of field with the product in sharp focus and the background softly blurred, the product as the clear hero of the picture, well composed with some space around it.',
+    preset?.studio
+      ? 'PHOTO: a professional e-commerce studio product photo for an online shop listing, shot on a full-frame camera with a 100 mm lens at f/8 so the product is in sharp focus, soft even studio light, a clean and evenly lit backdrop, the product as the clear hero of the picture.'
+      : 'PHOTO: a professional lifestyle product photo for an online shop listing, shot on a full-frame camera with an 85 mm lens, natural light, shallow depth of field with the product in sharp focus and the background softly blurred, the product as the clear hero of the picture, well composed with some space around it.',
     'Only one of the product. No text, captions, logos, watermarks, price tags or borders anywhere in the picture.',
   ].filter((l) => l !== null).join('\n');
 }

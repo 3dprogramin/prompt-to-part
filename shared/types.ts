@@ -281,6 +281,8 @@ export interface ProductPhoto {
   /** A redo of another photo (its URL), with what was changed. */
   editOf?: string;
   change?: string;
+  /** One of a shop set's photos (Shop photos): which shot ('main', 'angle', 'detail'…). */
+  shop?: string;
   aspect: string;
   prompt: string;
   model: string;

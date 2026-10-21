@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { photoEditPrompt, photoProblem, photoPrompt, suggestScene, type PhotoRequest } from '../shared/photos';
+import { photoEditPrompt, photoProblem, photoPrompt, SHOP_SCENE, shopPlan, suggestScene, type PhotoRequest } from '../shared/photos';
+import { requestImage } from '../server/artwork';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
   render: { mediaType: 'image/png', data: 'iVBORw0KGgo=' },
@@ -106,4 +107,98 @@ test('an ornament on the tree hangs face-on from a ribbon, the only thing added'
   assert.match(gifts, /rests ON the surface/);
   assert.doesNotMatch(gifts, /ribbon it hangs from/);
   assert.match(photoPrompt(request({ scene: 'xmas-wall', product: { name: 'Sign', size: [300, 200, 3], faceOn: true } })), /hangs flat against the wall/);
+});
+
+test('the grey studio: a light grey sweep, studio light, everything sharp; the white studio as it was', () => {
+  const grey = photoPrompt(request({ scene: SHOP_SCENE }));
+  assert.match(grey, /seamless light grey \(#F3F3F3\) studio sweep/);
+  assert.match(grey, /no props/);
+  assert.match(grey, /soft, natural contact shadow/);
+  assert.match(grey, /same backdrop, light and camera for every product/);
+  assert.match(grey, /e-commerce studio product photo/);
+  assert.doesNotMatch(grey, /background softly blurred/);
+  const white = photoPrompt(request({ scene: 'studio' }));
+  assert.match(white, /pure white studio sweep/);
+  assert.match(white, /lifestyle product photo/);
+});
+
+test('a shop set: 5 square shots, each from its own angle; flat prints face-on, a close-up and at an angle', () => {
+  const pick = (plan: ReturnType<typeof shopPlan>) => plan.map((x) => `${x.shot}:${x.camera}:${x.scene}:${x.faceOn ? 'face' : '-'}`);
+  assert.deepEqual(pick(shopPlan({ size: [100, 80, 60], suggested: 'office' })),
+    [`main:front:${SHOP_SCENE}:-`, `angle:angle:${SHOP_SCENE}:-`, `top:top:${SHOP_SCENE}:-`, 'lifestyle:angle:office:-', 'size:angle:hand:-']);
+  // A wall piece: face-on, at an angle that shows its thickness, a close-up; its size on the wall.
+  assert.deepEqual(pick(shopPlan({ size: [300, 200, 4], suggested: 'wall' })),
+    [`main:face:${SHOP_SCENE}:face`, `angle:angle:${SHOP_SCENE}:-`, `detail:detail:${SHOP_SCENE}:face`, 'lifestyle:face:wall:face', 'size:face:wall:face']);
+  // A small flat thing suggested in a hand: the lifestyle photo on a table instead of a second hand.
+  assert.deepEqual(pick(shopPlan({ size: [40, 30, 4], suggested: 'hand' })).slice(3), ['lifestyle:angle:table:-', 'size:angle:hand:-']);
+  // An ornament hangs face-on on the tree; its size in a hand.
+  assert.deepEqual(pick(shopPlan({ size: [80, 80, 3], suggested: 'xmas-tree' })).slice(3), ['lifestyle:face:xmas-tree:face', 'size:angle:hand:-']);
+  // Too big to hold up: next to a mug.
+  assert.equal(shopPlan({ size: [400, 300, 200], suggested: 'table' })[4].scene, 'table');
+});
+
+test('a shop photo says what its shot shows', () => {
+  const shop = (shot: PhotoRequest['shop'], scene = SHOP_SCENE, faceOn = false) => photoPrompt(request({ scene, shop: shot, product: { name: 'Sign', size: [180, 108, 4], faceOn } }));
+  assert.match(shop('main'), /THE MAIN LISTING PHOTO: the whole product centred/);
+  assert.match(shop('angle'), /3\/4 VIEW/);
+  assert.match(shop('top'), /HIGH VIEW FROM ABOVE/);
+  const main = shop('main', SHOP_SCENE, true);
+  assert.match(main, /lies flat on the surface, face up, photographed from almost straight above/);
+  assert.doesNotMatch(main, /keep it in the same orientation/);
+  const detail = shop('detail', SHOP_SCENE, true);
+  assert.match(detail, /CLOSE-UP DETAIL PHOTO/);
+  assert.match(detail, /goes on past the edges of the picture/);
+  assert.doesNotMatch(detail, /frame the photo around it/);
+  const size = shop('size', 'wall', true);
+  assert.match(size, /SIZE PHOTO FOR THE LISTING: a standard white light switch/);
+  assert.doesNotMatch(size, /It is a small piece for a wall/, 'the size line says it once');
+  assert.match(shop('size', 'hand'), /the hand shows how big it is/);
+  assert.match(shop('size', 'table'), /coffee mug/);
+  assert.doesNotMatch(shop('lifestyle', 'office'), /LISTING:|LISTING PHOTO/);
+  assert.doesNotMatch(photoPrompt(request()), /LISTING PHOTO|SIZE PHOTO/);
+  assert.equal(photoProblem(request({ shop: 'main' })), null);
+  assert.match(photoProblem(request({ shop: 'hero' as PhotoRequest['shop'] }))!, /shop must be one of/);
+});
+
+test('a larger picture is asked for as image_size; a model that refuses it draws at its default size', async () => {
+  const saved = { fetch: globalThis.fetch, key: process.env.OPENROUTER_API_KEY, fallback: process.env.JIG_IMAGE_FALLBACK };
+  const sent: Record<string, unknown>[] = [];
+  const picture = { choices: [{ message: { images: [{ image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] } }], usage: { cost: 0.1 } };
+  let refuse = false;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string);
+    sent.push(body.image_config);
+    if (body.messages[0].content === 'no') return new Response(JSON.stringify({ error: { message: 'Bad request' } }), { status: 400 });
+    if (refuse && body.image_config.image_size) return new Response(JSON.stringify({ error: { message: 'image_size is not supported' } }), { status: 400 });
+    return new Response(JSON.stringify(picture), { status: 200 });
+  }) as typeof fetch;
+  try {
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    process.env.JIG_IMAGE_FALLBACK = '';
+    await requestImage('a cup', '1:1', undefined);
+    assert.deepEqual(sent, [{ aspect_ratio: '1:1' }], 'the default size unless asked');
+    sent.length = 0;
+    const out = await requestImage('a cup', '1:1', undefined, undefined, undefined, '2K');
+    assert.deepEqual(sent, [{ aspect_ratio: '1:1', image_size: '2K' }]);
+    assert.equal(out.cost, 0.1);
+    sent.length = 0;
+    refuse = true;
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      assert.equal((await requestImage('a cup', '1:1', undefined, undefined, undefined, '2K')).image.mediaType, 'image/png');
+      assert.deepEqual(sent, [{ aspect_ratio: '1:1', image_size: '2K' }, { aspect_ratio: '1:1' }]);
+      // Any other refusal still fails, after the one try at the default size.
+      sent.length = 0;
+      await assert.rejects(requestImage('no', '1:1', undefined, undefined, undefined, '2K'), /The image model refused: Bad request/);
+      assert.equal(sent.length, 2);
+    } finally {
+      console.warn = warn;
+    }
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const [k, v] of [['OPENROUTER_API_KEY', saved.key], ['JIG_IMAGE_FALLBACK', saved.fallback]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });

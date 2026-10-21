@@ -20,7 +20,7 @@ import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
-import { photoEditPrompt, photoProblem, photoPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
+import { photoEditPrompt, photoProblem, photoPrompt, SHOP_IMAGE_SIZE, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
 import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
@@ -333,7 +333,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
 
   // Product photos: the image model turns a clean render of the model into a photo of the printed
   // product in a scene. The photo and the render are stored with the design's images; the app
-  // lists them in the design (Design.photos).
+  // lists them in the design (Design.photos). A shop set's photo is made at 2K, for the shop's zoom.
   app.post('/api/designs/:id/photos', json('25mb'), async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
@@ -376,7 +376,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     const abort = new AbortController();
     res.on('close', () => { if (!res.writableFinished) abort.abort(); });
     try {
-      const out = await image(prompt, body.aspect, references, abort.signal);
+      const out = await image(prompt, body.aspect, references, abort.signal, undefined, body.shop ? SHOP_IMAGE_SIZE : undefined);
       const ext = IMAGE_TYPES[out.image.mediaType];
       if (!ext) throw new Error(`The image model returned a picture format Jig can't store (${out.image.mediaType})`);
       const photo = await storeImage(id, Buffer.from(out.image.data, 'base64'), ext);

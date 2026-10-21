@@ -15,7 +15,7 @@ const server: Server = await new Promise((resolve) => { const s = createServer()
 const port = (server.address() as { port: number }).port;
 let releaseGeneration = () => {};
 // What the stand-in image model was last asked for.
-let imageAsked: { prompt: string; aspect: string; references?: string[] } | null = null;
+let imageAsked: { prompt: string; aspect: string; references?: string[]; size?: string } | null = null;
 const { createApp } = await import('../server/app');
 const { UsageLimitError } = await import('../server/agent');
 const { recordRateLimit } = await import('../server/usage');
@@ -24,8 +24,8 @@ server.on('request', createApp({
   port,
   hosts: ['192.168.1.50'],
   suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
-  image: async (prompt, aspect, references) => {
-    imageAsked = { prompt, aspect, references };
+  image: async (prompt, aspect, references, _signal, _onStatus, size) => {
+    imageAsked = { prompt, aspect, references, size };
     return { image: { data: Buffer.from('89504e470d0a1a0a70686f746f', 'hex').toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
   },
   generate: (req, send, abort) => new Promise((resolve, reject) => {
@@ -240,13 +240,26 @@ test('product photos: checked, need the OpenRouter key, stored with the design',
     assert.equal(out.prompt, imageAsked!.prompt);
     assert.match(out.prompt, /on a bedside table/);
     assert.equal(imageAsked!.aspect, '4:5');
+    assert.equal(imageAsked!.size, undefined, 'a photo at the model\'s default size');
     assert.deepEqual(imageAsked!.references, [`data:image/png;base64,${PNG}`]);
     assert.equal((await fetch(A + out.photo)).status, 200);
 
+    // A shop set's photo: square at 2K, in the grey studio, saying what the shot shows.
+    assert.equal((await post(photo({ shop: 'hero' }))).status, 400);
+    const shop = await post(photo({ scene: 'grey-studio', aspect: '1:1', shop: 'main', product: { name: 'Coaster', size: [100, 100, 5], faceOn: true } }));
+    assert.equal(shop.status, 200);
+    assert.equal(imageAsked!.size, '2K');
+    assert.equal(imageAsked!.aspect, '1:1');
+    assert.match(imageAsked!.prompt, /light grey \(#F3F3F3\) studio sweep/);
+    assert.match(imageAsked!.prompt, /THE MAIN LISTING PHOTO/);
+    assert.match((await shop.json()).photo, /^\/api\/designs\/test-api-00000010\/images\/[0-9a-f]{32}\.png$/);
+
     // Listed in the design, which keeps them.
     const entry = { url: out.photo, render: out.render, scene: 'custom', notes: 'on a bedside table', aspect: '4:5', prompt: out.prompt, model: out.model, cost: out.cost, createdAt: 5 };
-    assert.equal((await put(design({ id, photos: [entry] }))).status, 200);
-    assert.deepEqual((await (await fetch(`${A}/api/designs/${id}`)).json()).photos, [entry]);
+    const { notes: _notes, ...plain } = entry;
+    const shopEntry = { ...plain, scene: 'grey-studio', shop: 'main', aspect: '1:1', createdAt: 6 };
+    assert.equal((await put(design({ id, photos: [entry, shopEntry] }))).status, 200);
+    assert.deepEqual((await (await fetch(`${A}/api/designs/${id}`)).json()).photos, [entry, shopEntry]);
     assert.equal((await put(design({ id, rev: 1, photos: 'nope' }))).status, 400);
 
     assert.equal((await del(id)).status, 200);

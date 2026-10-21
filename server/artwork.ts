@@ -74,8 +74,12 @@ export async function generateArtwork(name: string, r: ArtworkRequest, signal?: 
   return { prompt, model, cost, image, ...traced };
 }
 
-/** A picture from the image model for `prompt` (with the reference photos, if any). */
-export async function requestImage(prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal, onStatus?: (text: string) => void): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
+/**
+ * A picture from the image model for `prompt` (with the reference photos, if any). `size`: a larger
+ * picture than the model's default (about 1K), e.g. '2K' for shop photos; a model that refuses it
+ * draws at its default size instead.
+ */
+export async function requestImage(prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal, onStatus?: (text: string) => void, size?: ImageSize): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('AI pictures need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.');
   // When the model is busy upstream (rate-limited for everyone, or down for a moment): wait and
@@ -91,7 +95,7 @@ export async function requestImage(prompt: string, aspect: string, references: s
         if (signal?.aborted) throw new Error('Stopped');
       }
       try {
-        return await requestOnce(key, model, prompt, aspect, references, signal);
+        return await requestOnce(key, model, prompt, aspect, references, signal, size);
       } catch (e) {
         last = e as Error;
         if (!(e instanceof BusyError)) throw e;
@@ -107,15 +111,17 @@ const RETRY_S = [4, 10];
 export const fallbackImageModel = () => process.env.JIG_IMAGE_FALLBACK ?? 'google/gemini-nano-banana-2.1';
 /** The model is rate-limited or down for a moment (HTTP 429/5xx): worth retrying. */
 class BusyError extends Error {}
+/** Picture sizes OpenRouter's Gemini image models take (image_config.image_size); without one, 1K. */
+export type ImageSize = '1K' | '2K' | '4K';
 
-async function requestOnce(key: string, model: string, prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal) {
+async function requestOnce(key: string, model: string, prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal, size?: ImageSize): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
   const content = references?.length
     ? [{ type: 'text', text: prompt }, ...references.map((url) => ({ type: 'image_url', image_url: { url } }))]
     : prompt;
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'Jig' },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], image_config: { aspect_ratio: aspect } }),
+    body: JSON.stringify({ model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], image_config: { aspect_ratio: aspect, ...(size ? { image_size: size } : {}) } }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
   });
   const body = (await res.json().catch(() => ({}))) as {
@@ -127,6 +133,11 @@ async function requestOnce(key: string, model: string, prompt: string, aspect: s
     // OpenRouter's message is often just "Provider returned error"; the provider's own text says why.
     const why = [body.error?.message, body.error?.metadata?.raw].filter(Boolean).join(': ').slice(0, 300) || `HTTP ${res.status}`;
     if (res.status === 429 || res.status >= 500) throw new BusyError(`${model} is busy (${why})`);
+    // A model that doesn't take the size (or not this one): a picture at its default size rather than none.
+    if (size && (res.status === 400 || res.status === 422)) {
+      console.warn(`[image] ${model} refused image_size ${size} (${why}): drawing at its default size`);
+      return requestOnce(key, model, prompt, aspect, references, signal);
+    }
     throw new Error(`The image model refused: ${why}`);
   }
   const msg = body.choices?.[0]?.message;
