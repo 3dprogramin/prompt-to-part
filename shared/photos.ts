@@ -144,6 +144,13 @@ export interface PhotoRequest {
   notes?: string;
   /** One of the shop set's photos (Shop photos): made at 2K, with what the shot shows in the prompt. */
   shop?: ShopShot;
+  /** The sale size the photo shows (Design.sizes), kept with the photo. */
+  saleSize?: { id: string; label: string };
+  /**
+   * With `from`: the same photo for another sale size. The photo to change is the scene to keep, of
+   * the product at `base` size; the render (sent, or `from.render`) is the product at this size.
+   */
+  resize?: { base: { label?: string; size: Vec3 } };
   product: {
     name: string;
     /** Claude's summary of the design. */
@@ -179,7 +186,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (b.from != null) {
     const ok = (u: unknown) => typeof u === 'string' && PHOTO_URL.test(u);
     if (typeof b.from !== 'object' || !ok(b.from.photo) || (b.from.render != null && !ok(b.from.render))) return 'from: the photo (and render) to change, as /api/designs/<id>/images/<name> URLs';
-    if (typeof b.change !== 'string' || !b.change.trim() || b.change.length > MAX_NOTES_CHARS) return `change: what to change in the photo, up to ${MAX_NOTES_CHARS} characters`;
+    if ((b.resize == null || b.change != null) && (typeof b.change !== 'string' || !b.change.trim() || b.change.length > MAX_NOTES_CHARS)) return `change: what to change in the photo, up to ${MAX_NOTES_CHARS} characters`;
   } else if (b.render == null) return 'render must be a PNG or JPEG image';
   if (typeof b.scene !== 'string' || (b.scene !== CUSTOM_SCENE && !sceneById(b.scene))) return `scene must be one of ${[...PHOTO_SCENES.map((s) => s.id), CUSTOM_SCENE].join(', ')}`;
   if (!PHOTO_ASPECTS.includes(b.aspect)) return `aspect must be one of ${PHOTO_ASPECTS.join(', ')}`;
@@ -192,7 +199,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (!Array.isArray(p.size) || p.size.length !== 3 || !p.size.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 10000)) return 'product.size: [x, y, z] in mm';
   if (p.lithophane != null && typeof p.lithophane !== 'boolean') return 'product.lithophane: true or false';
   if (p.colors != null && (!Array.isArray(p.colors) || p.colors.length > 16 || !p.colors.every((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)))) return 'product.colors: up to 16 #rrggbb colours';
-  return null;
+  return saleSizeProblem(b);
 }
 
 /** A stored image of a design (a photo or its render). */
@@ -299,6 +306,93 @@ export function photoEditPrompt(b: PhotoRequest): string {
     '',
     'THE SCENE TO KEEP: the second attached picture is an earlier photo of this product. Make the new photo in the same setting – the same place, surface, props, colours, light and mood – and compose it afresh around the product.',
     `THE CHANGE (the reason for the new photo – make it clearly): ${b.change!.trim()}.`,
+    b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
+  ].filter((l) => l !== null).join('\n');
+}
+
+// ---- Sale sizes (shared/sizes.ts): a scene photo for each size, all in the same scene.
+
+/** What is wrong with a photo request's sale size fields, or null. */
+function saleSizeProblem(b: PhotoRequest): string | null {
+  const s = b.saleSize;
+  if (s != null && (typeof s !== 'object' || typeof s.id !== 'string' || !s.id || s.id.length > 64 || typeof s.label !== 'string' || s.label.length > 24)) return 'saleSize: { id, label } of one of the design\'s sizes';
+  const r = b.resize;
+  if (r == null) return null;
+  if (!b.from) return 'resize: needs `from`, the photo of the other size whose scene is kept';
+  if (!b.render && !b.from.render) return 'resize: needs the render of the product at this size';
+  const base = typeof r === 'object' ? r.base : null;
+  if (!base || typeof base !== 'object' || (base.label != null && (typeof base.label !== 'string' || base.label.length > 24))
+    || !Array.isArray(base.size) || base.size.length !== 3 || !base.size.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 10000)) return 'resize.base: { label, size: [x, y, z] in mm } of the photo whose scene is kept';
+  return null;
+}
+
+/** "1.5x", "0.67x" */
+const times = (r: number) => `${r >= 10 ? Math.round(r) : +r.toFixed(2)}x`;
+
+/** A size as the photo prompt says it: a flat print face-on by its face and thickness. */
+const sizeWords = (s: Vec3, faceOn: boolean) => (faceOn
+  ? `${mm(s[0])} mm wide, ${mm(s[1])} mm tall and ${mm(s[2])} mm thick`
+  : `${mm(s[0])} × ${mm(s[1])} mm footprint and ${mm(s[2])} mm high`);
+
+/** How much bigger or smaller the product is than in the earlier photo, axis by axis. */
+function ratioWords(now: Vec3, was: Vec3, faceOn: boolean): string {
+  const parts: [string, number][] = faceOn
+    ? [['wide', now[0] / was[0]], ['tall', now[1] / was[1]], ['thick', now[2] / was[2]]]
+    : [['wide', now[0] / was[0]], ['deep', now[1] / was[1]], ['high', now[2] / was[2]]];
+  const same = parts.filter(([, r]) => Math.abs(r - 1) < 0.02).map(([w]) => w);
+  const changed = parts.filter(([, r]) => Math.abs(r - 1) >= 0.02);
+  if (!changed.length) return 'the same size as in the earlier photo';
+  // "1.5x as wide and as tall" when the axes change alike.
+  const groups = new Map<string, string[]>();
+  for (const [w, r] of changed) groups.set(times(r), [...(groups.get(times(r)) ?? []), w]);
+  const said = [...groups].map(([t, ws]) => `${t} as ${ws.join(' and as ')}`).join(', and ');
+  return `${said} as in the earlier photo${same.length ? ` (just as ${same.join(' and ')} as before)` : ''}`;
+}
+
+/**
+ * Something of known size in the scene to measure the product against. Certain in a shop size photo
+ * (shopLine puts a light switch, a hand or a mug in it) and in a hand; on another wall, a light
+ * switch if the earlier photo has one.
+ */
+function sizeReference(b: PhotoRequest): { what: string; dim: string; mm: number; measure: (s: Vec3) => number; sure: boolean } | null {
+  const preset = sceneById(b.scene);
+  const faceOn = !!b.product.faceOn;
+  const longest = (s: Vec3) => Math.max(s[0], s[1], faceOn ? 0 : s[2]);
+  if (b.scene === 'hand') return { what: 'the hand (about 190 mm long)', dim: 'long', mm: 190, measure: longest, sure: true };
+  if (preset?.wall) return { what: 'the light switch (about 85 mm wide)', dim: 'wide', mm: 85, measure: (s) => s[0], sure: b.shop === 'size' };
+  if (b.shop === 'size') {
+    // A flat thing lying on the table is measured by its longest side, anything else by its height.
+    const flatLying = !faceOn && b.product.size[2] < 0.25 * Math.min(b.product.size[0], b.product.size[1]);
+    return { what: 'the coffee mug (about 95 mm tall)', dim: flatLying ? 'long' : 'tall', mm: 95, measure: faceOn ? (s) => s[1] : flatLying ? longest : (s) => s[2], sure: true };
+  }
+  return null;
+}
+
+/**
+ * The prompt for a sale size's photo made from the same photo of another size: a new photo from
+ * the render at this size (the first picture, as photoPrompt), in exactly the scene of the earlier
+ * photo (the second picture), with the camera and everything around the product kept and only the
+ * product's size changed, by the given ratios.
+ */
+export function sizeVariantPrompt(b: PhotoRequest): string {
+  const base = b.resize!.base;
+  const now = b.product.size;
+  const faceOn = !!b.product.faceOn;
+  const label = b.saleSize?.label?.trim();
+  const ref = sizeReference(b);
+  const area = (s: Vec3) => s[0] * s[1] * (faceOn ? 1 : s[2]);
+  const bigger = area(now) >= area(base.size);
+  const refLine = ref && `${ref.sure ? 'In' : 'If the earlier photo shows a light switch: in'} the earlier photo the product was ${times(ref.measure(base.size) / ref.mm)} as ${ref.dim} as ${ref.what}; now it is ${times(ref.measure(now) / ref.mm)} as ${ref.dim} as it. The ${ref.what.split(' (')[0].replace('the ', '')} stays exactly the same size in the picture.`;
+  return [
+    photoPrompt({ ...b, notes: undefined }),
+    '',
+    `THIS PHOTO SHOWS ${label ? `THE ${label.toUpperCase()} SIZE` : 'ANOTHER SIZE'} OF THE PRODUCT: ${sizeWords(now, faceOn)}. The second attached picture is a photo of ${base.label ? `the ${base.label} size` : 'it in another size'}: ${sizeWords(base.size, faceOn)}.`,
+    `So the product is ${ratioWords(now, base.size, faceOn)}.`,
+    refLine,
+    'THE SCENE TO KEEP EXACTLY: make the second attached picture again, as the same shot: the same place, wall, furniture, props, surface, colours and light, and the same camera position, angle, lens and framing. Nothing in the scene moves, grows, shrinks, appears or disappears; only the size of the product changes. Where the instructions above say how to frame the photo, keep the framing of the earlier photo instead.',
+    `The product stays on the same spot (centred where it was, at the same height on the wall or in the same place on the surface) and ${bigger ? 'grows' : 'shrinks'} around it; the room and everything in it keep their real size, so the product takes up ${bigger ? 'more' : 'less'} of the picture than before.`,
+    'The product itself (its shape, proportions, colours and details) is as in the first attached picture, its render at this size, not as in the earlier photo.',
+    b.change?.trim() ? `Also: ${b.change.trim()}.` : null,
     b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
   ].filter((l) => l !== null).join('\n');
 }
