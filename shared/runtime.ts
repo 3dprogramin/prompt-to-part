@@ -5,7 +5,7 @@ import { FontMissingError, takeFontSubstitutions } from './text';
 import { compile, locate, ScriptError } from './compile';
 import { makeHelpers, type PaintedMesh } from './helpers';
 import { sameFilament, storedSlots, type PaintFilament } from './meshColors';
-import { normalizeParams, parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY } from './params';
+import { FACE_SCALE_KEY, normalizeParams, parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
@@ -288,6 +288,12 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   // Uniform scale applied after build (reserved value key "$scale", not a script parameter).
   const rawScale = Number(inputValues?.[SCALE_KEY]);
   const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+  // A flat piece's sale size ("$faceScale"): only its face grows or shrinks. What a part carries
+  // about itself (a LayerTone stack, a lithophane's or line art's source) follows `scale` only.
+  const rawFace = Number(inputValues?.[FACE_SCALE_KEY]);
+  const face = Number.isFinite(rawFace) && rawFace > 0 ? rawFace : 1;
+  // A point or offset scaled with the model.
+  const scaled = (v: number[]) => v.slice(0, 3).map((x, k) => x * scale * (k < 2 ? face : 1)) as Vec3;
   const logs: string[] = [];
   const warnings: string[] = [];
   applyQuality(rt.wasm, quality);
@@ -377,6 +383,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       }
       if (!(shape instanceof M)) throw new ScriptError({ message: `Part ${i + 1} is not a Manifold (got ${shape instanceof C ? 'CrossSection' : typeof shape})`, stage: 'output' });
       if (scale !== 1) shape = shape.scale(scale);
+      if (face !== 1) shape = shape.scale([face, face, 1]);
       name = partNames[i];
       const onThisPart = (f: { part?: string }) => (f.part && partNames.includes(f.part) ? f.part === name : i === 0);
       const mine = textFeatures.filter(onThisPart);
@@ -450,8 +457,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       const o = d as Record<string, unknown>;
       const label = typeof o.label === 'string' ? o.label.slice(0, MAX_LABEL) : undefined;
       if (!isVec3(o.from) || !isVec3(o.to)) { warnings.push(`Ignored dimension "${label ?? '?'}": from/to must be [x, y, z]`); continue; }
-      const sc = (v: number[]) => v.slice(0, 3).map((x) => x * scale) as Vec3;
-      dimensions.push({ label, from: sc(o.from), to: sc(o.to), offset: isVec3(o.offset) ? sc(o.offset) : undefined, param: typeof o.param === 'string' && o.param in params ? o.param : undefined });
+      dimensions.push({ label, from: scaled(o.from), to: scaled(o.to), offset: isVec3(o.offset) ? scaled(o.offset) : undefined, param: typeof o.param === 'string' && o.param in params ? o.param : undefined });
     }
 
     let bbox: Box3 | null = null;
@@ -470,10 +476,10 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       const known = stepParts.filter((n) => names.has(n));
       if (!known.length) return;
       const step: AssemblyStep = { label: typeof o.label === 'string' ? o.label.slice(0, MAX_LABEL) : `Step ${i + 1}`, parts: known };
-      if (isVec3(o.from)) step.from = o.from.slice(0, 3).map((x) => x * scale) as Vec3;
+      if (isVec3(o.from)) step.from = scaled(o.from);
       const rot = o.rotate as Record<string, unknown> | undefined;
       if (rot && isVec3(rot.axis) && Number.isFinite(rot.degrees)) {
-        step.rotate = { axis: rot.axis.slice(0, 3) as Vec3, degrees: Number(rot.degrees), center: isVec3(rot.center) ? rot.center.slice(0, 3).map((x) => x * scale) as Vec3 : undefined };
+        step.rotate = { axis: rot.axis.slice(0, 3) as Vec3, degrees: Number(rot.degrees), center: isVec3(rot.center) ? scaled(rot.center) : undefined };
       }
       assembly.push(step);
     });
