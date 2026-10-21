@@ -224,6 +224,8 @@ export function toBambuProject(
     /** Print everything in this one filament colour (#RRGGBB): no painting, no LayerTone filament changes. */
     oneColour?: string | null;
     print: { ai: PrintProfile; user: PrintProfile } | null;
+    /** false: no prime tower (Jig's own slice for the Cost tab, where a big model collides with it). */
+    primeTower?: boolean;
   },
 ): Blob {
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
@@ -233,7 +235,7 @@ export function toBambuProject(
   const globalChanges = bambuOverrides(globalSettings, base);
   // A LayerTone print changes filament once per layer, for the whole layer: no prime tower is needed,
   // and on the A1's bed it collides with a big picture ("G-code conflicts"). Purging goes to the chute.
-  if (parts.some((p) => p.layerColors?.length)) globalChanges.enable_prime_tower = '0';
+  if (parts.some((p) => p.layerColors?.length) || opts.primeTower === false) globalChanges.enable_prime_tower = '0';
 
   // Filament slots (1-based): one per distinct colour and LayerTone filament, or a single filament.
   const plan = filamentPlan(parts, globalSettings);

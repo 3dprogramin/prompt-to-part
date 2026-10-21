@@ -135,6 +135,9 @@ test('Bambu project: a LayerTone print alone gets "change filament" marks on the
   // Ordinary multi-colour parts keep the prime tower.
   const normal = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Lid', 20, 40, 5, '#ff0000')], 't', tpl, { print: LAYERTONE_PRINT }));
   assert.notEqual(JSON.parse(strFromU8(normal['Metadata/project_settings.config'])).enable_prime_tower, '0');
+  // ...except in Jig's own slice for the Cost tab.
+  const costSlice = await unzip(toBambuProject([box('Block', -10, 10, 5, '#00ff00'), box('Lid', 20, 40, 5, '#ff0000')], 't', tpl, { print: LAYERTONE_PRINT, primeTower: false }));
+  assert.equal(JSON.parse(strFromU8(costSlice['Metadata/project_settings.config'])).enable_prime_tower, '0');
 
   // Without colours: one filament, no changes.
   const plain = await unzip(toBambuProject([box('Relief', 0, 40, 1.6, '#161616', FOUR)], 't', tpl, { oneColour: '#00AE42', print: LAYERTONE_PRINT }));
