@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, sceneById, suggestScene, type PhotoAspect, type PhotoRequest } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, shopPlan, suggestScene, type PhotoAspect, type PhotoRequest, type ShopShot } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { api } from '../lib/api';
 import { dataUrlToImage, download, slug, uid } from '../lib/files';
@@ -9,29 +9,77 @@ import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
 import { useEscape } from './useEscape';
 
-/** A photo being made (or that failed), per design. */
-export interface PhotoJob { id: string; designId: string; scene: string; startedAt: number; error?: string; change?: string }
+/** A photo being made (or waiting its turn, or that failed), per design. */
+export interface PhotoJob {
+  id: string; designId: string; scene: string; startedAt: number; error?: string; change?: string;
+  /** A shop set's photo: its shot, its set and how many photos the set has. */
+  shop?: ShopShot; set?: string; setSize?: number;
+  /** Waiting for an earlier photo of its set to finish. */
+  waiting?: boolean;
+  /** What was asked for, to try again after a failure. */
+  request: PhotoRequest;
+}
+
+/** How many of a shop set's photos are made at the same time. */
+const SHOP_PARALLEL = 2;
 
 /** Photo requests in flight: they finish into their design even when another one is open by then. */
 export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => void) {
   const [jobs, setJobs] = useState<PhotoJob[]>([]);
   const done = useRef(onDone);
   done.current = onDone;
-  const start = (designId: string, r: PhotoRequest) => {
-    const job: PhotoJob = { id: uid(), designId, scene: r.scene, startedAt: Date.now(), change: r.change };
-    setJobs((j) => [...j, job]);
-    api.photo(designId, r).then((out) => {
+  const patch = (id: string, change: Partial<PhotoJob>) => setJobs((j) => j.map((x) => (x.id === id ? { ...x, ...change } : x)));
+  const newJob = (designId: string, r: PhotoRequest, set?: { id: string; size: number }): PhotoJob =>
+    ({ id: uid(), designId, scene: r.scene, startedAt: Date.now(), change: r.change, request: r, ...(r.shop ? { shop: r.shop } : {}), ...(set ? { set: set.id, setSize: set.size } : {}) });
+  // Settles either way: the photo goes into its design, or the job shows the error.
+  const run = (job: PhotoJob): Promise<void> => {
+    const r = job.request;
+    return api.photo(job.designId, r).then((out) => {
       setJobs((j) => j.filter((x) => x.id !== job.id));
-      done.current(designId, { url: out.photo, render: out.render, scene: r.scene, notes: r.notes, ...(r.from ? { editOf: r.from.photo, change: r.change } : {}), aspect: r.aspect, prompt: out.prompt, model: out.model, cost: out.cost, createdAt: Date.now() });
-    }, (e: Error) => setJobs((j) => j.map((x) => (x.id === job.id ? { ...x, error: e.message } : x))));
+      done.current(job.designId, { url: out.photo, render: out.render, scene: r.scene, notes: r.notes, ...(r.from ? { editOf: r.from.photo, change: r.change } : {}), ...(r.shop ? { shop: r.shop } : {}), aspect: r.aspect, prompt: out.prompt, model: out.model, cost: out.cost, createdAt: Date.now() });
+    }, (e: Error) => patch(job.id, { error: e.message }));
+  };
+  const start = (designId: string, r: PhotoRequest) => {
+    const job = newJob(designId, r);
+    setJobs((j) => [...j, job]);
+    void run(job);
+  };
+  // A shop set: its photos in order, a few at a time, each landing in the design as it is made (a
+  // failed one doesn't stop the others).
+  const startSet = (designId: string, rs: PhotoRequest[]) => {
+    const set = { id: uid(), size: rs.length };
+    const queue = rs.map((r) => ({ ...newJob(designId, r, set), waiting: true }));
+    setJobs((j) => [...j, ...queue]);
+    let next = 0;
+    const pump = () => {
+      const job = queue[next++];
+      if (!job) return;
+      const startedAt = Date.now();
+      patch(job.id, { waiting: false, startedAt });
+      void run({ ...job, startedAt }).then(pump);
+    };
+    for (let i = 0; i < SHOP_PARALLEL; i++) pump();
+  };
+  // A failed photo, asked for again.
+  const retry = (id: string) => {
+    const job = jobs.find((x) => x.id === id);
+    if (!job?.error) return;
+    const again = { ...job, error: undefined, waiting: false, startedAt: Date.now() };
+    patch(id, { error: undefined, startedAt: again.startedAt });
+    void run(again);
   };
   const dismiss = (id: string) => setJobs((j) => j.filter((x) => x.id !== id));
-  return { jobs, start, dismiss };
+  return { jobs, start, startSet, retry, dismiss };
 }
 
 const ASPECT_RATIO: Record<PhotoAspect, number> = { '1:1': 1, '4:5': 4 / 5, '16:9': 16 / 9 };
 const ASPECT_HINT: Record<PhotoAspect, string> = { '1:1': 'Square', '4:5': 'Portrait, for shop listings', '16:9': 'Wide, for banners' };
 const sceneLabel = (id: string) => sceneById(id)?.label ?? 'Custom scene';
+const shopShot = (shot?: string) => (SHOP_SHOTS as readonly string[]).includes(shot ?? '') ? shot as ShopShot : undefined;
+/** A photo's name: its scene, or for a shop set's photo its shot. */
+const photoLabel = (scene: string, shop?: string) => { const s = shopShot(shop); return s ? `Shop · ${SHOP_SHOT_LABELS[s]}` : sceneLabel(scene); };
+/** A shop photo's place in the set, for its file name (the order a listing shows them in). */
+const SHOP_ORDER: Record<ShopShot, number> = { main: 1, angle: 2, top: 3, detail: 3, lifestyle: 4, size: 5 };
 const money = (usd: number | null) => (usd == null ? 'cost unknown' : `$${usd.toFixed(usd < 0.1 ? 3 : 2)}`);
 
 interface Props {
@@ -49,6 +97,9 @@ interface Props {
   capture: (view: PhotoView, aspect: number) => string | null;
   jobs: PhotoJob[];
   onStart: (r: PhotoRequest) => void;
+  /** A shop set: its photos, made a few at a time. */
+  onStartSet: (rs: PhotoRequest[]) => void;
+  onRetry: (jobId: string) => void;
   onDismiss: (jobId: string) => void;
   /** The image model (OPENROUTER_API_KEY set), or null. */
   imageModel: string | null;
@@ -67,6 +118,8 @@ export function PhotosPanel(p: Props) {
   useEffect(() => store('photoAspect', aspect), [aspect]);
   useEffect(() => store('photoCamera', camera), [camera]);
   const [error, setError] = useState<string | null>(null);
+  // The shop set's renders being taken (1-based), before its photos are asked for.
+  const [rendering, setRendering] = useState<number | null>(null);
   const [big, setBig] = useState<ProductPhoto | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const openBig = (ph: ProductPhoto) => { opener.current = document.activeElement as HTMLElement | null; setBig(ph); };
@@ -97,6 +150,10 @@ export function PhotosPanel(p: Props) {
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
   const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang) && flat;
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
+  // A shop set still being made: how many of its photos have landed.
+  const setJob = jobs.find((j) => j.set && !j.error);
+  const setLeft = setJob ? jobs.filter((j) => j.set === setJob.set).length : 0;
+  const shopProgress = setJob ? `${setJob.setSize! - setLeft} / ${setJob.setSize}` : null;
   const photos = [...p.photos].reverse();
   // The enlarged photo's neighbours: the arrow buttons, ← and →, or a swipe; at either end it wraps around.
   const step = (by: number) => setBig((b) => {
@@ -112,7 +169,7 @@ export function PhotosPanel(p: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  const elapsed = useTicker(jobs.some((j) => !j.error));
+  const elapsed = useTicker(jobs.some((j) => !j.error && !j.waiting));
 
   if (!p.open) return null;
 
@@ -135,7 +192,10 @@ export function PhotosPanel(p: Props) {
       try { shot = p.capture('current', ASPECT_RATIO[shape]); } catch (e) { return setError(`Couldn't render the model: ${(e as Error).message}`); }
       if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
     }
-    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, aspect: shape, notes: ph.notes, product: prod });
+    // A shop photo stays one (2K, its shot); its product as it was shown (face-on or not).
+    const shop = shopShot(ph.shop);
+    if (shop) prod.faceOn = shopPlan({ size: prod.size, suggested }).find((x) => x.shot === shop)?.faceOn ?? false;
+    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, aspect: shape, notes: ph.notes, ...(shop ? { shop } : {}), product: prod });
     closeBig();
   };
 
@@ -159,11 +219,40 @@ export function PhotosPanel(p: Props) {
     });
   };
 
+  // Shop photos: a set of square 2K listing photos in one click (shopPlan), each from its own render
+  // (the image model keeps the render's angle), taken one by one so the panel shows how far it got.
+  // The view's own camera is never moved: the renders use a camera of their own.
+  const shopSet = async () => {
+    setError(null);
+    const prod = product();
+    if (!size || !prod) return setError('There is no model to photograph yet.');
+    const plan = shopPlan({ size, suggested });
+    const rs: PhotoRequest[] = [];
+    try {
+      for (const [i, item] of plan.entries()) {
+        setRendering(i + 1);
+        await new Promise((r) => setTimeout(r, 30));
+        let shot: string | null;
+        try {
+          shot = p.capture(item.camera, 1);
+        } catch (e) {
+          return setError(`Couldn't render the model: ${(e as Error).message}`);
+        }
+        if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
+        rs.push({ render: dataUrlToImage(shot), scene: item.scene, aspect: '1:1', shop: item.shot, product: { ...prod, faceOn: item.faceOn } });
+      }
+    } finally {
+      setRendering(null);
+    }
+    p.onStartSet(rs);
+  };
+
   const save = async (ph: ProductPhoto, n: number) => {
     try {
       const blob = await (await fetch(ph.url)).blob();
       const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png';
-      download(blob, `${slug(p.designName)}-${slug(sceneLabel(ph.scene))}-${n}.${ext}`);
+      const shop = shopShot(ph.shop);
+      download(blob, shop ? `${slug(p.designName)}-shop-${SHOP_ORDER[shop]}-${shop}-${n}.${ext}` : `${slug(p.designName)}-${slug(sceneLabel(ph.scene))}-${n}.${ext}`);
     } catch {
       setError('The photo could not be downloaded – is the Jig server running?');
     }
@@ -215,6 +304,11 @@ export function PhotosPanel(p: Props) {
         <Icon name="camera" size={14} /> Generate photo
       </button>
       <div className="dim small ph-note">{p.imageModel ?? 'Image model'} · about $0.04–0.07 and 10–30 s each · the photo is made from a clean render of the model as shown (hidden parts stay hidden).</div>
+      <button className="btn wide ph-shop" disabled={!p.imageModel || !size || rendering != null || !!shopProgress} onClick={() => void shopSet()}
+        title="5 square photos at 2K for a shop listing: main (front), 3/4 view, detail or top view in a light grey studio, a lifestyle photo and a size photo">
+        <Icon name="tag" size={14} /> {rendering != null ? `Rendering ${rendering} / 5…` : shopProgress ? `Making shop photos · ${shopProgress}` : 'Shop photos'}
+      </button>
+      <div className="dim small ph-note">Shop photos: 5 square photos at 2K (2048 × 2048) for a listing, the studio ones in the same light grey studio for every product · about $0.50 and 1 to 2 min a set · the scene and details above don't apply.</div>
       {p.notAssembled && <div className="dim small">Tip: the photo shows the parts as laid out in the view – choose <b>Assembled</b> below the view for the finished object.</div>}
       {error && <div className="bad-note small" role="alert">{error}</div>}
 
@@ -223,21 +317,24 @@ export function PhotosPanel(p: Props) {
         {jobs.map((j) => (
           <div key={j.id} className={`ph-tile pending ${j.error ? 'failed' : ''}`} role={j.error ? 'alert' : 'status'}>
             {j.error
-              ? <><Icon name="alert" size={16} /><span className="small">{sceneLabel(j.scene)}: {j.error}</span>
-                <button className="link" onClick={() => p.onDismiss(j.id)}>Dismiss</button></>
-              : <><span className="spinner" /><span className="small" title={j.change}>{sceneLabel(j.scene)}{j.change ? ' · changed' : ''}</span>
-                <span className="dim small mono">{Math.max(0, Math.round((elapsed - j.startedAt) / 1000))} s</span></>}
+              ? <><Icon name="alert" size={16} /><span className="small">{photoLabel(j.scene, j.shop)}: {j.error}</span>
+                <span className="ph-job-actions">
+                  {p.imageModel && <button className="link" onClick={() => p.onRetry(j.id)}>Try again</button>}
+                  <button className="link" onClick={() => p.onDismiss(j.id)}>Dismiss</button>
+                </span></>
+              : <><span className="spinner" /><span className="small" title={j.change ?? (j.shop ? sceneLabel(j.scene) : undefined)}>{photoLabel(j.scene, j.shop)}{j.change ? ' · changed' : ''}</span>
+                <span className="dim small mono">{j.waiting ? 'waiting' : `${Math.max(0, Math.round((elapsed - j.startedAt) / 1000))} s`}</span></>}
           </div>
         ))}
         {photos.map((ph, i) => (
           <div key={ph.url + ph.createdAt} className="ph-tile">
-            <button className="ph-thumb" onClick={() => openBig(ph)} aria-label={`${sceneLabel(ph.scene)} photo – enlarge`}>
+            <button className="ph-thumb" onClick={() => openBig(ph)} aria-label={`${photoLabel(ph.scene, ph.shop)} photo, enlarge`}>
               <img src={ph.url} alt="" loading="lazy" />
             </button>
             <div className="ph-tile-bar">
-              <span className="small" title={ph.change ?? ph.notes}>{sceneLabel(ph.scene)}{ph.editOf ? ' · changed' : ''}</span>
-              <button className="icon-btn" onClick={() => void save(ph, photos.length - i)} title="Download" aria-label={`Download the ${sceneLabel(ph.scene)} photo`}><Icon name="download" size={13} /></button>
-              <DeleteButton label={`${sceneLabel(ph.scene)} photo`} onDelete={() => p.onDelete(ph.url)} />
+              <span className="small" title={ph.change ?? ph.notes ?? (ph.shop ? sceneLabel(ph.scene) : undefined)}>{photoLabel(ph.scene, ph.shop)}{ph.editOf ? ' · changed' : ''}</span>
+              <button className="icon-btn" onClick={() => void save(ph, photos.length - i)} title="Download" aria-label={`Download the ${photoLabel(ph.scene, ph.shop)} photo`}><Icon name="download" size={13} /></button>
+              <DeleteButton label={`${photoLabel(ph.scene, ph.shop)} photo`} onDelete={() => p.onDelete(ph.url)} />
             </div>
           </div>
         ))}
@@ -264,6 +361,8 @@ export function PhotosPanel(p: Props) {
 /** The enlarged photo with what it was made from: scene, model, cost, the render and the prompt. */
 function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe, onRedo }: { photo: ProductPhoto; onSave: () => void; onDelete: () => void; onClose: () => void; onSwipe?: (by: number) => void; onRedo?: (change: string, fromView: boolean) => void }) {
   const [render, setRender] = useState(false);
+  // The photo's size in pixels, once it has loaded (a shop photo is 2K).
+  const [pixels, setPixels] = useState<string | null>(null);
   // Redo with a change: what to change, this photo as the scene, and the product from its render or from the 3D view's angle.
   const [change, setChange] = useState('');
   const [fromView, setFromView] = useState(false);
@@ -279,14 +378,16 @@ function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe, onRedo }: { photo
         const dx = t.clientX - from.x, dy = t.clientY - from.y;
         if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
       }}>
-      <img src={render && photo.render ? photo.render : photo.url} alt={render ? 'The render it was made from' : `Product photo: ${sceneLabel(photo.scene)}`} />
+      <img src={render && photo.render ? photo.render : photo.url} alt={render ? 'The render it was made from' : `Product photo: ${photoLabel(photo.scene, photo.shop)}`}
+        onLoad={(e) => { if (!render) setPixels(`${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight}`); }} />
       <div className="ph-big-side">
         <div className="ph-big-head">
-          <b>{sceneLabel(photo.scene)}</b>
+          <b>{photoLabel(photo.scene, photo.shop)}</b>
           <button className="icon-btn" autoFocus onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)"><Icon name="x" size={14} /></button>
         </div>
         {photo.change ? <div className="small">Changed: {photo.change}</div> : photo.notes && <div className="small">{photo.notes}</div>}
-        <div className="dim small">{photo.aspect} · {photo.model} · {money(photo.cost)} · {new Date(photo.createdAt).toLocaleString()}</div>
+        {photo.shop && <div className="dim small">Shop set · {sceneLabel(photo.scene)}</div>}
+        <div className="dim small">{photo.aspect}{pixels ? ` (${pixels})` : ''} · {photo.model} · {money(photo.cost)} · {new Date(photo.createdAt).toLocaleString()}</div>
         <div className="ph-big-actions">
           <button className="btn small-btn" onClick={onSave}><Icon name="download" size={13} /> Download</button>
           {photo.render && <button className="btn small-btn" aria-pressed={render} onClick={() => setRender(!render)}><Icon name="cube" size={13} /> {render ? 'Show the photo' : 'Show the render'}</button>}
@@ -300,7 +401,7 @@ function BigPhoto({ photo, onSave, onDelete, onClose, onSwipe, onRedo }: { photo
             <label className="ph-redo-view small" title="To change how the product sits or is seen: turn the 3D view to that angle first (Esc closes this photo), then redo">
               <input type="checkbox" checked={fromView} onChange={(e) => setFromView(e.target.checked)} /> Product at the 3D view's current angle
             </label>
-            <button className="btn primary small-btn" disabled={!change.trim()} onClick={() => onRedo(change.trim(), fromView)} title="Make this photo again with the change (Ctrl+Enter): the same setting, the product as in the render; about $0.07">
+            <button className="btn primary small-btn" disabled={!change.trim()} onClick={() => onRedo(change.trim(), fromView)} title={`Make this photo again with the change (Ctrl+Enter): the same setting, the product as in the render; about $${photo.shop ? '0.10' : '0.07'}`}>
               <Icon name="camera" size={13} /> Redo with this change
             </button>
           </div>

@@ -7,7 +7,7 @@
 // picture's countdown, the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
 // and an unfolded foldable (the 3D view beside the chat or the side panel), the Designs menu's search, the
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
-// tab. Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
+// tab, and Shop photos (a set of 5 from their own renders, with a stand-in for the image model). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
@@ -41,7 +41,20 @@ const sockets = new Set<Socket>();
 server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
 // The one reply it generates, "a slow cube", waits for finishSlowCube() (or Stop).
 let finishSlowCube = () => {};
-server.on('request', createApp({ port, connection, generate: async (req, send, abort) => {
+// A stand-in for the image model (the shop photos test): the "photo" is the render it was sent,
+// held until openImages() and refused once for a close-up; what it was asked for is kept.
+let openImages = () => {};
+const imagesOpen = new Promise<void>((resolve) => { openImages = resolve; });
+const imageAsks: { prompt: string; aspect: string; size?: string }[] = [];
+let refuseCloseUp = true;
+const image = async (prompt: string, aspect: string, references: string[] | undefined, _signal?: AbortSignal, _onStatus?: unknown, size?: string) => {
+  imageAsks.push({ prompt, aspect, size });
+  await imagesOpen;
+  if (refuseCloseUp && prompt.includes('CLOSE-UP DETAIL')) { refuseCloseUp = false; throw new Error('test/image is busy'); }
+  const [, mediaType, data] = /^data:([^;]+);base64,(.+)$/s.exec(references![0])!;
+  return { image: { data, mediaType }, model: 'test/image', cost: 0.1 };
+};
+server.on('request', createApp({ port, connection, image, generate: async (req, send, abort) => {
   if (req.prompt !== 'a slow cube') throw new Error('the smoke test never generates');
   send({ type: 'step', step: { kind: 'status', text: 'Measuring the slow cube' } });
   await new Promise<void>((resolve) => { finishSlowCube = resolve; abort.signal.addEventListener('abort', () => resolve()); });
@@ -138,13 +151,13 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
 
-  // Product photos: 9 scenes and Custom…, the other 9 after "More scenes".
+  // Product photos: 13 scenes and Custom…, the other 9 after "More scenes".
   await page.getByRole('button', { name: 'Product photos' }).click();
   const scenes = page.locator('.ph-scenes [role=radio]');
   await page.getByRole('button', { name: 'More scenes (9 more)' }).waitFor();
-  assert.equal(await scenes.count(), 10);
+  assert.equal(await scenes.count(), 14);
   await page.getByRole('button', { name: 'More scenes (9 more)' }).click();
-  assert.equal(await scenes.count(), 19);
+  assert.equal(await scenes.count(), 23);
   await page.screenshot({ path: path.join(shots, '2-scenes.png') });
 
   assert.deepEqual(errors, []);
@@ -705,4 +718,69 @@ test('a part\'s filament: its swatch opens the picker at the panel\'s width, a p
   await page.getByRole('button', { name: 'Reset the filament of Lid' }).click();
   assert.equal(await background(), was);
   await until(async () => !(await getDesign(pid)).values?.$partColors, 'the reset is saved with the design');
+});
+
+test('Shop photos makes a set of 5 square 2K photos, each from its own render, with progress, and a failed one can be tried again', TEST, async () => {
+  const pid = 'ui-smoke-00000006';
+  // A flat wall plaque: face-on, at an angle, a close-up, on the wall and on the wall by a light switch.
+  const plaque = 'function build() { return [{ name: \'Board\', color: \'#2f6f8f\', shape: Manifold.cube([120, 80, 4]) }, { name: \'Bar\', color: \'#f2efe6\', shape: Manifold.cube([80, 10, 2]).translate([20, 58, 4]) }, { name: \'Dot\', color: \'#e0a43c\', shape: Manifold.cylinder(2, 18, 18, 48).translate([60, 32, 4]) }]; }';
+  const r = await putDesign({ id: pid, name: 'Home wall plaque', createdAt: 1, updatedAt: 1, code: plaque, values: {}, messages: [], currentVersion: 0,
+    versions: [{ code: plaque, summary: 'A wall plaque', createdAt: 1, source: 'manual' }] });
+  assert.equal(r.status, 200, await r.text());
+  // As if Jig had an OpenRouter key; the image model is the stand-in.
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  try {
+    const page = await newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${A}/?design=${pid}`);
+    await page.waitForFunction(() => document.title === 'Jig - Home wall plaque');
+    await built(page);
+    const view = page.locator('.viewer-host canvas').first();
+    const before = await view.screenshot();
+    await page.getByRole('button', { name: 'Product photos' }).click();
+    const shop = page.locator('button.ph-shop');
+    await shop.click();
+    // Two at a time: the others wait their turn, and the button says how far the set got.
+    await page.getByRole('button', { name: /Making shop photos · 0 \/ 5/ }).waitFor();
+    await until(async () => imageAsks.length === 2, 'two photos asked for at a time');
+    assert.equal(await page.locator('.ph-tile.pending', { hasText: 'waiting' }).count(), 3);
+    await page.locator('.ph-gallery').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, '18-shop-progress.png') });
+    openImages();
+    // The close-up fails once; the other four land in the design as they come.
+    const failed = page.locator('.ph-tile.failed', { hasText: 'Shop · Detail' });
+    await failed.waitFor();
+    await until(async () => ((await getDesign(pid)).photos ?? []).length === 4, 'four photos in the design');
+    await page.getByRole('button', { name: 'Shop photos', exact: true }).waitFor();
+    await page.locator('.ph-gallery').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, '18-shop-failed.png') });
+    await failed.getByRole('button', { name: 'Try again' }).click();
+    await until(async () => ((await getDesign(pid)).photos ?? []).length === 5, 'the close-up made again');
+    await page.locator('.ph-tile.failed').waitFor({ state: 'detached' });
+    const photos = (await getDesign(pid)).photos as { shop?: string; scene: string; aspect: string; render?: string }[];
+    assert.deepEqual(photos.map((ph) => ph.shop).sort(), ['angle', 'detail', 'lifestyle', 'main', 'size']);
+    assert.ok(photos.every((ph) => ph.aspect === '1:1'));
+    assert.deepEqual(Object.fromEntries(photos.map((ph) => [ph.shop, ph.scene])), { main: 'grey-studio', angle: 'grey-studio', detail: 'grey-studio', lifestyle: 'wall', size: 'wall' });
+    // Each from its own render (the face, an angle and a close-up differ; the wall ones are face-on).
+    const renders = new Map(photos.map((ph) => [ph.shop, ph.render]));
+    assert.equal(new Set([renders.get('main'), renders.get('angle'), renders.get('detail')]).size, 3);
+    assert.equal(renders.get('main'), renders.get('lifestyle'));
+    assert.ok(imageAsks.every((a) => a.size === '2K' && a.aspect === '1:1'), JSON.stringify(imageAsks.map((a) => [a.size, a.aspect])));
+    assert.equal(imageAsks.length, 6, 'five photos and the one tried again');
+    for (const label of ['Shop · Main', 'Shop · 3/4 view', 'Shop · Detail', 'Shop · Lifestyle', 'Shop · Size']) await page.locator('.ph-tile-bar', { hasText: label }).waitFor();
+    // The 3D view's camera is where the user left it.
+    await page.getByRole('button', { name: 'Close product photos' }).click();
+    assert.ok(before.equals(await view.screenshot()), 'the view is as it was');
+    await page.getByRole('button', { name: 'Product photos' }).click();
+    await page.locator('.ph-gallery').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, '18-shop-set.png') });
+    await page.locator('.ph-thumb').first().click();
+    await page.locator('.ph-big', { hasText: 'Shop set · ' }).waitFor();
+    await page.screenshot({ path: path.join(shots, '18-shop-big.png') });
+    assert.deepEqual(errors, []);
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+  }
 });

@@ -1061,6 +1061,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-tile.pending { align-items: center; justify-content: center; gap: 6px; min-height: 120px; padding: 8px; text-align: center; color: var(--text-2); }
 .ph-tile.failed { color: #ffc6c0; border-color: #5c2c2a; background: #3a1e1d80; }
 .ph-tile.failed span { overflow-wrap: anywhere; }
+.ph-job-actions { display: flex; gap: 12px; }
 .ph-thumb { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; }
 .ph-thumb img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
 .ph-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

@@ -5,6 +5,7 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
+import type { PhotoCamera } from '../../shared/photos';
 import { buildGrid, buildPlate, updatePlate } from './stage';
 import { plateBounds } from '../../shared/printer';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
@@ -57,8 +58,11 @@ const NEUTRAL = new THREE.Color('#b9bcc2');
 
 export interface Measurement { a: Vec3; b: Vec3 }
 
-/** How a product-photo render is framed: the viewer's camera, a 3/4 product angle, or a flat print face-on (from above). */
-export type PhotoView = 'current' | 'angle' | 'face';
+/**
+ * How a product-photo render is framed: the viewer's camera, a 3/4 product angle, a flat print
+ * face-on (from above) or a close-up of its face, the front, or from high above (PhotoCamera).
+ */
+export type PhotoView = 'current' | PhotoCamera;
 
 /** Assembly animation step with per-part start offsets resolved. */
 export interface PlaybackStep {
@@ -1013,20 +1017,30 @@ export class Viewer {
     const cam = new THREE.PerspectiveCamera(22, W / H, 0.1, 1e6);
     const center = box.getCenter(new THREE.Vector3());
     const dir = new THREE.Vector3();
+    // The share of the picture the model fills; more than 1 crops in on its middle.
+    let share = 0.8;
     if (view === 'current') {
       dir.copy(this.camera.position).sub(this.controls.target).normalize();
       cam.up.copy(this.camera.up);
-    } else if (view === 'face') {
+    } else if (view === 'face' || view === 'detail') {
       // A little off-axis, so the raised details and the thickness show.
       dir.set(0.1, -0.16, 1).normalize();
       cam.up.set(0, 1, 0);
+      // The detail: closer, on the middle of the face.
+      if (view === 'detail') share = 1.7;
+    } else if (view === 'front') {
+      // From the front and a little above, turned a touch so it doesn't look flat.
+      dir.set(0.12, -1, 0.3).normalize();
+    } else if (view === 'top') {
+      // From high above, so its top shows (and what is inside it).
+      dir.set(0.3, -0.55, 1.1).normalize();
     } else {
       // Flat things from higher up, so their top shows; the rest from a little above.
       const s = box.getSize(new THREE.Vector3());
       dir.set(0.55, -1, s.z < 0.3 * Math.min(s.x, s.y) ? 1.05 : 0.5).normalize();
     }
     if (!Number.isFinite(dir.x)) dir.set(...VIEW_DIRS.iso).normalize();
-    cam.position.copy(center).addScaledVector(dir, framingDistance(box, center, dir, cam, 0.8));
+    cam.position.copy(center).addScaledVector(dir, framingDistance(box, center, dir, cam, share));
     cam.lookAt(center);
     cam.near = cam.position.distanceTo(center) / 100;
     cam.far = cam.position.distanceTo(center) * 10;

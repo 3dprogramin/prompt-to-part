@@ -1293,6 +1293,8 @@ export default function App() {
                 capture={(view, aspect) => photoRef.current?.(view, aspect) ?? null}
                 jobs={photoJobs.jobs}
                 onStart={(r) => photoJobs.start(design.id, r)}
+                onStartSet={(rs) => photoJobs.startSet(design.id, rs)}
+                onRetry={photoJobs.retry}
                 onDismiss={photoJobs.dismiss}
                 imageModel={artworkModel}
                 notAssembled={!!layoutKey && layoutValue !== 'assembled' && !playback}
