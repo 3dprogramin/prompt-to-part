@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { photoEditPrompt, photoProblem, photoPrompt, SHOP_SCENE, shopPlan, suggestScene, type PhotoRequest } from '../shared/photos';
+import { familiar, photoEditPrompt, photoProblem, photoPrompt, SHOP_SCENE, shopPlan, suggestScene, vsSwitch, type PhotoRequest } from '../shared/photos';
 import { requestImage } from '../server/artwork';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
@@ -15,7 +15,7 @@ test('the photo prompt keeps the object, its size and colours, and sets the scen
   const p = photoPrompt(request());
   assert.match(p, /Café coaster – Round coaster with raised lettering/);
   assert.match(p, /100 × 100 mm footprint and 5\.2 mm high/);
-  assert.match(p, /drinks coaster/, "a familiar size for the scale");
+  assert.match(p, /about the size of a drinks coaster/, "a familiar size for the scale");
   assert.match(p, /true proportion/);
   assert.match(p, /exact colours of the render/);
   assert.match(p, /do not add, remove, move/);
@@ -39,6 +39,39 @@ test('wall scenes hang a flat print face-on; custom scenes and extra wishes go i
   const extra = photoPrompt(request({ scene: 'studio', notes: 'a soft blue backdrop' }));
   assert.match(extra, /white studio sweep/);
   assert.match(extra, /Also: a soft blue backdrop\./);
+});
+
+test('a wall piece hangs on a wide, continuous wall, its size cue beside it, never overlapping', () => {
+  const plaque = { name: 'Say Hello To My Little Friend', size: [160, 220, 5] as [number, number, number], faceOn: true };
+  for (const scene of ['wall', 'xmas-wall']) {
+    const p = photoPrompt(request({ scene, product: plaque }));
+    assert.match(p, /entirely on a wide, flat, continuous stretch of wall with a wide margin of free wall on every side/);
+    assert.match(p, /never crosses or touches a corner, pillar, edge, door or window frame, shelf or furniture, and nothing overlaps it/);
+    assert.match(p, /beside it on the same wall, with free wall between them/);
+    assert.match(p, /about 1\.9 times as wide and 2\.6 times as tall as the switch/);
+  }
+  const fridge = photoPrompt(request({ scene: 'fridge', product: { name: 'Magnet', size: [60, 60, 4], faceOn: true } }));
+  assert.match(fridge, /continuous stretch of fridge door/);
+  assert.match(fridge, /never crosses or touches an edge of the door, its handle or another magnet/);
+  assert.doesNotMatch(fridge, /light switch \(/, 'no light switch on a fridge door');
+  const size = photoPrompt(request({ scene: 'wall', shop: 'size', product: plaque }));
+  assert.match(size, /continuous stretch of wall/);
+  assert.match(size, /light switch \(about 85 mm square\) beside it on the same wall.*about 1\.9 times as wide and 2\.6 times as tall as the switch/);
+  assert.doesNotMatch(photoPrompt(request()), /continuous stretch/);
+});
+
+test('the familiar size is the closest match: a flat piece by its face, anything else by its longest side', () => {
+  assert.equal(familiar([160, 220, 5], true), 'about the size of a sheet of A5 paper');
+  assert.equal(familiar([300, 200, 3], true), 'about the size of a sheet of A4 paper');
+  assert.equal(familiar([86, 54, 2], true), 'about the size of a credit card');
+  assert.equal(familiar([148, 105, 2], true), 'about the size of an A6 postcard');
+  assert.equal(familiar([80, 80, 3], true), 'a bit smaller than a drinks coaster');
+  assert.equal(familiar([300, 30, 3], true), 'about as long as a shoebox', 'a long strip by its length');
+  assert.equal(familiar([100, 80, 60], false), 'about the size of a coffee mug');
+  assert.equal(familiar([400, 300, 200], false), 'a bit larger than a shoebox');
+  assert.match(familiar([20, 15, 10], false), /coin, tiny next to a hand/);
+  assert.equal(vsSwitch([160, 220, 5], true), 'it is about 1.9 times as wide and 2.6 times as tall as the switch');
+  assert.equal(vsSwitch([160, 220, 5], false), 'its longest side is about 2.6 times the width of the switch');
 });
 
 test('the suggested scene follows what the design is', () => {
@@ -152,8 +185,11 @@ test('a shop photo says what its shot shows', () => {
   const size = shop('size', 'wall', true);
   assert.match(size, /SIZE PHOTO FOR THE LISTING: a standard white light switch/);
   assert.doesNotMatch(size, /It is a small piece for a wall/, 'the size line says it once');
-  assert.match(shop('size', 'hand'), /the hand shows how big it is/);
-  assert.match(shop('size', 'table'), /coffee mug/);
+  assert.match(size, /beside it on the same wall, with free wall between them/);
+  assert.match(size, /about 2\.1 times as wide and 1\.3 times as tall as the switch/, 'the ratio to the switch');
+  assert.match(shop('size', 'hand'), /the hand shows how big it is: its longest side is about 0\.9 times the length of an adult hand \(190 mm\) and 2\.1 times the width of its palm/);
+  assert.match(shop('size', 'table'), /coffee mug \(about 95 mm tall\) beside it, both fully in view; its longest side is about 1\.9 times the mug's height, so/);
+  assert.match(photoPrompt(request({ scene: 'table', shop: 'size', product: { name: 'Box', size: [400, 300, 200] } })), /its longest side is about 4\.2 times the mug's height and it stands about 2\.1 times as tall as the mug/);
   assert.doesNotMatch(shop('lifestyle', 'office'), /LISTING:|LISTING PHOTO/);
   assert.doesNotMatch(photoPrompt(request()), /LISTING PHOTO|SIZE PHOTO/);
   assert.equal(photoProblem(request({ shop: 'main' })), null);

@@ -27,7 +27,7 @@ export const SHOP_SCENE = 'grey-studio';
 
 export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'table', label: 'Wooden table', icon: 'table', scene: 'on a warm oak wooden table in a bright, cosy home interior, softly blurred background, natural window light from the side' },
-  { id: 'wall', label: 'Living-room wall', icon: 'frame', wall: true, scene: 'hanging on a light painted wall in a calm, modern living room, mounted flat against the wall at eye level, with a plant, a lamp or a picture frame softly blurred nearby, soft daylight' },
+  { id: 'wall', label: 'Living-room wall', icon: 'frame', wall: true, scene: 'hanging in the middle of a wide, plain stretch of light painted wall in a calm, modern living room, mounted flat against the wall at eye level, with a plant, a lamp or a picture frame softly blurred nearby, soft daylight' },
   { id: 'kitchen', label: 'Kitchen counter', icon: 'cup', scene: 'on a clean kitchen counter (light stone or wood) in a bright modern kitchen, with a few kitchen things softly blurred in the background, morning light' },
   { id: 'office', label: 'Office desk', icon: 'desk', scene: 'on a tidy modern office desk with a laptop, a notebook and a pen softly blurred around it, daylight from a window' },
   { id: 'shelf', label: 'Shelf with plants', icon: 'plant', scene: 'on a wooden wall shelf styled with small potted green plants and a couple of books, Scandinavian look, soft natural light' },
@@ -39,9 +39,9 @@ export const PHOTO_SCENES: PhotoScene[] = [
   // Christmas (seasonal, so in the main list).
   { id: 'xmas-tree', label: 'On the Christmas tree', icon: 'bauble', hang: true, scene: 'hanging from a branch of a real, decorated Christmas tree (fresh green fir needles), next to a couple of glass baubles, with warm fairy lights glowing as soft bokeh in the blurred background, cosy evening light' },
   { id: 'xmas-gifts', label: 'Under the tree', icon: 'gift', scene: 'on a wooden floor or low table under a Christmas tree, next to a few gifts wrapped in kraft paper with red and white ribbons, pine branches and pine cones around, warm fairy lights glowing as soft bokeh behind, cosy evening light' },
-  { id: 'xmas-wall', label: 'Christmas wall', icon: 'star', wall: true, scene: 'hanging on a light wall decorated for Christmas, mounted flat at eye level above a sideboard or mantel with a fresh pine garland, warm fairy lights and a few candles softly blurred below it, cosy warm evening light' },
+  { id: 'xmas-wall', label: 'Christmas wall', icon: 'star', wall: true, scene: 'hanging in the middle of a wide stretch of light wall decorated for Christmas, mounted flat at eye level well above a sideboard or mantel with a fresh pine garland, warm fairy lights and a few candles softly blurred below it, cosy warm evening light' },
   // Shown after "More scenes".
-  { id: 'fridge', label: 'On the fridge', icon: 'fridge', wall: true, scene: 'stuck on the door of a white or brushed-steel fridge in a bright home kitchen, flat against the door at eye level, with a child\'s drawing or a photo held by another magnet softly blurred nearby, soft daylight' },
+  { id: 'fridge', label: 'On the fridge', icon: 'fridge', wall: true, scene: 'stuck in the middle of the wide, flat door of a white or brushed-steel fridge in a bright home kitchen, flat against the door at eye level, with a child\'s drawing or a photo held by another magnet softly blurred nearby, soft daylight' },
   { id: 'restaurant', label: 'Restaurant table', icon: 'fork', scene: 'on a table in a stylish restaurant or café, with a plate, a glass and cutlery softly blurred around it, warm ambient light and bokeh from the room behind' },
   { id: 'bedroom', label: 'Bedside table', icon: 'bed', scene: 'on a bedside table next to a book and a small lamp in a calm, softly lit bedroom, linen bedding softly blurred behind, warm morning light' },
   { id: 'bathroom', label: 'Bathroom shelf', icon: 'drop', scene: 'on a clean bathroom shelf or sink edge with white tiles, a folded towel and a small plant softly blurred nearby, bright, fresh daylight' },
@@ -200,18 +200,61 @@ export const PHOTO_URL = /^\/api\/designs\/[a-zA-Z0-9-]{8,64}\/images\/[0-9a-f]{
 
 const mm = (v: number) => (v >= 100 ? Math.round(v) : +v.toFixed(1)).toString();
 
-/** Something familiar of about the same size, so the model gets the scale right. */
-function familiar(longest: number): string {
-  if (longest <= 30) return 'about the size of a coin – tiny next to a hand';
-  if (longest <= 65) return 'about the size of a matchbox – it fits easily in a palm';
-  if (longest <= 120) return 'about the size of a drinks coaster or a palm';
-  if (longest <= 200) return 'about the size of a paperback book';
-  if (longest <= 320) return 'about the size of a sheet of A4 paper';
-  return 'a large object, wider than a laptop';
+// Familiar things of a known size (mm): flat ones by their face (long × short side), any by its longest side.
+const FACES: [string, number[]][] = [
+  ['a coin', [24, 24]], ['a matchbox', [53, 36]], ['a credit card', [86, 54]], ['a drinks coaster', [100, 100]],
+  ['a CD case', [142, 125]], ['an A6 postcard', [148, 105]], ['a paperback book', [178, 111]], ['a sheet of A5 paper', [210, 148]],
+  ['a sheet of A4 paper', [297, 210]], ['a vinyl record sleeve', [315, 315]], ['a sheet of A3 paper', [420, 297]],
+  ['an A2 poster', [594, 420]], ['an A1 poster', [841, 594]],
+];
+const LENGTHS: [string, number[]][] = [
+  ['a coin', [24]], ['a golf ball', [43]], ['a matchbox', [53]], ['a credit card', [86]], ['a coffee mug', [95]],
+  ['a smartphone', [150]], ['a paperback book', [178]], ['a dinner plate', [260]], ['a shoebox', [330]],
+  ['a carry-on suitcase', [550]], ['an acoustic guitar', [1000]],
+];
+
+/** Something familiar of about the same size, so the model gets the scale right: a flat piece by its face, anything else by its longest side. */
+export function familiar(size: Vec3, flat: boolean): string {
+  const [x, y, z] = size;
+  // The worst side's mismatch and the overall scale, in log terms (0: the same).
+  const nearest = (list: [string, number[]][], dims: number[]) => list
+    .map(([name, ref]) => {
+      const logs = dims.map((v, i) => Math.log(v / ref[i]));
+      return { name, off: Math.max(...logs.map(Math.abs)), scale: logs.reduce((a, l) => a + l, 0) / logs.length };
+    })
+    .sort((a, b) => a.off - b.off)[0];
+  const longest = Math.max(x, y, flat ? 0 : z);
+  let best = flat ? nearest(FACES, [Math.max(x, y), Math.min(x, y)]) : null;
+  // A long, thin flat piece is like nothing flat: by its length then.
+  const strip = !!best && best.off > 0.45;
+  if (!best || strip) best = nearest(LENGTHS, [longest]);
+  const hint = longest <= 30 ? ', tiny next to a hand' : longest <= 65 ? ', it fits easily in a palm' : '';
+  const [same, more, less] = strip ? ['about as long as', 'longer', 'shorter'] : ['about the size of', 'larger', 'smaller'];
+  const like = best.off <= 0.12 ? same
+    : Math.abs(best.scale) < 0.06 ? `close in ${strip ? 'length' : 'size'} to`
+    : `${Math.abs(best.scale) < 0.35 ? 'a bit ' : ''}${best.scale > 0 ? more : less} than`;
+  return `${like} ${best.name}${hint}`;
 }
 
+// Things of a known size in some scenes (mm), and how many times as big the product is.
+const SWITCH = 85, HAND = 190, PALM = 85, MUG = 95;
+const times = (v: number, ref: number) => { const r = v / ref; return (r >= 10 ? Math.round(r) : +r.toFixed(r < 0.1 ? 2 : 1)).toString(); };
+
+/** The product beside a light switch (a standard EU plate, about 85 mm square). */
+export function vsSwitch(size: Vec3, faceOn: boolean): string {
+  const [x, y, z] = size;
+  return faceOn
+    ? `it is about ${times(x, SWITCH)} times as wide and ${times(y, SWITCH)} times as tall as the switch`
+    : `its longest side is about ${times(Math.max(x, y, z), SWITCH)} times the width of the switch`;
+}
+const vsHand = (size: Vec3) => {
+  const longest = Math.max(...size);
+  return `its longest side is about ${times(longest, HAND)} times the length of an adult hand (${HAND} mm) and ${times(longest, PALM)} times the width of its palm (${PALM} mm)`;
+};
+const vsMug = ([x, y, z]: Vec3) => `its longest side is about ${times(Math.max(x, y, z), MUG)} times the mug's height${z >= MUG / 2 && z < Math.max(x, y) ? ` and it stands about ${times(z, MUG)} times as tall as the mug` : ''}`;
+
 /** What a shop photo must show, beyond its scene. */
-function shopLine(shot: ShopShot, scene: string): string | null {
+function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean): string | null {
   const whole = 'the whole product centred, filling about three quarters of the square frame, nothing cut off';
   switch (shot) {
     case 'main': return `THE MAIN LISTING PHOTO: ${whole}.`;
@@ -220,10 +263,10 @@ function shopLine(shot: ShopShot, scene: string): string | null {
     case 'detail': return 'A CLOSE-UP DETAIL PHOTO FOR THE LISTING: the render is cropped to part of the product, which goes on past the edges of the picture. Keep this close crop (do not show the whole product or shrink it to fit), so the surface, the edges and the fine detail of the print fill the photo, with a gentle depth of field.';
     case 'lifestyle': return null;
     case 'size': return scene === 'wall'
-      ? 'A SIZE PHOTO FOR THE LISTING: a standard white light switch (about 85 mm wide) on the wall right beside it, both fully in view and in focus, so its real size is obvious at a glance.'
+      ? `A SIZE PHOTO FOR THE LISTING: a standard white light switch (about ${SWITCH} mm square) beside it on the same wall, with free wall between them (never touching or overlapping it), both fully in view and in focus; ${vsSwitch(size, faceOn)}, so its real size is obvious at a glance.`
       : scene === 'hand'
-      ? 'A SIZE PHOTO FOR THE LISTING: the hand shows how big it is; the product and the hand fully in view.'
-      : 'A SIZE PHOTO FOR THE LISTING: a plain coffee mug (about 95 mm tall) beside it, both fully in view, so its real size is obvious at a glance.';
+      ? `A SIZE PHOTO FOR THE LISTING: the hand shows how big it is: ${vsHand(size)}; the product and the hand fully in view.`
+      : `A SIZE PHOTO FOR THE LISTING: a plain coffee mug (about ${MUG} mm tall) beside it, both fully in view; ${vsMug(size)}, so its real size is obvious at a glance.`;
   }
 }
 
@@ -236,6 +279,7 @@ export function photoPrompt(b: PhotoRequest): string {
   const hang = !!preset?.hang;
   const faceOn = !!b.product.faceOn;
   const shop = b.shop && SHOP_SHOTS.includes(b.shop) ? b.shop : null;
+  const surface = b.scene === 'fridge' ? 'fridge door' : 'wall';
   // A flat print shown face-on: its face and thickness; otherwise the box as printed.
   const size = faceOn
     ? `${mm(x)} mm wide, ${mm(y)} mm tall and ${mm(z)} mm thick`
@@ -245,7 +289,7 @@ export function photoPrompt(b: PhotoRequest): string {
     'Turn the attached render into a photorealistic product photo of the real, 3D-printed object.',
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
-    `Real size: ${size} (${familiar(Math.max(x, y, faceOn ? 0 : z))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
+    `Real size: ${size} (${familiar(b.product.size, faceOn || z < 0.25 * Math.min(x, y))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
     b.product.lithophane
       ? 'It is a LITHOPHANE: one panel of white PLA whose thickness varies, so its picture appears only when light shines through it – thin areas glow bright warm white, thick areas stay dark. The render shows it lit from behind: in the photo it must glow from a warm light behind it, the picture showing through exactly as in the render, with the panel\'s frame and stand as they are.'
       : b.product.colors?.length
@@ -271,11 +315,16 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `SCENE: ${preset ? preset.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
-    wall && Math.max(x, y) < 350 && shop !== 'size' ? 'It is a small piece for a wall: show a light switch, a door frame or a small framed picture near it so its real size is obvious, and photograph it from close by.' : null,
-    shop ? shopLine(shop, b.scene) : null,
+    wall && Math.max(x, y) < 350 && shop !== 'size'
+      ? surface === 'wall'
+        ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by.`
+        : 'It is a small piece: show the fridge\'s handle or another magnet beside it on the door, apart from it, so its real size is obvious, and photograph it from close by.'
+      : null,
+    b.scene === 'hand' && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
+    shop ? shopLine(shop, b.scene, b.product.size, faceOn) : null,
     preset && notes ? `Also: ${notes}.` : null,
     wall
-      ? 'It hangs flat against the wall, its back touching it, with a soft contact shadow, in light that matches the surroundings.'
+      ? `It hangs flat against the ${surface}, its back touching it, with a soft contact shadow, in light that matches the surroundings. It is entirely on a wide, flat, continuous stretch of ${surface} with a wide margin of free ${surface} on every side: it never crosses or touches ${surface === 'wall' ? 'a corner, pillar, edge, door or window frame, shelf or furniture' : 'an edge of the door, its handle or another magnet'}, and nothing overlaps it.`
       : hang
       ? 'It hangs freely from the branch on a thin red ribbon threaded through its own hanging hole or loop (tied around its top if it has none), straight down under its own weight, turned to face the camera, in light that matches the surroundings.'
       : 'It rests ON the surface, not above it: its underside in full contact with the table or shelf, seen in the same perspective as that surface (it lies in its plane, never tilted against it, floating or hovering), with real contact shadows right under it and light that matches the surroundings.',
