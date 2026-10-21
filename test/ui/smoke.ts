@@ -7,7 +7,8 @@
 // picture's countdown, the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
 // and an unfolded foldable (the 3D view beside the chat or the side panel), the Designs menu's search, the
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
-// tab, and Shop photos (a set of 5 from their own renders, with a stand-in for the image model). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
+// tab, Shop photos (a set of 5 from their own renders, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
+// resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
@@ -779,6 +780,129 @@ test('Shop photos makes a set of 5 square 2K photos, each from its own render, w
     await page.locator('.ph-thumb').first().click();
     await page.locator('.ph-big', { hasText: 'Shop set · ' }).waitFor();
     await page.screenshot({ path: path.join(shots, '18-shop-big.png') });
+    assert.deepEqual(errors, []);
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+  }
+});
+
+test('sale sizes: S / M / L suggested, one shown and resized alone, sliced one at a time, and scene photos for every size from one scene', TEST, async () => {
+  const pid = 'ui-smoke-00000007';
+  // A flat wall plaque without parameters: its sizes scale its face, its thickness stays.
+  const plaque = 'function build() { return [{ name: \'Board\', color: \'#2f6f8f\', shape: Manifold.cube([120, 80, 4]) }, { name: \'Bar\', color: \'#f2efe6\', shape: Manifold.cube([80, 10, 2]).translate([20, 58, 4]) }]; }';
+  const r = await putDesign({ id: pid, name: 'Sized wall plaque', createdAt: 1, updatedAt: 1, code: plaque, values: {}, messages: [], currentVersion: 0,
+    versions: [{ code: plaque, summary: 'A wall plaque', createdAt: 1, source: 'manual' }] });
+  assert.equal(r.status, 200, await r.text());
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  openImages();
+  try {
+    const page = await newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    // A stand-in for Bambu Studio: the page is told it is installed, and its slices are counted (never two at once).
+    let active = 0, most = 0, slices = 0;
+    await page.route('**/api/capabilities', async (route) => { const res = await route.fetch(); await route.fulfill({ response: res, json: { ...(await res.json()), bambu: '02.04.00.00' } }); });
+    await page.route('**/api/bambu/template', (route) => route.fulfill({ json: { version: '02.08.04.57', settings: { filament_colour: ['#00AE42'], filament_type: ['PLA'], different_settings_to_system: ['', '', ''], flush_volumes_matrix: ['0', '280', '280', '0'], flush_volumes_vector: ['140', '140'] }, perFilament: ['filament_colour', 'filament_type'], perFilamentPlus2: [] } }));
+    await page.route('**/api/slice', async (route) => {
+      const n = ++slices;
+      most = Math.max(most, ++active);
+      await new Promise((res) => setTimeout(res, 300));
+      active--;
+      await route.fulfill({ json: { seconds: 1800 * n, grams: 10 * n, filaments: [{ color: '#2f6f8f', grams: 10 * n }] } });
+    });
+    await page.goto(`${A}/?design=${pid}`);
+    await page.waitForFunction(() => document.title === 'Jig - Sized wall plaque');
+    await built(page);
+
+    // Three sizes around its own 120 mm width, each built for real: the face scales, 6 mm thick.
+    await page.getByRole('button', { name: 'Suggest S / M / L' }).click();
+    const dims = page.locator('.size-row .size-dims');
+    await until(async () => (await dims.allInnerTexts()).join('|') === '85 × 56.7 × 6|120 × 80 × 6|170 × 113 × 6', 'the three sizes built', 30_000);
+    await page.locator('.size-how', { hasText: 'Scaled across its face; the thickness stays' }).waitFor();
+    await until(async () => ((await getDesign(pid)).sizes ?? []).filter((s: { resolved?: unknown }) => s.resolved).length === 3, 'the sizes saved with the design');
+    await page.locator('.sizes').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, '19-sizes.png') });
+
+    // L in the view: the banner says so, and Overall size changes L alone.
+    await page.getByRole('button', { name: 'Show size L in the 3D view' }).click();
+    await page.locator('.size-banner', { hasText: 'Size L' }).locator('.mono').waitFor();
+    await page.locator('.size-mode h4', { hasText: 'Overall size · L' }).waitFor();
+    const w = page.locator('.size-mode .axis-x input');
+    await w.fill('180');
+    await w.press('Enter');
+    await page.locator('.size-banner', { hasText: '180 × 120 × 6 mm' }).waitFor();
+    await until(async () => ((await getDesign(pid)).sizes as { mm: number }[]).map((s) => s.mm).join() === '85,120,180', 'L saved; S and M stay');
+    // A size out of order is pointed out, never fixed by changing another one.
+    const m = page.getByRole('textbox', { name: 'W of size M, mm' });
+    await m.fill('200');
+    await m.press('Enter');
+    await page.locator('.sizes .size-note', { hasText: 'L (180 mm) is not bigger than M (200 mm)' }).waitFor();
+    await m.fill('120');
+    await m.press('Enter');
+    await page.locator('.sizes .size-note', { hasText: 'is not bigger' }).waitFor({ state: 'detached' });
+    await page.screenshot({ path: path.join(shots, '19-size-shown.png') });
+
+    // Every size sliced, one after the other.
+    await page.getByRole('button', { name: 'Slice every size' }).click();
+    await until(async () => (await page.locator('.sizes-table tbody td.mono').allInnerTexts()).filter((t) => t.endsWith(' g')).length === 3, 'three sizes sliced', 30_000);
+    assert.deepEqual(await page.locator('.sizes-table tbody tr').evaluateAll((rows) => rows.map((tr) => tr.children[2]?.textContent)), ['10.0 g', '20.0 g', '30.0 g']);
+    assert.equal(slices, 3);
+    assert.equal(most, 1, 'one slice at a time');
+    await until(async () => ((await getDesign(pid)).sizes as { slice?: { stats: { grams: number } } }[]).map((s) => s.slice?.stats.grams).join() === '10,20,30', 'the grams saved per size');
+    await page.screenshot({ path: path.join(shots, '19-sizes-sliced.png') });
+
+    // Photos for all sizes: the lifestyle and size photos of L (shown in the view) first, then S
+    // and M from their own renders in L's scenes.
+    const asked = imageAsks.length;
+    await page.getByRole('button', { name: 'Product photos' }).click();
+    await page.getByRole('button', { name: 'Photos for all sizes (S, M, L)' }).click();
+    await until(async () => ((await getDesign(pid)).photos ?? []).length === 6, 'six size photos in the design', 60_000);
+    type Photo = { url: string; render?: string; shop?: string; scene: string; saleSize?: { label: string; mm: number }; sizeOf?: string; dims?: number[]; prompt: string };
+    const photos = (await getDesign(pid)).photos as Photo[];
+    const of = (shot: string, label: string) => photos.find((ph) => ph.shop === shot && ph.saleSize?.label === label)!;
+    for (const shot of ['lifestyle', 'size']) {
+      const first = of(shot, 'L');
+      assert.ok(first && !first.sizeOf, `${shot}: L made first`);
+      for (const label of ['S', 'M']) {
+        const ph = of(shot, label);
+        assert.equal(ph.sizeOf, first.url, `${shot} ${label}: in L's scene`);
+        assert.notEqual(ph.render, first.render, `${shot} ${label}: its own render`);
+        assert.match(ph.prompt, new RegExp(`THIS PHOTO SHOWS THE ${label} SIZE`));
+        assert.match(ph.prompt, /THE SCENE TO KEEP EXACTLY/);
+      }
+    }
+    assert.deepEqual(of('size', 'S').dims, [85, 56.7, 6]);
+    assert.match(of('size', 'S').prompt, /0\.47x as wide and as tall as in the earlier photo \(just as thick as before\)/);
+    assert.match(of('size', 'S').prompt, /now it is 1x as wide as it/);
+    assert.ok(imageAsks.slice(asked).every((a) => a.size === '2K'), 'shop photos stay at 2K');
+    for (const label of ['Shop · Lifestyle · L', 'Shop · Size · S', 'Shop · Size · M']) await page.getByRole('button', { name: `${label} photo, enlarge` }).waitFor();
+    // The gallery by size.
+    await page.locator('.ph-filter').getByRole('radio', { name: 'S', exact: true }).click();
+    assert.equal(await page.locator('.ph-gallery .ph-tile:not(.pending)').count(), 2);
+    await page.locator('.ph-gallery').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, '19-size-photos.png') });
+
+    // S made bigger: only S's numbers and photos are out of date, with a one-click redo in the same scene.
+    await page.getByRole('button', { name: 'Close product photos' }).click();
+    const s = page.getByRole('textbox', { name: 'W of size S, mm' });
+    await s.fill('90');
+    await s.press('Enter');
+    await page.locator('.sizes-table tbody tr').first().locator('td', { hasText: 'changed since it was sliced' }).waitFor();
+    assert.deepEqual(await page.locator('.sizes-table tbody tr').evaluateAll((rows) => rows.slice(1).map((tr) => tr.children[2]?.textContent)), ['20.0 g', '30.0 g']);
+    await page.getByRole('button', { name: 'Product photos' }).click();
+    const old = page.locator('.ph-outdated[title*="made for 85 mm, now 90 mm"]', { hasText: 'Made for 85 mm' });
+    await until(async () => (await old.count()) === 2, 'the two S photos out of date');
+    await page.locator('.ph-filter').getByRole('radio', { name: 'All', exact: true }).click();
+    assert.equal(await page.locator('.ph-outdated').count(), 2, 'M and L photos are still up to date');
+    await page.locator('.ph-gallery').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, '19-size-outdated.png') });
+    await old.first().click();
+    await until(async () => ((await getDesign(pid)).photos ?? []).length === 7, 'the S photo made again', 30_000);
+    const redone = ((await getDesign(pid)).photos as Photo[]).at(-1)!;
+    assert.equal(redone.saleSize?.mm, 90);
+    assert.match(redone.prompt, /THIS PHOTO SHOWS THE S SIZE OF THE PRODUCT: 90 mm wide/);
+    assert.equal(await page.locator('.ph-outdated').count(), 2, 'the old photo stays, marked');
     assert.deepEqual(errors, []);
   } finally {
     if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
