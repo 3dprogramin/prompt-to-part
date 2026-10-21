@@ -1,10 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ParamValues, ScriptErrorInfo, SolveResult } from '../../shared/types';
+import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ParamValues, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import { Icon } from './Icon';
 import { load, store } from '../lib/storage';
 import { TextPanel } from './TextPanel';
 import { OneColourSwitch, PrintPanel } from './PrintPanel';
 import { CostPanel } from './CostPanel';
+import { SizesPanel } from './SizesPanel';
+import type { SizesControls } from '../hooks/useSizes';
+import { AXIS_NAMES, scaledAxes, type SizeAxis } from '../../shared/sizes';
 import { ObjectPanel } from './ObjectPanel';
 import { parsePartColors, PART_COLORS_KEY, type PartFilament } from '../../shared/params';
 import { MeshColorsPanel } from './MeshColorsPanel';
@@ -103,6 +106,8 @@ interface Props {
   onEditDimension: (target: DimTarget, goal: number) => Promise<SolveResult | null>;
   scale: number;
   onScale: (factor: number) => void;
+  /** The sale sizes (useSizes). */
+  sizes: SizesControls;
   textFeatures: TextFeature[];
   onTextFeatures: (f: TextFeature[]) => void;
   svgFeatures: SvgFeature[];
@@ -173,7 +178,7 @@ export function SidePanel(p: Props) {
             : noModel('The parts appear here once a model is generated.')))}
           {shown && Object.values(parseMeshes(p.values[MESHES_KEY])).some((m) => m.palette?.length) && section('colors', 'Filament colours', () => <MeshColorsPanel result={shown} meshes={parseMeshes(p.values[MESHES_KEY])} onPalette={p.onMeshPalette} repaint={p.repaint} onRepaintStart={p.onRepaintStart} />)}
           {section('params', 'Parameters', () => (shown
-            ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
+            ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} size={sizeEdit(p.sizes)} /><SizesPanel sizes={p.sizes} result={shown} costSettings={p.cost.settings} bambu={!!p.bambu} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
             : noModel('Parameters appear here once a model is generated.')))}
         </>}
         {tab === 'decorate' && <>
@@ -272,11 +277,46 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
   );
 }
 
-function OverallSize({ result, onEdit, scale, onScale }: { result: EvalResult; onEdit: Props['onEditDimension']; scale: number; onScale: (f: number) => void }) {
+/** The size shown in the 3D view, as Overall size edits it: only its own main dimension. */
+interface SizeEdit { label: string; axis: SizeAxis; mm: number; dims: Vec3 | null; onSet: (mm: number) => void }
+function sizeEdit(z: SizesControls): SizeEdit | undefined {
+  const s = z.viewed;
+  return s ? { label: s.label, axis: s.axis, mm: s.mm, dims: z.resolvedOf(s)?.size ?? null, onSet: (mm) => void z.setMm(s.id, mm) } : undefined;
+}
+
+function OverallSize({ result, onEdit, scale, onScale, size }: { result: EvalResult; onEdit: Props['onEditDimension']; scale: number; onScale: (f: number) => void; size?: SizeEdit }) {
   const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+  useEffect(() => setNote(null), [size?.label]);
   const b = result.bbox;
   if (!b) return null;
   const axes = [['W', 'X'], ['D', 'Y'], ['H', 'Z']] as const;
+  // A sale size shown in the view: its W, D or H sets that size's main dimension (in proportion);
+  // the others and the design stay as they are.
+  if (size) {
+    const d = size.dims;
+    const setSize = (axis: SizeAxis, goal: number) => {
+      if (!d) return;
+      if (axis === size.axis) size.onSet(goal);
+      else if (scaledAxes(d).includes(axis)) size.onSet((size.mm * goal) / d[axis]);
+      else return setNote({ ok: false, text: `The ${['width', 'depth', 'height'][axis]} is the same in every size: stop showing ${size.label} to change it for all of them.` });
+      setNote({ ok: true, text: `Size ${size.label} only: ${AXIS_NAMES[size.axis]} ${axis === size.axis ? goal.toFixed(1) : ((size.mm * goal) / d[axis]).toFixed(1)} mm` });
+    };
+    return (
+      <section className="param-group overall size-mode">
+        <h4>Overall size · {size.label} <span className="h4-hint">changes only size {size.label}</span></h4>
+        <div className="size-grid">
+          {axes.map(([name, ax], i) => (
+            <label key={ax} className={`size-cell axis-${ax.toLowerCase()}`}>
+              <span>{name} <small>{ax}</small></span>
+              {d ? <CommitInput value={d[i]} decimals={2} onCommit={(v) => setSize(i as SizeAxis, v)} /> : <div className="num-box"><span className="spinner" /></div>}
+            </label>
+          ))}
+          <div className="size-cell"><span>Sale size</span><b className="size-chip">{size.label}</b></div>
+        </div>
+        {note && <div className={`size-note ${note.ok ? '' : 'bad'}`}>{note.text}</div>}
+      </section>
+    );
+  }
   const edit = async (axis: 0 | 1 | 2, goal: number) => {
     setNote({ ok: true, text: `Finding the right size for ${'XYZ'[axis]}…` });
     const r = await onEdit({ kind: 'bbox', axis }, goal);

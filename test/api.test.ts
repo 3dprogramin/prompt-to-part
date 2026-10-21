@@ -268,3 +268,41 @@ test('product photos: checked, need the OpenRouter key, stored with the design',
     if (saved === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = saved;
   }
 });
+
+test('sale sizes: stored with the design; a photo for another size keeps an earlier photo\'s scene', async () => {
+  const id = 'test-api-00000021';
+  const sizes = [{ id: 's1', label: 'S', axis: 0, mm: 100, resolved: { key: 'k', values: { $faceScale: 0.667 }, size: [100, 66.7, 6], how: 'face' } }, { id: 's2', label: 'M', axis: 0, mm: 150 }];
+  assert.equal((await put(design({ id, sizes }))).status, 200);
+  assert.deepEqual((await (await fetch(`${A}/api/designs/${id}`)).json()).sizes, sizes);
+  assert.equal((await put(design({ id, rev: 1, sizes: { s: 1 } }))).status, 400);
+  // An old design without sizes still loads as it was.
+  assert.equal((await put(design({ id: 'test-api-00000022' }))).status, 200);
+  assert.equal((await (await fetch(`${A}/api/designs/test-api-00000022`)).json()).sizes, undefined);
+
+  const post = (body: unknown) => fetch(`${A}/api/designs/${id}/photos`, { method: 'POST', headers: W, body: JSON.stringify(body) });
+  const saved = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  try {
+    const product = (size: number[]) => ({ name: 'Plaque', size, faceOn: true });
+    const base = await (await post({ render: { mediaType: 'image/png', data: PNG }, scene: 'wall', aspect: '1:1', shop: 'size', saleSize: { id: 's2', label: 'M' }, product: product([150, 100, 6]) })).json();
+    const sized = Buffer.from('89504e470d0a1a0a73697a6564', 'hex').toString('base64');
+    const resize = { render: { mediaType: 'image/png', data: sized }, from: { photo: base.photo }, scene: 'wall', aspect: '1:1', shop: 'size', saleSize: { id: 's1', label: 'S' }, resize: { base: { label: 'M', size: [150, 100, 6] } }, product: product([100, 66.7, 6]) };
+    for (const bad of [{ ...resize, from: undefined }, { ...resize, render: undefined }, { ...resize, resize: { base: { size: [1, 2] } } }, { ...resize, saleSize: { id: '', label: 'S' } }, { ...resize, change: '' }]) {
+      assert.equal((await post(bad)).status, 400, JSON.stringify(bad).slice(0, 160));
+    }
+    imageAsked = null;
+    const r = await post(resize);
+    assert.equal(r.status, 200);
+    const out = await r.json();
+    // The size's own render first, then the earlier photo as the scene; at 2K like any shop photo.
+    assert.equal(imageAsked!.references![0], `data:image/png;base64,${sized}`);
+    assert.match(imageAsked!.references![1], /^data:image\/png;base64,/);
+    assert.equal(imageAsked!.size, '2K');
+    assert.match(out.prompt, /THIS PHOTO SHOWS THE S SIZE/);
+    assert.match(out.prompt, /THE SCENE TO KEEP EXACTLY/);
+    assert.match(out.prompt, /0\.67x as wide and as tall as in the earlier photo \(just as thick as before\)/);
+    assert.notEqual(out.render, base.render, 'its own render is stored with it');
+  } finally {
+    if (saved === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = saved;
+  }
+});

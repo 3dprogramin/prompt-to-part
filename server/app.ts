@@ -20,7 +20,7 @@ import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
-import { photoEditPrompt, photoProblem, photoPrompt, SHOP_IMAGE_SIZE, type PhotoRequest, type PhotoResponse } from '../shared/photos';
+import { photoEditPrompt, photoProblem, photoPrompt, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
 import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
@@ -89,7 +89,7 @@ function isDesign(d: unknown): d is Design {
   return !!o && typeof o === 'object' && typeof o.id === 'string' && typeof o.name === 'string' && typeof o.code === 'string'
     && Number.isFinite(o.updatedAt) && Number.isFinite(o.createdAt) && Number.isInteger(o.currentVersion)
     && Array.isArray(o.messages) && Array.isArray(o.versions) && !!o.values && typeof o.values === 'object'
-    && (o.rev === undefined || Number.isInteger(o.rev)) && (o.photos === undefined || Array.isArray(o.photos));
+    && (o.rev === undefined || Number.isInteger(o.rev)) && (o.photos === undefined || Array.isArray(o.photos)) && (o.sizes === undefined || Array.isArray(o.sizes));
 }
 
 // Chat images (reference photos, renders, assembly pictures) are stored once per design, by
@@ -364,7 +364,8 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
         return void res.status((e as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 400).json({ error: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'That photo is no longer stored' : (e as Error).message });
       }
       renderUrl = body.render ? null : body.from.render!;
-      prompt = photoEditPrompt(body);
+      // Another sale size of the photo: its scene kept, the product at this size (its own render).
+      prompt = body.resize ? sizeVariantPrompt(body) : photoEditPrompt(body);
     } else {
       const r = body.render!;
       const sent = checkedRender(r);

@@ -3,6 +3,11 @@ import type { ParamDef, ParamValues } from './types';
 
 /** Uniform scale applied after build (a reserved value key, not a script parameter). */
 export const SCALE_KEY = '$scale';
+/**
+ * A sale size of a flat piece (shared/sizes.ts): its face (X and Y) scaled by this, after SCALE_KEY,
+ * while its thickness and reliefs (Z) stay as designed. Only in a size's values, never the design's.
+ */
+export const FACE_SCALE_KEY = '$faceScale';
 
 /** Filaments the user picked for parts (Object tab), by part name: they win over the script's colours. */
 export const PART_COLORS_KEY = '$partColors';

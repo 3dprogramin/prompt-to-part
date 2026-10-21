@@ -1114,6 +1114,20 @@ export class Viewer {
     }
   }
 
+  /**
+   * photo() of another build of the model (a sale size), framed and lit the same way; the model
+   * shown in the view is put back right after.
+   */
+  photoOf(result: EvalResult, view: PhotoView, aspect: number, size = 1536): string | null {
+    const shown = this.result;
+    this.setModel(result);
+    try {
+      return this.photo(view, aspect, size);
+    } finally {
+      this.setModel(shown);
+    }
+  }
+
   /** The box around the parts that are shown. */
   private visibleBox(): THREE.Box3 | null {
     const parts = this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? [];

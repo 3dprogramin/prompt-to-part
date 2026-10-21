@@ -4,6 +4,7 @@ import type { LayerToneSource, LayerColor } from './layertone';
 import type { LithophaneSource } from './lithophane';
 import type { LineArtInfo } from './lineart';
 import type { PaintFilament } from './meshColors';
+import type { DesignSize } from './sizes';
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -266,6 +267,8 @@ export interface Design {
   rev?: number;
   /** Product photos made from the model (newest last). */
   photos?: ProductPhoto[];
+  /** The sizes it is sold in (S / M / L…; none: just as designed). */
+  sizes?: DesignSize[];
 }
 
 /** A product photo: the image model's picture of the printed design in a scene. */
@@ -283,6 +286,16 @@ export interface ProductPhoto {
   change?: string;
   /** One of a shop set's photos (Shop photos): which shot ('main', 'angle', 'detail'…). */
   shop?: string;
+  /** The sale size it shows (DesignSize id, and its label and main dimension when made). */
+  saleSize?: { id: string; label: string; mm?: number };
+  /** The design's shape when made (useSizes' shapeKey): another one means the photo is out of date. */
+  shape?: string;
+  /** The product's W × D × H it was made for, mm. */
+  dims?: Vec3;
+  /** A photo of one size made from a photo of another (its URL): the same scene, another size. */
+  sizeOf?: string;
+  /** The camera of its render (a PhotoView: 'angle', 'face'…), to take the other sizes' renders alike. */
+  camera?: string;
   aspect: string;
   prompt: string;
   model: string;

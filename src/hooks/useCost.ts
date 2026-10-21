@@ -39,6 +39,31 @@ interface Inputs {
 }
 
 /**
+ * Slices one build of a design in the user's Bambu Studio: the exported parts at export resolution,
+ * made into the same Bambu Studio project as the 3MF export. The Cost tab's calculation, and each
+ * sale size's (src/hooks/useSizes.ts).
+ */
+export async function sliceBuild(geo: GeometryClient, o: {
+  code: string; title: string; values: ParamValues; hiddenParts: string[]; userPrint: PrintProfile; oneColour: null | 'main' | string;
+  onTemplate: (tpl: BambuTemplate) => void; stage: (s: CostStage) => void;
+}): Promise<Omit<CostResult, 'key'> | { error: string }> {
+  o.stage('model');
+  const built = await geo.evaluate(o.code, o.values, 'high');
+  if (!built.result) return { error: `The model failed at export resolution: ${built.error.message}` };
+  const parts = exportedParts(built.result, { exclude: o.hiddenParts });
+  if (!parts.length) return { error: 'Every part is hidden in the viewer: nothing to print.' };
+  o.stage('template');
+  const tpl = await api.bambuTemplate();
+  o.onTemplate(tpl);
+  const colour = o.oneColour ? oneColourFilament(parts, o.oneColour).colour : null;
+  const colours = colour ? 1 : new Set(parts.map((p) => p.color.toLowerCase())).size;
+  const project = await buildProject({ kind: 'bambu', parts, title: built.result.meta.name || o.title, tpl, opts: { oneColour: colour, print: { ai: built.result.print, user: o.userPrint } } });
+  o.stage('slicing');
+  const stats = await api.slice(project);
+  return { stats, result: built.result, parts: parts.length, colours };
+}
+
+/**
  * Cost of printing the open design: the exported parts at export resolution, made into the same
  * Bambu Studio project as the 3MF export and sliced by the user's Bambu Studio. Results are kept per
  * design; one calculation at a time.
@@ -64,20 +89,9 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
     const stage = (s: CostStage) => setRunning({ designId: d.id, stage: s, since });
     const fail = (message: string) => setErrors((e) => ({ ...e, [d.id]: { key: k, message } }));
     try {
-      stage('model');
-      const o = await geo.evaluate(d.code, v, 'high');
-      if (!o.result) return fail(`The model failed at export resolution: ${o.error.message}`);
-      const parts = exportedParts(o.result, { exclude: hidden });
-      if (!parts.length) return fail('Every part is hidden in the viewer: nothing to print.');
-      stage('template');
-      const tpl = await api.bambuTemplate();
-      gotTemplate(tpl);
-      const colour = single ? oneColourFilament(parts, single).colour : null;
-      const colours = colour ? 1 : new Set(parts.map((p) => p.color.toLowerCase())).size;
-      const project = await buildProject({ kind: 'bambu', parts, title: o.result.meta.name || d.name, tpl, opts: { oneColour: colour, print: { ai: o.result.print, user } } });
-      stage('slicing');
-      const stats = await api.slice(project);
-      setResults((r) => ({ ...r, [d.id]: { key: k, stats, result: o.result, parts: parts.length, colours } }));
+      const out = await sliceBuild(geo, { code: d.code, title: d.name, values: v, hiddenParts: hidden, userPrint: user, oneColour: single, onTemplate: gotTemplate, stage });
+      if ('error' in out) return fail(out.error);
+      setResults((r) => ({ ...r, [d.id]: { key: k, ...out } }));
       setErrors((e) => { const next = { ...e }; delete next[d.id]; return next; });
     } catch (e) {
       fail((e as Error).message);
