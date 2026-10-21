@@ -27,7 +27,7 @@ test('a size photo keeps the earlier photo\'s scene and camera, and changes only
   assert.match(p, /takes up more of the picture/);
   assert.match(p, /first attached picture, its render at this size/);
   assert.doesNotMatch(p, /THE CHANGE/);
-  assert.doesNotMatch(p.slice(photoPrompt({ ...wallL(), notes: undefined }).length), /[–—]/, 'plain hyphens only');
+  assert.doesNotMatch(p.slice(photoPrompt({ ...wallL(), notes: undefined }).length), /[\u2013\u2014]/, 'plain hyphens only');
 });
 
 test('smaller sizes, other scenes and references', () => {

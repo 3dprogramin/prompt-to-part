@@ -31,8 +31,10 @@ interface Props {
   paintRef?: React.MutableRefObject<((mesh: string, mask: Uint8Array, color: string) => void) | null>;
   /** Receives a function that captures the current view as a JPEG data URL. */
   snapshotRef?: React.MutableRefObject<(() => string | null) | null>;
-  /** Receives a function that renders the model alone for a product photo (PNG data URL). */
-  photoRef?: React.MutableRefObject<((view: PhotoView, aspect: number) => string | null) | null>;
+  /** Receives a function that renders the model alone for a product photo (PNG data URL); `result`: another build of it (a sale size). */
+  photoRef?: React.MutableRefObject<((view: PhotoView, aspect: number, result?: EvalResult) => string | null) | null>;
+  /** A note over the view (the sale size it shows). */
+  banner?: React.ReactNode;
   /** The product photos panel: open or not, toggled by the camera button; photos being made. */
   photos?: { open: boolean; onToggle: () => void; busy: number; panel: React.ReactNode };
   /** The model has an assembly sequence that can be played. */
@@ -67,7 +69,7 @@ const f2 = (n: number) => n.toFixed(2);
 /** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
 const touch = window.matchMedia('(pointer: coarse)').matches;
 
-export function ViewerPanel({ costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos }: Props) {
+export function ViewerPanel({ costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -163,7 +165,7 @@ export function ViewerPanel({ costStatus, result, recolor, previewColors, error,
     v.onRepaintStroke = (faces) => repaintRef.current.stroke?.(faces);
     if (paintRef) paintRef.current = (mesh, mask, color) => v.paintStored(mesh, mask, color);
     if (snapshotRef) snapshotRef.current = () => v.snapshot();
-    if (photoRef) photoRef.current = (view, aspect) => v.photo(view, aspect);
+    if (photoRef) photoRef.current = (view, aspect, other) => (other ? v.photoOf(other, view, aspect) : v.photo(view, aspect));
     v.onDimEdit = (target, rect, current) => {
       const p = panel.current!.getBoundingClientRect();
       setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
@@ -330,6 +332,7 @@ export function ViewerPanel({ costStatus, result, recolor, previewColors, error,
         </div>
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`} role="status">{toast.text}</div>}
+      {banner && !notice && <div className="size-banner" role="status">{banner}</div>}
 
       {photos?.panel}
       {validation && validationOpen && (

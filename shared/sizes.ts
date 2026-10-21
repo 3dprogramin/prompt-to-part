@@ -161,6 +161,21 @@ export function sizeKey(code: string, values: ParamValues, axis: SizeAxis, mm: n
   return hashText(JSON.stringify([code, values, axis, mm]));
 }
 
+/**
+ * The design's shape apart from its overall size: its script and values, without the ones that only
+ * size it (the driving parameters, Scale %) or only show it (`ignore`: hidden parts, the layout).
+ * Photos keep it: another shape means they show an earlier version of the product.
+ */
+export function shapeKey(code: string, values: ParamValues, params: EvalResult['params'], ignore: string[] = []): string {
+  const v: ParamValues = {};
+  for (const k of Object.keys(values).sort()) {
+    const d = params[k];
+    if (k === SCALE_KEY || ignore.includes(k) || (d && (d.type === 'number' || d.type === 'integer') && d.drives)) continue;
+    v[k] = values[k];
+  }
+  return hashText(JSON.stringify([code, v]));
+}
+
 /** A short hash of a text (cyrb53), for keys stored with the design. */
 export function hashText(s: string): string {
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
@@ -246,5 +261,5 @@ export function cleanSizes(raw: unknown): DesignSize[] {
 
 const isVec3 = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
 
-/** "240 × 160 × 6 mm" */
-export const sizeText = (s: Vec3) => `${s.map((v) => (v >= 100 ? Math.round(v) : +v.toFixed(1))).join(' × ')} mm`;
+/** "240 × 160 × 6 mm" (without the unit: "240 × 160 × 6") */
+export const sizeText = (s: Vec3, unit = true) => `${s.map((v) => (v >= 100 ? Math.round(v) : +v.toFixed(1))).join(' × ')}${unit ? ' mm' : ''}`;

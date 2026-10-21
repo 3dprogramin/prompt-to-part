@@ -145,7 +145,7 @@ export interface PhotoRequest {
   /** One of the shop set's photos (Shop photos): made at 2K, with what the shot shows in the prompt. */
   shop?: ShopShot;
   /** The sale size the photo shows (Design.sizes), kept with the photo. */
-  saleSize?: { id: string; label: string };
+  saleSize?: { id: string; label: string; mm?: number };
   /**
    * With `from`: the same photo for another sale size. The photo to change is the scene to keep, of
    * the product at `base` size; the render (sent, or `from.render`) is the product at this size.
@@ -315,7 +315,7 @@ export function photoEditPrompt(b: PhotoRequest): string {
 /** What is wrong with a photo request's sale size fields, or null. */
 function saleSizeProblem(b: PhotoRequest): string | null {
   const s = b.saleSize;
-  if (s != null && (typeof s !== 'object' || typeof s.id !== 'string' || !s.id || s.id.length > 64 || typeof s.label !== 'string' || s.label.length > 24)) return 'saleSize: { id, label } of one of the design\'s sizes';
+  if (s != null && (typeof s !== 'object' || typeof s.id !== 'string' || !s.id || s.id.length > 64 || typeof s.label !== 'string' || s.label.length > 24 || (s.mm != null && !(typeof s.mm === 'number' && s.mm > 0 && s.mm < 10000)))) return 'saleSize: { id, label } of one of the design\'s sizes';
   const r = b.resize;
   if (r == null) return null;
   if (!b.from) return 'resize: needs `from`, the photo of the other size whose scene is kept';

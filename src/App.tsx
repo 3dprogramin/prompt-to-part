@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamDef, ParamValue, ParamValues, Quality, SolveResult } from '../shared/types';
+import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamDef, ParamValue, ParamValues, Quality, SolveResult, Vec3 } from '../shared/types';
 import { parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY, type PartFilament } from '../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
 import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
@@ -28,7 +28,7 @@ import { LayoutTabs, type LayoutTab } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
 import { LineArtEditor } from './components/LineArtEditor';
 import { assembledLineArt, lineArtPart } from './components/LineArtPanel';
-import { PhotosPanel, usePhotoJobs } from './components/PhotosPanel';
+import { PhotosPanel, usePhotoJobs, type SizeShot } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
@@ -36,6 +36,8 @@ import { useLayoutMode } from './hooks/useLayoutMode';
 import { useLiveModel } from './hooks/useLiveModel';
 import { useRepaint } from './hooks/useRepaint';
 import { STAGE_TEXT, useCost } from './hooks/useCost';
+import { useSizes, visibleSize } from './hooks/useSizes';
+import { sizeText } from '../shared/sizes';
 import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
@@ -242,7 +244,7 @@ export default function App() {
   }));
   const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality);
   const snapshotRef = useRef<(() => string | null) | null>(null);
-  const photoRef = useRef<((view: PhotoView, aspect: number) => string | null) | null>(null);
+  const photoRef = useRef<((view: PhotoView, aspect: number, result?: EvalResult) => string | null) | null>(null);
   const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [validation, setValidation] = useState<ValidationState | null>(null);
@@ -820,6 +822,21 @@ export default function App() {
     onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
   });
 
+  // ---- sale sizes (S / M / L): built, shown and sliced one at a time
+  const sizes = useSizes(geo, {
+    design, updateDesign, shown, quality, layoutKey, printLayout, hiddenParts, userPrint, oneColour,
+    onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
+  });
+  /** A sale size's own render for a photo (the design's for null), whatever the view shows. */
+  const sizeShot: SizeShot = async (sizeId, view, aspect) => {
+    const built = sizeId ? await sizes.buildOf(sizeId) : shown ?? { error: 'There is no model yet.' };
+    if ('error' in built) return built;
+    const dims = visibleSize(built, hiddenParts);
+    const shot = dims && photoRef.current?.(view, aspect, built);
+    return shot && dims ? { shot, dims } : { error: 'Every part is hidden: show at least one to photograph it.' };
+  };
+  const designDims: Vec3 | null = shown ? visibleSize(shown, hiddenParts) : null;
+
   // Any change to the model ends the animation and makes validation results stale.
   useEffect(() => {
     if (design === adopted.current) { adopted.current = null; return; }
@@ -1257,12 +1274,18 @@ export default function App() {
         />
         <ViewerPanel
           costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}
-          result={playback ? playback.result : result ?? lastGood}
+          result={playback ? playback.result : sizes.viewResult ?? result ?? lastGood}
+          banner={sizes.viewed && !playback ? <>
+            <b>Size {sizes.viewed.label}</b>{' '}
+            {sizes.viewResult && sizes.resolvedOf(sizes.viewed) ? <span className="mono">{sizeText(sizes.resolvedOf(sizes.viewed)!.size)}</span> : <><span className="spinner" /> building it…</>}
+            <button className="link" onClick={() => sizes.view(null)}>Back to the design</button>
+          </> : null}
           recolor={playback ? null : recolor}
           previewColors={previewColors}
           error={error}
           busy={busy}
-          fitKey={fitKey}
+          // Fits the camera to a sale size shown, and back to the design.
+          fitKey={`${fitKey}:${sizes.viewResult ? sizes.viewed?.id : ''}`}
           options={picking ? { ...viewerOptions, pickText: true, measure: false } : repaint.view ? { ...viewerOptions, measure: false } : viewerOptions}
           onOptions={(o) => { if (o.hiddenParts !== viewerOptions.hiddenParts) setHiddenParts(o.hiddenParts); setViewOpts(o); }}
           quality={quality}
@@ -1286,14 +1309,20 @@ export default function App() {
                 designId={design.id}
                 designName={design.name}
                 summary={design.versions[design.currentVersion]?.summary}
-                result={result ?? lastGood}
+                result={sizes.viewResult ?? result ?? lastGood}
                 hiddenParts={hiddenParts}
                 photos={design.photos ?? []}
+                sizes={sizes.sizes.map((s) => ({ id: s.id, label: s.label, mm: s.mm, axis: s.axis, dims: sizes.resolvedOf(s)?.size }))}
+                viewedSize={sizes.viewResult ? sizes.viewed?.id ?? null : null}
+                designDims={designDims}
+                shape={sizes.shape}
+                sizeShot={sizeShot}
+                onStartSizes={(groups, more) => photoJobs.startSizes(design.id, groups, more)}
                 onDelete={deletePhoto}
                 capture={(view, aspect) => photoRef.current?.(view, aspect) ?? null}
                 jobs={photoJobs.jobs}
-                onStart={(r) => photoJobs.start(design.id, r)}
-                onStartSet={(rs) => photoJobs.startSet(design.id, rs)}
+                onStart={(r, more) => photoJobs.start(design.id, r, more)}
+                onStartSet={(rs, more) => photoJobs.startSet(design.id, rs, more)}
                 onRetry={photoJobs.retry}
                 onDismiss={photoJobs.dismiss}
                 imageModel={artworkModel}
@@ -1363,6 +1392,7 @@ export default function App() {
           onPick={setPicking}
           scale={Number(design.values[SCALE_KEY] ?? 1)}
           onScale={onScale}
+          sizes={sizes}
           onApplyCode={onApplyCode}
           onExport={onExport}
           onExportProject={onExportProject}

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import { solveDimension } from '../shared/solver';
-import { boxSize, cleanSizes, hashText, mainAxis, nextSize, printableMax, resolveSize, sizeKey, sizePlan, suggestSizes, type SizeTools } from '../shared/sizes';
+import { boxSize, cleanSizes, hashText, shapeKey, mainAxis, nextSize, printableMax, resolveSize, sizeKey, sizePlan, suggestSizes, type SizeTools } from '../shared/sizes';
 import type { ParamValues } from '../shared/types';
 
 // Stand-ins for the geometry worker: the same runtime and solver, in this process.
@@ -110,4 +110,12 @@ test('sizes stored with a design are checked; an old design has none; keys chang
   assert.notEqual(sizeKey(SIGN, {}, 0, 150), sizeKey(SIGN, {}, 0, 151));
   assert.equal(sizeKey(SIGN, {}, 0, 150), sizeKey(SIGN, {}, 0, 150));
   assert.match(hashText('x'), /^[0-9a-z]+$/);
+});
+
+test('the shape key ignores what only sizes or shows the design', () => {
+  const sign = evaluateScript(SIGN, {}, 'draft');
+  const key = (v: ParamValues) => shapeKey(SIGN, v, sign.params, ['$hidden']);
+  assert.equal(key({}), key({ width: 250, height: 150, $scale: 1.2, $hidden: '["x"]' }), 'the size and hidden parts are not the shape');
+  assert.notEqual(key({}), key({ thick: 6 }), 'the thickness is');
+  assert.notEqual(key({}), shapeKey(SIGN + ' ', {}, sign.params), 'and so is the script');
 });
