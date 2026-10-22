@@ -57,8 +57,6 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'car', label: 'In the car', icon: 'car', scene: 'inside a modern car, placed or mounted on the dashboard or centre console, with the windscreen and a softly blurred road view behind, natural daylight' },
   { id: 'flatlay', label: 'Flat lay', icon: 'grid', scene: 'a top-down flat lay on a light linen or concrete surface, neatly styled with a few small related props around it (leaves, a notebook, a coffee cup), soft even daylight' },
 ];
-/** How many scenes show before "More scenes": with Your idea after them, full rows of 3. */
-export const MAIN_SCENES = 17;
 export const CUSTOM_SCENE = 'custom';
 /** The user's short idea (in `notes`), written out by Claude into a detailed scene (`sceneText`) before the photo is asked for. */
 export const IDEA_SCENE = 'idea';

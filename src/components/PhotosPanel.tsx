@@ -1,13 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, suggestScene, variantName, writtenPlace, type PhotoAspect, type PhotoRequest, type SceneIdea, type SceneVariant, type ShopShot } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, subScenes, suggestScene, variantName, writtenPlace, type PhotoAspect, type PhotoRequest, type SceneIdea, type SceneVariant, type ShopShot } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { mainAxis } from '../../shared/sizes';
 import { api } from '../lib/api';
 import { dataUrlToImage, download, slug, uid } from '../lib/files';
 import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
+import { foldText } from '../../shared/tags';
 import { Icon } from './Icon';
 import { useEscape } from './useEscape';
 
@@ -219,6 +220,10 @@ export function PhotosPanel(p: Props) {
   // The scene is chosen per design (the suggested one until then); format and camera are remembered.
   const [scenes, setScenes] = useState<Record<string, { scene: string; notes: string; variant: SceneVariant }>>({});
   const [allScenes, setAllScenes] = useState(false);
+  // The scenes searched by (on "More scenes"), and those picked last (newest first, kept across reloads).
+  const [sceneQuery, setSceneQuery] = useState('');
+  const [recentScenes, setRecentScenes] = useState<string[]>(() => load('photoRecentScenes', []));
+  useEffect(() => store('photoRecentScenes', recentScenes), [recentScenes]);
   const [aspect, setAspect] = useState<PhotoAspect>(() => load('photoAspect', '4:5'));
   const [camera, setCamera] = useState<'best' | 'current'>(() => load('photoCamera', 'best'));
   useEffect(() => store('photoAspect', aspect), [aspect]);
@@ -269,8 +274,18 @@ export function PhotosPanel(p: Props) {
   const ownScene = idea ? IDEA_SCENE : custom ? CUSTOM_SCENE : choice.scene;
   const preset = sceneById(choice.scene);
   // The scenes after the first few show on "More scenes", or right away when one of them is picked or suggested.
-  const expanded = allScenes || [choice.scene, suggested].some((x) => PHOTO_SCENES.findIndex((sc) => sc.id === x) >= MAIN_SCENES);
-  const shownScenes = expanded ? PHOTO_SCENES : PHOTO_SCENES.slice(0, MAIN_SCENES);
+  // Folded: the scene picked (else the one suggested), the suggested one (else the one picked before)
+  // and Your idea; "More scenes" shows them all, searched by name, sub-scene or what is in them.
+  const first = preset ? preset.id : suggested;
+  const second = first !== suggested ? suggested : recentScenes.find((x) => x !== first && sceneById(x)) ?? PHOTO_SCENES.find((x) => x.id !== first)!.id;
+  const q = foldText(sceneQuery.trim());
+  const shownScenes = !allScenes ? [sceneById(first), sceneById(second)].filter((x): x is NonNullable<typeof x> => !!x)
+    : !q ? PHOTO_SCENES
+    : PHOTO_SCENES.filter((x) => foldText([x.label, x.scene, ...subScenes(x.id).map((v) => v.name)].join(' ')).includes(q));
+  const pickScene = (scene: string) => {
+    setChoice({ scene, variant: 1 });
+    if (sceneById(scene)) setRecentScenes((r) => [scene, ...r.filter((x) => x !== scene)].slice(0, 10));
+  };
   // A flat print (wall art, a sign, an ornament on the tree, its close-up) is shown face-on; anything else from a 3/4 angle.
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
   const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang || preset?.closeup) && flat;
@@ -617,9 +632,17 @@ export function PhotosPanel(p: Props) {
       {!p.imageModel && <div className="bad-note small" role="note">Product photos need an image model: set OPENROUTER_API_KEY in .env and restart Jig.</div>}
 
       <div className="ph-label" id={`${id}-scene`}>Scene</div>
+      {allScenes && (
+        <div className="menu-search ph-scene-search">
+          <Icon name="search" size={13} />
+          <input autoFocus type="search" placeholder="Search scenes, e.g. wall, christmas, marble" aria-label="Search scenes" value={sceneQuery}
+            onChange={(e) => setSceneQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && q && shownScenes[0]) pickScene(shownScenes[0].id); }} />
+          {sceneQuery && <button className="icon-btn" title="Clear the search" aria-label="Clear the search" onClick={() => setSceneQuery('')}><Icon name="x" size={12} /></button>}
+        </div>
+      )}
       <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
         {[...shownScenes, { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe the scene yourself: Jig writes a few words out in detail, or (Improve your idea off) it goes to the image model as you write it' }].map((s) => (
-          <button key={s.id} role="radio" aria-checked={s.id === IDEA_SCENE ? own : choice.scene === s.id} className={(s.id === IDEA_SCENE ? own : choice.scene === s.id) ? 'on' : ''} onClick={() => setChoice({ scene: s.id, variant: 1 })}
+          <button key={s.id} role="radio" aria-checked={s.id === IDEA_SCENE ? own : choice.scene === s.id} className={(s.id === IDEA_SCENE ? own : choice.scene === s.id) ? 'on' : ''} onClick={() => pickScene(s.id)}
             title={'hint' in s ? s.hint : s.id === suggested ? `${s.label}: suggested for this design` : s.label}>
             <Icon name={s.icon} size={18} />
             <span>{s.label}</span>
@@ -627,9 +650,10 @@ export function PhotosPanel(p: Props) {
           </button>
         ))}
       </div>
-      {!expanded && (
-        <button className="ph-more" onClick={() => setAllScenes(true)}>More scenes ({PHOTO_SCENES.length - MAIN_SCENES} more)</button>
-      )}
+      {allScenes && q && !shownScenes.length && <div className="dim small">No scene matches "{sceneQuery.trim()}": Your idea… makes any scene you describe.</div>}
+      <button className="ph-more" onClick={() => { setAllScenes(!allScenes); setSceneQuery(''); }}>
+        {allScenes ? 'Fewer scenes' : `More scenes (${PHOTO_SCENES.length - shownScenes.length} more)`}
+      </button>
       {preset && (
         <div className="ph-row">
           <span className="ph-label" id={`${id}-look`}>Variant</span>
