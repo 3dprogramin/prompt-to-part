@@ -165,7 +165,7 @@ interface Props {
   onClose: () => void;
   designId: string;
   designName: string;
-  /** Claude's summary of the shown version. */
+  /** Claude's summary of the shown version: after the first, what changed, so the product is told by meta.description first. */
   summary?: string;
   result: EvalResult | null;
   hiddenParts: string[];
@@ -294,7 +294,7 @@ export function PhotosPanel(p: Props) {
 
   // What the image model is told about the product (name, size, colours).
   const product = (): PhotoRequest['product'] | null => (!size || !p.result ? null : {
-    name: p.result.meta.name || p.designName, description: p.summary || p.result.meta.description, size, faceOn, lithophane,
+    name: p.result.meta.name || p.designName, description: p.result.meta.description || p.summary, size, faceOn, lithophane,
     // Per-vertex (LayerTone) parts are many colours: the render shows them.
     // A coloured mesh's part: its filaments' colours.
     colors: [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),

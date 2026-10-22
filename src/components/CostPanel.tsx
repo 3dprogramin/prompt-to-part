@@ -8,7 +8,7 @@ import { Icon } from './Icon';
 interface Props {
   designId: string;
   designName: string;
-  /** Claude's summary of the shown version (what the item is), for the price suggestion. */
+  /** Claude's summary of the shown version, for the price suggestion when the script has no meta.description (after the first version it says what changed, not what the item is). */
   summary?: string;
   settings: CostSettings;
   onSettings: (s: CostSettings) => void;
@@ -105,7 +105,7 @@ function Suggestion(p: Props & { result: CostResult }) {
     try {
       const price = await api.suggestPrice({
         name: r.result.meta.name || p.designName,
-        description: p.summary ?? r.result.meta.description,
+        description: r.result.meta.description || p.summary,
         size: b ? `${(b.max[0] - b.min[0]).toFixed(0)} × ${(b.max[1] - b.min[1]).toFixed(0)} × ${(b.max[2] - b.min[2]).toFixed(0)} mm` : 'unknown',
         parts: r.parts, colours: r.colours, grams: r.stats.grams, seconds: r.stats.seconds,
         filamentCost: cost.filament, electricityCost: cost.electricity,

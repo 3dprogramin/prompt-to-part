@@ -133,6 +133,9 @@ test('an ornament on the tree hangs face-on from a ribbon, the only thing added'
   assert.match(p, /render shows its front face; it hangs with this face to the viewer/);
   assert.match(p, /only the thin ribbon it hangs from/);
   assert.match(p, /hangs freely from the branch on a thin red ribbon/);
+  // A set of ornaments: each on its own ribbon, never tied into one piece.
+  assert.match(p, /several separate pieces \(a set\), they stay separate pieces.*never join, link, chain or tie them/);
+  assert.match(p, /each piece on its own ribbon from its own branch/);
   assert.doesNotMatch(p, /rests ON the surface/);
   assert.doesNotMatch(p, /hangs flat on the wall/);
   const gifts = photoPrompt(request({ scene: 'xmas-gifts' }));
