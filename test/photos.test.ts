@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { familiar, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, sceneWriterPrompt, SHOP_SCENE, shopPlan, subScenes, suggestScene, variantName, vsSwitch, type PhotoRequest } from '../shared/photos';
+import { CLOSEUP_SCENE, familiar, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, sceneWriterPrompt, SHOP_SCENE, shopPlan, subScenes, suggestScene, variantName, vsSwitch, type PhotoRequest } from '../shared/photos';
 import { requestImage } from '../server/artwork';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
@@ -243,6 +243,19 @@ test('a shop set: 5 square shots, each from its own angle; flat prints face-on, 
   assert.deepEqual(pick(shopPlan({ size: [80, 80, 3], suggested: 'xmas-tree' })).slice(3), ['lifestyle:face:xmas-tree:face', 'size:angle:hand:-']);
   // Too big to hold up: next to a mug.
   assert.equal(shopPlan({ size: [400, 300, 200], suggested: 'table' })[4].scene, 'table');
+});
+
+test('the close-up: a macro shot that keeps the close crop, in 3 sub-scenes and a random one', () => {
+  const close = photoPrompt(request({ scene: CLOSEUP_SCENE }));
+  assert.match(close, /A CLOSE-UP PHOTO: taken from close by/);
+  assert.match(close, /keep that close crop/);
+  assert.match(close, /100 mm macro lens/);
+  assert.doesNotMatch(close, /frame the photo around it|85 mm lens/);
+  assert.match(photoPrompt(request({ scene: CLOSEUP_SCENE, variant: 2 })), /SCENE: a close-up on a dark matte slate surface/);
+  assert.match(photoPrompt(request({ scene: CLOSEUP_SCENE, variant: 'random' })), /invent a fresh setting of this kind: a close-up/);
+  assert.match(sceneWriterPrompt(CLOSEUP_SCENE, () => 0), /The kind of place: a close-up/);
+  assert.doesNotMatch(photoPrompt(request()), /CLOSE-UP|macro/);
+  assert.equal(photoProblem(request({ scene: CLOSEUP_SCENE, variant: 3 })), null);
 });
 
 test('a shop photo says what its shot shows', () => {

@@ -60,7 +60,8 @@ export interface Measurement { a: Vec3; b: Vec3 }
 
 /**
  * How a product-photo render is framed: the viewer's camera, a 3/4 product angle, a flat print
- * face-on (from above) or a close-up of its face, the front, or from high above (PhotoCamera).
+ * face-on (from above), a close-up (of a flat print's face, else at the 3/4 angle), the front, or
+ * from high above (PhotoCamera).
  */
 export type PhotoView = 'current' | PhotoCamera;
 
@@ -1019,15 +1020,16 @@ export class Viewer {
     const dir = new THREE.Vector3();
     // The share of the picture the model fills; more than 1 crops in on its middle.
     let share = 0.8;
+    const s = box.getSize(new THREE.Vector3());
+    // The detail: closer, on the middle of the model (a flat print's face).
+    if (view === 'detail') share = 1.7;
     if (view === 'current') {
       dir.copy(this.camera.position).sub(this.controls.target).normalize();
       cam.up.copy(this.camera.up);
-    } else if (view === 'face' || view === 'detail') {
+    } else if (view === 'face' || (view === 'detail' && s.z < 0.25 * Math.min(s.x, s.y))) {
       // A little off-axis, so the raised details and the thickness show.
       dir.set(0.1, -0.16, 1).normalize();
       cam.up.set(0, 1, 0);
-      // The detail: closer, on the middle of the face.
-      if (view === 'detail') share = 1.7;
     } else if (view === 'front') {
       // From the front and a little above, turned a touch so it doesn't look flat.
       dir.set(0.12, -1, 0.3).normalize();
@@ -1036,7 +1038,6 @@ export class Viewer {
       dir.set(0.3, -0.55, 1.1).normalize();
     } else {
       // Flat things from higher up, so their top shows; the rest from a little above.
-      const s = box.getSize(new THREE.Vector3());
       dir.set(0.55, -1, s.z < 0.3 * Math.min(s.x, s.y) ? 1.05 : 0.5).normalize();
     }
     if (!Number.isFinite(dir.x)) dir.set(...VIEW_DIRS.iso).normalize();

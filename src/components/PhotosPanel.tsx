@@ -259,9 +259,9 @@ export function PhotosPanel(p: Props) {
   // The scenes after the first few show on "More scenes", or right away when one of them is picked or suggested.
   const expanded = allScenes || [choice.scene, suggested].some((x) => PHOTO_SCENES.findIndex((sc) => sc.id === x) >= MAIN_SCENES);
   const shownScenes = expanded ? PHOTO_SCENES : PHOTO_SCENES.slice(0, MAIN_SCENES);
-  // A flat print (wall art, a sign, an ornament on the tree) is shown face-on; anything else from a 3/4 angle.
+  // A flat print (wall art, a sign, an ornament on the tree, its close-up) is shown face-on; anything else from a 3/4 angle.
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
-  const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang) && flat;
+  const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang || preset?.closeup) && flat;
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
   /**
    * The chosen sub-scene for requests in the chosen scene; a random one's setting is written now, once
@@ -389,7 +389,7 @@ export function PhotosPanel(p: Props) {
     const shop = shopShot(ph.shop);
     const item = shop ? shopPlan({ size: dims, suggested }).find((x) => x.shot === shop) : undefined;
     const view = (item?.camera ?? ph.camera ?? 'angle') as PhotoView;
-    return { view, faceOn: item?.faceOn ?? (view === 'face' || view === 'detail') };
+    return { view, faceOn: item?.faceOn ?? (view === 'face' || (view === 'detail' && dims[2] < 0.25 * Math.min(dims[0], dims[1]))) };
   };
 
   /**
@@ -525,7 +525,7 @@ export function PhotosPanel(p: Props) {
     if (!size || !p.result) return setError('There is no model to photograph yet.');
     if (custom && !choice.notes.trim()) return setError('Describe the scene first.');
     let shot: string | null = null;
-    const view: PhotoView = camera === 'current' ? 'current' : faceOn ? 'face' : 'angle';
+    const view: PhotoView = camera === 'current' ? 'current' : preset?.closeup ? 'detail' : faceOn ? 'face' : 'angle';
     try {
       shot = p.capture(view, ASPECT_RATIO[aspect]);
     } catch (e) {

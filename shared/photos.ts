@@ -18,12 +18,16 @@ export interface PhotoScene {
   hang?: boolean;
   /** A studio shot: studio light and everything sharp, not a lifestyle photo with a blurred room. */
   studio?: boolean;
+  /** A close-up: the camera right by the product, its surface and detail filling the photo. */
+  closeup?: boolean;
 }
 
 /** The scene for lithophanes: lit from behind, so the picture shows. */
 export const BACKLIT_SCENE = 'backlit';
 /** The scene of the shop set's studio photos: one light grey studio for every product, like one shoot. */
 export const SHOP_SCENE = 'grey-studio';
+/** The close-up scene: its render is cropped in on the product (PhotoCamera 'detail'). */
+export const CLOSEUP_SCENE = 'closeup';
 
 export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'table', label: 'Wooden table', icon: 'table', scene: 'on a warm oak wooden table in a bright, cosy home interior, softly blurred background, natural window light from the side' },
@@ -36,6 +40,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'garden', label: 'Outdoor / garden', icon: 'tree', scene: 'outdoors in a garden, on a weathered wooden garden table or a flat stone, green plants and sunlight blurred behind it, late-afternoon light' },
   { id: BACKLIT_SCENE, label: 'Backlit at night', icon: 'lamp', scene: 'standing on a bedside table or a windowsill in a dim, cosy room in the evening, with a warm LED light right behind it so the panel glows; the rest of the room in soft darkness with a few warm, blurred highlights' },
   { id: 'hand', label: 'Hand holding it', icon: 'hand', scene: 'held in a person\'s hand (only the hand and wrist in view, natural skin, relaxed grip that does not cover the important details), so its real size is obvious, plain softly blurred indoor background' },
+  { id: CLOSEUP_SCENE, label: 'Close-up', icon: 'search', closeup: true, scene: 'a close-up on a light natural oak surface, the camera right next to it, only a little of the wood grain around it in view, everything beyond melting into a soft, creamy blur, soft directional daylight from the side that brings out its edges, relief and texture' },
   // Christmas (seasonal, so in the main list).
   { id: 'xmas-tree', label: 'On the Christmas tree', icon: 'bauble', hang: true, scene: 'hanging from a branch of a real, decorated Christmas tree (fresh green fir needles), next to a couple of glass baubles, with warm fairy lights glowing as soft bokeh in the blurred background, cosy evening light' },
   { id: 'xmas-gifts', label: 'Under the tree', icon: 'gift', scene: 'on a wooden floor or low table under a Christmas tree, next to a few gifts wrapped in kraft paper with red and white ribbons, pine branches and pine cones around, warm fairy lights glowing as soft bokeh behind, cosy evening light' },
@@ -52,7 +57,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'flatlay', label: 'Flat lay', icon: 'grid', scene: 'a top-down flat lay on a light linen or concrete surface, neatly styled with a few small related props around it (leaves, a notebook, a coffee cup), soft even daylight' },
 ];
 /** How many scenes show before "More scenes". */
-export const MAIN_SCENES = 13;
+export const MAIN_SCENES = 14;
 export const CUSTOM_SCENE = 'custom';
 export const MAX_SCENE_CHARS = 600;
 export const MAX_NOTES_CHARS = 600;
@@ -123,6 +128,14 @@ const SUB_SCENES: Record<string, SceneLooks> = {
       { name: 'Pale sage, white plinth', scene: 'standing on a simple matte white cylindrical plinth against a seamless pale sage-green studio backdrop, a clean e-commerce product shot with soft, even studio light and a soft natural shadow, no other props' },
     ],
     kind: 'a clean e-commerce studio shot: a seamless plain backdrop in one calm colour, or a simple plinth on it, soft even studio light, no room, no clutter, no props that compete with it',
+  },
+  [CLOSEUP_SCENE]: {
+    look: 'Light oak, soft side light',
+    variants: [
+      { name: 'Dark slate, warm raking light', scene: 'a close-up on a dark matte slate surface, the camera right next to it, only a little of the stone around it in view, the background falling off into a soft, dark blur, a warm low light from the side that rakes across it and picks out every edge, relief and layer line' },
+      { name: 'White linen, bright and airy', scene: 'a close-up on a crisp white linen cloth with a fine, soft weave, the camera right next to it, only a little of the cloth around it in view, a bright, airy blur behind, soft diffused daylight from a window' },
+    ],
+    kind: 'a close-up: the camera right next to it on a plain surface (wood, stone, fabric, paper or similar), only a little of that surface in view, everything beyond softly blurred, light from the side that brings out its texture; no room, furniture or props in view',
   },
   [SHOP_SCENE]: {
     look: 'Light grey, like the shop set',
@@ -550,6 +563,7 @@ export function photoPrompt(b: PhotoRequest): string {
   const [x, y, z] = b.product.size;
   const wall = !!preset?.wall;
   const hang = !!preset?.hang;
+  const closeup = !!preset?.closeup;
   const faceOn = !!b.product.faceOn;
   const shop = b.shop && SHOP_SHOTS.includes(b.shop) ? b.shop : null;
   const surface = b.scene === 'fridge' ? 'fridge door' : 'wall';
@@ -562,7 +576,7 @@ export function photoPrompt(b: PhotoRequest): string {
     'Turn the attached render into a photorealistic product photo of the real, 3D-printed object.',
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
-    `Real size: ${size} (${familiar(b.product.size, faceOn || z < 0.25 * Math.min(x, y))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
+    `Real size: ${size} (${familiar(b.product.size, faceOn || z < 0.25 * Math.min(x, y))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' || closeup ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
     !b.product.lithophane && isThin(b.product.size) ? thinLine(z) : null,
     b.product.lithophane
       ? 'It is a LITHOPHANE: one panel of white PLA whose thickness varies, so its picture appears only when light shines through it – thin areas glow bright warm white, thick areas stay dark. The render shows it lit from behind: in the photo it must glow from a warm light behind it, the picture showing through exactly as in the render, with the panel\'s frame and stand as they are.'
@@ -596,6 +610,7 @@ export function photoPrompt(b: PhotoRequest): string {
         : `It is a small piece: show the fridge's handle or another magnet beside it on the door, apart from it, so its real size is obvious, and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
       : null,
     b.scene === 'hand' && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
+    closeup && !shop ? 'A CLOSE-UP PHOTO: taken from close by, so the product fills most of the picture and its surface, edges, relief and the fine layer lines of the print read clearly. If the render is cropped to part of the product, keep that close crop (do not show the whole product or shrink it to fit).' : null,
     shop ? shopLine(shop, b.scene, b.product.size, faceOn) : null,
     preset && notes ? `Also: ${notes}.` : null,
     wall
@@ -604,7 +619,9 @@ export function photoPrompt(b: PhotoRequest): string {
       ? 'It hangs freely from the branch on a thin red ribbon threaded through its own hanging hole or loop (tied around its top if it has none), straight down under its own weight, turned to face the camera, in light that matches the surroundings. A set of separate pieces: each piece on its own ribbon from its own branch, apart from the others.'
       : 'It rests ON the surface, not above it: its underside in full contact with the table or shelf, seen in the same perspective as that surface (it lies in its plane, never tilted against it, floating or hovering), with real contact shadows right under it and light that matches the surroundings.',
     '',
-    preset?.studio
+    closeup
+      ? 'PHOTO: a professional close-up product photo for an online shop listing, shot on a full-frame camera with a 100 mm macro lens at f/5.6, the nearest details of the product in crisp focus and the depth of field falling off gently behind, light from the side that shows its texture, the product as the clear hero of the picture.'
+      : preset?.studio
       ? 'PHOTO: a professional e-commerce studio product photo for an online shop listing, shot on a full-frame camera with a 100 mm lens at f/8 so the product is in sharp focus, soft even studio light, a clean and evenly lit backdrop, the product as the clear hero of the picture.'
       : 'PHOTO: a professional lifestyle product photo for an online shop listing, shot on a full-frame camera with an 85 mm lens, natural light, shallow depth of field with the product in sharp focus and the background softly blurred, the product as the clear hero of the picture, well composed with some space around it.',
     'Only one of the product. No text, captions, logos, watermarks, price tags or borders anywhere in the picture.',
