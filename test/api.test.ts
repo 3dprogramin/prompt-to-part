@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -74,6 +74,37 @@ test('ids and bodies are checked', async () => {
   assert.equal(mismatch.status, 400);
   assert.equal((await put({ id: 'test-api-00000001', updatedAt: 5 })).status, 400);
   assert.equal((await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000001', prompt: 'x', model: 'gpt' }) })).status, 400);
+});
+
+test('tags: a saved design\'s tags are set, listed with it, added to or taken from several, and go when it is deleted', async () => {
+  const T1 = 'test-tags-0000001', T2 = 'test-tags-0000002', T3 = 'test-tags-0000003';
+  const setTags = (id: string, body: unknown) => fetch(`${A}/api/designs/${id}/tags`, { method: 'PUT', headers: W, body: JSON.stringify(body) });
+  const bulk = (body: unknown) => fetch(`${A}/api/designs/tags`, { method: 'POST', headers: W, body: JSON.stringify(body) });
+  const listed = async () => Object.fromEntries(((await (await fetch(`${A}/api/designs`)).json()) as { id: string; tags?: string[]; createdAt: number }[]).map((d) => [d.id, d]));
+  // Not saved yet: the page keeps a new design's tags until its first save.
+  assert.equal((await setTags(T1, { tags: ['Temp'] })).status, 404);
+  assert.equal((await put(design({ id: T1, createdAt: 42 }))).status, 200);
+  assert.equal((await put(design({ id: T2 }))).status, 200);
+  for (const bad of [{}, { tags: 'Temp' }, { tags: [''] }, { tags: ['x'.repeat(40)] }, { tags: Array.from({ length: 13 }, (_, i) => `t${i}`) }]) assert.equal((await setTags(T1, bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await setTags('bad!id-00000', { tags: ['Temp'] })).status, 400);
+  const r = await setTags(T1, { tags: [' ornamente ', 'temp', 'Ornamente'] });
+  assert.deepEqual(await r.json(), { tags: ['Temp', 'ornamente'] });
+  let l = await listed();
+  assert.deepEqual([l[T1].tags, l[T1].createdAt, l[T2].tags], [['Temp', 'ornamente'], 42, undefined]);
+
+  // Several at once: designs that are gone are left out; the reply lists the changed ones.
+  assert.deepEqual(await (await bulk({ ids: [T1, T2, T3], add: 'Temp' })).json(), { changed: [T2] });
+  assert.deepEqual(await (await bulk({ ids: [T1, T2], remove: 'TEMP' })).json(), { changed: [T1, T2] });
+  for (const bad of [{ ids: [T1] }, { ids: [T1], add: 'a', remove: 'b' }, { ids: [], add: 'a' }, { ids: ['../x'], add: 'a' }, { ids: [T1], add: 3 }]) assert.equal((await bulk(bad)).status, 400, JSON.stringify(bad));
+  l = await listed();
+  assert.deepEqual([l[T1].tags, l[T2].tags], [['ornamente'], undefined]);
+  // A design with the most tags gets no more.
+  assert.equal((await setTags(T2, { tags: Array.from({ length: 12 }, (_, i) => `t${i}`) })).status, 200);
+  assert.deepEqual(await (await bulk({ ids: [T2], add: 'Product' })).json(), { changed: [] });
+
+  assert.equal((await del(T1)).status, 200);
+  assert.equal(JSON.parse(readFileSync(path.join(dataDir, 'tags.json'), 'utf8')).tags[T1], undefined);
+  assert.equal((await del(T2)).status, 200);
 });
 
 test('saves build on the last revision; a stale copy is refused', async () => {

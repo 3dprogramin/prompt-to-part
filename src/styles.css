@@ -13,6 +13,9 @@
   --accent-ink: #1a1408;
   --good: #6cc48a;
   --bad: #e5675f;
+  /* The built-in design tags: Product (in the shop) and Temp (a throwaway test). */
+  --tag-product: #6cc48a;
+  --tag-temp: #a99cf0;
   --x: #e46a6a;
   --y: #6ac46a;
   --z: #6a9ae4;
@@ -56,8 +59,55 @@ button:disabled { cursor: default; opacity: 0.45; }
 .menu-wrap { position: relative; }
 .menu { position: absolute; right: 0; top: calc(100% + 6px); width: 340px; max-height: 60dvh; overflow: auto; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 12px 40px #0008; z-index: 50; padding: 4px; }
 .menu-empty { padding: 14px; color: var(--text-3); }
-/* The Designs menu's search box, kept at the top while the list scrolls. */
-.menu-search { position: sticky; top: -4px; z-index: 1; display: flex; align-items: center; gap: 6px; margin: -4px -4px 4px; padding: 7px 8px 7px 11px; border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--text-3); }
+/* The Designs menu: its search box, tag filters and bulk bar are kept at the top while the list scrolls. */
+.menu.designs-menu { width: 380px; }
+.menu-top { position: sticky; top: -4px; z-index: 1; margin: -4px -4px 4px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.menu-search { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 11px; color: var(--text-3); }
+.menu-sort { background: var(--bg); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 4px; font-size: 11.5px; color: var(--text-2); }
+.menu-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 7px; }
+.filter-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); background: transparent; border-radius: 999px; padding: 1px 8px; font-size: 11.5px; color: var(--text-2); }
+.filter-chip:hover { color: var(--text); border-color: #4a505b; }
+.filter-chip.on { background: #ffffff14; color: var(--text); border-color: var(--text-3); }
+.filter-count { color: var(--text-3); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.filter-chip.starred svg { color: var(--accent); fill: currentColor; }
+.menu-bulk { display: flex; align-items: center; gap: 2px; min-height: 32px; padding: 2px 6px 2px 9px; border-top: 1px solid var(--line); }
+.menu-bulk.active { background: #e0a43c14; }
+.menu-bulk .icon-btn { width: 26px; height: 26px; }
+.menu-bulk .btn { margin: 0 2px; }
+.menu-pick-all { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+.menu-pick, .menu-pick-all input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
+.menu-item .menu-pick { margin-left: 9px; }
+.menu-item .menu-pick + .menu-open { padding-left: 8px; }
+.menu-item.picked { background: #e0a43c14; }
+.menu-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.icon-btn.on { background: #ffffff10; color: var(--text); }
+/* A design's tags: small chips, the built-ins in their colour (Temp dashed: it won't stay). */
+.tag-chips { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 3px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; background: #ffffff08; color: var(--text-2); font-size: 10.5px; line-height: 15px; }
+.tag-chip svg { flex-shrink: 0; }
+.tag-chip.tag-product { color: var(--tag-product); border-color: #6cc48a73; background: #6cc48a1f; }
+.tag-chip.tag-temp { color: var(--tag-temp); border-color: #a99cf073; border-style: dashed; background: #a99cf01a; }
+.tag-more { color: var(--text-3); font-size: 10.5px; }
+.filter-chip.tag-product, .tag-toggle.tag-product { color: var(--tag-product); }
+.filter-chip.tag-temp, .tag-toggle.tag-temp { color: var(--tag-temp); }
+.filter-chip.tag-product.on, .tag-toggle.tag-product.all { background: #6cc48a26; border-color: var(--tag-product); }
+.filter-chip.tag-temp.on, .tag-toggle.tag-temp.all { background: #a99cf026; border-color: var(--tag-temp); }
+/* Tag toggles (a row's tags, the picked designs' or the open design's) and a box for a new tag. */
+.tag-editor { display: flex; flex-direction: column; gap: 7px; margin: 0 4px 4px; padding: 7px 9px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.menu-top > .tag-editor { margin: 0 8px 8px; }
+.tag-toggles { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag-toggle { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); background: transparent; border-radius: 999px; padding: 1px 9px; font-size: 11.5px; color: var(--text-2); }
+.tag-toggle:hover:not(:disabled) { color: var(--text); border-color: #4a505b; }
+.tag-toggle.all { background: #ffffff14; color: var(--text); border-color: var(--text-3); }
+.tag-toggle.some { border-style: dashed; }
+.tag-add { display: flex; align-items: center; gap: 6px; color: var(--text-3); }
+.tag-add input { flex: 1; min-width: 0; background: none; border: 0; border-bottom: 1px solid var(--line-2); outline: none; padding: 2px 0; color: var(--text); font-size: 12px; }
+.tag-add input:focus { border-bottom-color: var(--accent); }
+/* The open design's tags by its name. */
+.tags-btn { display: inline-flex; align-items: center; min-height: 24px; }
+.menu.tag-menu { width: 300px; padding: 4px; overflow: visible; }
+.tag-menu .tag-editor { margin: 0; border: 0; background: none; }
+.btn.new-temp { border-color: #a99cf073; border-style: dashed; }
 .menu-search input { flex: 1; min-width: 0; background: none; border: 0; outline: none; padding: 2px 0; color: var(--text); font-size: 13px; }
 .menu-search input::-webkit-search-cancel-button { display: none; }
 .menu-search .icon-btn { width: 22px; height: 22px; }

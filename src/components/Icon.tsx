@@ -46,6 +46,7 @@ const PATHS: Record<string, string> = {
   cube: 'M12 3 20 7.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12 4 7.5',
   dims: 'M4 20V8M20 20V8M4 14h16M7 11l-3 3 3 3M17 11l3 3-3 3',
   tag: 'M3 12V4h8l10 10-8 8zM7.5 7.5h.01',
+  bag: 'M5 8h14l-1 12H6zM9 10V7a3 3 0 0 1 6 0v3',
   edges: 'M4 8 12 4l8 4v8l-8 4-8-4z',
   section: 'M4 4h16v16H4zM4 14l16-6',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6',

@@ -3,8 +3,13 @@ import type { Connection } from '../../shared/api';
 import { currentWindow, formatReset, usageSummary } from '../../shared/usage';
 import { api } from '../lib/api';
 import type { Design, DesignSummary } from '../../shared/types';
-import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
+import type { DesignKind } from '../../shared/designKind';
+import { TEMP_TAG } from '../../shared/tags';
+import { cleanFilter, tagCounts, type DesignFilter } from '../lib/designList';
+import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
+import { DesignsMenu, KindIcon } from './DesignsMenu';
+import { DesignTagsButton } from './Tags';
 import { DesignTabs, type DesignTab } from './DesignTabs';
 import { VersionMenu } from './VersionMenu';
 import { usePopover } from './usePopover';
@@ -28,7 +33,8 @@ interface Props {
   onCloseTab: (id: string) => void;
   /** Close every tab Claude isn't working on. */
   onCloseAllTabs: () => void;
-  onNew: () => void;
+  /** A new design, with these tags once it is saved. */
+  onNew: (tags?: string[]) => void;
   designs: DesignSummary[];
   /** Why the design list couldn't be loaded, or null. */
   listError: string | null;
@@ -37,21 +43,17 @@ interface Props {
   /** Generations running in this tab: the connection chip rechecks the usage when one ends. */
   generating: number;
   onDelete: (id: string) => void;
+  /** Bulk actions of the Designs menu. */
+  onDeleteMany: (ids: string[]) => Promise<void>;
+  onStar: (ids: string[], on: boolean) => void;
+  onTag: (ids: string[], tag: string, on: boolean) => void;
+  /** Replaces a design's tags (a new one's are kept until it is saved). */
+  onSetTags: (id: string, tags: string[]) => void;
+  /** The open design's tags. */
+  tags: string[];
   /** A phone's narrow bar: icons for the buttons, no design tabs (Designs lists them), New in the Designs menu. */
   compact?: boolean;
 }
-
-/** Each kind's icon, as in the chat's picture menu; a plain parametric model has none. */
-const KIND_ICON: Partial<Record<DesignKind, string>> = { lineart: 'lineart', layertone: 'layers', lithophane: 'lamp', figure: 'figure', artwork: 'palette' };
-
-/** A small, quiet icon telling what kind of design it is (nothing for a parametric model). */
-function KindIcon({ kind, size }: { kind: DesignKind | undefined; size: number }) {
-  const icon = kind && KIND_ICON[kind];
-  return icon ? <span className="kind-icon" title={DESIGN_KIND_LABEL[kind]} aria-label={DESIGN_KIND_LABEL[kind]} role="img"><Icon name={icon} size={size} /></span> : null;
-}
-
-/** Recent designs the Designs menu lists before "Load more". */
-const PAGE = 10;
 
 /** Logo, design name, versions, open designs and the Designs menu. */
 export function TopBar(p: Props) {
@@ -59,35 +61,11 @@ export function TopBar(p: Props) {
   const listWrap = useRef<HTMLDivElement>(null);
   usePopover(showList, () => setShowList(false), listWrap);
   const open = (id: string) => { setShowList(false); p.onOpen(id); };
-  // The most recent designs, PAGE at a time; starred ones (the important ones) are marked. A star
-  // shows at once and stays until the refreshed list arrives.
-  const [shown, setShown] = useState(PAGE);
-  // Search by name: case and accents don't matter (ș finds s), the matches page like the list.
-  const [query, setQuery] = useState('');
-  const fold = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  const matches = useMemo(() => {
-    const q = fold(query.trim());
-    return q ? p.designs.filter((d) => fold(d.name).includes(q)) : p.designs;
-  }, [p.designs, query]);
-  const [starNow, setStarNow] = useState<Record<string, boolean>>({});
-  useEffect(() => setStarNow({}), [p.designs]);
-  const isStarred = (d: DesignSummary) => starNow[d.id] ?? !!d.starred;
-  const star = (d: DesignSummary) => {
-    const on = !isStarred(d);
-    setStarNow((s) => ({ ...s, [d.id]: on }));
-    api.starDesign(d.id, on).catch(() => {}).finally(p.onRefreshList);
-  };
-  const row = (d: DesignSummary) => (
-    <div key={d.id} className={`menu-item ${d.id === p.design.id ? 'on' : ''} ${isStarred(d) ? 'starred' : ''}`}>
-      <button className="menu-open" onClick={() => open(d.id)}>
-        <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} /></span>
-        <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
-      </button>
-      <button className={`icon-btn menu-star ${isStarred(d) ? 'on' : ''}`} title={isStarred(d) ? 'Unstar' : 'Star: mark it as important'}
-        aria-label={`${isStarred(d) ? 'Unstar' : 'Star'} ${d.name}`} aria-pressed={isStarred(d)} onClick={() => star(d)}><Icon name="star" size={14} /></button>
-      <button className="icon-btn" title="Delete" aria-label={`Delete ${d.name}`} onClick={() => p.onDelete(d.id)}><Icon name="trash" size={14} /></button>
-    </div>
-  );
+  // The tag (or the stars) the Designs menu shows, remembered; while it shows Temp, new designs are Temp too.
+  const [filter, setFilterState] = useState<DesignFilter>(() => cleanFilter(load('designFilter', null)));
+  const setFilter = (f: DesignFilter) => { setFilterState(f); store('designFilter', f); };
+  const newTags = filter.kind === 'tag' && filter.tag === TEMP_TAG ? [TEMP_TAG] : undefined;
+  const allTags = useMemo(() => tagCounts(p.designs).map((c) => c.tag), [p.designs]);
   // Backups: "Export all designs" is a download link; an import's result stays in the menu.
   const backupInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -109,11 +87,12 @@ export function TopBar(p: Props) {
     }
   };
   // A plain click starts a new design in place; a modified click or the context menu opens a new tab.
-  const newHere = (e: React.MouseEvent) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); p.onNew(); } };
+  const newHere = (e: React.MouseEvent) => { if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); p.onNew(newTags); } };
+  const newTitle = newTags ? 'New design (tagged Temp: the Designs menu shows Temp)' : 'New design';
   return (
     <header className="topbar">
       {/* Real links (logo and New), so they can be opened in a new tab. */}
-      <a className="brand" href="/" title="New design" onClick={newHere}>
+      <a className="brand" href="/" title={newTitle} onClick={newHere}>
         <span className="logo"><Icon name="cube" size={18} /></span> <span className="brand-name">Jig</span>
       </a>
       <span className="app-version" title="Jig version">v{import.meta.env.VITE_APP_VERSION}</span>
@@ -123,6 +102,7 @@ export function TopBar(p: Props) {
       <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)}
         style={{ '--name-chars': p.design.name.length } as React.CSSProperties} />
       {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} onFork={p.onFork} />}
+      <DesignTagsButton tags={p.tags} allTags={allTags} onChange={(tags) => p.onSetTags(p.design.id, tags)} compact={p.compact} />
       {p.unsavedSettings && (
         <button className="btn save-settings" onClick={p.onSaveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
           <Icon name="save" size={13} /> <span className="btn-label">Save as </span>v{p.design.versions.length + 1}
@@ -144,32 +124,15 @@ export function TopBar(p: Props) {
         </button>
       )}
       <ConnectionChip generating={p.generating} />
-      {!p.compact && <a className="btn ghost" href="/" title="New design" onClick={newHere}><Icon name="plus" size={14} /> New</a>}
+      {!p.compact && <a className={`btn ghost ${newTags ? 'new-temp' : ''}`} href="/" title={newTitle} onClick={newHere}><Icon name="plus" size={14} /> New</a>}
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} aria-label="Designs"
-          onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShown(PAGE); setQuery(''); setShowList(!showList); }}><Icon name="folder" size={14} /> <span className="btn-label">Designs</span></button>
+          onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShowList(!showList); }}><Icon name="folder" size={14} /> <span className="btn-label">Designs</span></button>
         {showList && (
-          <div className="menu">
-            {p.designs.length > 0 && (
-              <div className="menu-search">
-                <Icon name="search" size={13} />
-                <input autoFocus type="search" placeholder="Search designs" aria-label="Search designs" value={query}
-                  onChange={(e) => { setQuery(e.target.value); setShown(PAGE); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && matches[0]) open(matches[0].id); }} />
-                {query && <button className="icon-btn" title="Clear the search" aria-label="Clear the search" onClick={() => { setQuery(''); setShown(PAGE); }}><Icon name="x" size={12} /></button>}
-              </div>
-            )}
-            {p.listError
-              ? <div className="menu-empty">Could not load your designs: {p.listError} <button className="link" onClick={p.onRefreshList}>Try again</button></div>
-              : p.designs.length === 0 ? <div className="menu-empty">No saved designs yet</div>
-              : matches.length === 0 && <div className="menu-empty">No design's name contains “{query.trim()}”</div>}
-            {matches.slice(0, shown).map(row)}
-            {matches.length > shown && (
-              <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({matches.length - shown} more)</button>
-            )}
-            <div className="menu-foot">
+          <DesignsMenu designs={p.designs} listError={p.listError} currentId={p.design.id} onRefreshList={p.onRefreshList} isRunning={p.isRunning}
+            onOpen={open} onDelete={p.onDelete} onDeleteMany={p.onDeleteMany} onStar={p.onStar} onSetTags={p.onSetTags} onTag={p.onTag} filter={filter} onFilter={setFilter}>
               {p.compact && (
-                <a className="menu-action" href="/" onClick={(e) => { setShowList(false); newHere(e); }}><Icon name="plus" size={13} /> New design</a>
+                <a className="menu-action" href="/" title={newTitle} onClick={(e) => { setShowList(false); newHere(e); }}><Icon name="plus" size={13} /> New design</a>
               )}
               {backupNote && (
                 <div className={`menu-note ${backupNote.error ? 'error' : ''}`} role="status">
@@ -183,8 +146,7 @@ export function TopBar(p: Props) {
                 {importing ? <span className="spinner" /> : <Icon name="restore" size={13} />} {importing ? 'Importing…' : 'Import designs…'}
               </button>
               <input ref={backupInput} type="file" accept=".zip,application/zip" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void importBackup(f); }} />
-            </div>
-          </div>
+          </DesignsMenu>
         )}
       </div>
     </header>

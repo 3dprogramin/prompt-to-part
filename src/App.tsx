@@ -50,6 +50,8 @@ import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE, type LineArtStyle } from '../shared/lineart';
 import { designKind, kindImageMode } from '../shared/designKind';
 import { forgetChatMode, loadChatModes, storeChatMode } from './lib/chatModes';
+import { cleanTags, withTag } from '../shared/tags';
+import { deletePlan, someNames } from './lib/designList';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -1083,7 +1085,12 @@ export default function App() {
     }
   };
 
-  const createNew = () => switchTo(newDesign());
+  /** A new design; `tags` are given to it once it is saved (a new design in the Temp list is Temp). */
+  const createNew = (tags?: string[]) => {
+    const d = newDesign();
+    switchTo(d);
+    if (tags?.length) setNewTags((t) => ({ ...t, [d.id]: cleanTags(tags) }));
+  };
 
   /**
    * A new design from one version: its script and settings (text, SVG, print, attached drawings)
@@ -1186,8 +1193,76 @@ export default function App() {
     forgetDesign(id);
   };
 
+  /**
+   * Delete several designs after one question that names them. Designs Jig is working on (in any
+   * tab) are left alone and named; each delete is the single delete's route, so one that fails
+   * leaves the others deleted and is reported.
+   */
+  const deleteDesigns = async (ids: string[]) => {
+    const busy = (id: string) => !!running[id] || remoteRunning[id] != null;
+    const plan = deletePlan(designs.filter((d) => ids.includes(d.id)), busy);
+    if (!plan.question) {
+      if (plan.busy.length) setNotice({ text: `Nothing deleted: Jig is working on ${someNames(plan.busy.map((d) => d.name), 3)}. Stop it first.`, level: 'warning', details: false });
+      return;
+    }
+    if (!confirm(plan.question)) return;
+    const failed: string[] = [];
+    let done = 0;
+    for (const d of plan.remove) {
+      deletingHere.current.add(d.id);
+      const saving = stopSaving(d.id);
+      try {
+        await api.deleteDesign(d.id);
+      } catch (e) {
+        saving.undo();
+        const copy = background.current.get(d.id) ?? (designRef.current.id === d.id ? designRef.current : null);
+        if (copy) saveSoon(copy);
+        deletingHere.current.delete(d.id);
+        failed.push(`"${d.name}" (${(e as Error).message})`);
+        continue;
+      }
+      tell({ type: 'deleted', id: d.id });
+      forgetDesign(d.id, false);
+      done++;
+    }
+    refreshList();
+    const skipped = plan.busy.length ? ` Left alone, Jig is working on ${someNames(plan.busy.map((x) => x.name), 3)}.` : '';
+    setNotice(failed.length
+      ? { text: `Deleted ${done} of ${plan.remove.length} designs. Not deleted: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}.${skipped}`, level: 'error', details: false }
+      : { text: `Deleted ${done === 1 ? 'the design' : `${done} designs`}.${skipped}`, level: skipped ? 'warning' : 'ok', details: false });
+  };
+
+  // Stars and tags change the list at once; the refreshed list follows. A new design's tags are
+  // kept here until it is saved (only a saved design can be tagged), then sent.
+  const [newTags, setNewTags] = useState<Record<string, string[]>>({});
+  const patchList = (ids: string[], fn: (d: DesignSummary) => DesignSummary) => setDesigns((l) => l.map((d) => (ids.includes(d.id) ? fn(d) : d)));
+  const listFailed = (what: string) => (e: Error) => setNotice({ text: `Could not ${what}: ${e.message}`, level: 'error', details: false });
+  const starDesigns = (ids: string[], on: boolean) => {
+    patchList(ids, (d) => ({ ...d, starred: on || undefined }));
+    void Promise.all(ids.map((id) => api.starDesign(id, on))).catch(listFailed(on ? 'star them all' : 'unstar them all')).finally(refreshList);
+  };
+  const setDesignTags = (id: string, raw: string[]) => {
+    const tags = cleanTags(raw);
+    if (!designs.some((d) => d.id === id)) return setNewTags((t) => ({ ...t, [id]: tags }));
+    patchList([id], (d) => ({ ...d, tags: tags.length ? tags : undefined }));
+    api.tagDesign(id, tags).catch(listFailed('change the tags')).finally(refreshList);
+  };
+  const tagDesigns = (ids: string[], tag: string, on: boolean) => {
+    patchList(ids, (d) => { const tags = withTag(d.tags, tag, on); return { ...d, tags: tags.length ? tags : undefined }; });
+    api.tagDesigns(ids, tag, on).catch(listFailed(on ? `tag them "${tag}"` : `take "${tag}" away`)).finally(refreshList);
+  };
+  // A new design shows up in the list after its first save: its tags go to the server then.
+  useEffect(() => {
+    const ready = Object.keys(newTags).filter((id) => designs.some((d) => d.id === id));
+    if (!ready.length) return;
+    setNewTags((t) => Object.fromEntries(Object.entries(t).filter(([id]) => !ready.includes(id))));
+    patchList(ready, (d) => ({ ...d, tags: newTags[d.id].length ? newTags[d.id] : undefined }));
+    for (const id of ready) api.tagDesign(id, newTags[id]).catch(() => {}).finally(refreshList);
+  }, [designs]);
+  const designTags = newTags[design.id] ?? designs.find((d) => d.id === design.id)?.tags ?? [];
+
   /** Drop a deleted design from memory and the tabs; the open one is replaced by a new design. */
-  function forgetDesign(id: string) {
+  function forgetDesign(id: string, refresh = true) {
     background.current.delete(id);
     forgetChatMode(id);
     clearSaveError(id);
@@ -1200,7 +1275,7 @@ export default function App() {
       if (!deletingHere.current.has(id)) switchNotice.current = { text: `"${name}" was deleted in another tab or window.`, level: 'info', details: false };
     }
     deletingHere.current.delete(id);
-    refreshList();
+    if (refresh) refreshList();
   }
 
   // The viewer shows the design's hidden parts and the Object tab's selection.
@@ -1227,6 +1302,11 @@ export default function App() {
         onCloseTab={closeTab}
         onCloseAllTabs={closeAllTabs}
         onNew={createNew}
+        tags={designTags}
+        onSetTags={setDesignTags}
+        onStar={starDesigns}
+        onTag={tagDesigns}
+        onDeleteMany={deleteDesigns}
         designs={designs}
         listError={listError}
         onRefreshList={refreshList}

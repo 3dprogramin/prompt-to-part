@@ -24,6 +24,7 @@ import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
 import { photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneResponse } from '../shared/photos';
 import type { Design, DesignSummary, Vec3 } from '../shared/types';
 import { designKind } from '../shared/designKind';
+import { cleanTagMap, cleanTags, hasTag, MAX_TAGS, tagsProblem, withTag } from '../shared/tags';
 import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
 import { freeMeshName, MAX_MESHES, MESH_NAME } from '../shared/meshes';
@@ -40,6 +41,9 @@ const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
 const STARRED_FILE = path.join(DATA_DIR, 'starred.json');
 const cleanStarred = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))] : []);
 const readStarred = async () => cleanStarred((JSON.parse(await readFile(STARRED_FILE, 'utf8').catch(() => '{}')) as { ids?: unknown }).ids);
+/** Each design's tags (shared/tags.ts) by id, apart from the designs for the same reason. */
+const TAGS_FILE = path.join(DATA_DIR, 'tags.json');
+const readTags = async () => cleanTagMap((JSON.parse(await readFile(TAGS_FILE, 'utf8').catch(() => '{}')) as { tags?: unknown }).tags, (id) => ID_RE.test(id));
 
 /**
  * A reply Jig is working on, or finished a little while ago: its server-sent events so far (the
@@ -102,7 +106,7 @@ const IMAGE_NAME = /^[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
 const MAX_RENDER_BYTES = 15 * 1024 * 1024;
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
-const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'starred.json': 'starred designs' };
+const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'starred.json': 'starred designs', 'tags.json': 'design tags' };
 const MAX_BACKUP_ENTRIES = 100_000;
 const BACKUP_LIMITS = { settings: 1024 * 1024, design: 80 * 1024 * 1024, image: 25 * 1024 * 1024, mesh: 2 * MAX_MESH_BYTES };
 
@@ -237,11 +241,16 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     await mkdir(DESIGNS, { recursive: true });
     const out: DesignSummary[] = [];
     const starred = new Set(await readStarred().catch(() => []));
+    const tags = await readTags().catch(() => ({} as Record<string, string[]>));
     for (const f of await readdir(DESIGNS)) {
       if (!f.endsWith('.json')) continue;
       try {
         const d = JSON.parse(await readFile(path.join(DESIGNS, f), 'utf8')) as Design;
-        out.push({ id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, versions: Array.isArray(d.versions) ? d.versions.length : 0, kind: designKind(d.code, d.values), ...(starred.has(d.id) && { starred: true }) });
+        out.push({
+          id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, createdAt: Number(d.createdAt) || 0,
+          versions: Array.isArray(d.versions) ? d.versions.length : 0, kind: designKind(d.code, d.values),
+          ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }),
+        });
       } catch { /* skip corrupt */ }
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -291,6 +300,66 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     }).catch((e: Error) => { res.status(500).json({ error: e.message }); });
   });
 
+  // Tags: one change at a time, like the stars. Only a saved design can be tagged (the page keeps a
+  // new design's tags until its first save), so no tags are left behind for designs that never were.
+  let tagging = Promise.resolve();
+  /** Runs `change` on the stored tags (in the queue) and writes what it returns. */
+  const changeTags = (change: (all: Record<string, string[]>) => Promise<void> | void) => {
+    const next = tagging.then(async () => {
+      const all = await readTags();
+      await change(all);
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeAtomically(TAGS_FILE, JSON.stringify({ tags: all }));
+    });
+    tagging = next.catch(() => undefined);
+    return next;
+  };
+  /** Sets one design's tags in `all` (none: its entry goes). */
+  const putTags = (all: Record<string, string[]>, id: string, tags: string[]) => { if (tags.length) all[id] = tags; else delete all[id]; };
+
+  // Set a design's tags: { tags: [...] } replaces them all.
+  app.put('/api/designs/:id/tags', json('10kb'), async (req, res) => {
+    const id = req.params.id;
+    const problem = !ID_RE.test(id) ? 'bad id' : tagsProblem(req.body?.tags);
+    if (problem) return void res.status(400).json({ error: `Expected { tags: [...] }: ${problem}` });
+    const tags = cleanTags(req.body.tags);
+    try {
+      let found = true;
+      await changeTags((all) => { found = existsSync(designFile(id)); if (found) putTags(all, id, tags); });
+      if (!found) return void res.status(404).json({ error: 'not found' });
+      res.json({ tags });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // Add a tag to several designs, or take one away: { ids, add } or { ids, remove }. Designs that
+  // are gone, or already have MAX_TAGS other tags, are left as they are; the reply lists the changed.
+  app.post('/api/designs/tags', json('100kb'), async (req, res) => {
+    const { ids, add, remove } = (req.body ?? {}) as { ids?: unknown; add?: unknown; remove?: unknown };
+    const tag = add ?? remove;
+    const problem = !Array.isArray(ids) || !ids.length || ids.length > 5000 || !ids.every((x) => typeof x === 'string' && ID_RE.test(x)) ? 'ids must be a list of design ids'
+      : (add === undefined) === (remove === undefined) ? 'give either add or remove' : tagsProblem([tag]);
+    if (problem) return void res.status(400).json({ error: `Expected { ids: [...], add: "tag" } or { ids: [...], remove: "tag" }: ${problem}` });
+    try {
+      const changed: string[] = [];
+      await changeTags((all) => {
+        for (const id of new Set(ids as string[])) {
+          if (!existsSync(designFile(id))) continue;
+          const before = all[id] ?? [];
+          if (add !== undefined && !hasTag(before, tag as string) && before.length >= MAX_TAGS) continue;
+          const after = withTag(before, tag as string, add !== undefined);
+          if (after.join('\n') === before.join('\n')) continue;
+          putTags(all, id, after);
+          changed.push(id);
+        }
+      });
+      res.json({ changed });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   app.delete('/api/designs/:id', async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
@@ -301,6 +370,8 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
       await rm(imageDir(id), { recursive: true, force: true });
       await rm(workspaceDir(id), { recursive: true, force: true });
     });
+    // Its tags go with it (its star stays, as before: harmless).
+    await changeTags((all) => { delete all[id]; }).catch(() => undefined);
     res.json({ ok: true });
   });
 
@@ -690,6 +761,17 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
 
       for (const entry of settings) {
         const file = path.join(DATA_DIR, entry.name);
+        // The tags of designs that have none here are added (the imported designs' tags).
+        if (entry.name === 'tags.json') {
+          try {
+            const v = JSON.parse(Buffer.from(await entry.read()).toString('utf8')) as { tags?: unknown };
+            const imported = cleanTagMap(v?.tags, (id) => ID_RE.test(id));
+            let added = 0;
+            await changeTags((all) => { for (const [id, tags] of Object.entries(imported)) if (!Object.hasOwn(all, id) && existsSync(designFile(id))) { all[id] = tags; added++; } });
+            if (added) out.settings.push(BACKUP_SETTINGS[entry.name]);
+          } catch { /* a damaged settings file is left out */ }
+          continue;
+        }
         if (existsSync(file)) continue;
         try {
           const v = JSON.parse(Buffer.from(await entry.read()).toString('utf8')) as { filaments?: unknown };

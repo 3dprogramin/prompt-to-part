@@ -312,9 +312,12 @@ export interface DesignSummary {
   id: string;
   name: string;
   updatedAt: number;
+  createdAt: number;
   versions: number;
-  /** Starred in the Designs menu (listed first). */
+  /** Starred in the Designs menu (marked). */
   starred?: boolean;
+  /** Its tags (shared/tags.ts), built-ins first; none: left out. */
+  tags?: string[];
   /** What kind of design its current code makes (shared/designKind.ts). */
   kind?: DesignKind;
 }

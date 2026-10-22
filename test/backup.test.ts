@@ -178,3 +178,24 @@ test('a zipped project ("Export project…") brings back its design, pictures an
   assert.equal(bad.skipped[0].reason, 'not a complete design');
   assert.equal((await fetch(`${A}/api/designs/bad!id/files`)).status, 400);
 });
+
+test('design tags go into a backup and come back for designs that have none here', async () => {
+  const ID3 = 'test-bkp-00000003', ID4 = 'test-bkp-00000004';
+  const tag = (id: string, tags: string[]) => fetch(`${A}/api/designs/${id}/tags`, { method: 'PUT', headers: W, body: JSON.stringify({ tags }) });
+  const tagsOf = async () => Object.fromEntries(((await (await fetch(`${A}/api/designs`)).json()) as { id: string; tags?: string[] }[]).map((d) => [d.id, d.tags]));
+  assert.equal((await put(design({ id: ID3 }))).status, 200);
+  assert.equal((await put(design({ id: ID4 }))).status, 200);
+  assert.equal((await tag(ID3, ['Product'])).status, 200);
+  assert.equal((await tag(ID4, ['temp', 'Ornamente'])).status, 200);
+  const zip = await exportZip();
+  assert.deepEqual(JSON.parse(Buffer.from(unzipSync(zip)['tags.json']).toString()).tags[ID4], ['Temp', 'Ornamente']);
+  // ID4 is deleted (its tags go with it) and ID3 retagged here: the import brings ID4 back with its tags, ID3 keeps its own.
+  assert.equal((await fetch(`${A}/api/designs/${ID4}`, { method: 'DELETE', headers: W })).status, 200);
+  assert.equal((await tagsOf())[ID4], undefined);
+  assert.equal((await tag(ID3, ['Ornamente'])).status, 200);
+  const out = await (await importZip(zip)).json();
+  assert.deepEqual(out.imported.map((x: { id: string }) => x.id), [ID4]);
+  assert.ok(out.settings.includes('design tags'));
+  const tags = await tagsOf();
+  assert.deepEqual([tags[ID3], tags[ID4]], [['Ornamente'], ['Temp', 'Ornamente']]);
+});

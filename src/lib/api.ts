@@ -73,6 +73,10 @@ export const api = {
   listFonts: () => getJson<FontEntry[]>('/api/fonts'),
   listDesigns: () => getJson<DesignSummary[]>('/api/designs'),
   starDesign: (id: string, starred: boolean) => getJson<{ starred: boolean }>(`/api/designs/${id}/star`, { method: 'PUT', body: JSON.stringify({ starred }) }),
+  /** Replaces a saved design's tags (404: not saved yet); returns them as stored. */
+  tagDesign: (id: string, tags: string[]) => getJson<{ tags: string[] }>(`/api/designs/${id}/tags`, { method: 'PUT', body: JSON.stringify({ tags }) }).then((r) => r.tags),
+  /** Adds a tag to several designs or takes it away; returns the ids that changed. */
+  tagDesigns: (ids: string[], tag: string, on: boolean) => getJson<{ changed: string[] }>('/api/designs/tags', { method: 'POST', body: JSON.stringify({ ids, [on ? 'add' : 'remove']: tag }) }).then((r) => r.changed),
   /** null if there is no such design; throws if the server can't be reached. */
   async getDesign(id: string): Promise<Design | null> {
     try {
