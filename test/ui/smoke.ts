@@ -152,13 +152,16 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
 
-  // Product photos: 13 scenes and Custom…, the other 9 after "More scenes".
+  // Product photos: 16 scenes, Custom… and Your idea…, the other 8 after "More scenes".
   await page.getByRole('button', { name: 'Product photos' }).click();
   const scenes = page.locator('.ph-scenes [role=radio]');
-  await page.getByRole('button', { name: 'More scenes (9 more)' }).waitFor();
-  assert.equal(await scenes.count(), 14);
-  await page.getByRole('button', { name: 'More scenes (9 more)' }).click();
-  assert.equal(await scenes.count(), 23);
+  await page.getByRole('button', { name: 'More scenes (8 more)' }).waitFor();
+  assert.equal(await scenes.count(), 18);
+  await page.getByRole('button', { name: 'More scenes (8 more)' }).click();
+  assert.equal(await scenes.count(), 26);
+  // Your idea: a few words in the notes box, which Jig writes out when a photo is made.
+  await scenes.filter({ hasText: 'Your idea…' }).click();
+  await page.getByRole('textbox', { name: 'Your idea for the scene, in a few words' }).waitFor();
   await page.screenshot({ path: path.join(shots, '2-scenes.png') });
 
   assert.deepEqual(errors, []);

@@ -24,7 +24,7 @@ server.on('request', createApp({
   port,
   hosts: ['192.168.1.50'],
   suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
-  sceneWriter: async (id) => `on a ${id} written for this photo`,
+  sceneWriter: async (id, _size, idea) => (idea ? `on a table: ${idea.idea}, for ${idea.product ?? 'it'} (${idea.suggested ?? 'none'})` : `on a ${id} written for this photo`),
   image: async (prompt, aspect, references, _signal, _onStatus, size) => {
     imageAsked = { prompt, aspect, references, size };
     return { image: { data: Buffer.from('89504e470d0a1a0a70686f746f', 'hex').toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
@@ -224,6 +224,13 @@ test('cost settings are stored, slicing needs a project, price suggestions go th
   const scene = await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify({ scene: 'wall' }) });
   assert.deepEqual(await scene.json(), { scene: 'on a wall written for this photo' });
   assert.equal((await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify({ scene: 'moon' }) })).status, 400);
+  // The user's idea written out: with the scene suggested for the product (a known one) and its name.
+  const idea = await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify({ scene: 'idea', idea: 'cosy cabin', suggested: 'wall', product: 'Plaque' }) });
+  assert.deepEqual(await idea.json(), { scene: 'on a table: cosy cabin, for Plaque (wall)' });
+  assert.deepEqual(await (await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify({ scene: 'idea', idea: 'cosy cabin', suggested: 'moon' }) })).json(), { scene: 'on a table: cosy cabin, for it (none)' });
+  for (const bad of [{ scene: 'idea' }, { scene: 'idea', idea: '  ' }, { scene: 'idea', idea: 'x'.repeat(601) }]) {
+    assert.equal((await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify(bad) })).status, 400);
+  }
 });
 
 test('without an API key (and not in subscription mode) Claude is never started', async () => {
