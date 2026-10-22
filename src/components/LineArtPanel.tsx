@@ -4,6 +4,8 @@ import { DEFAULT_SPLIT_JOIN, formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_JOI
 import { formatSplitSpec, MAX_PIECE, parseSplitSpec, type SplitSpec } from '../../shared/split';
 import { NumBox } from './NumBox';
 import { DEFAULT_JOIN_ENDS, LINEART_ENDS_KEY, parseLineArtEnds } from '../../shared/lineart';
+import { colourBands, colourSwaps, LINEART_DEPTH_KEY, MAX_COLOUR_LAYERS, parseLineArtDepth, type ColourDepth, type LineArtPaint } from '../../shared/lineart';
+import { colourFamilies } from '../../shared/filaments';
 import { staleEdits, withoutColours, withoutDrawings } from '../lib/lineArtEdit';
 import { AMS_SLOTS } from '../lib/bambu3mf';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
@@ -26,7 +28,7 @@ export function lineArtPart(result: EvalResult | null): LineArtPart | undefined 
  * where they go (each moved back by its layout offset) and merged, with the lines coloured in other
  * filaments (`paints`: their colour and triangles, from / to in `indices`); otherwise the part itself.
  */
-export function assembledLineArt(result: EvalResult | null): (LineArtPart & { paints?: { color: string; from: number; to: number }[] }) | undefined {
+export function assembledLineArt(result: EvalResult | null): (LineArtPart & { paints?: { color: string; from: number; to: number }[]; colourInfo?: LineArtPaint[] }) | undefined {
   const first = lineArtPart(result);
   if (!first || !result || (!first.lineArt.split && !first.lineArt.colours?.length)) return first;
   const pieces = result.parts.filter((p): p is LineArtPart => (first.lineArt.split ? !!p.lineArt?.piece : !!p.lineArt));
@@ -50,7 +52,70 @@ export function assembledLineArt(result: EvalResult | null): (LineArtPart & { pa
   // Every piece should be one piece: the most any is in (with its colours). Their joins of loose ends together.
   const whole = pieces.filter((p) => !p.lineArt.paintedIn).map((p) => p.lineArt.components ?? p.components);
   const lineArt = { ...first.lineArt, joins: pieces.flatMap((p) => (p.lineArt.paintedIn ? [] : p.lineArt.joins ?? [])), loose: pieces.flatMap((p) => (p.lineArt.paintedIn ? [] : p.lineArt.loose ?? [])) };
-  return { ...first, lineArt, positions, indices, bbox: { min, max }, components: Math.max(1, ...whole), ...(paints.length ? { paints } : {}) };
+  const colourInfo = pieces.flatMap((p) => (!p.lineArt.paintedIn && p.lineArt.paint ? [p.lineArt.paint] : []));
+  return { ...first, lineArt, positions, indices, bbox: { min, max }, components: Math.max(1, ...whole), ...(paints.length ? { paints } : {}), ...(colourInfo.length ? { colourInfo } : {}) };
+}
+
+/** What the colours cost in filament changes at a depth, over the pieces (each prints on its own): an estimate (colourSwaps). */
+export function colourCost(paints: LineArtPaint[], depth: ColourDepth) {
+  return paints.map((p) => colourSwaps(p, depth)).reduce((t, c) => ({ layers: t.layers + c.layers, changes: t.changes + c.changes, minutes: t.minutes + c.minutes, grams: t.grams + c.grams }), { layers: 0, changes: 0, minutes: 0, grams: 0 });
+}
+const aboutTime = (min: number) => { const m = Math.max(1, Math.round(min)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
+/** "11 filament changes on 9 layers, about 18 min and 3.9 g more" */
+export function formatColourCost(c: ReturnType<typeof colourCost>): string {
+  if (!c.changes) return 'no filament changes';
+  return `${c.changes} filament change${c.changes === 1 ? '' : 's'} on ${c.layers} layer${c.layers === 1 ? '' : 's'}, about ${aboutTime(c.minutes)} and ${c.grams < 9.95 ? +c.grams.toFixed(1) : Math.round(c.grams)} g more`;
+}
+export const depthLabel = (d: ColourDepth) => (d === 'through' ? 'Through the piece' : d === 'auto' ? 'Top layers (auto)' : `Top ${d} layer${d === 1 ? '' : 's'}`);
+
+/**
+ * How deep the colours go (LINEART_DEPTH_KEY): their top layers (as few as hide the piece's own
+ * filament by each one's TD, or a number for all) or through the piece; how many layers each gets
+ * and how much of the filament under it that hides, and what the filament changes cost against
+ * the other choice (estimates; the Cost tab slices it).
+ */
+function ColourDepthRow({ paints, base, values, onValue }: { paints: LineArtPaint[]; base: string; values: ParamValues; onValue: Props['onValue'] }) {
+  const depth = parseLineArtDepth(values[LINEART_DEPTH_KEY]) ?? 'through';
+  const mode = depth === 'through' ? 'through' : depth === 'auto' ? 'auto' : 'layers';
+  const under = colourFamilies(base)[0];
+  // Each colour once (the first piece it is on), with the layers it gets on what it is on (not a peg: those are whole).
+  const seen = new Set<string>();
+  const colours = paints.flatMap((p) => p.colours.flatMap((c) => {
+    const key = `${c.filament.color}|${c.filament.name ?? ''}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const on = p.materials.filter((m) => c.on.includes(m.kind)), bands = colourBands(p, c, depth);
+    const k = on.findIndex((m) => m.kind !== 'pegs');
+    const t = k < 0 ? 0 : bands[k][1] - bands[k][0];
+    return [{ ...c, t, layers: Math.round(t / p.layers.layerHeight), pegsOnly: k < 0 }];
+  }));
+  const autoMost = Math.max(...paints.flatMap((p) => p.colours.map((c) => colourBands(p, c, 'auto')).flat().map(([a, b]) => Math.round((b - a) / p.layers.layerHeight))));
+  const other: ColourDepth = depth === 'through' ? 'auto' : 'through';
+  const now = colourCost(paints, depth), alt = colourCost(paints, other);
+  const pct = (t: number, td: number) => Math.round(100 * (1 - Math.exp((-3 * t) / td)));
+  return (
+    <div className="lineart-depth">
+      <div className="lineart-edit-row">
+        <select value={mode} aria-label="How deep the colours go" title="Top layers: the colours are only the face that shows, so the AMS changes filament on those layers only"
+          onChange={(e) => onValue(LINEART_DEPTH_KEY, e.target.value === 'layers' ? String(typeof depth === 'number' ? depth : Math.min(MAX_COLOUR_LAYERS, Math.max(1, autoMost))) : e.target.value)}>
+          <option value="auto">Top layers (auto)</option>
+          <option value="layers">Top layers:</option>
+          <option value="through">Through the piece</option>
+        </select>
+        {typeof depth === 'number' && <NumBox value={depth} min={1} max={MAX_COLOUR_LAYERS} label="Top layers the colours are" onCommit={(v) => onValue(LINEART_DEPTH_KEY, String(Math.min(MAX_COLOUR_LAYERS, Math.max(1, Math.round(v)))))} />}
+      </div>
+      {depth !== 'through' && colours.map((c) => (
+        <span key={`${c.filament.color}${c.filament.name ?? ''}`} className="lineart-why">
+          {c.pegsOnly ? `${c.filament.name ?? c.filament.color}: the pegs, whole` : `${c.filament.name ?? c.filament.color}: top ${c.layers} layer${c.layers === 1 ? '' : 's'}${c.t >= c.td - 1e-6
+            ? `, enough to cover the ${under}`
+            : `, covering about ${pct(c.t, c.td)}\u00a0% of the ${under} (fully hiding it takes ${+c.td.toFixed(1)} mm${c.known ? '' : ', a guess for this colour'}${depth === 'auto' ? ', more than the piece allows' : ''})`}`}
+        </span>
+      ))}
+      <span className="lineart-why">{depthLabel(depth)}: {formatColourCost(now)}.</span>
+      <span className="lineart-why">{depthLabel(other)}: {formatColourCost(alt)}.</span>
+      <span className="lineart-why note">Estimates for the A1; the Cost tab's slice is exact.</span>
+    </div>
+  );
 }
 
 /** Closed-up gaps beyond this share of them, and the drawing is too fine for its size. */
@@ -366,6 +431,8 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
   // With colours, the piece is it and its coloured parts together.
   const components = la.components ?? part.components;
   const colours = la.colours ?? [];
+  // Each coloured piece's colours and how deep they go (split: each piece's own).
+  const paints = result.parts.flatMap((p) => (p.lineArt?.paint && !p.lineArt.paintedIn ? [p.lineArt.paint] : []));
   const [w, h] = la.size;
   const bed = PRINTER.name.replace(/^Bambu Lab /, '');
   // Split, each piece must fit the bed (the pieces list says which don't).
@@ -445,6 +512,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
               </span>
               <button className="link" onClick={() => onEdits((e) => withoutColours(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)))} title="Every line back in the piece's own filament">Remove colours</button>
               {colours.length + 1 > AMS_SLOTS && <span className="lineart-why"><Icon name="alert" size={12} /> {colours.length + 1} filaments with the piece's own: the AMS lite holds {AMS_SLOTS}</span>}
+              {paints.length > 0 && <ColourDepthRow paints={paints} base={part.color} values={values} onValue={onValue} />}
             </dd>
           </>
         )}
@@ -452,7 +520,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
       <LooseEnds la={la} values={values} onValue={onValue} onShowJoins={onShowJoins} />
       <SplitSection la={la} result={result} values={values} onValue={onValue} />
       <ul className="litho-advice small">
-        <li><b>Print flat</b>, back down, {colours.length ? `in ${colours.length + 1} filaments: the coloured lines go all the way through, so the AMS changes filament on every layer (the Cost tab counts the swaps and the prime tower)` : 'in one colour (black PLA)'}; no brim.</li>
+        <li><b>Print flat</b>, back down, {colours.length ? `in ${colours.length + 1} filaments: ${(parseLineArtDepth(values[LINEART_DEPTH_KEY]) ?? 'through') === 'through' ? 'the colours go all the way through, so the AMS changes filament on every layer' : 'the colours are only the top layers, so the AMS changes filament on those layers only'} (the Cost tab counts the swaps and the prime tower)` : 'in one colour (black PLA)'}; no brim.</li>
         <li>{la.style === 'stand' ? "Push the piece into the base's slot." : 'Hang with double-sided tape or Command strips.'}</li>
       </ul>
     </div>
