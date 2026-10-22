@@ -1294,3 +1294,4 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-tile.outdated img { opacity: 0.7; }
 .ph-size { flex-shrink: 0; margin-right: 4px; padding: 0 5px; border-radius: 4px; background: #e0a43c26; color: var(--accent-2); font-size: 11px; line-height: 16px; }
 .ph-outdated-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px; background: #2a2416; border: 1px solid #6b5326; color: #f3dcae; }
+.ph-improve { font-size: 12.5px; margin-top: -2px; }

@@ -143,7 +143,7 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
 
 const ASPECT_RATIO: Record<PhotoAspect, number> = { '1:1': 1, '4:5': 4 / 5, '16:9': 16 / 9 };
 const ASPECT_HINT: Record<PhotoAspect, string> = { '1:1': 'Square', '4:5': 'Portrait, for shop listings', '16:9': 'Wide, for banners' };
-const sceneLabel = (id: string) => sceneById(id)?.label ?? (id === IDEA_SCENE ? 'Your idea' : 'Custom scene');
+const sceneLabel = (id: string) => sceneById(id)?.label ?? 'Your idea';
 const shopShot = (shot?: string) => (SHOP_SHOTS as readonly string[]).includes(shot ?? '') ? shot as ShopShot : undefined;
 /** A photo's (or request's) sub-scene, as a request or a photo keeps it: sub-scene 1 is left out; an idea's scene as written. */
 const lookOf = (x: { scene: string; variant?: SceneVariant; sceneText?: string }): Pick<PhotoRequest, 'variant' | 'sceneText'> =>
@@ -152,6 +152,7 @@ const lookOf = (x: { scene: string; variant?: SceneVariant; sceneText?: string }
 /** A photo's sub-scene in words: "Sub-scene 2: Scandinavian, warm white", the random scene written for it, or the idea's. */
 const lookTitle = (ph: { scene: string; variant?: SceneVariant; sceneText?: string }) => {
   if (ph.scene === IDEA_SCENE) return ph.sceneText ? `Written out by Jig: ${ph.sceneText}` : 'Your idea as you wrote it (Jig couldn\'t write it out)';
+  if (ph.scene === CUSTOM_SCENE) return 'Your idea as you wrote it (Improve your idea was off)';
   const v = lookOf(ph).variant;
   return !v ? undefined : v === 'random' ? `Random setting: ${ph.sceneText ?? `one the image model invented (${sceneKind(ph.scene)})`}` : `Sub-scene ${v}: ${variantName(ph.scene, v)}`;
 };
@@ -222,6 +223,9 @@ export function PhotosPanel(p: Props) {
   const [camera, setCamera] = useState<'best' | 'current'>(() => load('photoCamera', 'best'));
   useEffect(() => store('photoAspect', aspect), [aspect]);
   useEffect(() => store('photoCamera', camera), [camera]);
+  // Your idea: Jig writes it out in detail (on) or it goes to the image model as written (off, the 'custom' scene).
+  const [improve, setImprove] = useState<boolean>(() => load('photoImprove', true));
+  useEffect(() => store('photoImprove', improve), [improve]);
   const [error, setError] = useState<string | null>(null);
   // A random sub-scene being written for a photo, the shop set or the photos for all sizes.
   const [writing, setWriting] = useState<'photo' | 'shop' | 'sizes' | null>(null);
@@ -258,9 +262,11 @@ export function PhotosPanel(p: Props) {
   const suggested = useMemo(() => (lithophane ? BACKLIT_SCENE : suggestScene(about, size ?? undefined)), [about, size, lithophane]);
   const choice = scenes[p.designId] ?? { scene: suggested, notes: '', variant: 1 as SceneVariant };
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
-  const custom = choice.scene === CUSTOM_SCENE;
-  // The user's idea: written out by Jig before the photo is asked for.
-  const idea = choice.scene === IDEA_SCENE;
+  // Your idea: written out by Jig before the photo is asked for (idea), or as written (custom).
+  const own = choice.scene === IDEA_SCENE || choice.scene === CUSTOM_SCENE;
+  const idea = own && improve;
+  const custom = own && !improve;
+  const ownScene = idea ? IDEA_SCENE : custom ? CUSTOM_SCENE : choice.scene;
   const preset = sceneById(choice.scene);
   // The scenes after the first few show on "More scenes", or right away when one of them is picked or suggested.
   const expanded = allScenes || [choice.scene, suggested].some((x) => PHOTO_SCENES.findIndex((sc) => sc.id === x) >= MAIN_SCENES);
@@ -279,7 +285,7 @@ export function PhotosPanel(p: Props) {
     if (!idea && choice.variant !== 'random') return { variant: choice.variant };
     setWriting(what);
     try {
-      const text = await writeScene(choice.scene, size ?? undefined, idea ? { idea: choice.notes.trim(), suggested, product: p.result?.meta.name || p.designName } : undefined);
+      const text = await writeScene(ownScene, size ?? undefined, idea ? { idea: choice.notes.trim(), suggested, product: p.result?.meta.name || p.designName } : undefined);
       return idea ? (text ? { sceneText: text } : {}) : { variant: 'random', ...(text ? { sceneText: text } : {}) };
     } finally {
       setWriting(null);
@@ -532,7 +538,7 @@ export function PhotosPanel(p: Props) {
   const generate = async () => {
     setError(null);
     if (!size || !p.result) return setError('There is no model to photograph yet.');
-    if ((custom || idea) && !choice.notes.trim()) return setError(idea ? 'Write your idea first.' : 'Describe the scene first.');
+    if ((custom || idea) && !choice.notes.trim()) return setError('Write your idea first.');
     // The idea is written out first: a flat print it hangs on a wall is shown face-on.
     const written = idea ? await look('photo') : null;
     const onFace = faceOn || (camera === 'best' && flat && !!written?.sceneText && writtenPlace(written.sceneText) === 'wall');
@@ -547,7 +553,7 @@ export function PhotosPanel(p: Props) {
     const chosen = written ?? await look('photo');
     p.onStart({
       render: dataUrlToImage(shot),
-      scene: choice.scene,
+      scene: ownScene,
       ...chosen,
       aspect,
       notes: choice.notes.trim() || undefined,
@@ -612,9 +618,8 @@ export function PhotosPanel(p: Props) {
 
       <div className="ph-label" id={`${id}-scene`}>Scene</div>
       <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
-        {[...shownScenes, { id: CUSTOM_SCENE, label: 'Custom…', icon: 'pen', hint: 'Describe the scene yourself: it goes to the image model as you write it' },
-          { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe a scene in a few words; Jig writes it out in detail' }].map((s) => (
-          <button key={s.id} role="radio" aria-checked={choice.scene === s.id} className={choice.scene === s.id ? 'on' : ''} onClick={() => setChoice({ scene: s.id, variant: 1 })}
+        {[...shownScenes, { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe the scene yourself: Jig writes a few words out in detail, or (Improve your idea off) it goes to the image model as you write it' }].map((s) => (
+          <button key={s.id} role="radio" aria-checked={s.id === IDEA_SCENE ? own : choice.scene === s.id} className={(s.id === IDEA_SCENE ? own : choice.scene === s.id) ? 'on' : ''} onClick={() => setChoice({ scene: s.id, variant: 1 })}
             title={'hint' in s ? s.hint : s.id === suggested ? `${s.label}: suggested for this design` : s.label}>
             <Icon name={s.icon} size={18} />
             <span>{s.label}</span>
@@ -640,9 +645,16 @@ export function PhotosPanel(p: Props) {
           <span className="dim small ph-variant-name">{variantName(preset.id, choice.variant)}</span>
         </div>
       )}
-      <textarea className="text-param ph-notes" rows={custom ? 3 : 2} maxLength={MAX_NOTES_CHARS} value={choice.notes} onChange={(e) => setChoice({ notes: e.target.value })}
-        aria-label={custom ? 'Describe the scene' : idea ? 'Your idea for the scene, in a few words' : 'Extra details (optional)'}
+      <textarea className="text-param ph-notes" rows={own ? 3 : 2} maxLength={MAX_NOTES_CHARS} value={choice.notes} onChange={(e) => setChoice({ notes: e.target.value })}
+        aria-label={own ? 'Your idea for the scene' : 'Extra details (optional)'}
         placeholder={custom ? 'Describe the scene, e.g. "on a bedside table next to a book, warm evening lamp light"' : idea ? 'A few words, e.g. "cosy cabin, snowy evening"' : 'Extra details (optional), e.g. "autumn leaves around it", "evening light"'} />
+      {own && (
+        <label className="switch ph-improve" title="On: Jig writes your few words out into a detailed scene (shown on the photo). Off: the image model gets your text exactly as you wrote it.">
+          <input type="checkbox" checked={improve} onChange={(e) => setImprove(e.target.checked)} />
+          <span className="track" />
+          <span className="switch-label">Improve your idea</span>
+        </label>
+      )}
 
       <div className="ph-row">
         <span className="ph-label" id={`${id}-aspect`}>Format</span>
