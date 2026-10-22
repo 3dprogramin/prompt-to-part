@@ -9,9 +9,9 @@ import { FACE_SCALE_KEY, normalizeParams, parsePartColors, PART_COLORS_KEY, reso
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
-import { cleanLineArtInfo, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
+import { cleanLineArtInfo, lineArtPrint, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtDepth, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
-import { cleanProfile } from './print';
+import { cleanProfile, parseProfile, PRINT_KEY } from './print';
 import { getMeshData, MESHES_KEY, MeshMissingError, parseMeshes, type MeshData, type MeshEntry } from './meshes';
 import { parseMeshFile, type Raster } from './meshFormats';
 import { repairMesh, type ImportOptions, type ImportReport } from './meshRepair';
@@ -303,6 +303,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const meshes = parseMeshes(inputValues?.[MESHES_KEY]);
     // The coloured meshes the script used (H.mesh): their triangles keep their colours (paintOf).
     const painted: PaintedMesh[] = [];
+    const userPrint = parseProfile(inputValues?.[PRINT_KEY]);
     const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
       images: parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]), setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
     }, meshes, painted, parseLineArtEdits(inputValues?.[LINEART_EDITS_KEY]), {
@@ -310,6 +311,9 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       size: parseLineArtSize(inputValues?.[LINEART_SIZE_KEY]),
       join: parseLineArtJoin(inputValues?.[LINEART_JOIN_KEY]),
       ends: parseLineArtEnds(inputValues?.[LINEART_ENDS_KEY]),
+      depth: parseLineArtDepth(inputValues?.[LINEART_DEPTH_KEY]),
+      // Colours are cut to the print's layers: the user's layer heights (Print tab), else line art's.
+      layers: { layerHeight: userPrint.layerHeight ?? lineArtPrint().layerHeight, firstLayerHeight: userPrint.firstLayerHeight ?? lineArtPrint().firstLayerHeight },
       layout: typeof inputValues?.[LINEART_LAYOUT_KEY] === 'string' ? inputValues[LINEART_LAYOUT_KEY] as string : undefined,
     });
     let scope;

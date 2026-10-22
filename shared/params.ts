@@ -11,7 +11,8 @@ export const FACE_SCALE_KEY = '$faceScale';
 
 /** Filaments the user picked for parts (Object tab), by part name: they win over the script's colours. */
 export const PART_COLORS_KEY = '$partColors';
-export interface PartFilament { color: string; name?: string; brand?: string }
+/** `td`: its transmission distance (mm) when the picker knew it (line art: how many top layers of it hide what is under it). */
+export interface PartFilament { color: string; name?: string; brand?: string; td?: number }
 
 /** The user's part filaments from the design's values, checked (#rrggbb colours). */
 export function parsePartColors(raw: unknown): Record<string, PartFilament> {
@@ -30,7 +31,7 @@ export function parsePartColors(raw: unknown): Record<string, PartFilament> {
 export function cleanFilament(raw: unknown): PartFilament | undefined {
   const f = raw as PartFilament | null;
   if (!f || typeof f !== 'object' || typeof f.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(f.color)) return undefined;
-  return { color: f.color.toLowerCase(), ...(typeof f.name === 'string' ? { name: f.name.slice(0, 120) } : {}), ...(typeof f.brand === 'string' ? { brand: f.brand.slice(0, 60) } : {}) };
+  return { color: f.color.toLowerCase(), ...(typeof f.name === 'string' ? { name: f.name.slice(0, 120) } : {}), ...(typeof f.brand === 'string' ? { brand: f.brand.slice(0, 60) } : {}), ...(typeof f.td === 'number' && f.td >= 0.05 && f.td <= 20 ? { td: f.td } : {}) };
 }
 
 function niceStep(range: number) {

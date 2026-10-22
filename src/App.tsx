@@ -6,7 +6,7 @@ import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
 import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
 import { findLayerTonePart } from './components/LayerTonePanel';
-import { LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
+import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
 import { recolourEdits } from './lib/lineArtEdit';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
@@ -384,6 +384,9 @@ export default function App() {
     if (after === before) return d;
     const values = { ...d.values };
     if (Object.keys(after).length) values[LINEART_EDITS_KEY] = JSON.stringify(after); else delete values[LINEART_EDITS_KEY];
+    // The piece's first colour goes in its top layers (fewer filament changes), unless the user chose a depth.
+    const coloured = (e: LineArtEdits) => Object.values(e).some((x) => x.strokes.some((st) => st.filament));
+    if (values[LINEART_DEPTH_KEY] == null && !coloured(before) && coloured(after)) values[LINEART_DEPTH_KEY] = 'auto';
     return { ...d, values, updatedAt: Date.now() };
   });
   // A filament picked for a part (Object tab), or back to the script's colour. Lines of a line art
@@ -1562,7 +1565,7 @@ const LINEART_LAYOUT_PARAM: ParamDef = { type: 'select', label: 'Layout', value:
 /** The design's pictures, meshes, concept pictures, LayerTone setup and line-art hand edits and split, for the server (undefined when there are none). */
 function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, LINEART_SIZE_KEY, LINEART_JOIN_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, LINEART_SIZE_KEY, LINEART_JOIN_KEY, LINEART_ENDS_KEY, LINEART_DEPTH_KEY, LINEART_LAYOUT_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 

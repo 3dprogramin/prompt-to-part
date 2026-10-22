@@ -6,6 +6,7 @@
 import type { Brim } from './print';
 import { defaultColors, type SvgDrawing } from './svgFeatures';
 import { cleanFilament, type PartFilament } from './params';
+import { colourFamilies, FILAMENT_LIBRARY, libraryFilament, matchFilament } from './filaments';
 import { boxFitter, dovetail, formatSplitSpec, keepTogether, MAX_PIECE, parseSplitSpec, pieceLabel, routeSeam, seamAt, seamGeometry, splitGrid, type Seam, type SplitGrid, type SplitSpec } from './split';
 
 export const LINE_ART_STYLES = ['outline', 'keyholder', 'framed', 'medallion', 'sign', 'stand'] as const;
@@ -199,13 +200,15 @@ export interface LineArtInfo {
   paintedIn?: PartFilament;
   /** A coloured piece: how many separate bodies it and its coloured parts make together (each part alone may be in bits). */
   components?: number;
+  /** A coloured piece (each piece, split): its colours and how deep they go. */
+  paint?: LineArtPaint;
 }
 
 /** What H.lineart returns; a script returns it as it is (or adds to its parts). */
 export interface LineArtResult {
   /** The piece (lineArt on it), plus the base for a desk stand; split, one part per piece (named by its label), each on its own plate. */
   parts: { name: string; shape: unknown; color: string; lineArt?: LineArtInfo; plate?: number }[];
-  print: { layerHeight: number; walls: number; infill: number; infillPattern: string; brim: Brim };
+  print: { layerHeight: number; firstLayerHeight: number; walls: number; infill: number; infillPattern: string; brim: Brim };
   lineArt: LineArtInfo;
   /** How to print and hang it. */
   note: string;
@@ -242,7 +245,26 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
     bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
     ...(Number.isFinite(o.joinEnds) && o.joinEnds! >= 0 ? { joinEnds: o.joinEnds } : {}),
     ...(joins.length ? { joins } : {}), ...(loose.length ? { loose } : {}),
+    ...cleanPaint(o.paint, scale),
   };
+}
+
+/** A coloured piece's LineArtInfo.paint, checked, heights scaled. */
+function cleanPaint(raw: unknown, scale: number): Pick<LineArtInfo, 'paint'> {
+  const o = raw as LineArtPaint | null;
+  const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+  if (!o || typeof o !== 'object' || !o.layers || !Array.isArray(o.materials) || !Array.isArray(o.colours)) return {};
+  const depth = parseLineArtDepth(o.depth), lh = o.layers.layerHeight, flh = o.layers.firstLayerHeight;
+  if (depth === undefined || !fin(lh) || !fin(flh) || !(lh > 0 && flh > 0)) return {};
+  const kinds: PaintMaterial[] = ['lines', 'frame', 'text', 'pegs'];
+  const materials = o.materials.slice(0, 4).filter((m) => m && kinds.includes(m.kind) && Array.isArray(m.z) && fin(m.z[0]) && fin(m.z[1]))
+    .map((m) => ({ kind: m.kind, z: [m.z[0] * scale, m.z[1] * scale] as [number, number], own: !!m.own }));
+  const colours = o.colours.slice(0, 16).flatMap((c) => {
+    const filament = cleanFilament(c?.filament);
+    return filament && fin(c.td) && Number.isInteger(c.need) && Array.isArray(c.on)
+      ? [{ filament, td: c.td, known: !!c.known, need: c.need, on: c.on.filter((k) => kinds.includes(k)) }] : [];
+  });
+  return materials.length && colours.length ? { paint: { depth, layers: { layerHeight: lh * scale, firstLayerHeight: flh * scale }, materials, colours } } : {};
 }
 
 /** A line art's split and piece info (LineArtInfo.split, .piece), checked and scaled. */
@@ -321,6 +343,131 @@ export const MAX_JOIN_MARKS = 200;
 export function parseLineArtEnds(raw: unknown): number | undefined {
   const v = Number(raw);
   return raw != null && raw !== '' && Number.isFinite(v) && v >= 0 && v <= 50 ? v : undefined;
+}
+
+/**
+ * How deep the colours painted in Edit drawing go, per design, as the user set it in the Print tab:
+ * 'through' the whole piece, or only its top layers (the face that shows, the piece's own filament
+ * under them, so the AMS changes filament on those layers only): 'auto', each colour as few as hide
+ * what is under it (colourLayers), or that many layers for every colour. Unset: through, as colours
+ * were before there was a choice (the first colour painted on a piece sets 'auto').
+ */
+export const LINEART_DEPTH_KEY = '$lineartColourDepth';
+export type ColourDepth = 'through' | 'auto' | number;
+export const MAX_COLOUR_LAYERS = 50;
+export function parseLineArtDepth(raw: unknown): ColourDepth | undefined {
+  if (raw === 'through' || raw === 'auto') return raw;
+  const v = Number(raw);
+  return raw != null && raw !== '' && Number.isInteger(v) && v >= 1 && v <= MAX_COLOUR_LAYERS ? v : undefined;
+}
+/** The fewest top layers a colour gets (one alone lets the filament under it show through at its edges). */
+export const MIN_COLOUR_LAYERS = 2;
+
+/**
+ * A filament's TD (transmission distance, mm: LayerTone's model, where t mm of it hides
+ * 1 - e^(-3t/TD) of what is under it, 95 % at t = TD): its own (the user's filaments), the library's,
+ * or for one Jig doesn't know the middle TD of the library's filaments of its colour (light colours
+ * let more through); `known` says which.
+ */
+export function filamentTd(f: PartFilament): { td: number; known: boolean } {
+  if (f.td) return { td: f.td, known: true };
+  const lib = f.name ? (f.brand ? libraryFilament({ brand: f.brand, name: f.name }) : matchFilament('', f.name)) : undefined;
+  if (lib) return { td: lib.td, known: true };
+  const family = colourFamilies(f.color)[0];
+  const tds = FILAMENT_LIBRARY.filter((l) => colourFamilies(l.color).includes(family)).map((l) => l.td).sort((a, b) => a - b);
+  return { td: tds.length ? tds[Math.floor(tds.length / 2)] : 1, known: false };
+}
+
+/** The fewest top layers of a filament with this TD that hide what is under them (95 %: TD thick), at least MIN_COLOUR_LAYERS. */
+export function colourLayers(td: number, layerHeight: number): number {
+  return Math.max(MIN_COLOUR_LAYERS, Math.ceil(td / layerHeight - 1e-6));
+}
+
+/** The print's layers, mm: the first one's height and the others'. */
+export interface PrintLayers { layerHeight: number; firstLayerHeight: number }
+
+/**
+ * Where a colour's top `n` layers start on material from `bottom` to `top` mm (the lines or the
+ * frame from the bed, the sign's text on the bar), on the print's layer boundaries; n = 0 (through)
+ * is all of it. On the bed, the first layer stays the piece's own filament (it holds the piece together).
+ */
+export function colourBottom(n: number, bottom: number, top: number, l: PrintLayers): number {
+  if (!(n > 0)) return bottom;
+  // (A boundary at or below n layers from the top: off the grid, the top layer is a thin one.)
+  const at = l.firstLayerHeight + Math.floor((top - n * l.layerHeight - l.firstLayerHeight) / l.layerHeight + 1e-6) * l.layerHeight;
+  return +Math.min(Math.max(at, bottom > 1e-6 ? bottom : l.firstLayerHeight), top).toFixed(6);
+}
+
+/** What of a line art a colour can be on: its lines, the bar or frame, the sign's raised text, the key holder's pegs. */
+export type PaintMaterial = 'lines' | 'frame' | 'text' | 'pegs';
+
+/**
+ * A coloured piece's colours and how deep they go (LineArtInfo.paint), for what they cost in
+ * filament changes (colourSwaps). `materials`: what of the piece is there, from z[0] to z[1] mm, and
+ * whether some of it is still in the piece's own filament; `colours`: each filament, its TD, the top
+ * layers that hide what is under it (`need`), and what it is on.
+ */
+export interface LineArtPaint {
+  depth: ColourDepth;
+  layers: PrintLayers;
+  materials: { kind: PaintMaterial; z: [number, number]; own: boolean }[];
+  colours: { filament: PartFilament; td: number; known: boolean; need: number; on: PaintMaterial[] }[];
+}
+
+/** The top layers a colour gets at a depth (0: through). */
+export const depthLayers = (depth: ColourDepth, need: number) => (depth === 'through' ? 0 : depth === 'auto' ? need : depth);
+
+/**
+ * Where a colour is (z ranges, mm) at a depth: its top layers of each thing it is on; a peg it is on
+ * is that colour whole (a peg is seen all along, and above the bar it prints alone).
+ */
+export function colourBands(p: LineArtPaint, c: LineArtPaint['colours'][number], depth: ColourDepth): [number, number][] {
+  const n = depthLayers(depth, c.need);
+  return p.materials.filter((m) => c.on.includes(m.kind)).map((m) => [m.kind === 'pegs' ? m.z[0] : colourBottom(n, m.z[0], m.z[1], p.layers), m.z[1]]);
+}
+
+/**
+ * What filament changes cost on the A1 (AMS lite), measured with Bambu Studio 2.8's slicer on line
+ * art in Bambu PLA Basic from Jig's 3MF (2 and 4 mm thick, 3 to 15 changes, a line or the frame
+ * coloured; within about 10 % of the slice): each change (cutting, loading, the flush into the prime
+ * tower), each layer of the prime tower (built from the bed up to the last change, a change or not),
+ * and starting the tower.
+ */
+export const SWAP_COST = { minutes: 1.6, grams: 0.35, towerMinutes: 0.075, towerGrams: 0.025, startMinutes: 0.35, startGrams: 0.25 };
+
+/**
+ * The filament changes a coloured piece needs at a depth, layer by layer as the slicer orders them
+ * (each layer starts in the filament the last one ended in): the layers with a change, the changes,
+ * and roughly the time and filament they add (SWAP_COST; an estimate, the slice is exact).
+ */
+export function colourSwaps(p: LineArtPaint, depth: ColourDepth): { layers: number; changes: number; minutes: number; grams: number } {
+  const bands = p.colours.map((c) => colourBands(p, c, depth));
+  // The piece's own filament is on every layer up to the top of what is still in it (of a thing
+  // coloured all over, up to where its colours start).
+  let ownTop = 0;
+  for (const m of p.materials) {
+    const starts = p.colours.flatMap((c, k) => { const j = p.materials.filter((n) => c.on.includes(n.kind)).indexOf(m); return j >= 0 ? [bands[k][j][0]] : []; });
+    ownTop = Math.max(ownTop, m.own ? m.z[1] : Math.min(m.z[1], ...starts));
+  }
+  const top = Math.max(...p.materials.map((m) => m.z[1]));
+  const { layerHeight: lh, firstLayerHeight: flh } = p.layers;
+  // The filament loaded (-1: the piece's own, else a colour's index).
+  let cur: number | null = null, layers = 0, changes = 0, last = -1;
+  for (let k = 0, z = 0; z < top - 1e-6; k++) {
+    const z1 = k ? z + lh : flh, mid = (z + z1) / 2;
+    z = z1;
+    const on = [...(mid < ownTop ? [-1] : []), ...bands.flatMap((b, i) => (b.some(([a, c]) => mid > a && mid < c) ? [i] : []))];
+    if (!on.length) continue;
+    cur ??= on[0];
+    const start: number = on.includes(cur) ? cur : on[0];
+    const n = on.length - 1 + (start === cur ? 0 : 1);
+    if (n > 0) { layers++; changes += n; last = k; }
+    // It ends the layer in another filament than it started in.
+    cur = on.length > 1 ? on.find((f) => f !== start)! : start;
+  }
+  if (!changes) return { layers, changes, minutes: 0, grams: 0 };
+  const tower = last + 1, c = SWAP_COST;
+  return { layers, changes, minutes: c.startMinutes + changes * c.minutes + tower * c.towerMinutes, grams: c.startGrams + changes * c.grams + tower * c.towerGrams };
 }
 export const formatLineArtSize = (s: { width?: number; height?: number }) => `${s.width ? +s.width.toFixed(1) : ''}x${s.height ? +s.height.toFixed(1) : ''}`;
 /** The most strokes kept per drawing, and points per stroke. */
@@ -418,9 +565,9 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
   return { width: w, height: h, rgba };
 }
 
-/** Print settings for line art: flat, one colour, solid (2 mm is all top and bottom layers anyway), no brim to pick out of the lines. */
+/** Print settings for line art: flat, one colour, solid (2 mm is all top and bottom layers anyway), no brim to pick out of the lines; the first layer as high as the rest (colours are cut to the layers). */
 export function lineArtPrint(): LineArtResult['print'] {
-  return { layerHeight: 0.2, walls: 2, infill: 100, infillPattern: 'zig-zag', brim: 'none' };
+  return { layerHeight: 0.2, firstLayerHeight: 0.2, walls: 2, infill: 100, infillPattern: 'zig-zag', brim: 'none' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,6 +1362,10 @@ export interface LineArtDeps {
   join?: number;
   /** How far loose ends reach to join a line, as the user set it (LINEART_ENDS_KEY), mm; 0 = off. Wins over the script's joinEnds. */
   ends?: number;
+  /** How deep the colours go (LINEART_DEPTH_KEY; unset: through). */
+  depth?: ColourDepth;
+  /** The print's layers the colours are cut to (the user's layer heights in the Print tab; default lineArtPrint's). */
+  layers?: PrintLayers;
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
@@ -1375,7 +1526,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
 
   // Key holder: pegs out of the bar's front, printed standing up: a flared foot, the stem, and a
   // cap that keeps the keys on (its underside a 45° cone, no support).
-  let hooks = 0, peg: any = null, pegFoot = 0;
+  let hooks = 0, peg: any = null, pegFoot = 0, pegLen = 0;
   const pegAt: Pt[] = [];
   if (style === 'keyholder') {
     hooks = Math.round(num('hooks', Math.max(2, Math.round(width / 70)), 1, 20));
@@ -1385,7 +1536,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       .add(M.cylinder(len - cap - flare, r, r, segs / 2))
       .add(M.cylinder(flare, r, r + flare, segs / 2).translate([0, 0, len - cap - flare]))
       .add(M.cylinder(cap, r + flare, r + flare, segs / 2).translate([0, 0, len - cap]));
-    pegFoot = r + flare;
+    pegFoot = r + flare; pegLen = len;
     const span = width - 2 * overhang;
     for (let i = 0; i < hooks; i++) pegAt.push([-span / 2 + (span * (i + 0.5)) / hooks, -barHeight / 2]);
   }
@@ -1432,13 +1583,71 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const name = fil.name || fil.color;
     return areas.some((a) => (a.filament.name || a.filament.color) === name && a.filament.color !== fil.color) ? `${name} ${fil.color}` : name;
   };
-  // The filaments the piece came out coloured in (a colour on no line is none).
+  // The filaments the piece came out coloured in (a colour on nothing is none).
   const used: PartFilament[] = [];
-  const colourParts = (piece: string, lc: any, anc: any) => colourLines(lc, anc, areas).map((c) => {
-    if (!used.some((f) => filamentKey(f) === filamentKey(c.filament))) used.push(c.filament);
-    return { ...c, name: `${piece} (${colourName(c.filament)})` };
-  });
-  const without = (lc: any, cols: { cs: any }[]) => (cols.length ? lc.subtract(cols.reduce((u: any, c) => (u ? u.add(c.cs) : c.cs), null)) : lc);
+  // How deep each colour goes: through, or its top layers (as many as hide what is under it by its
+  // TD, or the user's number), cut to the print's layers.
+  const depth = d.depth ?? 'through';
+  const printLayers = d.layers ?? { layerHeight: lineArtPrint().layerHeight, firstLayerHeight: lineArtPrint().firstLayerHeight };
+  const needs = new Map<string, { td: number; known: boolean; need: number }>();
+  const needOf = (fil: PartFilament) => {
+    let n = needs.get(filamentKey(fil));
+    if (!n) { const t = filamentTd(fil); needs.set(filamentKey(fil), (n = { ...t, need: colourLayers(t.td, printLayers.layerHeight) })); }
+    return n;
+  };
+  const union = (ss: any[]) => ss.reduce((u: any, x) => (u ? u.add(x) : x), null);
+  /**
+   * A piece (`lc` its lines, `anc` its bar or frame, the pegs `on` it and its part of the text, as
+   * decorate) in its own filament and its colours, a part per filament named after the piece. A
+   * colour is what shows from the front under the brush: the lines, the bar or frame (not under a
+   * peg or the text), the sign's raised text (its own height only) or a peg, which the filament over
+   * most of its top colours whole (seen all along, and above the bar it prints alone).
+   */
+  const paintPiece = (piece: string, lc: any, anc: any, on: (p: Pt) => boolean = () => true, region?: any) => {
+    let full = lc.isEmpty() && anc ? null : lc.extrude(thickness);
+    if (anc) full = full ? full.add(anc.extrude(anchorThickness)) : anc.extrude(anchorThickness);
+    full = decorate(full, on, region);
+    const none = { shape: full, colours: [] as Coloured[], paint: undefined as LineArtPaint | undefined };
+    if (!areas.length) return none;
+    const pegs = pegAt.filter(on);
+    const text = !signText || region === null ? null : region ? signText.intersect(region) : signText;
+    const disc = (p: Pt) => C.circle(pegFoot, segs / 2).translate(p);
+    let shows = anc && !anc.isEmpty() ? anc : null;
+    if (shows) { for (const p of pegs) shows = shows.subtract(disc(p)); if (text && !text.isEmpty()) shows = shows.subtract(text); }
+    const z: Record<PaintMaterial, [number, number]> = { lines: [0, thickness], frame: [0, anchorThickness], text: [anchorThickness, anchorThickness + textDepth], pegs: [anchorThickness, anchorThickness + pegLen] };
+    const cols: { filament: PartFilament; solids: any[]; on: PaintMaterial[] }[] = [];
+    const coloured: Record<PaintMaterial, number> = { lines: 0, frame: 0, text: 0, pegs: 0 };
+    const put = (filament: PartFilament, kind: PaintMaterial, solid: any, area: number) => {
+      let c = cols.find((x) => filamentKey(x.filament) === filamentKey(filament));
+      if (!c) cols.push((c = { filament, solids: [], on: [] }));
+      c.solids.push(solid);
+      if (!c.on.includes(kind)) c.on.push(kind);
+      coloured[kind] += area;
+    };
+    const band = (kind: PaintMaterial, cs: any, fil: PartFilament) => {
+      const b = colourBottom(depthLayers(depth, needOf(fil).need), z[kind][0], z[kind][1], printLayers);
+      put(fil, kind, cs.extrude(z[kind][1] - b).translate([0, 0, b]), cs.area());
+    };
+    for (const c of colourLines(lc, anc, areas)) band('lines', c.cs, c.filament);
+    if (shows) for (const c of colourLines(shows, null, areas)) band('frame', c.cs, c.filament);
+    if (text && !text.isEmpty()) for (const c of colourLines(text, null, areas)) band('text', c.cs, c.filament);
+    for (const p of pegs) {
+      const top = disc(p);
+      let best: PartFilament | null = null, most = top.area() / 4;
+      for (const a of areas) { const t = top.intersect(a.area).area(); if (t > most) { most = t; best = a.filament; } }
+      if (best) put(best, 'pegs', peg.translate([p[0], p[1], anchorThickness]), 1);
+    }
+    if (!cols.length) return none;
+    const solids = cols.map((c) => union(c.solids));
+    for (const c of cols) if (!used.some((f) => filamentKey(f) === filamentKey(c.filament))) used.push(c.filament);
+    const there: [PaintMaterial, number][] = [['lines', lc.area()], ['frame', anc ? anc.area() : 0], ['text', text ? text.area() : 0], ['pegs', pegs.length]];
+    const paint: LineArtPaint = {
+      depth, layers: printLayers,
+      materials: there.filter(([, a]) => a > 0).map(([kind, a]) => ({ kind, z: z[kind], own: a - coloured[kind] > 1e-3 })),
+      colours: cols.map((c) => ({ filament: c.filament, ...needOf(c.filament), on: c.on })),
+    };
+    return { shape: full.subtract(union(solids)), colours: cols.map((c, i): Coloured => ({ name: `${piece} (${colourName(c.filament)})`, shape: solids[i], filament: c.filament })), paint };
+  };
 
   let parts: (LineArtResult['parts'][number] & { colours?: Coloured[] })[];
   let info: LineArtInfo;
@@ -1468,14 +1677,11 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); lineCs = lineCs.subtract(b); erased = erased ? erased.add(b) : b; }
     });
     marks = res;
-    // The lines in other filaments are parts of their own; the rest is the piece's.
-    const colours = colourParts('Line art', lineCs, anchor);
-    let shape = without(lineCs, colours).extrude(thickness);
-    if (anchor) shape = shape.add(anchor.extrude(anchorThickness));
-    shape = decorate(shape);
+    // What is in other filaments is parts of their own; the rest is the piece's.
+    const { shape, colours, paint } = paintPiece('Line art', lineCs, anchor);
     info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
-    if (colours.length) info.components = (anchor ? lineCs.add(anchor) : lineCs).decompose().length;
-    parts = [{ name: 'Line art', shape, color, lineArt: info, colours: colours.map((c) => ({ name: c.name, shape: c.cs.extrude(thickness), filament: c.filament })) }];
+    if (colours.length) { info.components = (anchor ? lineCs.add(anchor) : lineCs).decompose().length; info.paint = paint; }
+    parts = [{ name: 'Line art', shape, color, lineArt: info, colours }];
   } else {
     // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by itself.
     let erase: any = null;
@@ -1495,12 +1701,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const res = sp;
     parts = res.pieces.map((p, i) => {
       // Each piece keeps the colours on it.
-      const cols = colourParts(p.info.label, p.lineCs, p.anchor);
-      const own = without(p.lineCs, cols);
-      let shape = own.isEmpty() && p.anchor ? p.anchor.extrude(anchorThickness) : own.extrude(thickness);
-      if (p.anchor && !own.isEmpty()) shape = shape.add(p.anchor.extrude(anchorThickness));
-      shape = decorate(shape, (q) => res.pieceAt(q) === i, p.region);
-      let colours: Coloured[] = cols.map((c) => ({ name: c.name, shape: c.cs.extrude(thickness), filament: c.filament }));
+      const painted = paintPiece(p.info.label, p.lineCs, p.anchor, (q) => res.pieceAt(q) === i, p.region);
+      let { shape, colours } = painted;
       // Its name engraved on the back, mirrored so it reads from the back.
       const at = labels ? res.label(i) : null;
       if (at) {
@@ -1513,8 +1715,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
         colours = colours.map((c) => ({ ...c, shape: c.shape.subtract(cut) }));
       }
       p.info.labelSize = at ? at.size : 0;
-      const whole = cols.length ? (p.anchor ? p.lineCs.add(p.anchor) : p.lineCs).decompose().length : 0;
-      return { name: p.info.label, shape, color, lineArt: whole ? { ...info, components: whole } : info, plate: i + 1, colours };
+      const whole = colours.length ? (p.anchor ? p.lineCs.add(p.anchor) : p.lineCs).decompose().length : 0;
+      return { name: p.info.label, shape, color, lineArt: whole ? { ...info, components: whole, paint: painted.paint } : info, plate: i + 1, colours };
     });
   }
   info.joinEnds = joinEnds;
@@ -1553,7 +1755,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     moveFrames(-cx, -cy);
   }
   if (used.length) info.colours = used;
-  const filaments = used.length ? ` in ${used.length + 1} filaments (its own and ${used.map((f) => f.name || f.color).join(', ')}: the coloured lines go through its whole thickness, so the AMS changes filament on every layer, with a prime tower beside it)` : ' in one colour (black PLA)';
+  const filaments = used.length ? ` in ${used.length + 1} filaments (its own and ${used.map((f) => f.name || f.color).join(', ')}: ${depth === 'through' ? 'the colours go through its whole thickness, so the AMS changes filament on every layer' : 'the colours are only its top layers, so the AMS changes filament on those layers only'}, with a prime tower beside it)` : ' in one colour (black PLA)';
   // The joins and loose ends where they are, moved like the piece; a join erased by hand leaves its end loose, and an erased end goes.
   const erasedAt = (a: Pt, b: Pt) => !!erased && !erased.intersect(new C([band(a, b, 0.05)], 'NonZero')).isEmpty();
   const placeMarks = (m: { joins: Pt[][]; loose: Pt[] }): Pick<LineArtInfo, 'joins' | 'loose'> => {
@@ -1577,7 +1779,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     parts.forEach((p, i) => {
       const [dx, dy] = offsets[i];
       if (dx || dy) move(p, dx, dy);
-      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), ...(p.lineArt?.components ? { components: p.lineArt.components } : {}), ...placeMarks(sp!.pieces[i]), piece: { label: p.name, offset: [dx, dy] } };
+      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), ...(p.lineArt?.components ? { components: p.lineArt.components, paint: p.lineArt.paint } : {}), ...placeMarks(sp!.pieces[i]), piece: { label: p.name, offset: [dx, dy] } };
     });
     const big = split.pieces.filter((p) => p.size[0] > BED || p.size[1] > BED);
     const order = split.pieces.map((p) => p.label);
@@ -1592,7 +1794,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   // Each part followed by its colours (on its plate, with the line-art info and the filament).
   const out: LineArtResult['parts'] = parts.flatMap(({ colours, ...p }) => [p, ...(colours ?? []).map((c) => ({
     name: c.name, shape: c.shape, color: c.filament.color,
-    lineArt: { ...(p.lineArt ?? info), split: undefined, components: undefined, joins: undefined, loose: undefined, paintedIn: c.filament },
+    lineArt: { ...(p.lineArt ?? info), split: undefined, components: undefined, joins: undefined, loose: undefined, paint: undefined, paintedIn: c.filament },
     ...(p.plate ? { plate: p.plate } : {}),
   }))]);
   return { parts: out, print: lineArtPrint(), lineArt: info, note, ...(assembly ? { assembly } : {}) };
