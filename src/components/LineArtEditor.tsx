@@ -31,6 +31,8 @@ const RAISED = ['#3a3d42', '#6a6e75'];
 const ERASE = 'rgba(229, 103, 95, 0.5)';
 /** The seams of a piece split into pieces. */
 const SEAM = '#2f80d1';
+/** Where Jig joined a loose end to a line, and the loose ends left (as in the 3D view). */
+const JOIN = ['#ff4fd8', '#ffb020'];
 const PAPER = '#fff';
 /** The hit-test grid: this many mm per cell at least, and at most this many cells. */
 const MASK_RES = 0.05;
@@ -159,6 +161,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   // A piece split into pieces: its seams, shown (read-only) over it.
   const seams = useRef(la.split?.seams ?? []);
   seams.current = la.split?.seams ?? [];
+  const joins = useRef(la);
+  joins.current = la;
   const saved = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
   // The edits as they will be saved: the saved ones as the editor opened, and this session's changes.
   const [edits, setEdits] = useState<LineArtEdits>(saved);
@@ -340,6 +344,14 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       }
     }
     ctx.setLineDash([]);
+    ctx.fillStyle = ctx.strokeStyle = JOIN[0]; ctx.lineWidth = 2.5;
+    for (const [a, b] of joins.current.joins ?? []) {
+      const [ax, ay] = toScreen(a), [bx, by] = toScreen(b);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.beginPath(); ctx.arc(ax, ay, 3.5, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.fillStyle = JOIN[1];
+    for (const p of joins.current.loose ?? []) { const [x, y] = toScreen(p); ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 2 * Math.PI); ctx.fill(); }
     const ring = (p: Pt, r: number, color: string, lw: number) => { const [x, y] = toScreen(p); ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.stroke(); };
     const snaps = a.mode === 'draw' ? [a.startSnap, a.endSnap] : [hover.current.show ? hover.current.snap : null];
     for (const p of snaps) if (p) { ring(p, 6, '#fff', 4); ring(p, 6, '#e0a43c', 2); }

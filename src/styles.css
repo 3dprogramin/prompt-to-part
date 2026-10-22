@@ -952,6 +952,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .lineart-count { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #e0a43c1f; color: var(--accent-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .lineart-split-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin: 2px 0; line-height: 1.45; }
 .lineart-ends { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.lineart-key { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: 0; }
+.lineart-key.join { background: #ff4fd8; }
+.lineart-key.loose { background: #ffb020; }
 .lineart-lock { width: 22px; height: 22px; color: var(--text-3); }
 .lineart-lock.on { color: var(--accent-2); }
 .lineart-split-grid .num-box { width: 88px; }

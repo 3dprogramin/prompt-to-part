@@ -67,13 +67,28 @@ test('Join loose ends (LINEART_ENDS_KEY): parsed, 0 turns it off, a longer reach
   for (const raw of ['', undefined, '-1', '60', 'x']) assert.equal(parseLineArtEnds(raw), undefined, String(raw));
   // A frame with a line from its left side stopping 12.5 mm short of the right one (100 mm wide).
   const tail: SvgDrawing = { name: 'tail', aspect: 2, shapes: [{ rule: 'EvenOdd', contours: [box(-1, -0.5, 1, 0.5), box(-0.95, -0.45, 0.95, 0.45)], color: '#000000' }, { rule: 'NonZero', contours: [box(-0.96, -0.02, 0.7, 0.02)], color: '#000000' }] };
-  const la = (ends: string | null, opts = '') => evaluateScript(`function build() { return H.lineart('tail', { style: 'outline', width: 100${opts} }); }`, { [DRAWINGS_KEY]: JSON.stringify({ tail }), ...(ends != null ? { [LINEART_ENDS_KEY]: ends } : {}) }, 'draft').parts[0].lineArt!;
+  const la = (ends: string | null, opts = '', more = {}) => evaluateScript(`function build() { return H.lineart('tail', { style: 'outline', width: 100${opts} }); }`, { [DRAWINGS_KEY]: JSON.stringify({ tail }), ...(ends != null ? { [LINEART_ENDS_KEY]: ends } : {}), ...more }, 'draft').parts[0].lineArt!;
   const def = la(null);
   assert.deepEqual([def.endsJoined, def.endsFree, def.joinEnds], [0, 1, 8], 'the default 8 mm does not reach');
   const far = la('20');
   assert.deepEqual([far.endsJoined, far.endsFree, far.joinEnds], [1, 0, 20]);
   const off = la('0', ', joinEnds: 20');
   assert.deepEqual([off.endsJoined, off.endsFree, off.joinEnds], [0, 1, 0], "off wins over the script's joinEnds");
+  // Where: the join from the line's end (x 35 mm) to the frame's inner side (x 47.5 mm), the end left loose at 35 mm.
+  const near = (p: [number, number] | undefined, x: number, what: string) => assert.ok(p && Math.abs(p[0] - x) < 1.5 && Math.abs(p[1]) < 1, `${what}: ${p}`);
+  assert.equal(far.joins?.length, 1);
+  near(far.joins![0][0], 35, 'the loose end');
+  near(far.joins![0][1], 47.5, 'where it joined');
+  assert.equal(far.loose, undefined);
+  assert.equal(def.joins, undefined);
+  near(def.loose?.[0], 35, 'left loose');
+  // Kept and scaled by cleanLineArtInfo (broken ones dropped); a join erased by hand leaves its end loose.
+  assert.deepEqual(cleanLineArtInfo(far, 2)!.joins, far.joins!.map((j) => j.map(([x, y]) => [2 * x, 2 * y])));
+  assert.equal(cleanLineArtInfo({ ...far, joins: [[[1, 2], [NaN, 0]], [[1, 2]]] })!.joins, undefined);
+  const strokes = [{ mode: 'erase', width: 3, points: [[0.83, 0]] }];
+  const erased = la('20', '', { [LINEART_EDITS_KEY]: JSON.stringify({ tail: { fp: drawingFingerprint(tail), strokes } }) });
+  assert.equal(erased.joins, undefined);
+  near(erased.loose?.[0], 35, 'erased, loose again');
 });
 
 test('H.lineart: every style builds one connected piece', async () => {

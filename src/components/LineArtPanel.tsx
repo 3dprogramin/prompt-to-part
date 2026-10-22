@@ -47,9 +47,10 @@ export function assembledLineArt(result: EvalResult | null): (LineArtPart & { pa
     for (let k = 0; k < p.indices.length; k++) indices[pi + k] = p.indices[k] + pv / 3;
     pv += p.positions.length; pi += p.indices.length;
   }
-  // Every piece should be one piece: the most any is in (with its colours).
+  // Every piece should be one piece: the most any is in (with its colours). Their joins of loose ends together.
   const whole = pieces.filter((p) => !p.lineArt.paintedIn).map((p) => p.lineArt.components ?? p.components);
-  return { ...first, positions, indices, bbox: { min, max }, components: Math.max(1, ...whole), ...(paints.length ? { paints } : {}) };
+  const lineArt = { ...first.lineArt, joins: pieces.flatMap((p) => (p.lineArt.paintedIn ? [] : p.lineArt.joins ?? [])), loose: pieces.flatMap((p) => (p.lineArt.paintedIn ? [] : p.lineArt.loose ?? [])) };
+  return { ...first, lineArt, positions, indices, bbox: { min, max }, components: Math.max(1, ...whole), ...(paints.length ? { paints } : {}) };
 }
 
 /** Closed-up gaps beyond this share of them, and the drawing is too fine for its size. */
@@ -84,6 +85,8 @@ interface Props {
   onEdit: () => void;
   /** Set a parameter or design value (the size, the split). */
   onValue: (key: string, v: ParamValue) => void;
+  /** Show where loose ends were joined and left in the 3D view (while this section is open). */
+  onShowJoins?: (on: boolean) => void;
 }
 
 /** Pieces to choose from, and the most columns or rows of a grid. */
@@ -316,11 +319,15 @@ function SplitPicture({ result, split }: { result: EvalResult; split: LineArtSpl
  * reach (so it can't lift off the wall); off, the drawing stays as traced. A design value
  * (LINEART_ENDS_KEY) that wins over the script's joinEnds.
  */
-function LooseEnds({ la, values, onValue }: { la: LineArtInfo; values: ParamValues; onValue: Props['onValue'] }) {
+function LooseEnds({ la, values, onValue, onShowJoins }: { la: LineArtInfo; values: ParamValues; onValue: Props['onValue']; onShowJoins: Props['onShowJoins'] }) {
   const user = parseLineArtEnds(values[LINEART_ENDS_KEY]);
   // The reach set here shows at once; else the one the build used (the script's joinEnds).
   const reach = user ?? la.joinEnds ?? DEFAULT_JOIN_ENDS;
   const on = reach > 0;
+  // Where they are, in the 3D view while this section is open: on unless turned off (remembered).
+  const [show, setShow] = useState<boolean>(() => load('lineArtShowJoins', true));
+  useEffect(() => store('lineArtShowJoins', show), [show]);
+  useEffect(() => { onShowJoins?.(show); return () => onShowJoins?.(false); }, [show, onShowJoins]);
   return (
     <div className="lineart-ends">
       <div className="lineart-split-row small">
@@ -335,6 +342,13 @@ function LooseEnds({ la, values, onValue }: { la: LineArtInfo; values: ParamValu
         </span>
       </div>
       <span className="dim small">A line that hangs by one end is joined to the nearest line within this distance, so nothing lifts off the wall. Off: the drawing exactly as traced; loose ends may need a dot of glue.</span>
+      {(la.endsJoined > 0 || la.endsFree > 0) && (
+        <label className="switch small" title="A join Jig added that is not in the drawing can be erased with Edit drawing">
+          <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+          <span className="track" />
+          <span className="switch-label">Show in the 3D view: <span className="lineart-key join" /> joined{la.endsFree > 0 && <>, <span className="lineart-key loose" /> loose</>}</span>
+        </label>
+      )}
     </div>
   );
 }
@@ -343,7 +357,7 @@ function LooseEnds({ la, values, onValue }: { la: LineArtInfo; values: ParamValu
  * Print tab, Line art section: the drawing(s) the piece was made from, what Jig fixed (bridges,
  * dropped specks) and how to print and hang it. Sizes are the script's sliders (Parameters).
  */
-export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }: Props) {
+export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, onShowJoins }: Props) {
   const drawings = useMemo(() => parseDrawings(values[DRAWINGS_KEY]), [values[DRAWINGS_KEY]]);
   const edits = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
   const la = part.lineArt;
@@ -435,7 +449,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
           </>
         )}
       </dl>
-      <LooseEnds la={la} values={values} onValue={onValue} />
+      <LooseEnds la={la} values={values} onValue={onValue} onShowJoins={onShowJoins} />
       <SplitSection la={la} result={result} values={values} onValue={onValue} />
       <ul className="litho-advice small">
         <li><b>Print flat</b>, back down, {colours.length ? `in ${colours.length + 1} filaments: the coloured lines go all the way through, so the AMS changes filament on every layer (the Cost tab counts the swaps and the prime tower)` : 'in one colour (black PLA)'}; no brim.</li>

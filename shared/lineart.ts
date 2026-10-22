@@ -172,6 +172,13 @@ export interface LineArtInfo {
   endsFree: number;
   /** How far Jig reached to join them (joinEnds as used, before the design's scale), mm; 0: joining off. */
   joinEnds?: number;
+  /**
+   * Where: each join from the loose end to the point of the line it joined, and the loose ends left
+   * (not those erased by hand), on this part, in the piece's XY (a split piece: on the wall, without
+   * its layout offset), mm; at most MAX_JOIN_MARKS of each.
+   */
+  joins?: [number, number][][];
+  loose?: [number, number][];
   /** Key holder pegs. */
   hooks: number;
   /**
@@ -219,6 +226,9 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   if (!len.every((v) => Number.isFinite(v) && v >= 0)) return undefined;
   const [w, h, thickness, lineWidth, longestBridge] = len.map((v) => v * scale);
   const count = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? (v as number) : 0);
+  const pt = (p: unknown): [number, number] | null => (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]) ? [p[0] * scale, p[1] * scale] : null);
+  const joins = (Array.isArray(o.joins) ? o.joins : []).slice(0, MAX_JOIN_MARKS).map((j) => (Array.isArray(j) && j.length === 2 ? j.map(pt) : [null])).filter((j): j is [number, number][] => j.every((p) => !!p));
+  const loose = (Array.isArray(o.loose) ? o.loose : []).slice(0, MAX_JOIN_MARKS).map(pt).filter((p): p is [number, number] => !!p);
   const frames = (Array.isArray(o.frames) ? o.frames : []).slice(0, 8).filter((f) => f && typeof f.name === 'string' && [f.k, f.tx, f.ty].every((v) => Number.isFinite(v)) && f.k > 0)
     .map((f) => ({ name: f.name.slice(0, 120), k: f.k * scale, tx: f.tx * scale, ty: f.ty * scale, fp: String(f.fp ?? '').slice(0, 80) }));
   const colours = (Array.isArray(o.colours) ? o.colours : []).slice(0, 16).map(cleanFilament).filter((f): f is PartFilament => !!f);
@@ -231,6 +241,7 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
     size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
     bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
     ...(Number.isFinite(o.joinEnds) && o.joinEnds! >= 0 ? { joinEnds: o.joinEnds } : {}),
+    ...(joins.length ? { joins } : {}), ...(loose.length ? { loose } : {}),
   };
 }
 
@@ -305,6 +316,8 @@ export function parseLineArtJoin(raw: unknown): number | undefined {
 /** How far Jig reaches to join a loose line's end to another line (joinEnds), mm, as the user set it in the Print tab; 0 = off (the drawing as traced). */
 export const LINEART_ENDS_KEY = '$lineartEnds';
 export const DEFAULT_JOIN_ENDS = 8;
+/** The most joins, and loose ends, a part keeps where they are (LineArtInfo.joins, .loose). */
+export const MAX_JOIN_MARKS = 200;
 export function parseLineArtEnds(raw: unknown): number | undefined {
   const v = Number(raw);
   return raw != null && raw !== '' && Number.isFinite(v) && v >= 0 && v <= 50 ? v : undefined;
@@ -706,7 +719,7 @@ export interface LineArtMaskOptions {
  * centre lines of what Jig drew (thickened lines and bridges, `lineWidth` wide, in pixels), which
  * lines 'keep' adds to the drawing as it was.
  */
-export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number } {
+export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number; joins: Pt[][]; loose: Pt[] } {
   const { w, h, px } = g, N = w * h;
   const r = o.lineWidth / px / 2;
   // Keep the outermost pixels empty (thinning and tracing rely on it).
@@ -906,8 +919,14 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       longest = Math.max(longest, Math.max(0, d * px - o.lineWidth));
     }
   }
-  const ends = o.joinEnds != null ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths, o.inside) : { joined: 0, free: 0 };
-  return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings, endsJoined: ends.joined, endsFree: ends.free };
+  const ends = o.joinEnds != null ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths, o.inside) : { joined: 0, free: 0, joins: [], loose: [] };
+  return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings, endsJoined: ends.joined, endsFree: ends.free, joins: ends.joins, loose: ends.loose };
+}
+
+/** A thin rectangle around the segment from a to b, `e` past it on every side (a point: a small square). */
+function band([ax, ay]: Pt, [bx, by]: Pt, e: number): Pt[] {
+  const l = Math.hypot(bx - ax, by - ay), ux = l ? ((bx - ax) / l) * e : e, uy = l ? ((by - ay) / l) * e : 0;
+  return [[ax - ux + uy, ay - uy - ux], [bx + ux + uy, by + uy - ux], [bx + ux - uy, by + uy + ux], [ax - ux - uy, ay - uy + ux]];
 }
 
 /** Whether the straight line from pixel a to pixel b stays on set pixels of `mask` (w wide). */
@@ -924,9 +943,10 @@ function within(mask: Uint8Array, w: number, [ax, ay]: Pt, [bx, by]: Pt): boolea
  * points; each hanging branch longer than max(3 mm, 3 line widths) gets a bridge from its farthest
  * end to the nearest other line within `reach` mm, preferring the way that line was going. Thick
  * shapes (windows, tyres) hold themselves and are never peeled. Bridges are drawn into `out`, and
- * their centre lines added to `paths`.
+ * their centre lines added to `paths`; `joins` has each from the loose end to the point it joined,
+ * `loose` the farthest end of each branch left loose (pixels).
  */
-function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, lineWidth: number, reach: number, paths: Pt[][], inside?: Uint8Array | null): { joined: number; free: number } {
+function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, lineWidth: number, reach: number, paths: Pt[][], inside?: Uint8Array | null): { joined: number; free: number; joins: Pt[][]; loose: Pt[] } {
   const { w, h, px } = g, N = w * h;
   const r = lineWidth / px / 2, R = reach / px, minArm = Math.max(3, 3 * lineWidth) / px;
   const whole = new Uint8Array(N), bg = new Uint8Array(N);
@@ -961,6 +981,7 @@ function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGri
   const seenChain = chains.map(() => false);
   const stamp = new Int32Array(N), steps = new Int32Array(N);
   let joined = 0, free = 0, run = 0;
+  const joins: Pt[][] = [], loose: Pt[] = [];
   for (let k0 = 0; k0 < chains.length; k0++) {
     if (alive[k0] || seenChain[k0]) continue;
     const tree: number[] = [], todo = [k0];
@@ -1026,13 +1047,14 @@ function joinLooseEnds(out: Uint8Array, anchor: Uint8Array | null, g: LineArtGri
       capsuleXY(out, w, h, [ex, ey], [tx, ty], r);
       capsuleXY(whole, w, h, [ex, ey], [tx, ty], r);
       paths.push([[ex, ey], [tx, ty]]);
+      joins.push([[ex, ey], [bx, by]]);
       joined++;
       done = true;
       break;
     }
-    if (!done) free++;
+    if (!done) { free++; if (ends.length) loose.push([ends[0].e % w, (ends[0].e / w) | 0]); }
   }
-  return { joined, free };
+  return { joined, free, joins, loose };
 }
 
 /** Enclosed empty areas of `img` (4-connected, not touching the border) of at least `min` pixels. */
@@ -1196,7 +1218,7 @@ export interface LineArtDeps {
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
-const cache = new Map<string, { loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number }>();
+const cache = new Map<string, { loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number; joins: Pt[][]; loose: Pt[] }>();
 const CACHE_SIZE = 6;
 /** The most pixels of a grid (the pixels grow past it). */
 const MAX_PIXELS = { draft: 1_500_000, normal: 4_000_000, high: 8_000_000 };
@@ -1421,6 +1443,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   let parts: (LineArtResult['parts'][number] & { colours?: Coloured[] })[];
   let info: LineArtInfo;
   let sp: SplitResult | null = null;
+  // Where loose ends were joined and left (the piece unsplit), and what the user erased by hand.
+  let marks: { joins: Pt[][]; loose: Pt[] } = { joins: [], loose: [] }, erased: any = null;
   if (!grid || grid.cols * grid.rows < 2) {
     // The drawing made printable, on a pixel grid over the whole piece.
     let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
@@ -1432,7 +1456,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
       const m = lineArtMask(rasterize(art.toPolygons(), g), anchor ? rasterize(anchor.toPolygons(), g) : null, g, { lineWidth, fill, minIsland, lines, keepSpecks: lines === 'keep', joinEnds });
       const mm = ([x, y]: Pt): Pt => [g.x0 + (x + 0.5) * px, g.y1 - (y + 0.5) * px];
-      res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree };
+      res = { loops: lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [], bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree, joins: m.joins.map((j) => j.map(mm)), loose: m.loose.map(mm) };
       cache.set(key, res);
       if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
     }
@@ -1441,8 +1465,9 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge).
     units.forEach((u, i) => {
       const f = frames[i];
-      for (const st of u.edits) if (st.mode === 'erase') lineCs = lineCs.subtract(brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1));
+      for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); lineCs = lineCs.subtract(b); erased = erased ? erased.add(b) : b; }
     });
+    marks = res;
     // The lines in other filaments are parts of their own; the rest is the piece's.
     const colours = colourParts('Line art', lineCs, anchor);
     let shape = without(lineCs, colours).extrude(thickness);
@@ -1458,6 +1483,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       const f = frames[i];
       for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); erase = erase ? erase.add(b) : b; }
     });
+    erased = erase;
     const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, shapeEdits, d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
     sp = splitPieces({
       d, key, art, anchor, erase, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
@@ -1528,6 +1554,16 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   }
   if (used.length) info.colours = used;
   const filaments = used.length ? ` in ${used.length + 1} filaments (its own and ${used.map((f) => f.name || f.color).join(', ')}: the coloured lines go through its whole thickness, so the AMS changes filament on every layer, with a prime tower beside it)` : ' in one colour (black PLA)';
+  // The joins and loose ends where they are, moved like the piece; a join erased by hand leaves its end loose, and an erased end goes.
+  const erasedAt = (a: Pt, b: Pt) => !!erased && !erased.intersect(new C([band(a, b, 0.05)], 'NonZero')).isEmpty();
+  const placeMarks = (m: { joins: Pt[][]; loose: Pt[] }): Pick<LineArtInfo, 'joins' | 'loose'> => {
+    const mv = ([x, y]: Pt): [number, number] => [x - cx, y - cy];
+    const live = m.joins.filter((j) => !erasedAt(j[0], j[0]));
+    const joins = live.filter((j) => !erasedAt(j[0], j[1]));
+    const loose = [...live.filter((j) => !joins.includes(j)).map((j) => j[0]), ...m.loose.filter((p) => !erasedAt(p, p))];
+    return { joins: joins.slice(0, MAX_JOIN_MARKS).map((j) => j.map(mv)), loose: loose.slice(0, MAX_JOIN_MARKS).map(mv) };
+  };
+  if (!sp) Object.assign(info, placeMarks(marks));
   let note: string, assembly: LineArtResult['assembly'];
   if (!sp) {
     const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller${grid ? '' : ', or split it into pieces'}.` : '';
@@ -1541,7 +1577,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     parts.forEach((p, i) => {
       const [dx, dy] = offsets[i];
       if (dx || dy) move(p, dx, dy);
-      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), ...(p.lineArt?.components ? { components: p.lineArt.components } : {}), piece: { label: p.name, offset: [dx, dy] } };
+      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), ...(p.lineArt?.components ? { components: p.lineArt.components } : {}), ...placeMarks(sp!.pieces[i]), piece: { label: p.name, offset: [dx, dy] } };
     });
     const big = split.pieces.filter((p) => p.size[0] > BED || p.size[1] > BED);
     const order = split.pieces.map((p) => p.label);
@@ -1556,7 +1592,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   // Each part followed by its colours (on its plate, with the line-art info and the filament).
   const out: LineArtResult['parts'] = parts.flatMap(({ colours, ...p }) => [p, ...(colours ?? []).map((c) => ({
     name: c.name, shape: c.shape, color: c.filament.color,
-    lineArt: { ...(p.lineArt ?? info), split: undefined, components: undefined, paintedIn: c.filament },
+    lineArt: { ...(p.lineArt ?? info), split: undefined, components: undefined, joins: undefined, loose: undefined, paintedIn: c.filament },
     ...(p.plate ? { plate: p.plate } : {}),
   }))]);
   return { parts: out, print: lineArtPrint(), lineArt: info, note, ...(assembly ? { assembly } : {}) };
@@ -1617,7 +1653,7 @@ const anchorWord = (style: LineArtStyle) => (style === 'framed' || style === 'me
 interface SplitCached {
   seams: Seam[];
   /** Each piece's outline (with its tabs, without its sockets), its place in the grid and what the clean-up drew. */
-  pieces: { col: number; row: number; region: Pt[][]; loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number }[];
+  pieces: { col: number; row: number; region: Pt[][]; loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number; joins: Pt[][]; loose: Pt[] }[];
   joints: LineArtSplitInfo['joints'];
   /** Each joint's tab (as joints). */
   tabs: Pt[][];
@@ -1632,8 +1668,8 @@ const splitCache = new Map<string, SplitCached>();
 
 interface SplitResult {
   seams: Seam[];
-  /** The pieces in label order; `region` is the cell's outline on the first piece of a cell (null on A2b…). */
-  pieces: { info: LineArtPieceInfo; region: any; lineCs: any; anchor: any; closed: number; openings: number }[];
+  /** The pieces in label order; `region` is the cell's outline on the first piece of a cell (null on A2b…); the loose ends joined and left on it. */
+  pieces: { info: LineArtPieceInfo; region: any; lineCs: any; anchor: any; closed: number; openings: number; joins: Pt[][]; loose: Pt[] }[];
   joints: LineArtSplitInfo['joints'];
   noJoint: LineArtSplitInfo['noJoint'];
   /** Each seam's stretches where two pieces really meet (as LineArtSplitInfo's seams' cuts). */
@@ -1783,7 +1819,7 @@ function splitPieces(o: SplitInput): SplitResult {
       pieces.push({
         col, row, region: region.toPolygons(),
         loops: o.lines === 'keep' ? [] : traceMask(m.mask, g, px * 0.35), paths: o.lines === 'keep' ? m.paths.map((p) => p.map(mm)) : [],
-        bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped + pa.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree,
+        bridges: m.bridges, longestBridge: m.longestBridge, dropped: m.dropped + pa.dropped, closed: m.closed, openings: m.openings, endsJoined: m.endsJoined, endsFree: m.endsFree, joins: m.joins.map((j) => j.map(mm)), loose: m.loose.map(mm),
       });
     });
     c = { seams, pieces, joints, tabs, noJoint, noJointSeam, labels: [] };
@@ -1875,7 +1911,7 @@ function splitPieces(o: SplitInput): SplitResult {
       bridges: sum((s) => s.bridges), longestBridge: Math.max(0, ...q.stats.map((s) => s.longestBridge)), dropped: sum((s) => s.dropped), endsJoined: sum((s) => s.endsJoined), endsFree: sum((s) => s.endsFree),
       joints: 0, labelSize: 0,
     };
-    pieces.push({ info, region: q.region, lineCs: q.lc, anchor: q.an, closed: sum((s) => s.closed), openings: sum((s) => s.openings) });
+    pieces.push({ info, region: q.region, lineCs: q.lc, anchor: q.an, closed: sum((s) => s.closed), openings: sum((s) => s.openings), joins: [], loose: [] });
   });
   // The dovetails left, named by the pieces they join: the tab's piece holds it, the socket's piece meets it.
   const joints: LineArtSplitInfo['joints'] = [];
@@ -1919,6 +1955,13 @@ function splitPieces(o: SplitInput): SplitResult {
     return pa.length > 0 && pb.length > 0 && new Set([...pa, ...pb]).size > 1;
   };
   const cuts = cached.seams.map((m) => seamCuts(m.points, (p) => meets(m, p)));
+  // Each cell's joins and loose ends go on the piece of the cell they are on (A2b…), else its main piece.
+  for (const s of cached.pieces) {
+    const cell = s.row * cols + s.col, mine = pieces.flatMap((q, i) => (q.info.col === s.col && q.info.row === s.row ? [i] : []));
+    const pieceOf = (p: Pt) => (mine.length > 1 ? mine.find((i) => !pieces[i].lineCs.intersect(new C([band(p, p, 0.05)], 'NonZero')).isEmpty()) : undefined) ?? mainOf.get(cell);
+    for (const j of s.joins) { const i = pieceOf(j[0]); if (i != null) pieces[i].joins.push(j); }
+    for (const p of s.loose) { const i = pieceOf(p); if (i != null) pieces[i].loose.push(p); }
+  }
   return {
     seams: cached.seams, pieces, joints, cuts,
     // (A crossing of the frame where two strips were joined needs no dovetail.)
