@@ -260,12 +260,17 @@ const vsHand = (size: Vec3) => {
 };
 const vsMug = ([x, y, z]: Vec3) => `its longest side is about ${times(Math.max(x, y, z), MUG)} times the mug's height${z >= MUG / 2 && z < Math.max(x, y) ? ` and it stands about ${times(z, MUG)} times as tall as the mug` : ''}`;
 
+/** A thin, flat print (a LayerTone panel, a plaque, a coaster): the image model draws it as a thick slab unless told. */
+const isThin = ([x, y, z]: Vec3) => z <= 10 && z < 0.08 * Math.min(x, y);
+const thinLine = (z: number) => `It is a THIN, FLAT panel: only ${mm(z)} mm thick (${z <= 5 ? `about ${times(z, 2)} times as thick as a coin` : `about ${times(z, 8)} times as thick as a smartphone`}), so from any angle its edge is just a thin line. Never show it as a thick slab, block, box or canvas on a frame.`;
+
 /** What a shop photo must show, beyond its scene. */
 function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean): string | null {
+  const thin = isThin(size);
   const whole = 'the whole product centred, filling about three quarters of the square frame, nothing cut off';
   switch (shot) {
     case 'main': return `THE MAIN LISTING PHOTO: ${whole}.`;
-    case 'angle': return `A 3/4 VIEW FOR THE LISTING, showing its depth and thickness: ${whole}.`;
+    case 'angle': return `A 3/4 VIEW FOR THE LISTING, showing ${thin ? 'how thin it is (its edge a thin line)' : 'its depth and thickness'}: ${whole}.`;
     case 'top': return `A HIGH VIEW FROM ABOVE FOR THE LISTING, showing its top: ${whole}.`;
     case 'detail': return 'A CLOSE-UP DETAIL PHOTO FOR THE LISTING: the render is cropped to part of the product, which goes on past the edges of the picture. Keep this close crop (do not show the whole product or shrink it to fit), so the surface, the edges and the fine detail of the print fill the photo, with a gentle depth of field.';
     case 'lifestyle': return null;
@@ -297,6 +302,7 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
     `Real size: ${size} (${familiar(b.product.size, faceOn || z < 0.25 * Math.min(x, y))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
+    !b.product.lithophane && isThin(b.product.size) ? thinLine(z) : null,
     b.product.lithophane
       ? 'It is a LITHOPHANE: one panel of white PLA whose thickness varies, so its picture appears only when light shines through it – thin areas glow bright warm white, thick areas stay dark. The render shows it lit from behind: in the photo it must glow from a warm light behind it, the picture showing through exactly as in the render, with the panel\'s frame and stand as they are.'
       : b.product.colors?.length

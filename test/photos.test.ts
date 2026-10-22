@@ -26,6 +26,12 @@ test('the photo prompt keeps the object, its size and colours, and sets the scen
   assert.doesNotMatch(p, /Also:/);
   assert.match(photoPrompt(request({ product: { name: 'x', size: [100, 100, 5], colors: ['#1f6f78', '#f2efe6'] } })), /filament colours #1f6f78, #f2efe6/);
   assert.doesNotMatch(p, /\n\n\n/);
+  // A thin flat print (a LayerTone panel) is told to be thin; a chunky object is not.
+  const panel = photoPrompt(request({ product: { name: 'Castle LayerTone', size: [200, 150, 3] }, shop: 'angle' }));
+  assert.match(panel, /THIN, FLAT panel: only 3 mm thick \(about 1\.5 times as thick as a coin\)/);
+  assert.match(panel, /Never show it as a thick slab/);
+  assert.match(panel, /showing how thin it is/);
+  assert.doesNotMatch(photoPrompt(request({ product: { name: 'Planter', size: [100, 100, 90] } })), /THIN, FLAT/);
 });
 
 test('wall scenes hang a flat print face-on; custom scenes and extra wishes go in as written', () => {
