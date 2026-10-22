@@ -47,3 +47,30 @@ export function tokenize(code: string): Token[] {
   }
   return out;
 }
+
+/** Code coloured while it streams in: `chunks` hold finished lines (kept as they are), `tail` the line still being written. */
+export interface LiveTokens { done: string; chunks: Token[][]; tail: Token[] }
+
+/** Colours `code` from where `prev` left off: only the text after the last finished line is tokenized again. */
+export function tokenizeMore(prev: LiveTokens | undefined, code: string): LiveTokens {
+  const base = prev && code.startsWith(prev.done) ? prev : { done: '', chunks: [], tail: [] };
+  const rest = code.slice(base.done.length);
+  const tokens = tokenize(rest);
+  // A line is finished at its last line break outside a string or comment, unless it ends in a '.'
+  // (the next line's first word is then a property).
+  let end = rest.length;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const t = tokens[i];
+    end -= t.text.length;
+    const nl = t.kind === 'plain' ? t.text.lastIndexOf('\n') : -1;
+    if (nl < 0) continue;
+    const cut = end + nl + 1;
+    if (rest.slice(0, cut).trimEnd().endsWith('.')) break;
+    const head = tokens.slice(0, i);
+    head.push({ kind: 'plain', text: t.text.slice(0, nl + 1) });
+    const tail = tokens.slice(i + 1);
+    if (nl + 1 < t.text.length) tail.unshift({ kind: 'plain', text: t.text.slice(nl + 1) });
+    return { done: base.done + rest.slice(0, cut), chunks: [...base.chunks, head], tail };
+  }
+  return { ...base, tail: tokens };
+}

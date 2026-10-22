@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { useEscape } from './useEscape';
 import { load, store } from '../lib/storage';
 import { blockDuration } from '../lib/activity';
+import { tokenizeMore, type LiveTokens, type Token } from '../lib/highlight';
 
 interface Props {
   items: ActivityItem[];
@@ -152,12 +153,12 @@ const Item = memo(function Item({ it, streaming, duration, onImage }: { it: Acti
 });
 
 function ToolBody({ name, fields }: { name: string; fields: Record<string, string> }) {
-  if (name === 'Write') return <pre className="act-code">{fields.content ?? ''}</pre>;
+  if (name === 'Write') return <LiveCode className="act-code" code={fields.content ?? ''} />;
   if (name === 'Edit') {
     return (
       <>
-        {fields.old_string != null && <pre className="act-code del">{fields.old_string}</pre>}
-        {fields.new_string != null && <pre className="act-code add">{fields.new_string}</pre>}
+        {fields.old_string != null && <LiveCode className="act-code del" code={fields.old_string} />}
+        {fields.new_string != null && <LiveCode className="act-code add" code={fields.new_string} />}
       </>
     );
   }
@@ -165,6 +166,17 @@ function ToolBody({ name, fields }: { name: string; fields: Record<string, strin
   if (!shown.length) return null;
   return <pre className="act-args">{shown.map(([k, v]) => `${k}: ${v}`).join('\n')}</pre>;
 }
+
+/** Streamed code in the Code tab's colours: finished lines are coloured once, only the line being written is redone. */
+function LiveCode({ code, className }: { code: string; className: string }) {
+  const live = useRef<LiveTokens | undefined>(undefined);
+  const c = live.current = tokenizeMore(live.current, code);
+  return <pre className={className}>{c.chunks.map((t, i) => <Tokens key={i} tokens={t} />)}<Tokens tokens={c.tail} /></pre>;
+}
+
+const Tokens = memo(function Tokens({ tokens }: { tokens: Token[] }) {
+  return <>{tokens.map((t, i) => (t.kind === 'plain' ? t.text : <span key={i} className={`tk-${t.kind}`}>{t.text}</span>))}</>;
+});
 
 /** How long Jig thought in one thinking block (the chat's live line, each block here): set apart from the reply's own time. */
 export function ThinkTime({ ms }: { ms: number }) {
