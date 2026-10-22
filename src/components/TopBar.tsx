@@ -3,6 +3,7 @@ import type { Connection } from '../../shared/api';
 import { currentWindow, formatReset, usageSummary } from '../../shared/usage';
 import { api } from '../lib/api';
 import type { Design, DesignSummary } from '../../shared/types';
+import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
 import { Icon } from './Icon';
 import { DesignTabs, type DesignTab } from './DesignTabs';
 import { VersionMenu } from './VersionMenu';
@@ -10,6 +11,8 @@ import { usePopover } from './usePopover';
 
 interface Props {
   design: Design;
+  /** What kind of design the open one is (designKind). */
+  kind: DesignKind;
   onRename: (name: string) => void;
   onRestore: (versionIndex: number) => void;
   /** New design from a version. */
@@ -36,6 +39,15 @@ interface Props {
   onDelete: (id: string) => void;
   /** A phone's narrow bar: icons for the buttons, no design tabs (Designs lists them), New in the Designs menu. */
   compact?: boolean;
+}
+
+/** Each kind's icon, as in the chat's picture menu; a plain parametric model has none. */
+const KIND_ICON: Partial<Record<DesignKind, string>> = { lineart: 'lineart', layertone: 'layers', lithophane: 'lamp', figure: 'figure', artwork: 'palette' };
+
+/** A small, quiet icon telling what kind of design it is (nothing for a parametric model). */
+function KindIcon({ kind, size }: { kind: DesignKind | undefined; size: number }) {
+  const icon = kind && KIND_ICON[kind];
+  return icon ? <span className="kind-icon" title={DESIGN_KIND_LABEL[kind]} aria-label={DESIGN_KIND_LABEL[kind]} role="img"><Icon name={icon} size={size} /></span> : null;
 }
 
 /** Recent designs the Designs menu lists before "Load more". */
@@ -68,7 +80,7 @@ export function TopBar(p: Props) {
   const row = (d: DesignSummary) => (
     <div key={d.id} className={`menu-item ${d.id === p.design.id ? 'on' : ''} ${isStarred(d) ? 'starred' : ''}`}>
       <button className="menu-open" onClick={() => open(d.id)}>
-        <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name}</span>
+        <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} /></span>
         <span className="dim small">{new Date(d.updatedAt).toLocaleString()} · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
       </button>
       <button className={`icon-btn menu-star ${isStarred(d) ? 'on' : ''}`} title={isStarred(d) ? 'Unstar' : 'Star: mark it as important'}
@@ -107,6 +119,7 @@ export function TopBar(p: Props) {
       <span className="app-version" title="Jig version">v{import.meta.env.VITE_APP_VERSION}</span>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
           version menu sits right after it. */}
+      <KindIcon kind={p.kind} size={14} />
       <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)}
         style={{ '--name-chars': p.design.name.length } as React.CSSProperties} />
       {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} onFork={p.onFork} />}

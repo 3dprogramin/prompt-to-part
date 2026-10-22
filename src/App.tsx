@@ -48,6 +48,7 @@ import { formatReset } from '../shared/usage';
 import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
 import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE, type LineArtStyle } from '../shared/lineart';
+import { designKind } from '../shared/designKind';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -219,6 +220,9 @@ export default function App() {
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
   // The starting model and effort come from the server's settings (JIG_MODEL, JIG_EFFORT).
   const [chatDefaults, setChatDefaults] = useState<ChatOptions>(DEFAULT_CHAT);
+  // What kind of design it is (line art, LayerTone…), from its code: shown by its name.
+  const kind = useMemo(() => designKind(design.code, design.values),
+    [design.code, design.values[LAYERTONE_IMAGES_KEY], design.values[MESHES_KEY], design.values[DRAWINGS_KEY]]);
   const chat = chatOpts[design.id] ?? chatDefaults;
   const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatDefaults), ...patch } }));
   // Chat switches kept for this browser: "Wait for my OK" (3D figure mode: you approve each concept
@@ -1201,6 +1205,7 @@ export default function App() {
       <TopBar
         compact={layout === 'phone'}
         design={design}
+        kind={kind}
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
         onRestore={onRestore}
         onFork={(vi) => void forkVersion(vi)}

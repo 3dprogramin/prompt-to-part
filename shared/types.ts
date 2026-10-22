@@ -5,6 +5,7 @@ import type { LithophaneSource } from './lithophane';
 import type { LineArtInfo } from './lineart';
 import type { PaintFilament } from './meshColors';
 import type { DesignSize } from './sizes';
+import type { DesignKind } from './designKind';
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -311,4 +312,6 @@ export interface DesignSummary {
   versions: number;
   /** Starred in the Designs menu (listed first). */
   starred?: boolean;
+  /** What kind of design its current code makes (shared/designKind.ts). */
+  kind?: DesignKind;
 }

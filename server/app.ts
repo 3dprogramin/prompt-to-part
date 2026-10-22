@@ -22,6 +22,7 @@ import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
 import { photoEditPrompt, photoProblem, photoPrompt, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
+import { designKind } from '../shared/designKind';
 import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
 import { freeMeshName, MAX_MESHES, MESH_NAME } from '../shared/meshes';
@@ -237,7 +238,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
       if (!f.endsWith('.json')) continue;
       try {
         const d = JSON.parse(await readFile(path.join(DESIGNS, f), 'utf8')) as Design;
-        out.push({ id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, versions: Array.isArray(d.versions) ? d.versions.length : 0, ...(starred.has(d.id) && { starred: true }) });
+        out.push({ id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, versions: Array.isArray(d.versions) ? d.versions.length : 0, kind: designKind(d.code, d.values), ...(starred.has(d.id) && { starred: true }) });
       } catch { /* skip corrupt */ }
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
