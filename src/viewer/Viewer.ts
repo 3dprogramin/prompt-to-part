@@ -36,6 +36,8 @@ export interface ViewerOptions {
   oneColour?: string | null;
   /** The part selected in the Object tab: highlighted. */
   selectedPart?: string | null;
+  /** Line art: where Jig joined loose ends to another line, and the ends it left loose (LineArtInfo.joins, .loose). */
+  showJoins?: boolean;
 }
 
 /** Repainting a coloured mesh by hand (the Object tab's Repaint): what a click or a drag on the model does. */
@@ -55,6 +57,9 @@ export interface RepaintView {
 const SELECTED_GLOW = new THREE.Color('#e0a43c').multiplyScalar(0.35);
 
 const NEUTRAL = new THREE.Color('#b9bcc2');
+/** Line art's joins of loose ends (apart from the seams' blue), and the loose ends left (a warning). */
+const JOIN_COLOR = 0xff4fd8;
+const LOOSE_COLOR = 0xffb020;
 
 export interface Measurement { a: Vec3; b: Vec3 }
 
@@ -96,6 +101,8 @@ export class Viewer {
   private gridGroup = new THREE.Group();
   private plateGroup = new THREE.Group();
   private issueGroup = new THREE.Group();
+  private joinGroup = new THREE.Group();
+  private joinLooks: Record<'band' | 'line' | 'end' | 'loose', THREE.Material> | null = null;
   private headlight = new THREE.DirectionalLight(0xffffff, 1.6);
   private lights: THREE.Light[] = [];
   private clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
@@ -159,7 +166,7 @@ export class Viewer {
     this.scene.add(hemi, key);
     this.scene.add(this.headlight);
     this.scene.add(this.headlight.target);
-    this.scene.add(this.gridGroup, this.plateGroup, this.issueGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.repaintGroup);
+    this.scene.add(this.gridGroup, this.plateGroup, this.issueGroup, this.modelGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.repaintGroup, this.joinGroup);
     // The brush's outline on the surface under the pointer: a unit ring, scaled to the radius.
     this.brushRing = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false, side: THREE.DoubleSide }));
     this.brushRing.renderOrder = 10;
@@ -196,6 +203,8 @@ export class Viewer {
     this.ro.disconnect();
     window.removeEventListener('keydown', this.onKey);
     this.clearModel();
+    clearGroup(this.joinGroup);
+    for (const m of Object.values(this.joinLooks ?? {})) { (m as THREE.PointsMaterial).map?.dispose(); m.dispose(); }
     this.controls.dispose();
     this.renderer.dispose();
     this.container.innerHTML = '';
@@ -329,6 +338,7 @@ export class Viewer {
         this.meshes.push(mesh);
       });
     }
+    this.drawJoins();
     this.applyOptions();
     this.rebuildDims();
     this.updatePlate();
@@ -430,6 +440,8 @@ export class Viewer {
     this.annGroup.visible = this.opts.showAnnotations && !this.clean && !this.playback;
     this.measureGroup.visible = !this.clean && !this.playback;
     this.issueGroup.visible = !this.playback;
+    this.joinGroup.visible = !!this.opts.showJoins && !this.clean && !this.playback;
+    for (const g of this.joinGroup.children) g.visible = !hiddenParts.includes(g.name);
     this.labelRenderer.domElement.style.display = this.clean ? 'none' : '';
     this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText || this.repaint ? 'crosshair' : '';
   }
@@ -495,6 +507,54 @@ export class Viewer {
       pts.raycast = () => {};
       pts.renderOrder = 6;
       this.issueGroup.add(pts);
+    }
+  }
+
+  /**
+   * Line art: where Jig joined a loose end to another line (a stroke over the join, a dot at the
+   * loose end) and the ends it left loose (dots in a warning colour), drawn on top of each piece.
+   */
+  private drawJoins() {
+    clearGroup(this.joinGroup);
+    if (!this.joinLooks) {
+      // A round dot (points are squares otherwise).
+      const c = document.createElement('canvas');
+      c.width = c.height = 32;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(16, 16, 15, 0, 2 * Math.PI); ctx.fill();
+      const dot = new THREE.CanvasTexture(c);
+      const top = { transparent: true, depthTest: false, depthWrite: false };
+      this.joinLooks = {
+        band: new THREE.MeshBasicMaterial({ color: JOIN_COLOR, opacity: 0.85, side: THREE.DoubleSide, ...top }),
+        line: new THREE.LineBasicMaterial({ color: JOIN_COLOR, ...top }),
+        end: new THREE.PointsMaterial({ color: JOIN_COLOR, size: 9, sizeAttenuation: false, map: dot, alphaTest: 0.5, ...top }),
+        loose: new THREE.PointsMaterial({ color: LOOSE_COLOR, size: 11, sizeAttenuation: false, map: dot, alphaTest: 0.5, ...top }),
+      };
+    }
+    const looks = this.joinLooks;
+    for (const part of this.result?.parts ?? []) {
+      const la = part.lineArt;
+      if (!la?.joins?.length && !la?.loose?.length) continue;
+      // On the piece's face; a split piece's are on the wall, moved like the piece by its layout.
+      const [ox, oy] = la.piece?.offset ?? [0, 0], z = part.bbox.min[2] + la.thickness + 0.05, hw = la.lineWidth / 2;
+      const group = new THREE.Group();
+      group.name = part.name;
+      const add = (o: THREE.Object3D) => { o.raycast = () => {}; o.renderOrder = 7; group.add(o); };
+      const at = (pts: [number, number][]) => new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(([x, y]) => [x + ox, y + oy, z]), 3));
+      const joins = la.joins ?? [];
+      if (joins.length) {
+        // A band as wide as the line over each join, and a hairline for when the piece is small on screen.
+        const band: [number, number][] = [];
+        for (const [[ax, ay], [bx, by]] of joins) {
+          const l = Math.hypot(bx - ax, by - ay) || 1, nx = (-(by - ay) / l) * hw, ny = ((bx - ax) / l) * hw;
+          band.push([ax + nx, ay + ny], [bx + nx, by + ny], [bx - nx, by - ny], [ax + nx, ay + ny], [bx - nx, by - ny], [ax - nx, ay - ny]);
+        }
+        add(new THREE.Mesh(at(band), looks.band));
+        add(new THREE.LineSegments(at(joins.flat()), looks.line));
+        add(new THREE.Points(at(joins.map((j) => j[0])), looks.end));
+      }
+      if (la.loose?.length) add(new THREE.Points(at(la.loose), looks.loose));
+      this.joinGroup.add(group);
     }
   }
 
@@ -1048,7 +1108,7 @@ export class Viewer {
     cam.updateProjectionMatrix();
 
     // Clean scene: overlays off, true colours, no section or highlight.
-    const shown = [this.gridGroup, this.plateGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.issueGroup, this.snapMarker, this.repaintGroup, this.brushRing].map((g) => [g, g.visible] as const);
+    const shown = [this.gridGroup, this.plateGroup, this.dimsGroup, this.annGroup, this.measureGroup, this.issueGroup, this.joinGroup, this.snapMarker, this.repaintGroup, this.brushRing].map((g) => [g, g.visible] as const);
     for (const [g] of shown) g.visible = false;
     if (this.pendingLine) this.pendingLine.visible = false;
     const looks: [THREE.MeshStandardMaterial, number, number][] = [];

@@ -257,6 +257,8 @@ export default function App() {
     ...load<Partial<ViewerOptions>>('viewOpts', {}),
   }));
   const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality);
+  // Line art's joins of loose ends, shown in the 3D view while the Print tab's Line art section asks for them.
+  const [showJoins, setShowJoins] = useState(false);
   const snapshotRef = useRef<(() => string | null) | null>(null);
   const photoRef = useRef<((view: PhotoView, aspect: number, result?: EvalResult) => string | null) | null>(null);
   const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
@@ -1282,7 +1284,7 @@ export default function App() {
   // A print in one colour shows in its one filament (of the parts shown, as they would be exported).
   const viewParts = shown?.parts.filter((p) => !hiddenParts.includes(p.name)) ?? [];
   const viewColour = oneColour && viewParts.length ? oneColourFilament(viewParts, oneColour).colour : null;
-  const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart, oneColour: viewColour };
+  const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart, oneColour: viewColour, showJoins };
 
   return (
     <div className={`app layout-${layout}`}>
@@ -1469,6 +1471,7 @@ export default function App() {
           onLineArtEdits={setLineArtEdits}
           onPartColor={setPartColor}
           onEditLineArt={() => setEditingLineArt(true)}
+          onShowJoins={setShowJoins}
           onMeshPalette={(name, palette) => setDesign((d) => {
             const meshes = parseMeshes(d.values[MESHES_KEY]);
             if (!meshes[name]) return d;
