@@ -1,5 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { foldText } from '../../shared/tags';
+import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
+import { usePopover } from './usePopover';
 
 export interface DesignTab {
   id: string;
@@ -17,9 +20,34 @@ interface Props {
   onClose: (id: string) => void;
 }
 
-/** Open designs as tabs in the top bar, so parallel generations are one click apart. */
+/** How many tabs show besides the open design's; the rest are under the "+N" button. */
+const SHOWN_OTHERS = 2;
+
+/**
+ * Open designs as tabs in the top bar, so parallel generations are one click apart: the open
+ * design and the two seen last, the others in a searchable list under "+N".
+ */
 export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
   const strip = useRef<HTMLDivElement>(null);
+  // The designs seen last, newest first (kept across reloads).
+  const [recent, setRecent] = useState<string[]>(() => load<string[]>('designTabsRecent', []));
+  useEffect(() => setRecent((r) => (r[0] === current ? r : [current, ...r.filter((id) => id !== current)].slice(0, 50))), [current]);
+  useEffect(() => store('designTabsRecent', recent), [recent]);
+  const shown = useMemo(() => {
+    const others = tabs.filter((t) => t.id !== current).map((t) => t.id)
+      .sort((a, b) => (recent.indexOf(a) + 1 || Infinity) - (recent.indexOf(b) + 1 || Infinity)).slice(0, SHOWN_OTHERS);
+    return new Set([current, ...others]);
+  }, [tabs, current, recent]);
+  const hidden = tabs.filter((t) => !shown.has(t.id));
+  const [more, setMore] = useState(false);
+  const [query, setQuery] = useState('');
+  const moreWrap = useRef<HTMLDivElement>(null);
+  usePopover(more, () => setMore(false), moreWrap);
+  useEffect(() => { if (!more) setQuery(''); }, [more]);
+  useEffect(() => { if (!hidden.length) setMore(false); }, [hidden.length]);
+  // Case and accents don't matter (ș finds s).
+  const matches = hidden.filter((t) => foldText(t.name).includes(foldText(query.trim())));
+  const openHidden = (id: string) => { setMore(false); onOpen(id); };
 
   useEffect(() => {
     strip.current?.querySelector<HTMLElement>('.dtab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -39,8 +67,9 @@ export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
   }, []);
 
   return (
+    <div className="design-tabs-bar">
     <div className="design-tabs" ref={strip}>
-      {tabs.map((t) => (
+      {tabs.filter((t) => shown.has(t.id)).map((t) => (
         <div
           key={t.id}
           className={`dtab ${t.id === current ? 'on' : ''} ${t.unseen ? 'unseen' : ''}`}
@@ -58,6 +87,39 @@ export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
           )}
         </div>
       ))}
+    </div>
+      {hidden.length > 0 && (
+        <div className="menu-wrap dtab-more-wrap" ref={moreWrap}>
+          <button className={`dtab-more ${more ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={more} onClick={() => setMore(!more)}
+            title={`${hidden.length} more open ${hidden.length === 1 ? 'design' : 'designs'}${hidden.some((t) => t.running) ? ' · Jig is working on one' : hidden.some((t) => t.unseen) ? ' · one finished, not viewed yet' : ''}`}>
+            {hidden.some((t) => t.running) ? <span className="spinner" /> : hidden.some((t) => t.unseen) ? <span className="dtab-dot" /> : null}
+            +{hidden.length} <Icon name="chevron" size={11} />
+          </button>
+          {more && (
+            <div className="menu dtab-menu" role="menu">
+              <div className="menu-top">
+                <div className="menu-search">
+                  <Icon name="search" size={13} />
+                  <input autoFocus type="search" placeholder="Search open designs" aria-label="Search open designs" value={query}
+                    onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && matches[0]) openHidden(matches[0].id); }} />
+                  {query && <button className="icon-btn" title="Clear the search" aria-label="Clear the search" onClick={() => setQuery('')}><Icon name="x" size={12} /></button>}
+                </div>
+              </div>
+              {matches.map((t) => (
+                <div key={t.id} className={`dtab-row ${t.unseen ? 'unseen' : ''}`}>
+                  <button className="menu-open" role="menuitem" onClick={() => openHidden(t.id)}>
+                    <span>{t.running ? <span className="spinner" /> : t.unseen ? <span className="dtab-dot" /> : null} {t.name}</span>
+                  </button>
+                  {!t.running && (
+                    <button className="icon-btn" title="Close tab (the design stays in Designs)" aria-label={`Close ${t.name}`} onClick={() => onClose(t.id)}><Icon name="x" size={12} /></button>
+                  )}
+                </div>
+              ))}
+              {!matches.length && <div className="menu-empty">No open design matches.</div>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
