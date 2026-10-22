@@ -908,3 +908,60 @@ test('sale sizes: S / M / L suggested, one shown and resized alone, sliced one a
     if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
   }
 });
+
+test('Edit drawing paints lines in another filament: shown on the lines only, built as a part of its own', TEST, async () => {
+  const lid = 'ui-smoke-00000009';
+  const box = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  // A 2:1 rectangle outline, 120 mm wide.
+  const frame = { name: 'frame', aspect: 2, shapes: [{ rule: 'EvenOdd', contours: [box(-1, -0.5, 1, 0.5), box(-0.98, -0.48, 0.98, 0.48)], color: '#000000' }] };
+  const art = "function build() { return H.lineart('frame', { style: 'outline', width: 120 }); }";
+  const r = await putDesign({ id: lid, name: 'Painted frame', createdAt: 1, updatedAt: 1, code: art, values: { $drawings: JSON.stringify({ frame }) }, messages: [], currentVersion: 0,
+    versions: [{ code: art, summary: 'A frame', createdAt: 1, source: 'manual' }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${A}/?design=${lid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Painted frame');
+  await built(page);
+  await page.getByRole('tab', { name: /Print/ }).click();
+  await page.getByRole('button', { name: 'Edit drawing' }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit the drawing' });
+  await editor.waitFor();
+  await editor.getByRole('radio', { name: 'Paint' }).click();
+  await editor.getByRole('button', { name: 'Pick another filament' }).click();
+  const picker = page.getByRole('dialog', { name: 'Add a filament' });
+  await picker.getByRole('textbox', { name: 'Search the filaments' }).fill('red');
+  const option = picker.getByRole('option').first();
+  const name = (await option.getAttribute('aria-label'))!.split(',')[0];
+  await option.click();
+  await picker.waitFor({ state: 'detached' });
+  assert.equal(await editor.getByRole('radio', { name, exact: true }).getAttribute('aria-checked'), 'true');
+  // A stroke down the middle, across the top and bottom lines.
+  const over = editor.locator('.la-ed-over');
+  const b = (await over.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + 5);
+  await page.mouse.down();
+  for (let k = 1; k <= 20; k++) await page.mouse.move(b.x + b.width / 2, b.y + 5 + ((b.height - 10) * k) / 20);
+  await page.mouse.up();
+  // Red where the stroke crosses the lines, not over the paper between them.
+  const red = await over.evaluate((c: HTMLCanvasElement, cssArea: number) => {
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && d[i] > 150 && d[i + 1] < 90 && d[i + 2] < 90) n++;
+    return { n, px: (c.width * c.height) / cssArea };
+  }, b.width * b.height);
+  assert.ok(red.n > 100 * red.px && red.n < 4000 * red.px, `${red.n} red pixels`);
+  await page.screenshot({ path: path.join(shots, '18-lineart-paint.png') });
+  await editor.getByRole('button', { name: 'Done' }).click();
+  await editor.waitFor({ state: 'detached' });
+  // Built: the painted lines are a part in that filament, saved with the design.
+  await page.getByRole('tab', { name: /Object/ }).click();
+  await page.locator('.object-name', { hasText: `Line art (${name})` }).waitFor();
+  await until(async () => !!(await getDesign(lid)).values?.$lineartEdits, 'the paint is saved with the design');
+  const saved = JSON.parse((await getDesign(lid)).values.$lineartEdits).frame.strokes;
+  assert.equal(saved[0].mode, 'paint');
+  assert.equal(saved[0].filament.name, name);
+  await page.screenshot({ path: path.join(shots, '18-lineart-painted.png') });
+  assert.deepEqual(errors, []);
+});
