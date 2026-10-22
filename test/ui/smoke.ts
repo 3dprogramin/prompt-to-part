@@ -152,13 +152,19 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
 
-  // Product photos: 15 scenes and Custom…, the other 9 after "More scenes".
+  // Product photos: the suggested scene, one more and Your idea…; the other 22 after "More scenes", searchable.
   await page.getByRole('button', { name: 'Product photos' }).click();
   const scenes = page.locator('.ph-scenes [role=radio]');
-  await page.getByRole('button', { name: 'More scenes (9 more)' }).waitFor();
-  assert.equal(await scenes.count(), 16);
-  await page.getByRole('button', { name: 'More scenes (9 more)' }).click();
+  await page.getByRole('button', { name: 'More scenes (22 more)' }).waitFor();
+  assert.equal(await scenes.count(), 3);
+  await page.getByRole('button', { name: 'More scenes (22 more)' }).click();
   assert.equal(await scenes.count(), 25);
+  await page.getByRole('searchbox', { name: 'Search scenes' }).fill('christmas');
+  assert.equal(await scenes.count(), 4, 'the three Christmas scenes and Your idea');
+  await page.getByRole('searchbox', { name: 'Search scenes' }).fill('');
+  // Your idea: a few words in the notes box, which Jig writes out when a photo is made.
+  await scenes.filter({ hasText: 'Your idea…' }).click();
+  await page.getByRole('textbox', { name: 'Your idea for the scene' }).waitFor();
   await page.screenshot({ path: path.join(shots, '2-scenes.png') });
 
   assert.deepEqual(errors, []);

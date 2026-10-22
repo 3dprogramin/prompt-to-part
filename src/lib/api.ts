@@ -3,7 +3,7 @@ import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection,
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
-import type { PhotoRequest, PhotoResponse, PhotoSceneResponse } from '../../shared/photos';
+import type { PhotoRequest, PhotoResponse, PhotoSceneRequest, PhotoSceneResponse, SceneIdea } from '../../shared/photos';
 import { dataUrlToImage } from './files';
 import { trimActivity } from './activity';
 
@@ -115,8 +115,8 @@ export const api = {
   slice: (project: Blob) => getJson<SliceStats>('/api/slice', { method: 'POST', body: project, headers: { 'Content-Type': 'application/octet-stream' } }),
   suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),
   /** A product photo of the design from a render of it (the image model: 10–30 s). */
-  /** A fresh setting for a scene preset's random sub-scene, written by Claude (seconds). */
-  photoScene: (scene: string, size?: Vec3) => getJson<PhotoSceneResponse>('/api/photo-scene', { method: 'POST', body: JSON.stringify({ scene, size }) }).then((r) => r.scene),
+  /** A fresh setting for a scene preset's random sub-scene, or the user's idea written out, by Claude (seconds). */
+  photoScene: (scene: string, size?: Vec3, idea?: SceneIdea) => getJson<PhotoSceneResponse>('/api/photo-scene', { method: 'POST', body: JSON.stringify({ scene, size, ...idea } satisfies PhotoSceneRequest) }).then((r) => r.scene),
   photo: (designId: string, r: PhotoRequest) => getJson<PhotoResponse>(`/api/designs/${designId}/photos`, { method: 'POST', body: JSON.stringify(r) }),
   /** A mesh file attached in the chat: imported, repaired and stored with the design (seconds for big files). */
   uploadMesh: (designId: string, file: File) => getJson<MeshUpload>(`/api/designs/${designId}/meshes?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } }),

@@ -278,11 +278,11 @@ export interface ProductPhoto {
   url: string;
   /** The render it was made from. */
   render?: string;
-  /** A scene preset's id, or 'custom'. */
+  /** A scene preset's id, 'custom' or 'idea'. */
   scene: string;
-  /** The custom scene or the extra wishes. */
+  /** The custom scene, the idea or the extra wishes. */
   notes?: string;
-  /** The preset's sub-scene (2, 3 or 'random'; 1 if left out), and a random one's scene as written. */
+  /** The preset's sub-scene (2, 3 or 'random'; 1 if left out), and a random one's scene (or the idea's) as written. */
   variant?: 1 | 2 | 3 | 'random';
   sceneText?: string;
   /** A redo of another photo (its URL), with what was changed. */
