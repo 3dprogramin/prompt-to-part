@@ -1057,6 +1057,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-row { display: flex; align-items: center; gap: 8px; }
 .ph-row .ph-label { width: 52px; flex-shrink: 0; }
 .ph-row .seg { flex: 1; }
+.ph-row .seg.ph-variants { flex: 0 0 auto; }
+.ph-variants button { display: flex; align-items: center; justify-content: center; min-width: 28px; }
+.ph-variant-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ph-note { line-height: 1.35; }
 .ph-gallery-head { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 .ph-gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

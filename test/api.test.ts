@@ -24,6 +24,7 @@ server.on('request', createApp({
   port,
   hosts: ['192.168.1.50'],
   suggest: async (r) => ({ price: Math.round(r.grams), low: 1, high: 99, reasoning: `for ${r.name}`, currency: 'RON' }),
+  sceneWriter: async (id) => `on a ${id} written for this photo`,
   image: async (prompt, aspect, references, _signal, _onStatus, size) => {
     imageAsked = { prompt, aspect, references, size };
     return { image: { data: Buffer.from('89504e470d0a1a0a70686f746f', 'hex').toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
@@ -188,6 +189,10 @@ test('cost settings are stored, slicing needs a project, price suggestions go th
   const price = await fetch(`${A}/api/price`, { method: 'POST', headers: W, body: JSON.stringify({ name: 'Hook', size: '10 × 10 × 10 mm', parts: 1, colours: 1, grams: 42, seconds: 600, filamentCost: 4.6, electricityCost: null }) });
   assert.deepEqual(await price.json(), { price: 42, low: 1, high: 99, reasoning: 'for Hook', currency: 'RON' });
   assert.equal((await fetch(`${A}/api/price`, { method: 'POST', headers: W, body: '{}' })).status, 400);
+  // A random sub-scene for a photo, written by Claude (the stand-in).
+  const scene = await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify({ scene: 'wall' }) });
+  assert.deepEqual(await scene.json(), { scene: 'on a wall written for this photo' });
+  assert.equal((await fetch(`${A}/api/photo-scene`, { method: 'POST', headers: W, body: JSON.stringify({ scene: 'moon' }) })).status, 400);
 });
 
 test('without an API key (and not in subscription mode) Claude is never started', async () => {

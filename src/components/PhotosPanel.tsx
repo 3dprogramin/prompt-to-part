@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, shopPlan, suggestScene, type PhotoAspect, type PhotoRequest, type ShopShot } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, suggestScene, variantName, type PhotoAspect, type PhotoRequest, type SceneVariant, type ShopShot } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { mainAxis } from '../../shared/sizes';
 import { api } from '../lib/api';
@@ -54,7 +54,7 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
     return api.photo(job.designId, r).then((out) => {
       setJobs((j) => j.filter((x) => x.id !== job.id));
       done.current(job.designId, {
-        url: out.photo, render: out.render, scene: r.scene, notes: r.notes,
+        url: out.photo, render: out.render, scene: r.scene, notes: r.notes, ...lookOf(r),
         ...(r.from && r.resize ? { sizeOf: r.from.photo, ...(r.change ? { change: r.change } : {}) } : r.from ? { editOf: r.from.photo, change: r.change } : {}),
         ...(r.shop ? { shop: r.shop } : {}), ...(r.saleSize ? { saleSize: r.saleSize } : {}), dims: r.product.size,
         ...(job.camera ? { camera: job.camera } : {}), ...(job.shape ? { shape: job.shape } : {}),
@@ -144,6 +144,16 @@ const ASPECT_RATIO: Record<PhotoAspect, number> = { '1:1': 1, '4:5': 4 / 5, '16:
 const ASPECT_HINT: Record<PhotoAspect, string> = { '1:1': 'Square', '4:5': 'Portrait, for shop listings', '16:9': 'Wide, for banners' };
 const sceneLabel = (id: string) => sceneById(id)?.label ?? 'Custom scene';
 const shopShot = (shot?: string) => (SHOP_SHOTS as readonly string[]).includes(shot ?? '') ? shot as ShopShot : undefined;
+/** A photo's (or request's) sub-scene, as a request or a photo keeps it: sub-scene 1 is left out. */
+const lookOf = (x: { variant?: SceneVariant; sceneText?: string }): Pick<PhotoRequest, 'variant' | 'sceneText'> =>
+  x.variant && x.variant !== 1 && SCENE_VARIANTS.includes(x.variant) ? { variant: x.variant, ...(x.variant === 'random' && x.sceneText ? { sceneText: x.sceneText } : {}) } : {};
+/** A photo's sub-scene in words: "Sub-scene 2: Scandinavian, warm white", the random scene written for it. */
+const lookTitle = (ph: { scene: string; variant?: SceneVariant; sceneText?: string }) => {
+  const v = lookOf(ph).variant;
+  return !v ? undefined : v === 'random' ? `Random setting: ${ph.sceneText ?? `one the image model invented (${sceneKind(ph.scene)})`}` : `Sub-scene ${v}: ${variantName(ph.scene, v)}`;
+};
+/** A random sub-scene's setting, written by Claude; none (the image model invents it) when Jig can't reach Claude. */
+const writeScene = (scene: string) => api.photoScene(scene).catch(() => undefined);
 /** A photo's name: its scene, or for a shop set's photo its shot; and the sale size it shows. */
 const photoLabel = (scene: string, shop?: string, size?: string) => { const s = shopShot(shop); return (s ? `Shop · ${SHOP_SHOT_LABELS[s]}` : sceneLabel(scene)) + (size ? ` · ${size}` : ''); };
 /** The shop shots that are the same for every sale size (the shape is the same; the size doesn't show). */
@@ -199,13 +209,15 @@ interface Props {
 export function PhotosPanel(p: Props) {
   const id = useId();
   // The scene is chosen per design (the suggested one until then); format and camera are remembered.
-  const [scenes, setScenes] = useState<Record<string, { scene: string; notes: string }>>({});
+  const [scenes, setScenes] = useState<Record<string, { scene: string; notes: string; variant: SceneVariant }>>({});
   const [allScenes, setAllScenes] = useState(false);
   const [aspect, setAspect] = useState<PhotoAspect>(() => load('photoAspect', '4:5'));
   const [camera, setCamera] = useState<'best' | 'current'>(() => load('photoCamera', 'best'));
   useEffect(() => store('photoAspect', aspect), [aspect]);
   useEffect(() => store('photoCamera', camera), [camera]);
   const [error, setError] = useState<string | null>(null);
+  // A random sub-scene being written for a photo, the shop set or the photos for all sizes.
+  const [writing, setWriting] = useState<'photo' | 'shop' | 'sizes' | null>(null);
   // The shop set's renders being taken (1-based), before its photos are asked for.
   const [rendering, setRendering] = useState<number | null>(null);
   // The photos for every size: their renders being taken, and a note when there was nothing to make.
@@ -232,7 +244,7 @@ export function PhotosPanel(p: Props) {
   // A lithophane is best shown glowing.
   const lithophane = !!p.result?.parts.some((x) => x.lithophane);
   const suggested = useMemo(() => (lithophane ? BACKLIT_SCENE : suggestScene(about, size ?? undefined)), [about, size, lithophane]);
-  const choice = scenes[p.designId] ?? { scene: suggested, notes: '' };
+  const choice = scenes[p.designId] ?? { scene: suggested, notes: '', variant: 1 as SceneVariant };
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
   const custom = choice.scene === CUSTOM_SCENE;
   const preset = sceneById(choice.scene);
@@ -243,6 +255,21 @@ export function PhotosPanel(p: Props) {
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
   const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang) && flat;
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
+  /**
+   * The chosen sub-scene for requests in the chosen scene; a random one's setting is written now, once
+   * for all the photos asked for together (without Claude the image model invents it).
+   */
+  const look = async (what: 'photo' | 'shop' | 'sizes'): Promise<Pick<PhotoRequest, 'variant' | 'sceneText'>> => {
+    if (!preset || choice.variant === 1) return {};
+    if (choice.variant !== 'random') return { variant: choice.variant };
+    setWriting(what);
+    try {
+      const text = await writeScene(choice.scene);
+      return { variant: 'random', ...(text ? { sceneText: text } : {}) };
+    } finally {
+      setWriting(null);
+    }
+  };
   // A shop set (or a set for every size) still being made: how many of its photos have landed.
   const progress = (sizes: boolean) => {
     const first = jobs.find((j) => j.set && !j.error && !!j.sizes === sizes);
@@ -316,7 +343,7 @@ export function PhotosPanel(p: Props) {
     if (shop) prod.faceOn = shopPlan({ size: prod.size, suggested }).find((x) => x.shot === shop)?.faceOn ?? false;
     // A size's photo stays that size's (its product as it was, unless taken from the view again).
     if (ph.dims && !fromView) prod.size = ph.dims;
-    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, aspect: shape, notes: ph.notes, ...(shop ? { shop } : {}), ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), product: prod },
+    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shop ? { shop } : {}), ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), product: prod },
       { camera: fromView ? 'current' : ph.camera, shape: fromView ? p.shape : ph.shape });
     closeBig();
   };
@@ -360,7 +387,7 @@ export function PhotosPanel(p: Props) {
     const resized = shot.dims.some((v, k) => Math.abs(v - was[k]) > Math.max(0.3, was[k] * 0.005));
     const reshaped = !!ph.shape && !!p.shape && ph.shape !== p.shape;
     p.onStart({
-      from: { photo: ph.url }, render: dataUrlToImage(shot.shot), scene: ph.scene, aspect: shape, notes: ph.notes,
+      from: { photo: ph.url }, render: dataUrlToImage(shot.shot), scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes,
       ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}), ...(sale ? { saleSize: sale } : {}),
       ...(resized ? { resize: { base: { label: sizeName(ph.saleSize), size: was } } } : {}),
       ...(reshaped || !resized ? { change: UPDATED } : {}),
@@ -373,9 +400,10 @@ export function PhotosPanel(p: Props) {
    * `first` size) and each other size from its own render, with the first photo as the scene to keep.
    * Sizes that already have an up-to-date photo from that first one are left out.
    */
-  const sizeGroup = async (item: { view: PhotoView; faceOn: boolean; scene: string; shop?: ShopShot; aspect: PhotoAspect; notes?: string }, start: { from: ProductPhoto } | { first: NonNullable<ReturnType<typeof saleOf>> },
+  const sizeGroup = async (item: { view: PhotoView; faceOn: boolean; scene: string; /** The sub-scene of a first photo made now. */ look?: Pick<PhotoRequest, 'variant' | 'sceneText'>; shop?: ShopShot; aspect: PhotoAspect; notes?: string }, start: { from: ProductPhoto } | { first: NonNullable<ReturnType<typeof saleOf>> },
     prod: PhotoRequest['product'], tick: () => void): Promise<SizeGroup | string> => {
-    const common = { scene: item.scene, aspect: item.aspect, ...(item.notes ? { notes: item.notes } : {}), ...(item.shop ? { shop: item.shop } : {}) };
+    // An existing first photo keeps its own sub-scene (its random setting too).
+    const common = { scene: item.scene, ...('from' in start ? lookOf(start.from) : item.look), aspect: item.aspect, ...(item.notes ? { notes: item.notes } : {}), ...(item.shop ? { shop: item.shop } : {}) };
     let base: SizeGroup['base'], baseDims: Vec3, baseLabel: string | undefined, baseId: string | undefined;
     if ('from' in start) {
       base = { url: start.from.url };
@@ -415,13 +443,15 @@ export function PhotosPanel(p: Props) {
     const first = saleOf(p.viewedSize) ?? saleOf(sizeList[Math.floor((sizeList.length - 1) / 2)].id)!;
     const firstDims = sizeList.find((s) => s.id === first.id)?.dims ?? size;
     const plan = shopPlan({ size: firstDims, suggested }).filter((x) => x.shot === 'lifestyle' || x.shot === 'size');
+    // Those in the chosen scene take its chosen sub-scene, as in the shop set.
+    const chosen = plan.some((x) => x.scene === choice.scene) ? await look('sizes') : {};
     const groups: SizeGroup[] = [];
     let n = 0;
     const total = plan.length * sizeList.length;
     try {
       for (const item of plan) {
         const from = allPhotos.find((ph) => ph.shop === item.shot && ph.saleSize?.id === first.id && !ph.sizeOf && !outdated(ph));
-        const g = await sizeGroup({ view: item.camera, faceOn: item.faceOn, scene: item.scene, shop: item.shot, aspect: '1:1' }, from ? { from } : { first }, prod, () => setSizeRendering(`${++n} / ${total}`));
+        const g = await sizeGroup({ view: item.camera, faceOn: item.faceOn, scene: item.scene, ...(item.scene === choice.scene ? { look: chosen } : {}), shop: item.shot, aspect: '1:1' }, from ? { from } : { first }, prod, () => setSizeRendering(`${++n} / ${total}`));
         if (typeof g === 'string') return setError(g);
         if (g.variants.length || 'request' in g.base) groups.push(g);
       }
@@ -459,13 +489,13 @@ export function PhotosPanel(p: Props) {
     const first = allPhotos.find((x) => x.url === ph.sizeOf);
     if (!prod || !first || !ph.sizeOf) return setError('Its first photo was deleted: make this size from another photo.');
     const shape = (PHOTO_ASPECTS as readonly string[]).includes(ph.aspect) ? ph.aspect as PhotoAspect : aspect;
-    p.onStart({ from: { photo: ph.sizeOf, ...(ph.render ? { render: ph.render } : {}) }, scene: ph.scene, aspect: shape, notes: ph.notes, ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}),
+    p.onStart({ from: { photo: ph.sizeOf, ...(ph.render ? { render: ph.render } : {}) }, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}),
       ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), resize: { base: { label: sizeName(first.saleSize), size: first.dims ?? prod.size } },
       product: { ...prod, size: ph.dims ?? prod.size, faceOn: cameraOf(ph, ph.dims ?? prod.size).faceOn } }, { camera: ph.camera, shape: ph.shape });
     closeBig();
   };
 
-  const generate = () => {
+  const generate = async () => {
     setError(null);
     if (!size || !p.result) return setError('There is no model to photograph yet.');
     if (custom && !choice.notes.trim()) return setError('Describe the scene first.');
@@ -477,9 +507,11 @@ export function PhotosPanel(p: Props) {
       return setError(`Couldn't render the model: ${(e as Error).message}`);
     }
     if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
+    const chosen = await look('photo');
     p.onStart({
       render: dataUrlToImage(shot),
       scene: choice.scene,
+      ...chosen,
       aspect,
       notes: choice.notes.trim() || undefined,
       ...(viewedSale ? { saleSize: viewedSale } : {}),
@@ -495,6 +527,10 @@ export function PhotosPanel(p: Props) {
     const prod = product();
     if (!size || !prod) return setError('There is no model to photograph yet.');
     const plan = shopPlan({ size, suggested });
+    // Its scene shots (lifestyle, size) in the chosen scene take its chosen sub-scene, one random
+    // setting for both; the studio shots stay the same for every product.
+    const scened = (item: (typeof plan)[number]) => item.scene === choice.scene && !STUDIO_SHOTS.includes(item.shot);
+    const chosen = plan.some(scened) ? await look('shop') : {};
     const rs: PhotoRequest[] = [];
     try {
       for (const [i, item] of plan.entries()) {
@@ -509,7 +545,7 @@ export function PhotosPanel(p: Props) {
         if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
         // The studio shots are every size's; the scene ones are of the size shown, if one is.
         const sale = viewedSale && !STUDIO_SHOTS.includes(item.shot) ? { saleSize: viewedSale } : {};
-        rs.push({ render: dataUrlToImage(shot), scene: item.scene, aspect: '1:1', shop: item.shot, ...sale, product: { ...prod, faceOn: item.faceOn } });
+        rs.push({ render: dataUrlToImage(shot), scene: item.scene, ...(scened(item) ? chosen : {}), aspect: '1:1', shop: item.shot, ...sale, product: { ...prod, faceOn: item.faceOn } });
       }
     } finally {
       setRendering(null);
@@ -540,7 +576,7 @@ export function PhotosPanel(p: Props) {
       <div className="ph-label" id={`${id}-scene`}>Scene</div>
       <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
         {[...shownScenes, { id: CUSTOM_SCENE, label: 'Custom…', icon: 'pen' }].map((s) => (
-          <button key={s.id} role="radio" aria-checked={choice.scene === s.id} className={choice.scene === s.id ? 'on' : ''} onClick={() => setChoice({ scene: s.id })}
+          <button key={s.id} role="radio" aria-checked={choice.scene === s.id} className={choice.scene === s.id ? 'on' : ''} onClick={() => setChoice({ scene: s.id, variant: 1 })}
             title={s.id === suggested ? `${s.label} – suggested for this design` : s.label}>
             <Icon name={s.icon} size={18} />
             <span>{s.label}</span>
@@ -550,6 +586,21 @@ export function PhotosPanel(p: Props) {
       </div>
       {!expanded && (
         <button className="ph-more" onClick={() => setAllScenes(true)}>More scenes ({PHOTO_SCENES.length - MAIN_SCENES} more)</button>
+      )}
+      {preset && (
+        <div className="ph-row">
+          <span className="ph-label" id={`${id}-look`}>Variant</span>
+          <div className="seg ph-variants" role="radiogroup" aria-labelledby={`${id}-look`}>
+            {SCENE_VARIANTS.map((v) => (
+              <button key={v} role="radio" aria-checked={choice.variant === v} className={choice.variant === v ? 'on' : ''} onClick={() => setChoice({ variant: v })}
+                aria-label={v === 'random' ? 'Random' : `${v}: ${variantName(preset.id, v)}`}
+                title={v === 'random' ? `Random: a fresh ${preset.label.toLowerCase()} setting, new for each photo` : `${v}: ${variantName(preset.id, v)}${v === 1 ? ' (the scene as it was)' : ''}`}>
+                {v === 'random' ? <Icon name="dice" size={13} /> : v}
+              </button>
+            ))}
+          </div>
+          <span className="dim small ph-variant-name">{variantName(preset.id, choice.variant)}</span>
+        </div>
       )}
       <textarea className="text-param ph-notes" rows={custom ? 3 : 2} maxLength={MAX_NOTES_CHARS} value={choice.notes} onChange={(e) => setChoice({ notes: e.target.value })}
         aria-label={custom ? 'Describe the scene' : 'Extra details (optional)'}
@@ -571,19 +622,19 @@ export function PhotosPanel(p: Props) {
         </div>
       </div>
 
-      <button className="btn primary wide" disabled={!p.imageModel || !size} onClick={generate}>
-        <Icon name="camera" size={14} /> Generate photo
+      <button className="btn primary wide" disabled={!p.imageModel || !size || writing === 'photo'} onClick={() => void generate()}>
+        <Icon name="camera" size={14} /> {writing === 'photo' ? 'Writing a random scene…' : 'Generate photo'}
       </button>
       <div className="dim small ph-note">{p.imageModel ?? 'Image model'} · about $0.04–0.07 and 10–30 s each · the photo is made from a clean render of the model as shown (hidden parts stay hidden).</div>
-      <button className="btn wide ph-shop" disabled={!p.imageModel || !size || rendering != null || !!shopProgress} onClick={() => void shopSet()}
+      <button className="btn wide ph-shop" disabled={!p.imageModel || !size || rendering != null || writing === 'shop' || !!shopProgress} onClick={() => void shopSet()}
         title="5 square photos at 2K for a shop listing: main (front), 3/4 view, detail or top view in a light grey studio, a lifestyle photo and a size photo">
-        <Icon name="tag" size={14} /> {rendering != null ? `Rendering ${rendering} / 5…` : shopProgress ? `Making shop photos · ${shopProgress}` : 'Shop photos'}
+        <Icon name="tag" size={14} /> {writing === 'shop' ? 'Writing a random scene…' : rendering != null ? `Rendering ${rendering} / 5…` : shopProgress ? `Making shop photos · ${shopProgress}` : 'Shop photos'}
       </button>
-      <div className="dim small ph-note">Shop photos: 5 square photos at 2K (2048 × 2048) for a listing, the studio ones in the same light grey studio for every product · about $0.50 and 1 to 2 min a set · the scene and details above don't apply.</div>
+      <div className="dim small ph-note">Shop photos: 5 square photos at 2K (2048 × 2048) for a listing, the studio ones in the same light grey studio for every product · about $0.50 and 1 to 2 min a set · the details above don't apply; its lifestyle and size photos take the variant above when they are in that scene.</div>
       {sizeList.length > 1 && p.onStartSizes && <>
-        <button className="btn wide ph-sizes" disabled={!p.imageModel || !size || sizeRendering != null || !!sizesProgress} onClick={() => void allSizes()}
+        <button className="btn wide ph-sizes" disabled={!p.imageModel || !size || sizeRendering != null || writing === 'sizes' || !!sizesProgress} onClick={() => void allSizes()}
           title="The shop set's lifestyle and size photos once for every sale size, all in the same scene: the first one is made (or kept), the others from it with only the product's size changed">
-          <Icon name="ruler" size={14} /> {sizeRendering != null ? `Rendering ${sizeRendering}…` : sizesProgress ? `Making photos for all sizes · ${sizesProgress}` : `Photos for all sizes (${sizeList.map((s) => s.label).join(', ')})`}
+          <Icon name="ruler" size={14} /> {writing === 'sizes' ? 'Writing a random scene…' : sizeRendering != null ? `Rendering ${sizeRendering}…` : sizesProgress ? `Making photos for all sizes · ${sizesProgress}` : `Photos for all sizes (${sizeList.map((s) => s.label).join(', ')})`}
         </button>
         <div className="dim small ph-note">The lifestyle and size photos for each size, in one scene: the {(saleOf(p.viewedSize) ?? sizeList[Math.floor((sizeList.length - 1) / 2)]).label} photo first, then the other sizes in its scene · the studio shots are the same for every size.</div>
         {sizeNote && <div className="dim small" role="status">{sizeNote}</div>}
@@ -623,7 +674,9 @@ export function PhotosPanel(p: Props) {
               {old && <button className="ph-outdated" onClick={() => void refresh(ph)} disabled={!p.imageModel} title={`Out of date: ${old}. Click to make it again in the same scene (the old photo stays).`}><Icon name="restore" size={11} /> {old.startsWith('made for an') ? 'Design changed' : old.split(',')[0].replace('made', 'Made')}</button>}
               <div className="ph-tile-bar">
                 {sizeName(ph.saleSize) && <b className="ph-size" title={`Size ${sizeName(ph.saleSize)}`}>{sizeName(ph.saleSize)}</b>}
-                <span className="small" title={ph.change ?? ph.notes ?? (ph.shop ? sceneLabel(ph.scene) : undefined)}>{photoLabel(ph.scene, ph.shop)}{ph.editOf ? ' · changed' : ''}</span>
+                <span className="small" title={[ph.change ?? ph.notes ?? (ph.shop ? sceneLabel(ph.scene) : undefined), lookTitle(ph)].filter(Boolean).join('\n') || undefined}>
+                  {photoLabel(ph.scene, ph.shop)}{lookOf(ph).variant ? ` · ${lookOf(ph).variant}` : ''}{ph.editOf ? ' · changed' : ''}
+                </span>
                 <button className="icon-btn" onClick={() => void save(ph, photos.length - i)} title="Download" aria-label={`Download the ${nameOf(ph)} photo`}><Icon name="download" size={13} /></button>
                 <DeleteButton label={`${nameOf(ph)} photo`} onDelete={() => p.onDelete(ph.url)} />
               </div>
@@ -691,6 +744,7 @@ function BigPhoto({ photo, label, onSave, onDelete, onClose, onSwipe, onRedo, si
         </div>
         {photo.change ? <div className="small">Changed: {photo.change}</div> : photo.notes && <div className="small">{photo.notes}</div>}
         {photo.shop && <div className="dim small">Shop set · {sceneLabel(photo.scene)}</div>}
+        {lookTitle(photo) && <div className="dim small">{lookTitle(photo)}</div>}
         <div className="dim small">{photo.aspect}{pixels ? ` (${pixels})` : ''} · {photo.model} · {money(photo.cost)} · {new Date(photo.createdAt).toLocaleString()}</div>
         <div className="ph-big-actions">
           <button className="btn small-btn" onClick={onSave}><Icon name="download" size={13} /> Download</button>

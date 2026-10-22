@@ -282,6 +282,9 @@ export interface ProductPhoto {
   scene: string;
   /** The custom scene or the extra wishes. */
   notes?: string;
+  /** The preset's sub-scene (2, 3 or 'random'; 1 if left out), and a random one's scene as written. */
+  variant?: 1 | 2 | 3 | 'random';
+  sceneText?: string;
   /** A redo of another photo (its URL), with what was changed. */
   editOf?: string;
   change?: string;

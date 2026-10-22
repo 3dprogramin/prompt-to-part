@@ -13,6 +13,7 @@ import { blenderInfo, exportBlend } from './blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from './bambu';
 import { sliceProject } from './slicer';
 import { suggestPrice } from './pricing';
+import { writeScene } from './photoScene';
 import { lookupFilament } from './filaments';
 import { cleanMyFilaments, matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS, myFilamentsProblem } from '../shared/filaments';
 import { MY_FILAMENTS_FILE, readMyFilaments } from './myFilaments';
@@ -20,7 +21,7 @@ import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
-import { photoEditPrompt, photoProblem, photoPrompt, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse } from '../shared/photos';
+import { photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneResponse } from '../shared/photos';
 import type { Design, DesignSummary } from '../shared/types';
 import { designKind } from '../shared/designKind';
 import { geometry } from './geometry';
@@ -183,6 +184,8 @@ export interface AppOptions {
   generate?: typeof runGeneration;
   /** Suggests a selling price (tests pass a stand-in instead of Claude). */
   suggest?: typeof suggestPrice;
+  /** Writes a random sub-scene for a product photo (tests pass a stand-in instead of Claude). */
+  sceneWriter?: typeof writeScene;
   /** Finds a filament's colour and TD (tests pass one with a stand-in for Claude). */
   lookup?: typeof lookupFilament;
   /** Asks the image model for a picture (tests pass a stand-in). */
@@ -191,7 +194,7 @@ export interface AppOptions {
   connection?: typeof checkConnection;
 }
 
-export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, lookup = lookupFilament, image = requestImage, connection = checkConnection }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, image = requestImage, connection = checkConnection }: AppOptions = {}): express.Express {
   const app = express();
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
@@ -388,6 +391,21 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     } catch (e) {
       if (abort.signal.aborted) return;
       console.error('[photos]', (e as Error).message);
+      res.status(502).json({ error: (e as Error).message });
+    }
+  });
+
+  // A random sub-scene: a fresh setting of a preset's kind, written by Claude before the photo is
+  // asked for, so the photo, its changes and its other sizes all keep it. Without Claude the app asks
+  // for the photo anyway and the image model invents the setting (photoPrompt).
+  app.post('/api/photo-scene', json('2kb'), async (req, res) => {
+    const id = (req.body as { scene?: unknown } | undefined)?.scene;
+    if (typeof id !== 'string' || !sceneById(id)) return void res.status(400).json({ error: 'scene: one of the scene presets' });
+    const authProblem = claudeAuthProblem();
+    if (authProblem) return void res.status(503).json({ error: authProblem });
+    try {
+      res.json({ scene: await sceneWriter(id) } satisfies PhotoSceneResponse);
+    } catch (e) {
       res.status(502).json({ error: (e as Error).message });
     }
   });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { familiar, photoEditPrompt, photoProblem, photoPrompt, SHOP_SCENE, shopPlan, suggestScene, vsSwitch, type PhotoRequest } from '../shared/photos';
+import { familiar, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, sceneWriterPrompt, SHOP_SCENE, shopPlan, subScenes, suggestScene, variantName, vsSwitch, type PhotoRequest } from '../shared/photos';
 import { requestImage } from '../server/artwork';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
@@ -109,12 +109,63 @@ test('photo requests are checked', () => {
   assert.equal(photoProblem(request({ scene: 'custom', notes: 'on a boat' })), null);
   assert.match(photoProblem(request({ scene: 'custom' }))!, /custom scene/);
   assert.match(photoProblem(request({ scene: 'moon' }))!, /scene must be one of/);
+  assert.equal(photoProblem(request({ variant: 2 })), null);
+  assert.equal(photoProblem(request({ variant: 'random', sceneText: 'on a slate shelf' })), null);
+  assert.equal(photoProblem(request({ variant: 'random' })), null, 'no scene written: the image model invents one');
+  assert.match(photoProblem(request({ variant: 4 as PhotoRequest['variant'] }))!, /variant/);
+  assert.match(photoProblem(request({ scene: 'custom', notes: 'on a boat', variant: 2 }))!, /variant/);
+  assert.match(photoProblem(request({ variant: 2, sceneText: 'on a slate shelf' }))!, /sceneText/);
+  assert.match(photoProblem(request({ variant: 'random', sceneText: 'x'.repeat(601) }))!, /sceneText/);
+  assert.match(photoProblem(request({ variant: 'random', sceneText: '  ' }))!, /sceneText/);
   assert.match(photoProblem(request({ aspect: '2:1' as PhotoRequest['aspect'] }))!, /aspect/);
   assert.match(photoProblem(request({ render: { mediaType: 'image/webp', data: 'x' } }))!, /PNG or JPEG/);
   assert.match(photoProblem(request({ product: { name: 'x', size: [1, 2, Infinity] } }))!, /size/);
   assert.match(photoProblem(request({ product: { name: 'x', size: [1, 2, 3], colors: ['red'] } }))!, /colors/);
   assert.match(photoProblem(request({ product: { name: 'x'.repeat(300), size: [1, 2, 3] } }))!, /name/);
   assert.match(photoProblem(null as unknown as PhotoRequest)!, /render/);
+});
+
+test('every scene has 3 sub-scenes: 1 is the scene as it was, 2 and 3 others of the same kind', () => {
+  for (const preset of PHOTO_SCENES) {
+    const subs = subScenes(preset.id);
+    assert.equal(subs.length, 3, preset.id);
+    assert.equal(subs[0].scene, preset.scene, `${preset.id}: sub-scene 1 is the scene as it was`);
+    for (const s of subs) assert.ok(s.name.trim() && s.scene.trim().length > 40, `${preset.id}: ${s.name}`);
+    assert.equal(new Set(subs.map((s) => s.scene)).size, 3, `${preset.id}: three different scenes`);
+    // What a scene relies on stays: a wall to hang on, a branch, a clean studio.
+    if (preset.wall) for (const s of subs) assert.match(s.scene, /wide.*(wall|door)/, `${preset.id}: ${s.name}`);
+    if (preset.hang) for (const s of subs) assert.match(s.scene, /hanging from a branch/, `${preset.id}: ${s.name}`);
+    if (preset.studio) for (const s of subs) assert.match(s.scene, /studio sweep/, `${preset.id}: ${s.name}`);
+  }
+  assert.deepEqual(subScenes('custom'), []);
+  assert.equal(variantName('wall', 2), 'Scandinavian, warm white');
+  assert.equal(variantName('wall', 'random'), 'Random');
+});
+
+test('the photo prompt uses the chosen sub-scene; a random one as written, or invented by the image model', () => {
+  const wall = (extra: Partial<PhotoRequest> = {}) => photoPrompt(request({ scene: 'wall', product: { name: 'Plaque', size: [180, 108, 6.5], faceOn: true }, ...extra }));
+  assert.equal(wall({ variant: 1 }), wall(), 'sub-scene 1 is the scene as it was');
+  for (const v of [2, 3] as const) {
+    const p = wall({ variant: v });
+    assert.ok(p.includes(`SCENE: ${subScenes('wall')[v - 1].scene}.`));
+    assert.match(p, /entirely on a wide, flat, continuous stretch of wall/, 'the wall rules stay');
+  }
+  const written = 'hanging on a wide, plain lime-washed wall in a Tuscan farmhouse living room, soft morning light';
+  assert.ok(wall({ variant: 'random', sceneText: written }).includes(`SCENE: ${written}.`));
+  const invented = wall({ variant: 'random' });
+  assert.match(invented, /SCENE: invent a fresh setting of this kind: a living-room wall.*different from all of these: \(1\) Modern, light painted wall, \(2\) Scandinavian, warm white, \(3\) Classic, sage green wall\./);
+  // A change of a random photo keeps its scene: the one written, or the earlier photo's.
+  const from = { photo: '/api/designs/test-1234/images/0123456789abcdef0123456789abcdef.png', render: '/api/designs/test-1234/images/fedcba9876543210fedcba9876543210.png' };
+  assert.ok(photoEditPrompt(request({ scene: 'wall', variant: 'random', sceneText: written, from, change: 'warmer' })).includes(`SCENE: ${written}.`));
+  assert.match(photoEditPrompt(request({ scene: 'wall', variant: 'random', from, change: 'warmer' })), /SCENE: the same setting as in the earlier photo/);
+  // What Claude is asked for, and its answer cleaned up.
+  const ask = sceneWriterPrompt('wall', () => 0);
+  assert.match(ask, /kind of place: a living-room wall/);
+  for (const s of subScenes('wall')) assert.ok(ask.includes(s.scene));
+  assert.match(ask, /a Japandi look, soft morning light/);
+  assert.match(sceneWriterPrompt('studio', () => 0), /a warm sand tone/);
+  assert.equal(parseWrittenScene('  "on a slate shelf,  dim light."\n'), 'on a slate shelf, dim light');
+  assert.throws(() => parseWrittenScene(' "" '), /did not write/);
 });
 
 test('a photo made again with a change: its photo is the scene, the product from its render or a new angle', () => {
