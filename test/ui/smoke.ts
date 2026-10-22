@@ -909,7 +909,7 @@ test('sale sizes: S / M / L suggested, one shown and resized alone, sliced one a
   }
 });
 
-test('Edit drawing paints lines in another filament: shown on the lines only, built as a part of its own', TEST, async () => {
+test('Edit drawing paints lines in another filament: shown on the lines only (also while painting), built as a part of its own, its top layers by default with the swaps it costs', TEST, async () => {
   const lid = 'ui-smoke-00000009';
   const box = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   // A 2:1 rectangle outline, 120 mm wide.
@@ -943,14 +943,17 @@ test('Edit drawing paints lines in another filament: shown on the lines only, bu
   await page.mouse.move(b.x + b.width / 2, b.y + 5);
   await page.mouse.down();
   for (let k = 1; k <= 20; k++) await page.mouse.move(b.x + b.width / 2, b.y + 5 + ((b.height - 10) * k) / 20);
-  await page.mouse.up();
-  // Red where the stroke crosses the lines, not over the paper between them.
-  const red = await over.evaluate((c: HTMLCanvasElement, cssArea: number) => {
+  // Red where the stroke crosses the lines, not over the paper between them: while it is drawn (see-through) and once it is.
+  const reds = (alpha: number) => over.evaluate((c: HTMLCanvasElement, [cssArea, a]: number[]) => {
     const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
     let n = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && d[i] > 150 && d[i + 1] < 90 && d[i + 2] < 90) n++;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > a && d[i] > 150 && d[i + 1] < 90 && d[i + 2] < 90) n++;
     return { n, px: (c.width * c.height) / cssArea };
-  }, b.width * b.height);
+  }, [b.width * b.height, alpha]);
+  const live = await reds(60);
+  assert.ok(live.n > 100 * live.px && live.n < 4000 * live.px, `${live.n} red pixels while painting`);
+  await page.mouse.up();
+  const red = await reds(200);
   assert.ok(red.n > 100 * red.px && red.n < 4000 * red.px, `${red.n} red pixels`);
   await page.screenshot({ path: path.join(shots, '18-lineart-paint.png') });
   await editor.getByRole('button', { name: 'Done' }).click();
@@ -963,5 +966,15 @@ test('Edit drawing paints lines in another filament: shown on the lines only, bu
   assert.equal(saved[0].mode, 'paint');
   assert.equal(saved[0].filament.name, name);
   await page.screenshot({ path: path.join(shots, '18-lineart-painted.png') });
+  // The first colour goes in the top layers; the Print tab says what its filament changes cost, and the other choice.
+  assert.equal((await getDesign(lid)).values.$lineartColourDepth, 'auto');
+  await page.getByRole('tab', { name: /Print/ }).click();
+  const depth = page.getByRole('combobox', { name: 'How deep the colours go' });
+  assert.equal(await depth.inputValue(), 'auto');
+  await page.locator('.lineart-depth', { hasText: /Top layers \(auto\): \d+ filament changes? on \d+ layers?, about \d+ min/ }).waitFor();
+  await page.locator('.lineart-depth', { hasText: /Through the piece: \d+ filament changes/ }).waitFor();
+  await page.screenshot({ path: path.join(shots, '18-lineart-depth.png') });
+  await depth.selectOption('through');
+  await until(async () => (await getDesign(lid)).values?.$lineartColourDepth === 'through', 'the depth is saved with the design');
   assert.deepEqual(errors, []);
 });
