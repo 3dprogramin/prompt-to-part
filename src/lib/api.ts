@@ -1,4 +1,4 @@
-import type { Design, DesignSummary } from '../../shared/types';
+import type { Design, DesignSummary, Vec3 } from '../../shared/types';
 import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, MeshyBalance, PriceRequest, PriceSuggestion } from '../../shared/api';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
@@ -112,7 +112,7 @@ export const api = {
   suggestPrice: (r: PriceRequest) => getJson<PriceSuggestion>('/api/price', { method: 'POST', body: JSON.stringify(r) }),
   /** A product photo of the design from a render of it (the image model: 10–30 s). */
   /** A fresh setting for a scene preset's random sub-scene, written by Claude (seconds). */
-  photoScene: (scene: string) => getJson<PhotoSceneResponse>('/api/photo-scene', { method: 'POST', body: JSON.stringify({ scene }) }).then((r) => r.scene),
+  photoScene: (scene: string, size?: Vec3) => getJson<PhotoSceneResponse>('/api/photo-scene', { method: 'POST', body: JSON.stringify({ scene, size }) }).then((r) => r.scene),
   photo: (designId: string, r: PhotoRequest) => getJson<PhotoResponse>(`/api/designs/${designId}/photos`, { method: 'POST', body: JSON.stringify(r) }),
   /** A mesh file attached in the chat: imported, repaired and stored with the design (seconds for big files). */
   uploadMesh: (designId: string, file: File) => getJson<MeshUpload>(`/api/designs/${designId}/meshes?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } }),

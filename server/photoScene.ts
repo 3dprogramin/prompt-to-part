@@ -4,8 +4,9 @@ import { claudeEnv } from './agent';
 import { claudeAuthProblem } from './config';
 import { recordRateLimit } from './usage';
 import { parseWrittenScene, SCENE_WRITER_PROMPT, sceneWriterPrompt } from '../shared/photos';
+import type { Vec3 } from '../shared/types';
 
-export async function writeScene(id: string): Promise<string> {
+export async function writeScene(id: string, size?: Vec3): Promise<string> {
   const authProblem = claudeAuthProblem();
   if (authProblem) throw new Error(authProblem);
   const abort = new AbortController();
@@ -14,7 +15,7 @@ export async function writeScene(id: string): Promise<string> {
   try {
     let text = '';
     for await (const msg of query({
-      prompt: sceneWriterPrompt(id),
+      prompt: sceneWriterPrompt(id, Math.random, size),
       options: {
         systemPrompt: SCENE_WRITER_PROMPT,
         model: 'sonnet',

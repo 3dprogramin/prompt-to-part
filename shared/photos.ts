@@ -283,7 +283,7 @@ export const SCENE_WRITER_PROMPT = `You write the setting for a product photo of
 Answer with ONLY the setting phrase, no quotes and no other text, at most 400 characters.`;
 
 /** What Claude is asked for a random sub-scene of a preset. */
-export function sceneWriterPrompt(id: string, pick: () => number = Math.random): string {
+export function sceneWriterPrompt(id: string, pick: () => number = Math.random, size?: Vec3): string {
   const preset = sceneById(id);
   const any = <T>(list: T[]) => list[Math.floor(pick() * list.length) % list.length];
   const studio = !!preset?.studio || id === 'studio';
@@ -292,7 +292,11 @@ export function sceneWriterPrompt(id: string, pick: () => number = Math.random):
     'Write a fresh setting of this kind, clearly different from these three (they show the style and the level of detail):',
     ...subScenes(id).map((s, i) => `${i + 1}. ${s.scene}`),
     studio ? `For variety, if it fits: a ${any(BACKDROPS)} tone.` : `For variety, if it fits the place: a ${any(STYLES)} look, ${any(LIGHTS)}.`,
-  ].join('\n');
+    // A small piece in a setting written for a room comes out room-sized: the setting must suit its size.
+    size && Math.max(...size) < 350
+      ? `The product is small: ${mm(size[0])} × ${mm(size[1])} × ${mm(size[2])} mm (${familiar(size, size[2] < 0.25 * Math.min(size[0], size[1]))}). The photo is taken close to it, so write a setting for something this size: only what is right next to it shows, partly and softly blurred at the edges; no whole room, sofa or big furniture in full view${preset?.wall ? ', mostly plain wall around it' : ''}.`
+      : null,
+  ].filter((l) => l !== null).join('\n');
 }
 
 /** Claude's random scene, cleaned up: one phrase, no quotes or final full stop. */
@@ -511,6 +515,11 @@ const vsHand = (size: Vec3) => {
   return `its longest side is about ${times(longest, HAND)} times the length of an adult hand (${HAND} mm) and ${times(longest, PALM)} times the width of its palm (${PALM} mm)`;
 };
 const vsMug = ([x, y, z]: Vec3) => `its longest side is about ${times(Math.max(x, y, z), MUG)} times the mug's height${z >= MUG / 2 && z < Math.max(x, y) ? ` and it stands about ${times(z, MUG)} times as tall as the mug` : ''}`;
+/** How much wall a close photo of a small wall piece shows (cm, side to side), and how much of that it fills: told in numbers, else the image model shows the room and blows the piece up. */
+const wallFrame = ([x, y]: Vec3, surface: string) => {
+  const cm = Math.max(30, Math.round((Math.max(x, y) * 2.5) / 50) * 5);
+  return `the picture shows only about ${cm} cm of ${surface} from side to side, so it fills about ${Math.round((Math.max(x, y) / (cm * 10)) * 100)}% of the width (never a whole room or a big piece of furniture in full view; anything below it shows only partly, at the bottom edge)`;
+};
 
 /** A thin, flat print (a LayerTone panel, a plaque, a coaster): the image model draws it as a thick slab unless told. */
 const isThin = ([x, y, z]: Vec3) => z <= 10 && z < 0.08 * Math.min(x, y);
@@ -583,8 +592,8 @@ export function photoPrompt(b: PhotoRequest): string {
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
     wall && Math.max(x, y) < 350 && shop !== 'size'
       ? surface === 'wall'
-        ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by.`
-        : 'It is a small piece: show the fridge\'s handle or another magnet beside it on the door, apart from it, so its real size is obvious, and photograph it from close by.'
+        ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
+        : `It is a small piece: show the fridge's handle or another magnet beside it on the door, apart from it, so its real size is obvious, and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
       : null,
     b.scene === 'hand' && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
     shop ? shopLine(shop, b.scene, b.product.size, faceOn) : null,

@@ -153,7 +153,7 @@ const lookTitle = (ph: { scene: string; variant?: SceneVariant; sceneText?: stri
   return !v ? undefined : v === 'random' ? `Random setting: ${ph.sceneText ?? `one the image model invented (${sceneKind(ph.scene)})`}` : `Sub-scene ${v}: ${variantName(ph.scene, v)}`;
 };
 /** A random sub-scene's setting, written by Claude; none (the image model invents it) when Jig can't reach Claude. */
-const writeScene = (scene: string) => api.photoScene(scene).catch(() => undefined);
+const writeScene = (scene: string, size?: Vec3) => api.photoScene(scene, size).catch(() => undefined);
 /** A photo's name: its scene, or for a shop set's photo its shot; and the sale size it shows. */
 const photoLabel = (scene: string, shop?: string, size?: string) => { const s = shopShot(shop); return (s ? `Shop · ${SHOP_SHOT_LABELS[s]}` : sceneLabel(scene)) + (size ? ` · ${size}` : ''); };
 /** The shop shots that are the same for every sale size (the shape is the same; the size doesn't show). */
@@ -264,7 +264,7 @@ export function PhotosPanel(p: Props) {
     if (choice.variant !== 'random') return { variant: choice.variant };
     setWriting(what);
     try {
-      const text = await writeScene(choice.scene);
+      const text = await writeScene(choice.scene, size ?? undefined);
       return { variant: 'random', ...(text ? { sceneText: text } : {}) };
     } finally {
       setWriting(null);

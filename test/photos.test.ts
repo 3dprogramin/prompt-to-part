@@ -164,6 +164,10 @@ test('the photo prompt uses the chosen sub-scene; a random one as written, or in
   for (const s of subScenes('wall')) assert.ok(ask.includes(s.scene));
   assert.match(ask, /a Japandi look, soft morning light/);
   assert.match(sceneWriterPrompt('studio', () => 0), /a warm sand tone/);
+  // A small piece's random setting is written for its size, and its photo is framed in numbers.
+  assert.match(sceneWriterPrompt('wall', () => 0, [250, 186.6, 2.2]), /The product is small: 250 × 187 × 2\.2 mm .*no whole room, sofa or big furniture in full view, mostly plain wall around it/);
+  assert.doesNotMatch(sceneWriterPrompt('wall', () => 0), /The product is small/);
+  assert.match(photoPrompt(request({ scene: 'wall', product: { name: 'Castle', size: [250, 186.6, 2.2], faceOn: true } })), /shows only about 65 cm of wall from side to side, so it fills about 38% of the width/);
   assert.equal(parseWrittenScene('  "on a slate shelf,  dim light."\n'), 'on a slate shelf, dim light');
   assert.throws(() => parseWrittenScene(' "" '), /did not write/);
 });

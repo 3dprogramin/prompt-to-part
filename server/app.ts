@@ -22,7 +22,7 @@ import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
 import { photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneResponse } from '../shared/photos';
-import type { Design, DesignSummary } from '../shared/types';
+import type { Design, DesignSummary, Vec3 } from '../shared/types';
 import { designKind } from '../shared/designKind';
 import { geometry } from './geometry';
 import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from './meshes';
@@ -399,12 +399,14 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   // asked for, so the photo, its changes and its other sizes all keep it. Without Claude the app asks
   // for the photo anyway and the image model invents the setting (photoPrompt).
   app.post('/api/photo-scene', json('2kb'), async (req, res) => {
-    const id = (req.body as { scene?: unknown } | undefined)?.scene;
+    const { scene: id, size } = (req.body ?? {}) as { scene?: unknown; size?: unknown };
     if (typeof id !== 'string' || !sceneById(id)) return void res.status(400).json({ error: 'scene: one of the scene presets' });
+    // The product's size, so the setting suits it (optional).
+    const dims = Array.isArray(size) && size.length === 3 && size.every((v) => typeof v === 'number' && v > 0 && v < 10000) ? size as Vec3 : undefined;
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     try {
-      res.json({ scene: await sceneWriter(id) } satisfies PhotoSceneResponse);
+      res.json({ scene: await sceneWriter(id, dims) } satisfies PhotoSceneResponse);
     } catch (e) {
       res.status(502).json({ error: (e as Error).message });
     }
