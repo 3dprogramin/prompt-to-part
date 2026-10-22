@@ -6,6 +6,7 @@ import type { PhotoView } from '../viewer/Viewer';
 import { mainAxis } from '../../shared/sizes';
 import { api } from '../lib/api';
 import { dataUrlToImage, download, slug, uid } from '../lib/files';
+import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
 import { useEscape } from './useEscape';
@@ -181,6 +182,8 @@ interface Props {
   hiddenParts: string[];
   photos: ProductPhoto[];
   onDelete: (url: string) => void;
+  /** Deletes several photos at once (asked first, here). */
+  onDeleteMany: (urls: string[]) => void;
   /** Clean render of the model (Viewer.photo). */
   capture: (view: PhotoView, aspect: number) => string | null;
   jobs: PhotoJob[];
@@ -231,7 +234,12 @@ export function PhotosPanel(p: Props) {
   const closeBig = () => { setBig(null); opener.current?.focus(); };
   useEscape(!!big, closeBig);
   useEscape(p.open && !big, p.onClose);
-  useEffect(() => { setBig(null); setError(null); setSizeNote(null); setFilter('all'); }, [p.designId]);
+  // Picking photos to delete several at once: a click on a photo picks it (shift-click: a range).
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [pickAnchor, setPickAnchor] = useState<string | null>(null);
+  const stopPicking = () => { setPicking(false); setPicked(new Set()); setPickAnchor(null); };
+  useEffect(() => { setBig(null); setError(null); setSizeNote(null); setFilter('all'); stopPicking(); }, [p.designId]);
 
   const parts = useMemo(() => p.result?.parts.filter((x) => !p.hiddenParts.includes(x.name)) ?? [], [p.result, p.hiddenParts]);
   const size = useMemo((): Vec3 | null => {
@@ -289,6 +297,23 @@ export function PhotosPanel(p: Props) {
     return filter === 'none' ? !own : own === filter || (!own && STUDIO_SHOTS.includes(ph.shop ?? ''));
   });
   const filters = sizeList.length > 0 || allPhotos.some((ph) => ph.saleSize);
+  // Only the shown photos count as picked: the size filter never leaves a hidden one picked.
+  const pickedShown = photos.filter((ph) => picked.has(ph.url));
+  const allPicked = photos.length > 0 && pickedShown.length === photos.length;
+  const pickPhoto = (url: string, range: boolean) => { setPicked((cur) => pickIds(photos.map((ph) => ph.url), cur, url, pickAnchor, range)); setPickAnchor(url); };
+  /**
+   * Deletes the picked photos after one question, as a single delete does (out of the design's
+   * list). Photos made from them in other sizes stay; a remake from a deleted one says so.
+   */
+  const deletePicked = () => {
+    const urls = [...new Set(pickedShown.map((ph) => ph.url))];
+    if (!urls.length) return;
+    const madeFrom = allPhotos.filter((ph) => !urls.includes(ph.url) && !!ph.sizeOf && urls.includes(ph.sizeOf)).length;
+    const note = madeFrom ? `\n\n${madeFrom === 1 ? 'Another photo was' : `${madeFrom} other photos were`} made from them in other sizes: ${madeFrom === 1 ? 'it stays' : 'they stay'}, but can't be made again from these.` : '';
+    if (!confirm(`Delete ${urls.length === 1 ? 'this photo' : `these ${urls.length} photos`} of "${p.designName}"?${note}`)) return;
+    p.onDeleteMany(urls);
+    stopPicking();
+  };
   /** Why a photo is out of date: its size's dimension changed (or the design's), or the design's shape. */
   const outdated = (ph: ProductPhoto): string | null => {
     const notes: string[] = [];
@@ -642,7 +667,27 @@ export function PhotosPanel(p: Props) {
       {p.notAssembled && <div className="dim small">Tip: the photo shows the parts as laid out in the view – choose <b>Assembled</b> below the view for the finished object.</div>}
       {error && <div className="bad-note small" role="alert">{error}</div>}
 
-      {(jobs.length > 0 || allPhotos.length > 0) && <div className="ph-label ph-gallery-head">Photos{photos.length ? ` (${photos.length})` : ''}</div>}
+      {(jobs.length > 0 || allPhotos.length > 0) && (
+        <div className="ph-label ph-gallery-head">
+          <span>Photos{photos.length ? ` (${photos.length})` : ''}</span>
+          {allPhotos.length > 1 && (
+            <button className="link" onClick={() => (picking ? stopPicking() : setPicking(true))} aria-pressed={picking} title={picking ? 'Stop picking photos' : 'Pick several photos to delete them at once'}>
+              {picking ? 'Done' : 'Select'}
+            </button>
+          )}
+        </div>
+      )}
+      {picking && photos.length > 0 && (
+        <div className="ph-pick-bar">
+          <label title={allPicked ? 'Pick none' : `Pick all ${photos.length} photos shown`}>
+            <input type="checkbox" checked={allPicked} ref={(el) => { if (el) el.indeterminate = pickedShown.length > 0 && !allPicked; }}
+              onChange={() => { setPicked(new Set(allPicked ? [] : photos.map((ph) => ph.url))); setPickAnchor(null); }} />
+            {pickedShown.length ? `${pickedShown.length} picked` : `Pick all ${photos.length}`}
+          </label>
+          <span className="spacer" />
+          <button className="btn danger small-btn" disabled={!pickedShown.length} onClick={deletePicked}><Icon name="trash" size={12} /> Delete{pickedShown.length ? ` ${pickedShown.length}` : ''}</button>
+        </div>
+      )}
       {filters && allPhotos.length > 0 && (
         <div className="seg ph-filter" role="radiogroup" aria-label="Show the photos of">
           {[['all', 'All'], ...sizeList.map((s) => [s.id, s.label]), ['none', 'No size']].map(([k, label]) => (
@@ -651,7 +696,7 @@ export function PhotosPanel(p: Props) {
           ))}
         </div>
       )}
-      <div className="ph-gallery">
+      <div className={`ph-gallery ${picking ? 'picking' : ''}`}>
         {jobs.map((j) => (
           <div key={j.id} className={`ph-tile pending ${j.error ? 'failed' : ''}`} role={j.error ? 'alert' : 'status'}>
             {j.error
@@ -667,9 +712,11 @@ export function PhotosPanel(p: Props) {
         {photos.map((ph, i) => {
           const old = outdated(ph);
           return (
-            <div key={ph.url + ph.createdAt} className={`ph-tile ${old ? 'outdated' : ''}`}>
-              <button className="ph-thumb" onClick={() => openBig(ph)} aria-label={`${nameOf(ph)} photo, enlarge`}>
+            <div key={ph.url + ph.createdAt} className={`ph-tile ${old ? 'outdated' : ''} ${picking && picked.has(ph.url) ? 'picked' : ''}`}>
+              <button className="ph-thumb" onClick={(e) => (picking ? pickPhoto(ph.url, e.shiftKey) : openBig(ph))}
+                aria-label={picking ? `Pick the ${nameOf(ph)} photo` : `${nameOf(ph)} photo, enlarge`} aria-pressed={picking ? picked.has(ph.url) : undefined}>
                 <img src={ph.url} alt="" loading="lazy" />
+                {picking && <span className={`ph-pick ${picked.has(ph.url) ? 'on' : ''}`} aria-hidden="true"><Icon name="check" size={12} /></span>}
               </button>
               {old && <button className="ph-outdated" onClick={() => void refresh(ph)} disabled={!p.imageModel} title={`Out of date: ${old}. Click to make it again in the same scene (the old photo stays).`}><Icon name="restore" size={11} /> {old.startsWith('made for an') ? 'Design changed' : old.split(',')[0].replace('made', 'Made')}</button>}
               <div className="ph-tile-bar">

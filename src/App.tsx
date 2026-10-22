@@ -442,7 +442,7 @@ export default function App() {
   // Product photos: each lands in its own design, even when another one is open by then.
   const [photosOpen, setPhotosOpen] = useState(false);
   const photoJobs = usePhotoJobs((id, photo) => updateDesign(id, (d) => ({ ...d, photos: [...(d.photos ?? []), photo], updatedAt: Date.now() })));
-  const deletePhoto = (url: string) => setDesign((d) => ({ ...d, photos: d.photos?.filter((x) => x.url !== url), updatedAt: Date.now() }));
+  const deletePhotos = (urls: string[]) => setDesign((d) => ({ ...d, photos: d.photos?.filter((x) => !urls.includes(x.url)), updatedAt: Date.now() }));
 
   /** Switch the open design, keeping a still-generating or unsaved one alive in memory. */
   const switchTo = useCallback((next: Design) => {
@@ -1412,7 +1412,8 @@ export default function App() {
                 shape={sizes.shape}
                 sizeShot={sizeShot}
                 onStartSizes={(groups, more) => photoJobs.startSizes(design.id, groups, more)}
-                onDelete={deletePhoto}
+                onDelete={(url) => deletePhotos([url])}
+                onDeleteMany={deletePhotos}
                 capture={(view, aspect) => photoRef.current?.(view, aspect) ?? null}
                 jobs={photoJobs.jobs}
                 onStart={(r, more) => photoJobs.start(design.id, r, more)}
