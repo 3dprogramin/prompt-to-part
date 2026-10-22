@@ -346,15 +346,20 @@ export function photoPrompt(b: PhotoRequest): string {
 
 /**
  * The prompt for making a photo again with a change: a new photo from the render (the first
- * picture, as photoPrompt), with the earlier photo (the second picture) as the scene to keep – its
- * setting, props and light – and the change applied. Composed afresh rather than patched, so the
- * product can sit differently (an edited picture keeps the product as it was drawn).
+ * picture, as photoPrompt) that is the earlier photo (the second picture) with only the change
+ * applied. Drawn again rather than patched, so the product follows its render; but everything the
+ * change doesn't ask for stays as it was (told to compose afresh, the model redrew the whole scene
+ * for a small fix). A new render (the design updated, or the view turned) changes only the product.
  */
 export function photoEditPrompt(b: PhotoRequest): string {
   return [
     photoPrompt({ ...b, notes: undefined }),
     '',
-    'THE SCENE TO KEEP: the second attached picture is an earlier photo of this product. Make the new photo in the same setting – the same place, surface, props, colours, light and mood – and compose it afresh around the product.',
+    'THE PHOTO TO CHANGE: the second attached picture is an earlier photo of this product. Make it again with only THE CHANGE below: everything the change does not ask for stays exactly as in that photo (the composition and framing, where the product and each of its pieces are, their size and angle in the frame, the props, background, surface, colours and light). Where the instructions above say how to frame or set up the photo, keep the earlier photo instead.',
+    'If the change asks to move, spread, turn or recompose things (e.g. "from above", "closer", "spread them out more"), do that, and keep the rest.',
+    b.render
+      ? 'The first attached picture is a new render of the product: show the product as in it (its design and the angle it is seen from), on the same spot in the scene, still matching the render exactly as said above.'
+      : 'The product still matches the render (the first attached picture) exactly, as said above.',
     `THE CHANGE (the reason for the new photo – make it clearly): ${b.change!.trim()}.`,
     b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
   ].filter((l) => l !== null).join('\n');

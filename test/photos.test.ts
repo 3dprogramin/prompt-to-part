@@ -120,11 +120,22 @@ test('a photo made again with a change: its photo is the scene, the product from
   assert.match(photoProblem({ ...noRender, from: { photo: 'https://example.com/x.png' }, change: 'x' })!, /from/);
   assert.match(photoProblem(noRender)!, /render/);
   const p = photoEditPrompt({ ...noRender, from, change: 'add a plant behind it', notes: 'evening light' });
-  assert.match(p, /THE SCENE TO KEEP: the second attached picture is an earlier photo/);
+  assert.match(p, /THE PHOTO TO CHANGE: the second attached picture is an earlier photo/);
+  // A small fix keeps the rest of the photo; recomposing only when the change asks for it.
+  assert.match(p, /everything the change does not ask for stays exactly as in that photo \(the composition and framing, where the product and each of its pieces are, their size and angle in the frame/);
+  assert.match(p, /keep the earlier photo instead/);
+  assert.match(p, /If the change asks to move, spread, turn or recompose things/);
+  assert.doesNotMatch(p, /afresh/);
+  assert.match(p, /The product still matches the render \(the first attached picture\) exactly/);
+  assert.doesNotMatch(p, /new render/);
   assert.match(p, /THE CHANGE \(the reason for the new photo – make it clearly\): add a plant behind it\./);
   assert.match(p, /Earlier wishes that still apply: evening light\./);
   assert.match(p, /KEEP THE OBJECT EXACTLY AS IN THE RENDER/);
   assert.match(photoPrompt(request()), /rests ON the surface, not above it/);
+  // A new render (the design updated, or the view turned): only the product changes, on the same spot.
+  const updated = photoEditPrompt({ ...request(), from: { photo: from.photo }, change: 'The design was updated since the earlier photo: show the product exactly as in the new render' });
+  assert.match(updated, /The first attached picture is a new render of the product: show the product as in it \(its design and the angle it is seen from\), on the same spot in the scene/);
+  assert.match(updated, /THE PHOTO TO CHANGE/);
 });
 
 test('an ornament on the tree hangs face-on from a ribbon, the only thing added', () => {
