@@ -20,10 +20,17 @@ export function parsePartColors(raw: unknown): Record<string, PartFilament> {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
   const out: Record<string, PartFilament> = {};
   for (const [part, f] of Object.entries(o as Record<string, PartFilament>).slice(0, 200)) {
-    if (!f || typeof f.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(f.color)) continue;
-    out[part.slice(0, 120)] = { color: f.color.toLowerCase(), ...(typeof f.name === 'string' ? { name: f.name.slice(0, 120) } : {}), ...(typeof f.brand === 'string' ? { brand: f.brand.slice(0, 60) } : {}) };
+    const clean = cleanFilament(f);
+    if (clean) out[part.slice(0, 120)] = clean;
   }
   return out;
+}
+
+/** A filament as the picker gives it, checked (a #rrggbb colour, lower case); undefined when it isn't one. */
+export function cleanFilament(raw: unknown): PartFilament | undefined {
+  const f = raw as PartFilament | null;
+  if (!f || typeof f !== 'object' || typeof f.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(f.color)) return undefined;
+  return { color: f.color.toLowerCase(), ...(typeof f.name === 'string' ? { name: f.name.slice(0, 120) } : {}), ...(typeof f.brand === 'string' ? { brand: f.brand.slice(0, 60) } : {}) };
 }
 
 function niceStep(range: number) {

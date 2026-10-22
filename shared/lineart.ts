@@ -5,6 +5,7 @@
 // the style's bar, frame, hooks or stand.
 import type { Brim } from './print';
 import { defaultColors, type SvgDrawing } from './svgFeatures';
+import { cleanFilament, type PartFilament } from './params';
 import { boxFitter, dovetail, formatSplitSpec, keepTogether, MAX_PIECE, parseSplitSpec, pieceLabel, routeSeam, seamAt, seamGeometry, splitGrid, type Seam, type SplitGrid, type SplitSpec } from './split';
 
 export const LINE_ART_STYLES = ['outline', 'keyholder', 'framed', 'medallion', 'sign', 'stand'] as const;
@@ -183,6 +184,12 @@ export interface LineArtInfo {
   split?: LineArtSplitInfo;
   /** This part is one piece of a split line art: its name, and how far the layout moved it from its place on the wall (mm). */
   piece?: { label: string; offset: [number, number] };
+  /** Lines coloured in other filaments (Edit drawing's paint and coloured lines): those filaments, each a part of its own beside the piece. */
+  colours?: PartFilament[];
+  /** This part is the piece's lines in one of `colours` (the rest of the piece is the part without it). */
+  paintedIn?: PartFilament;
+  /** A coloured piece: how many separate bodies it and its coloured parts make together (each part alone may be in bits). */
+  components?: number;
 }
 
 /** What H.lineart returns; a script returns it as it is (or adds to its parts). */
@@ -212,9 +219,12 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   const count = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? (v as number) : 0);
   const frames = (Array.isArray(o.frames) ? o.frames : []).slice(0, 8).filter((f) => f && typeof f.name === 'string' && [f.k, f.tx, f.ty].every((v) => Number.isFinite(v)) && f.k > 0)
     .map((f) => ({ name: f.name.slice(0, 120), k: f.k * scale, tx: f.tx * scale, ty: f.ty * scale, fp: String(f.fp ?? '').slice(0, 80) }));
+  const colours = (Array.isArray(o.colours) ? o.colours : []).slice(0, 16).map(cleanFilament).filter((f): f is PartFilament => !!f);
+  const paintedIn = cleanFilament(o.paintedIn);
   return {
     frames, edits: count(o.edits),
     ...cleanSplit(o, scale),
+    ...(colours.length ? { colours } : {}), ...(paintedIn ? { paintedIn } : {}), ...(Number.isInteger(o.components) && o.components! > 0 ? { components: o.components } : {}),
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
     size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
     bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
@@ -297,10 +307,12 @@ export const MAX_STROKE_POINTS = 2000;
 /**
  * One brush stroke on a drawing: 'draw' adds a line `width` mm wide (default: the piece's
  * lineWidth), 'erase' removes everything within width / 2 of its path (default 3 mm) – also what
- * Jig drew there, so a join or bridge can be erased. Points are in the drawing's own units (1 = its
- * height, centred, y up), so an edit stays put when the piece is resized.
+ * Jig drew there, so a join or bridge can be erased; 'paint' colours the lines under it
+ * (default 3 mm wide) in `filament`, adding nothing. A drawn line is in `filament` too; without
+ * one, either is the piece's own filament (paint puts it back). Points are in the drawing's own
+ * units (1 = its height, centred, y up), so an edit stays put when the piece is resized.
  */
-export interface LineArtStroke { mode: 'draw' | 'erase'; width?: number; points: [number, number][] }
+export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint'; width?: number; points: [number, number][]; filament?: PartFilament }
 /** The strokes on a drawing, with the fingerprint of the drawing they were made on: a new drawing under the same name leaves them out. */
 export type LineArtEdits = Record<string, { fp: string; strokes: LineArtStroke[] }>;
 
@@ -321,16 +333,32 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
     if (!e || typeof e.fp !== 'string' || !Array.isArray(e.strokes)) continue;
     const strokes: LineArtStroke[] = [];
     for (const st of e.strokes.slice(-MAX_LINEART_STROKES) as LineArtStroke[]) {
-      if (!st || (st.mode !== 'draw' && st.mode !== 'erase') || !Array.isArray(st.points)) continue;
+      if (!st || (st.mode !== 'draw' && st.mode !== 'erase' && st.mode !== 'paint') || !Array.isArray(st.points)) continue;
       const points = st.points.slice(0, MAX_STROKE_POINTS).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [p[0], p[1]] as [number, number]);
       if (!points.length) continue;
       const width = Number(st.width);
-      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}) });
+      // (An eraser has no filament.)
+      const filament = st.mode === 'erase' ? undefined : cleanFilament(st.filament);
+      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}), ...(filament ? { filament } : {}) });
     }
     if (strokes.length) out[name.slice(0, 120)] = { fp: e.fp.slice(0, 80), strokes };
   }
   return out;
 }
+
+/**
+ * The colours of a drawing's hand edits, to keep when the edits are drawn into a new picture of it
+ * (Jig changing part of the drawing): its paint strokes, and its lines as paint along them (a line
+ * in the piece's own filament takes the colour back there, as it did).
+ */
+export function colourStrokes(strokes: LineArtStroke[], lineWidth = 1): LineArtStroke[] {
+  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}) }] : []));
+  const first = out.findIndex((st) => st.filament);
+  return first < 0 ? [] : out.slice(first);
+}
+
+/** Same colour and name: the same filament. */
+const filamentKey = (f: PartFilament) => `${f.color.toLowerCase()}|${f.name ?? ''}`;
 
 /**
  * A drawing as a black-on-white picture `heightPx` high (RGBA, anti-aliased), with its hand edits
@@ -350,6 +378,7 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
   }
   const toPx = ([x, y]: [number, number]): Pt => [(x - g.x0) * H - 0.5, (g.y1 - y) * H - 0.5];
   for (const st of strokes) {
+    if (st.mode === 'paint') continue;
     const r = ((st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit) * H;
     const m = new Uint8Array(W * H), pts = st.points.map(toPx);
     if (pts.length === 1) capsuleXY(m, W, H, pts[0], pts[0], r);
@@ -1220,7 +1249,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       // Hand edits first, in the drawing's unit height (so Jig's clean-up treats them like the rest).
       let cs = u.cs;
       const toUnit = ([px_, py_]: Pt): Pt => [(px_ - u.bx) / u.h, (py_ - u.by) / u.h];
-      for (const st of u.edits) cs = st.mode === 'draw' ? cs.add(brush(st, toUnit, s)) : cs.subtract(brush(st, toUnit, s));
+      for (const st of u.edits) if (st.mode === 'draw') cs = cs.add(brush(st, toUnit, s)); else if (st.mode === 'erase') cs = cs.subtract(brush(st, toUnit, s));
       const p = cs.scale(s).translate([x, 0]);
       art = art ? art.add(p) : p;
       frames.push({ name: u.name, k: s / u.h, tx: x - (u.bx * s) / u.h, ty: -(u.by * s) / u.h, fp: d.fingerprint(u.name) });
@@ -1344,7 +1373,40 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     return shape;
   };
 
-  let parts: LineArtResult['parts'];
+  // What changes the piece's shape (paint and the lines' filaments don't: a new colour isn't traced again).
+  const shapeEdits = units.map((u) => u.edits.filter((st) => st.mode !== 'paint').map(({ filament: _f, ...st }) => st));
+  // Colours: each filament's area on the piece (mm), the later stroke winning where two cross; a
+  // stroke in the piece's own filament (none, or its colour) takes it back. A drawn line colours
+  // all of itself, also where Jig made it thicker.
+  const baseColour = color.toLowerCase();
+  const areas: { filament: PartFilament; area: any }[] = [];
+  units.forEach((u, i) => {
+    const f = frames[i], toMm = ([x, y]: Pt): Pt => [x * f.k + f.tx, y * f.k + f.ty];
+    for (const st of u.edits) {
+      if (st.mode === 'erase') continue;
+      const fil = st.filament && st.filament.color !== baseColour ? st.filament : null;
+      if (!fil && !areas.length) continue;
+      const b = brush(st.mode === 'draw' ? { ...st, width: Math.max(st.width ?? lineWidth, lineWidth) } : st, toMm, 1);
+      for (const a of areas) if (!fil || filamentKey(a.filament) !== filamentKey(fil)) a.area = a.area.subtract(b);
+      if (!fil) continue;
+      const mine = areas.find((a) => filamentKey(a.filament) === filamentKey(fil));
+      if (mine) mine.area = mine.area.add(b); else areas.push({ filament: fil, area: b });
+    }
+  });
+  // Each colour's part name: the piece's, with the filament's name (its colour too when two share one).
+  const colourName = (fil: PartFilament) => {
+    const name = fil.name || fil.color;
+    return areas.some((a) => (a.filament.name || a.filament.color) === name && a.filament.color !== fil.color) ? `${name} ${fil.color}` : name;
+  };
+  // The filaments the piece came out coloured in (a colour on no line is none).
+  const used: PartFilament[] = [];
+  const colourParts = (piece: string, lc: any, anc: any) => colourLines(lc, anc, areas).map((c) => {
+    if (!used.some((f) => filamentKey(f) === filamentKey(c.filament))) used.push(c.filament);
+    return { ...c, name: `${piece} (${colourName(c.filament)})` };
+  });
+  const without = (lc: any, cols: { cs: any }[]) => (cols.length ? lc.subtract(cols.reduce((u: any, c) => (u ? u.add(c.cs) : c.cs), null)) : lc);
+
+  let parts: (LineArtResult['parts'][number] & { colours?: Coloured[] })[];
   let info: LineArtInfo;
   let sp: SplitResult | null = null;
   if (!grid || grid.cols * grid.rows < 2) {
@@ -1352,7 +1414,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
     const area = (ab.max[0] - ab.min[0] + 8 * px) * (ab.max[1] - ab.min[1] + 8 * px);
     px = Math.max(px, Math.sqrt(area / MAX_PIXELS[d.quality]));
-    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, units.map((u) => u.edits)]);
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, shapeEdits]);
     let res = cache.get(key);
     if (!res) {
       const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
@@ -1369,11 +1431,14 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       const f = frames[i];
       for (const st of u.edits) if (st.mode === 'erase') lineCs = lineCs.subtract(brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1));
     });
-    let shape = lineCs.extrude(thickness);
+    // The lines in other filaments are parts of their own; the rest is the piece's.
+    const colours = colourParts('Line art', lineCs, anchor);
+    let shape = without(lineCs, colours).extrude(thickness);
     if (anchor) shape = shape.add(anchor.extrude(anchorThickness));
     shape = decorate(shape);
     info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
-    parts = [{ name: 'Line art', shape, color, lineArt: info }];
+    if (colours.length) info.components = (anchor ? lineCs.add(anchor) : lineCs).decompose().length;
+    parts = [{ name: 'Line art', shape, color, lineArt: info, colours: colours.map((c) => ({ name: c.name, shape: c.cs.extrude(thickness), filament: c.filament })) }];
   } else {
     // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by itself.
     let erase: any = null;
@@ -1381,7 +1446,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       const f = frames[i];
       for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); erase = erase ? erase.add(b) : b; }
     });
-    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, units.map((u) => u.edits), d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, shapeEdits, d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
     sp = splitPieces({
       d, key, art, anchor, erase, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
       clearance: num('clearance', 0.15, 0, 1), maxBridge: d.join ?? (opts.splitJoin != null ? num('splitJoin', DEFAULT_SPLIT_JOIN, 5, 300) : DEFAULT_SPLIT_JOIN), minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,
@@ -1391,9 +1456,13 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const labels = opts.labels !== false;
     const res = sp;
     parts = res.pieces.map((p, i) => {
-      let shape = p.lineCs.isEmpty() ? p.anchor.extrude(anchorThickness) : p.lineCs.extrude(thickness);
-      if (p.anchor && !p.lineCs.isEmpty()) shape = shape.add(p.anchor.extrude(anchorThickness));
+      // Each piece keeps the colours on it.
+      const cols = colourParts(p.info.label, p.lineCs, p.anchor);
+      const own = without(p.lineCs, cols);
+      let shape = own.isEmpty() && p.anchor ? p.anchor.extrude(anchorThickness) : own.extrude(thickness);
+      if (p.anchor && !own.isEmpty()) shape = shape.add(p.anchor.extrude(anchorThickness));
       shape = decorate(shape, (q) => res.pieceAt(q) === i, p.region);
+      let colours: Coloured[] = cols.map((c) => ({ name: c.name, shape: c.cs.extrude(thickness), filament: c.filament }));
       // Its name engraved on the back, mirrored so it reads from the back.
       const at = labels ? res.label(i) : null;
       if (at) {
@@ -1401,10 +1470,13 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
         const tb = t.bounds();
         t = t.translate([-(tb.min[0] + tb.max[0]) / 2, -(tb.min[1] + tb.max[1]) / 2]).mirror([1, 0]);
         if (at.rot) t = t.rotate(90);
-        shape = shape.subtract(t.translate([at.x, at.y]).extrude(LABEL_DEPTH + 1).translate([0, 0, -1]));
+        const cut = t.translate([at.x, at.y]).extrude(LABEL_DEPTH + 1).translate([0, 0, -1]);
+        shape = shape.subtract(cut);
+        colours = colours.map((c) => ({ ...c, shape: c.shape.subtract(cut) }));
       }
       p.info.labelSize = at ? at.size : 0;
-      return { name: p.info.label, shape, color, lineArt: info, plate: i + 1 };
+      const whole = cols.length ? (p.anchor ? p.lineCs.add(p.anchor) : p.lineCs).decompose().length : 0;
+      return { name: p.info.label, shape, color, lineArt: whole ? { ...info, components: whole } : info, plate: i + 1, colours };
     });
   }
 
@@ -1426,16 +1498,27 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   }
   // Everything centred on the plate (the origin), as the 3MF export places it.
   let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
-  for (const p of parts) { const b = (p.shape as any).boundingBox(); lo = [Math.min(lo[0], b.min[0]), Math.min(lo[1], b.min[1])]; hi = [Math.max(hi[0], b.max[0]), Math.max(hi[1], b.max[1])]; }
+  for (const p of parts) for (const sh of [p.shape, ...(p.colours ?? []).map((c) => c.shape)] as any[]) {
+    if (sh.isEmpty()) continue;
+    const b = sh.boundingBox();
+    lo = [Math.min(lo[0], b.min[0]), Math.min(lo[1], b.min[1])]; hi = [Math.max(hi[0], b.max[0]), Math.max(hi[1], b.max[1])];
+  }
   const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2;
+  // A part and its colours move together.
+  const move = (p: (typeof parts)[number], dx: number, dy: number) => {
+    p.shape = (p.shape as any).translate([dx, dy, 0]);
+    p.colours = p.colours?.map((c) => ({ ...c, shape: c.shape.translate([dx, dy, 0]) }));
+  };
   if (Math.abs(cx) > 1e-6 || Math.abs(cy) > 1e-6) {
-    for (const p of parts) p.shape = (p.shape as any).translate([-cx, -cy, 0]);
+    for (const p of parts) move(p, -cx, -cy);
     moveFrames(-cx, -cy);
   }
+  if (used.length) info.colours = used;
+  const filaments = used.length ? ` in ${used.length + 1} filaments (its own and ${used.map((f) => f.name || f.color).join(', ')}: the coloured lines go through its whole thickness, so the AMS changes filament on every layer, with a prime tower beside it)` : ' in one colour (black PLA)';
   let note: string, assembly: LineArtResult['assembly'];
   if (!sp) {
     const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller${grid ? '' : ', or split it into pieces'}.` : '';
-    note = `Print it flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
+    note = `Print it flat, back on the bed,${filaments}: 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
   } else {
     const split = splitInfo(sp, splitSpec as SplitSpec, grid!, -cx, -cy, anchor, layout as LineArtSplitInfo['layout']);
     info.split = split;
@@ -1444,20 +1527,67 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const offsets = layoutOffsets(parts, n, split, layout, Math.max(pieceW, pieceH));
     parts.forEach((p, i) => {
       const [dx, dy] = offsets[i];
-      if (dx || dy) p.shape = (p.shape as any).translate([dx, dy, 0]);
-      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), piece: { label: p.name, offset: [dx, dy] } };
+      if (dx || dy) move(p, dx, dy);
+      if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), ...(p.lineArt?.components ? { components: p.lineArt.components } : {}), piece: { label: p.name, offset: [dx, dy] } };
     });
     const big = split.pieces.filter((p) => p.size[0] > BED || p.size[1] > BED);
     const order = split.pieces.map((p) => p.label);
-    assembly = order.slice(1).map((l) => ({ label: `Stick ${l} on the wall against the pieces already up`, parts: [l], from: [0, 0, Math.max(30, 0.15 * Math.max(pieceW, pieceH))] }));
+    assembly = order.slice(1).map((l) => ({ label: `Stick ${l} on the wall against the pieces already up`, parts: [l, ...(parts.find((p) => p.name === l)?.colours ?? []).map((c) => c.name)], from: [0, 0, Math.max(30, 0.15 * Math.max(pieceW, pieceH))] }));
     const lab = split.pieces.filter((p) => p.labelSize > 0).length;
-    note = `Split into ${n} pieces (${grid!.cols} × ${grid!.rows}: ${order.join(', ')}), each on its own plate. Print each flat, back on the bed, in one colour (black PLA): 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}`
+    note = `Split into ${n} pieces (${grid!.cols} × ${grid!.rows}: ${order.join(', ')}), each on its own plate. Print each flat, back on the bed,${filaments}: 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}`
       + `${split.joints.length ? `The ${split.joints.length} dovetail${split.joints.length > 1 ? 's' : ''} on the ${anchorWord(style)} lock the pieces together; ` : ''}lines that cross a seam just meet end to end, so each piece is taped up on its own. `
       + `${lab ? `Each piece's name (row letter from the top, column number from the left) is engraved on its back${lab < n ? ` (${n - lab} had no room for it)` : ''}. ` : ''}`
       + `Put it up from the top left: A1 first, then along the row and down. Mark a level line, tape each piece up and push it against the one before.${slotNote}`
       + `${big.length ? ` ${big.map((p) => `${p.label} is ${p.size[0].toFixed(0)} × ${p.size[1].toFixed(0)} mm`).join(', ')}: bigger than the A1's ${BED} mm bed – use more pieces.` : ''}`;
   }
-  return { parts, print: lineArtPrint(), lineArt: info, note, ...(assembly ? { assembly } : {}) };
+  // Each part followed by its colours (on its plate, with the line-art info and the filament).
+  const out: LineArtResult['parts'] = parts.flatMap(({ colours, ...p }) => [p, ...(colours ?? []).map((c) => ({
+    name: c.name, shape: c.shape, color: c.filament.color,
+    lineArt: { ...(p.lineArt ?? info), split: undefined, components: undefined, paintedIn: c.filament },
+    ...(p.plate ? { plate: p.plate } : {}),
+  }))]);
+  return { parts: out, print: lineArtPrint(), lineArt: info, note, ...(assembly ? { assembly } : {}) };
+}
+
+/** A part of the lines in another filament, while the piece is put together. */
+interface Coloured { name: string; shape: any; filament: PartFilament }
+
+/** Paint narrower than this (mm) would print as junk: it goes to the filament around it. */
+export const MIN_PAINT = 0.4;
+
+/**
+ * The lines `lineCs` coloured by `areas` (which don't overlap): each filament's part of them, off
+ * the bar or frame (`anchor`) and without slivers narrower than MIN_PAINT; a sliver of the piece's
+ * own filament left between a colour and the edge of a line (a stroke that just missed it) takes
+ * that colour. The rest of the lines stays in the piece's own filament.
+ */
+function colourLines(lineCs: any, anchor: any, areas: { filament: PartFilament; area: any }[]): { filament: PartFilament; cs: any }[] {
+  if (!areas.length || lineCs.isEmpty()) return [];
+  const r = MIN_PAINT / 2;
+  const open = (cs: any) => cs.offset(-r, 'Round').offset(r, 'Round');
+  const colours: { filament: PartFilament; cs: any }[] = [];
+  for (const a of areas) {
+    let cs = lineCs.intersect(a.area);
+    if (anchor && !cs.isEmpty()) cs = cs.subtract(anchor);
+    if (cs.isEmpty()) continue;
+    cs = open(cs).intersect(cs);
+    if (!cs.isEmpty() && cs.area() > 1e-4) colours.push({ filament: a.filament, cs });
+  }
+  if (!colours.length) return colours;
+  // The piece's own filament near the colours, and its slivers there.
+  const all = colours.reduce((u: any, c) => (u ? u.add(c.cs) : c.cs), null);
+  let own = lineCs.subtract(all).intersect(all.offset(3 * r, 'Round'));
+  if (anchor && !own.isEmpty()) own = own.subtract(anchor);
+  if (own.isEmpty()) return colours;
+  const thin = own.subtract(open(own));
+  if (thin.isEmpty()) return colours;
+  const grown = colours.map((c) => c.cs.offset(0.02, 'Miter'));
+  for (const bit of thin.decompose()) {
+    let best = -1, most = 1e-6;
+    grown.forEach((g, k) => { const t = bit.intersect(g).area(); if (t > most) { most = t; best = k; } });
+    if (best >= 0) colours[best].cs = colours[best].cs.add(bit);
+  }
+  return colours;
 }
 
 /** Room kept in each piece for seams that wander and for dovetails (mm): Auto picks enough pieces for it. */

@@ -7,7 +7,7 @@ import { filamentLabel, MAX_MESH_COLORS, type PaintFilament } from './meshColors
 interface Evaluated {
   bbox: Box3 | null;
   warnings: string[];
-  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] }; bbox: Box3; plate?: number }[];
+  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] }; bbox: Box3; plate?: number; lineArt?: { components?: number; paintedIn?: PaintFilament } }[];
 }
 
 /** The filaments a design with coloured meshes prints with: each painted part's, and the colour of every other part (one per colour). */
@@ -28,12 +28,16 @@ export function modelWarnings(r: Evaluated): string[] {
   if (fit) out.push(fit);
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) out.push(`Model does not rest on the build plate: min Z = ${r.bbox.min[2].toFixed(2)} mm (should be 0)`);
   // A coloured figure prints in the AMS lite's 4 filaments, together with the design's other parts.
-  if (r.parts.some((p) => p.paint)) {
+  if (r.parts.some((p) => p.paint || p.lineArt?.paintedIn)) {
     const all = designFilaments(r.parts);
-    if (all.length > MAX_MESH_COLORS) out.push(`The design needs ${all.length} filaments (${all.map(filamentLabel).join(', ')}), but the AMS lite holds ${MAX_MESH_COLORS}: give the other parts one of the figure's filament colours, or give the figure fewer colours`);
+    const what = r.parts.some((p) => p.paint) ? "give the other parts one of the figure's filament colours, or give the figure fewer colours" : 'colour the lines in fewer filaments (Edit drawing)';
+    if (all.length > MAX_MESH_COLORS) out.push(`The design needs ${all.length} filaments (${all.map(filamentLabel).join(', ')}), but the AMS lite holds ${MAX_MESH_COLORS}: ${what}`);
   }
   for (const p of r.parts) {
-    if (p.components > 1) out.push(`Part "${p.name}" consists of ${p.components} disconnected pieces – if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);
+    // Line art in several filaments: its colours are parts of their own, one piece with the rest.
+    if (p.lineArt?.paintedIn) continue;
+    const n = p.lineArt?.components ?? p.components;
+    if (n > 1) out.push(`Part "${p.name}" consists of ${n} disconnected pieces: if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);
   }
   return out;
 }
