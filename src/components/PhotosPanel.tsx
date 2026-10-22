@@ -180,6 +180,8 @@ interface Props {
   summary?: string;
   result: EvalResult | null;
   hiddenParts: string[];
+  /** "Print in one colour": the one filament's colour (#rrggbb), which the photos show too. */
+  oneColour?: string | null;
   photos: ProductPhoto[];
   onDelete: (url: string) => void;
   /** Deletes several photos at once (asked first, here). */
@@ -348,8 +350,8 @@ export function PhotosPanel(p: Props) {
   const product = (): PhotoRequest['product'] | null => (!size || !p.result ? null : {
     name: p.result.meta.name || p.designName, description: p.result.meta.description || p.summary, size, faceOn, lithophane,
     // Per-vertex (LayerTone) parts are many colours: the render shows them.
-    // A coloured mesh's part: its filaments' colours.
-    colors: [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
+    // A coloured mesh's part: its filaments' colours. Printed in one colour: that one.
+    colors: p.oneColour ? [p.oneColour.toLowerCase()] : [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),
   });
   // A photo made again with a change (the photo and its render go to the image model).
   // `fromView`: the product from a new render at the 3D view's current angle (to change how it sits).

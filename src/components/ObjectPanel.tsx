@@ -56,6 +56,8 @@ export function ObjectPanel(p: Props) {
           const children = texts.length + svgs.length;
           const open = children > 0 && !collapsed.includes(part.name);
           const b = part.bbox;
+          // Its filament as picked: here, or (lines of a line art in another filament) in Edit drawing.
+          const pick = p.partColors[part.name] ?? part.lineArt?.paintedIn;
           return (
             <li key={part.name} role="treeitem" aria-expanded={children ? open : undefined} aria-selected={p.selected === part.name} className={hidden ? 'off' : ''}>
               <div className={`object-row ${p.selected === part.name ? 'selected' : ''}`}>
@@ -71,8 +73,8 @@ export function ObjectPanel(p: Props) {
                   : (
                     // Its filament: the picker changes it (the 3D view, the 3MF and the cost follow).
                     <span className="swatch-pick">
-                      <button className={`swatch ${p.partColors[part.name] ? 'picked' : ''}`} style={{ background: p.partColors[part.name]?.color ?? part.scriptColor ?? part.color }} aria-label={`Filament of ${part.name}`}
-                        title={`${p.partColors[part.name]?.name ? `${p.partColors[part.name].brand ? `${p.partColors[part.name].brand} ` : ''}${p.partColors[part.name].name} – ` : ''}click to choose the filament it prints with`}
+                      <button className={`swatch ${pick ? 'picked' : ''}`} style={{ background: pick?.color ?? part.scriptColor ?? part.color }} aria-label={`Filament of ${part.name}`}
+                        title={`${pick?.name ? `${pick.brand ? `${pick.brand} ` : ''}${pick.name}: ` : ''}click to choose the filament it prints with${part.lineArt?.paintedIn ? ' (its lines change filament in Edit drawing too)' : ''}`}
                         onClick={(e) => { trigger.current = e.currentTarget; setPicking(picking === part.name ? null : part.name); }} />
                     </span>
                   )}
@@ -86,7 +88,7 @@ export function ObjectPanel(p: Props) {
                 <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${part.name} as STL`} onClick={() => p.onExport('stl', part.name)}><Icon name="download" size={14} /></button>
                 {/* The picker spans the row (it sizes to the row, as in the LayerTone section). */}
                 {picking === part.name && (
-                  <FilamentPicker trigger={trigger} current={p.partColors[part.name] ? { name: p.partColors[part.name].name ?? p.partColors[part.name].color, brand: p.partColors[part.name].brand, color: p.partColors[part.name].color, td: 1 } : undefined}
+                  <FilamentPicker trigger={trigger} current={pick ? { name: pick.name ?? pick.color, brand: pick.brand, color: pick.color, td: 1 } : undefined}
                     onPick={(f) => { p.onPartColor(part.name, { color: f.color, name: f.name, brand: f.brand }); setPicking(null); }} onClose={() => setPicking(null)} />
                 )}
               </div>
