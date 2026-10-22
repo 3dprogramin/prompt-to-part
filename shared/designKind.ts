@@ -1,7 +1,9 @@
 // What kind of design a script makes (line art, a LayerTone painting, a 3D figure…), told from its
 // code and values like server/agent.ts tells it on every request: a design stays its kind in
 // follow-ups whatever the chat's picture menu says, so its current code is the truth. Shown in
-// the Designs menu and by the open design's name.
+// the Designs menu and by the open design's name; the chat's picture menu starts from it when the
+// design's mode isn't remembered (src/lib/chatModes.ts).
+import type { GenerateRequest } from './api';
 import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from './layertone';
 import { isLineArt } from './lineart';
 import { isLithophane } from './lithophane';
@@ -31,6 +33,11 @@ export function designKind(code: string | undefined, values: ParamValues | undef
   if (/\bH\.mesh\s*\(/.test(src) && Object.values(parseMeshes(values?.[MESHES_KEY])).some((m) => m.source === 'meshy')) return 'figure';
   if (/\bH\.svg\s*\(/.test(src) && drawingNames(values?.[DRAWINGS_KEY]).some((n) => !/\.svg$/i.test(n))) return 'artwork';
   return 'model';
+}
+
+/** The chat's picture mode a design of this kind is made in (a parametric model: 'off'). */
+export function kindImageMode(kind: DesignKind): NonNullable<GenerateRequest['imageMode']> {
+  return kind === 'model' ? 'off' : kind;
 }
 
 /** The attached drawings' names, without checking each drawing's shapes (parseDrawings does that). */

@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { designKind } from '../shared/designKind';
+import { designKind, kindImageMode } from '../shared/designKind';
 import { LAYERTONE_IMAGES_KEY, toLayerToneImage } from '../shared/layertone';
 import { MESHES_KEY, type MeshEntry } from '../shared/meshes';
 import { DRAWINGS_KEY } from '../shared/svgFeatures';
+import { cleanChatMode, withChatMode } from '../src/lib/chatModes';
 
 const build = (body: string) => `const params = {}; function build(p) { return ${body}; }`;
 const mesh = (source: MeshEntry['source']): MeshEntry => ({ file: '/api/designs/test-kind-0000001/meshes/0123456789abcdef0123456789abcdef.bin', triangles: 10, size: [10, 10, 10], source });
@@ -30,4 +31,23 @@ test('designKind: a 3D figure needs a Meshy mesh, AI artwork a drawing that is n
   assert.equal(designKind(build('H.svg("logo.svg", { height: 40 })'), { [DRAWINGS_KEY]: JSON.stringify({ 'logo.svg': drawing }) }), 'model');
   assert.equal(designKind('', {}), 'model');
   assert.equal(designKind(undefined, undefined), 'model');
+});
+
+test('a design without a remembered picture mode starts in its kind\'s', () => {
+  assert.equal(kindImageMode('model'), 'off');
+  for (const k of ['lineart', 'layertone', 'lithophane', 'figure', 'artwork'] as const) assert.equal(kindImageMode(k), k);
+});
+
+test('remembered picture modes are checked and capped', () => {
+  assert.deepEqual(cleanChatMode({ imageMode: 'lineart', lineArtStyle: 'keyholder', figureColor: true, model: 'opus' }), { imageMode: 'lineart', lineArtStyle: 'keyholder', figureColor: true });
+  assert.deepEqual(cleanChatMode({ imageMode: 'figure', lineArtStyle: 'nope' }), { imageMode: 'figure' });
+  assert.equal(cleanChatMode({ imageMode: 'sculpture' }), null);
+  assert.equal(cleanChatMode('lineart'), null);
+  let all = {};
+  for (let i = 0; i < 5; i++) all = withChatMode(all, `d${i}`, { imageMode: 'off' }, i, 3);
+  assert.deepEqual(Object.keys(all).sort(), ['d2', 'd3', 'd4']);
+  // Setting one again keeps it.
+  all = withChatMode(all, 'd2', { imageMode: 'figure' }, 9, 3);
+  all = withChatMode(all, 'd5', { imageMode: 'off' }, 10, 3);
+  assert.deepEqual(Object.keys(all).sort(), ['d2', 'd4', 'd5']);
 });

@@ -48,7 +48,8 @@ import { formatReset } from '../shared/usage';
 import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
 import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE, type LineArtStyle } from '../shared/lineart';
-import { designKind } from '../shared/designKind';
+import { designKind, kindImageMode } from '../shared/designKind';
+import { forgetChatMode, loadChatModes, storeChatMode } from './lib/chatModes';
 
 const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
@@ -223,8 +224,15 @@ export default function App() {
   // What kind of design it is (line art, LayerTone…), from its code: shown by its name.
   const kind = useMemo(() => designKind(design.code, design.values),
     [design.code, design.values[LAYERTONE_IMAGES_KEY], design.values[MESHES_KEY], design.values[DRAWINGS_KEY]]);
-  const chat = chatOpts[design.id] ?? chatDefaults;
-  const setChat = (patch: Partial<ChatOptions>) => setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatDefaults), ...patch } }));
+  // The picture mode each design was last used with, kept for this browser (read once: this tab's
+  // changes are in chatOpts); a design without one starts in its kind's mode.
+  const [chatModes] = useState(loadChatModes);
+  const chatStart: ChatOptions = { ...chatDefaults, ...(chatModes[design.id] ?? { imageMode: kindImageMode(kind) }) };
+  const chat = chatOpts[design.id] ?? chatStart;
+  const setChat = (patch: Partial<ChatOptions>) => {
+    if ('imageMode' in patch || 'figureColor' in patch || 'lineArtStyle' in patch) storeChatMode(design.id, { ...chat, ...patch });
+    setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatStart), ...patch } }));
+  };
   // Chat switches kept for this browser: "Wait for my OK" (3D figure mode: you approve each concept
   // picture; off, it is built after a countdown) and "Send my view" (follow-ups bring Jig your view).
   const [waitForOk, setWaitForOk] = useState<boolean>(() => load('waitForOk', true));
@@ -1181,6 +1189,7 @@ export default function App() {
   /** Drop a deleted design from memory and the tabs; the open one is replaced by a new design. */
   function forgetDesign(id: string) {
     background.current.delete(id);
+    forgetChatMode(id);
     clearSaveError(id);
     setTabIds((t) => t.filter((x) => x !== id));
     setUnseen((u) => u.filter((x) => x !== id));
