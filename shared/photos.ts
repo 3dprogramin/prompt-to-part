@@ -32,6 +32,7 @@ export const CLOSEUP_SCENE = 'closeup';
 export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'table', label: 'Wooden table', icon: 'table', scene: 'on a warm oak wooden table in a bright, cosy home interior, softly blurred background, natural window light from the side' },
   { id: 'wall', label: 'Living-room wall', icon: 'frame', wall: true, scene: 'hanging in the middle of a wide, plain stretch of light painted wall in a calm, modern living room, mounted flat against the wall at eye level, with a plant, a lamp or a picture frame softly blurred nearby, soft daylight' },
+  { id: 'bedroom-wall', label: 'Bedroom wall', icon: 'bed', wall: true, scene: 'hanging in the middle of a wide, plain stretch of soft white-greige painted wall above the headboard in a calm, modern bedroom, mounted flat against the wall at eye level, with a bed with pillows, linen bedding and a folded throw softly blurred below it and a small bedside lamp to the side, soft morning light' },
   { id: 'kitchen', label: 'Kitchen counter', icon: 'cup', scene: 'on a clean kitchen counter (light stone or wood) in a bright modern kitchen, with a few kitchen things softly blurred in the background, morning light' },
   { id: 'office', label: 'Office desk', icon: 'desk', scene: 'on a tidy modern office desk with a laptop, a notebook and a pen softly blurred around it, daylight from a window' },
   { id: 'shelf', label: 'Shelf with plants', icon: 'plant', scene: 'on a wooden wall shelf styled with small potted green plants and a couple of books, Scandinavian look, soft natural light' },
@@ -57,7 +58,7 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'flatlay', label: 'Flat lay', icon: 'grid', scene: 'a top-down flat lay on a light linen or concrete surface, neatly styled with a few small related props around it (leaves, a notebook, a coffee cup), soft even daylight' },
 ];
 /** How many scenes show before "More scenes". */
-export const MAIN_SCENES = 14;
+export const MAIN_SCENES = 15;
 export const CUSTOM_SCENE = 'custom';
 export const MAX_SCENE_CHARS = 600;
 export const MAX_NOTES_CHARS = 600;
@@ -96,6 +97,14 @@ const SUB_SCENES: Record<string, SceneLooks> = {
       { name: 'Classic, sage green wall', scene: 'hanging in the middle of a wide, plain stretch of muted sage-green painted wall (a calm mid tone, smooth matte paint) in a classic, cosy living room, mounted flat against the wall at eye level, with a velvet armchair, a brass floor lamp and a tall potted plant softly blurred to the side and below, warm late-afternoon light from a window' },
     ],
     kind: 'a living-room wall: it hangs flat at eye level in the middle of a wide, plain, flat stretch of painted or plastered wall (no panelling, tiles, wallpaper pattern or shelves behind it), furniture and decor only well below it or to the side, softly blurred',
+  },
+  'bedroom-wall': {
+    look: 'Calm modern, white-greige wall',
+    variants: [
+      { name: 'Japandi, light wood headboard', scene: 'hanging in the middle of a wide, plain stretch of warm off-white plastered wall above a light oak headboard in a calm Japandi bedroom, mounted flat against the wall at eye level, with a bed with natural linen bedding and a wool throw softly blurred below it and a paper lantern lamp on a low wooden nightstand to the side, soft diffused daylight' },
+      { name: 'Deep green wall, warm lamp', scene: 'hanging in the middle of a wide, plain stretch of deep green matte painted wall above a bed in a moody, cosy bedroom, mounted flat against the wall at eye level, with velvet cushions and dark linen bedding softly blurred below it and a brass bedside lamp glowing to the side, warm low evening light' },
+    ],
+    kind: 'a bedroom wall: it hangs flat at eye level in the middle of a wide, plain, flat stretch of painted wall above the bed (no panelling, wallpaper pattern, shelves or frames behind it), the bed and a bedside lamp only below it or to the side, softly blurred',
   },
   kitchen: {
     look: 'Bright modern kitchen',

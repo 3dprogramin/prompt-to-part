@@ -326,3 +326,11 @@ test('a larger picture is asked for as image_size; a model that refuses it draws
     }
   }
 });
+
+test('the bedroom wall hangs a flat print face-on above the bed, and variant 2 uses its sub-scene', () => {
+  const bw = (extra: Partial<PhotoRequest> = {}) => photoPrompt(request({ scene: 'bedroom-wall', product: { name: 'Plaque', size: [180, 108, 6.5], faceOn: true }, ...extra }));
+  assert.match(bw(), /hangs flat on the wall/);
+  assert.match(bw(), /render shows its front face/);
+  assert.match(bw(), /entirely on a wide, flat, continuous stretch of wall/);
+  assert.ok(bw({ variant: 2 }).includes(`SCENE: ${subScenes('bedroom-wall')[1].scene}.`));
+});
