@@ -5,7 +5,7 @@ import { evaluateScript } from '../shared/runtime';
 import { withFonts } from '../shared/text';
 import { loadFontBuffers } from '../server/fonts';
 import { DRAWINGS_KEY, type SvgDrawing } from '../shared/svgFeatures';
-import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
+import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
 import { keepTogether, parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
 import type { Vec2 } from '../shared/types';
 
@@ -55,6 +55,25 @@ test('lineArtMask: a dangling line is joined to the line ahead of it', () => {
   for (let x = 6; x < 9; x += 0.4) assert.equal(joined.mask[row + Math.floor((x + 12) / 0.2)], 1, `joined at x = ${x.toFixed(1)}`);
   const off = lineArtMask(art(), null, g, { lineWidth: 1, fill: 3, minIsland: 4, lines: 'keep', joinEnds: 0 });
   assert.equal(off.endsJoined, 0);
+  // Off, it is still counted (left loose); a reach shorter than the gap leaves it loose too.
+  assert.equal(off.endsFree, 1);
+  const short = lineArtMask(art(), null, g, { lineWidth: 1, fill: 3, minIsland: 4, lines: 'keep', joinEnds: 2 });
+  assert.deepEqual([short.endsJoined, short.endsFree], [0, 1]);
+});
+
+test('Join loose ends (LINEART_ENDS_KEY): parsed, 0 turns it off, a longer reach joins more; wins over the script', () => {
+  assert.equal(parseLineArtEnds('0'), 0);
+  assert.equal(parseLineArtEnds('12.5'), 12.5);
+  for (const raw of ['', undefined, '-1', '60', 'x']) assert.equal(parseLineArtEnds(raw), undefined, String(raw));
+  // A frame with a line from its left side stopping 12.5 mm short of the right one (100 mm wide).
+  const tail: SvgDrawing = { name: 'tail', aspect: 2, shapes: [{ rule: 'EvenOdd', contours: [box(-1, -0.5, 1, 0.5), box(-0.95, -0.45, 0.95, 0.45)], color: '#000000' }, { rule: 'NonZero', contours: [box(-0.96, -0.02, 0.7, 0.02)], color: '#000000' }] };
+  const la = (ends: string | null, opts = '') => evaluateScript(`function build() { return H.lineart('tail', { style: 'outline', width: 100${opts} }); }`, { [DRAWINGS_KEY]: JSON.stringify({ tail }), ...(ends != null ? { [LINEART_ENDS_KEY]: ends } : {}) }, 'draft').parts[0].lineArt!;
+  const def = la(null);
+  assert.deepEqual([def.endsJoined, def.endsFree, def.joinEnds], [0, 1, 8], 'the default 8 mm does not reach');
+  const far = la('20');
+  assert.deepEqual([far.endsJoined, far.endsFree, far.joinEnds], [1, 0, 20]);
+  const off = la('0', ', joinEnds: 20');
+  assert.deepEqual([off.endsJoined, off.endsFree, off.joinEnds], [0, 1, 0], "off wins over the script's joinEnds");
 });
 
 test('H.lineart: every style builds one connected piece', async () => {

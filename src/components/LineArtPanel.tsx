@@ -3,6 +3,7 @@ import type { EvalResult, ParamValue, ParamValues, PartMesh } from '../../shared
 import { DEFAULT_SPLIT_JOIN, formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_JOIN_KEY, parseLineArtJoin, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, MAX_LINEART_SIZE, parseLineArtEdits, parseLineArtSize, parseLineArtSplit, type LineArtEdits, type LineArtInfo, type LineArtSplitInfo } from '../../shared/lineart';
 import { formatSplitSpec, MAX_PIECE, parseSplitSpec, type SplitSpec } from '../../shared/split';
 import { NumBox } from './NumBox';
+import { DEFAULT_JOIN_ENDS, LINEART_ENDS_KEY, parseLineArtEnds } from '../../shared/lineart';
 import { staleEdits, withoutDrawings } from '../lib/lineArtEdit';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import { PRINTER } from '../../shared/printer';
@@ -305,6 +306,34 @@ function SplitPicture({ result, split }: { result: EvalResult; split: LineArtSpl
 }
 
 /**
+ * Join loose ends: on, a line held at one point only is joined to the nearest line within the
+ * reach (so it can't lift off the wall); off, the drawing stays as traced. A design value
+ * (LINEART_ENDS_KEY) that wins over the script's joinEnds.
+ */
+function LooseEnds({ la, values, onValue }: { la: LineArtInfo; values: ParamValues; onValue: Props['onValue'] }) {
+  const user = parseLineArtEnds(values[LINEART_ENDS_KEY]);
+  // The reach set here shows at once; else the one the build used (the script's joinEnds).
+  const reach = user ?? la.joinEnds ?? DEFAULT_JOIN_ENDS;
+  const on = reach > 0;
+  return (
+    <div className="lineart-ends">
+      <div className="lineart-split-row small">
+        <label className="switch">
+          <input type="checkbox" checked={on} onChange={(e) => onValue(LINEART_ENDS_KEY, e.target.checked ? String(DEFAULT_JOIN_ENDS) : '0')} />
+          <span className="track" />
+          <span className="switch-label">Join loose ends</span>
+        </label>
+        <span className="lineart-split-grid">
+          {on && <NumBox value={reach} min={1} max={50} label="How far a loose end reaches to join a line" onCommit={(v) => onValue(LINEART_ENDS_KEY, String(Math.max(1, Math.round(v * 2) / 2)))} />}
+          {user != null && <button className="icon-btn" title="Back to the reach Jig chose" aria-label="Back to the reach Jig chose" onClick={() => onValue(LINEART_ENDS_KEY, '')}><Icon name="restore" size={12} /></button>}
+        </span>
+      </div>
+      <span className="dim small">A line that hangs by one end is joined to the nearest line within this distance, so nothing lifts off the wall. Off: the drawing exactly as traced; loose ends may need a dot of glue.</span>
+    </div>
+  );
+}
+
+/**
  * Print tab, Line art section: the drawing(s) the piece was made from, what Jig fixed (bridges,
  * dropped specks) and how to print and hang it. Sizes are the script's sliders (Parameters).
  */
@@ -373,9 +402,10 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
         </dd>
         <dt>Specks</dt><dd>{la.dropped ? <><span className="mono">{la.dropped}</span> dropped (too small to print)</> : 'none dropped'}</dd>
         <dt>Loose lines</dt>
-        <dd className={la.endsFree ? 'warn' : ''}>
+        <dd className={la.endsFree && la.joinEnds !== 0 ? 'warn' : ''}>
           {la.endsJoined ? <><span className="mono">{la.endsJoined}</span> joined to a nearby line</> : la.endsFree ? null : 'none dangling'}
-          {la.endsFree > 0 && <span className="lineart-why"><Icon name="alert" size={12} /> {la.endsFree} still held at one point only: they can lift off the wall – ask Jig to redraw with every line ending on another</span>}
+          {la.endsFree > 0 && la.joinEnds === 0 && <span className="lineart-why">{la.endsFree} held at one point only, left as drawn (Join loose ends is off): a dot of glue holds them</span>}
+          {la.endsFree > 0 && la.joinEnds !== 0 && <span className="lineart-why"><Icon name="alert" size={12} /> {la.endsFree} still held at one point only: they can lift off the wall; ask Jig to redraw with every line ending on another</span>}
         </dd>
         <dt>Detail</dt>
         <dd className={blotchy ? 'warn' : ''}>
@@ -384,6 +414,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
         </dd>
         {la.hooks > 0 && <><dt>Pegs</dt><dd className="mono">{la.hooks}</dd></>}
       </dl>
+      <LooseEnds la={la} values={values} onValue={onValue} />
       <SplitSection la={la} result={result} values={values} onValue={onValue} />
       <ul className="litho-advice small">
         <li><b>Print flat</b>, back down, in one colour (black PLA); no brim.</li>

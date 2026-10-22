@@ -169,6 +169,8 @@ export interface LineArtInfo {
   /** Loose lines and branches (held at one point only) Jig joined to a nearby line, and those left loose (nothing within joinEnds). */
   endsJoined: number;
   endsFree: number;
+  /** How far Jig reached to join them (joinEnds as used, before the design's scale), mm; 0: joining off. */
+  joinEnds?: number;
   /** Key holder pegs. */
   hooks: number;
   /**
@@ -218,6 +220,7 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
     size: [w, h], thickness, lineWidth, lines: o.lines === 'even' ? 'even' : 'keep',
     bridges: count(o.bridges), longestBridge, dropped: count(o.dropped), closed: count(o.closed), openings: count(o.openings), endsJoined: count(o.endsJoined), endsFree: count(o.endsFree), hooks: count(o.hooks),
+    ...(Number.isFinite(o.joinEnds) && o.joinEnds! >= 0 ? { joinEnds: o.joinEnds } : {}),
   };
 }
 
@@ -288,6 +291,13 @@ export const DEFAULT_SPLIT_JOIN = 30;
 export function parseLineArtJoin(raw: unknown): number | undefined {
   const v = Number(raw);
   return raw != null && raw !== '' && Number.isFinite(v) && v >= 5 && v <= 300 ? v : undefined;
+}
+/** How far Jig reaches to join a loose line's end to another line (joinEnds), mm, as the user set it in the Print tab; 0 = off (the drawing as traced). */
+export const LINEART_ENDS_KEY = '$lineartEnds';
+export const DEFAULT_JOIN_ENDS = 8;
+export function parseLineArtEnds(raw: unknown): number | undefined {
+  const v = Number(raw);
+  return raw != null && raw !== '' && Number.isFinite(v) && v >= 0 && v <= 50 ? v : undefined;
 }
 export const formatLineArtSize = (s: { width?: number; height?: number }) => `${s.width ? +s.width.toFixed(1) : ''}x${s.height ? +s.height.toFixed(1) : ''}`;
 /** The most strokes kept per drawing, and points per stroke. */
@@ -645,7 +655,7 @@ export interface LineArtMaskOptions {
   lineWidth: number;
   /** Bridge every loose bit, however small (they were dropped beforehand, from the drawing itself). */
   keepSpecks?: boolean;
-  /** Join loose line ends to the nearest line within this many mm (0: leave them). */
+  /** Join loose line ends to the nearest line within this many mm (0: leave them, only counted). */
   joinEnds?: number;
   /**
    * No bridge longer than this (mm) between two bits that are both at least `minPart` mm² (a big
@@ -867,7 +877,7 @@ export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineA
       longest = Math.max(longest, Math.max(0, d * px - o.lineWidth));
     }
   }
-  const ends = o.joinEnds ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths, o.inside) : { joined: 0, free: 0 };
+  const ends = o.joinEnds != null ? joinLooseEnds(out, anchor, g, o.lineWidth, o.joinEnds, paths, o.inside) : { joined: 0, free: 0 };
   return { mask: out, paths, bridges, longestBridge: longest, dropped, closed, openings, endsJoined: ends.joined, endsFree: ends.free };
 }
 
@@ -1152,6 +1162,8 @@ export interface LineArtDeps {
   size?: { width?: number; height?: number };
   /** The longest join in a split piece the user set (LINEART_JOIN_KEY), mm. */
   join?: number;
+  /** How far loose ends reach to join a line, as the user set it (LINEART_ENDS_KEY), mm; 0 = off. Wins over the script's joinEnds. */
+  ends?: number;
 }
 
 /** Recent traced results: a live preview evaluates the same drawing on every slider move. */
@@ -1188,7 +1200,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   const fill = num('fill', 3 * lineWidth, lineWidth, 200);
   const minIsland = num('minIsland', 4 * lineWidth * lineWidth, 0, 10000);
   const gap = num('gap', 0, -500, 500);
-  const joinEnds = num('joinEnds', 8, 0, 50);
+  const joinEnds = d.ends ?? num('joinEnds', DEFAULT_JOIN_ENDS, 0, 50);
   const barHeight = num('barHeight', style === 'sign' ? 16 : 12, 3, 200);
   const barThickness = num('barThickness', style === 'keyholder' ? 4 : style === 'stand' ? thickness : thickness + 1, 0.6, 30);
   const overhang = num('overhang', 6, 0, 200);
@@ -1407,6 +1419,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       return { name: p.info.label, shape, color, lineArt: info, plate: i + 1 };
     });
   }
+  info.joinEnds = joinEnds;
 
   // Desk stand: a base with a slot the bar pushes into, printed beside the piece (split, cut where the bar is).
   let slotNote = '';

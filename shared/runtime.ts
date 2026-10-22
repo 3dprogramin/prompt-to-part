@@ -9,7 +9,7 @@ import { FACE_SCALE_KEY, normalizeParams, parsePartColors, PART_COLORS_KEY, reso
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
-import { cleanLineArtInfo, LINEART_EDITS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
+import { cleanLineArtInfo, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import { cleanProfile } from './print';
 import { getMeshData, MESHES_KEY, MeshMissingError, parseMeshes, type MeshData, type MeshEntry } from './meshes';
@@ -309,6 +309,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       split: parseLineArtSplit(inputValues?.[LINEART_SPLIT_KEY]),
       size: parseLineArtSize(inputValues?.[LINEART_SIZE_KEY]),
       join: parseLineArtJoin(inputValues?.[LINEART_JOIN_KEY]),
+      ends: parseLineArtEnds(inputValues?.[LINEART_ENDS_KEY]),
       layout: typeof inputValues?.[LINEART_LAYOUT_KEY] === 'string' ? inputValues[LINEART_LAYOUT_KEY] as string : undefined,
     });
     let scope;

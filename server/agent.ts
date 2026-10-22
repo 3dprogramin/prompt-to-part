@@ -18,7 +18,7 @@ import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
-import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtSize, parseLineArtSplit } from '../shared/lineart';
+import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtSize, parseLineArtSplit } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -228,6 +228,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(typeof pictureValues[LINEART_SPLIT_KEY] === 'string' ? { [LINEART_SPLIT_KEY]: pictureValues[LINEART_SPLIT_KEY] } : {}),
     ...(typeof pictureValues[LINEART_SIZE_KEY] === 'string' ? { [LINEART_SIZE_KEY]: pictureValues[LINEART_SIZE_KEY] } : {}),
     ...(pictureValues[LINEART_JOIN_KEY] != null ? { [LINEART_JOIN_KEY]: pictureValues[LINEART_JOIN_KEY] } : {}),
+    ...(pictureValues[LINEART_ENDS_KEY] != null ? { [LINEART_ENDS_KEY]: pictureValues[LINEART_ENDS_KEY] } : {}),
     ...(typeof pictureValues[LINEART_LAYOUT_KEY] === 'string' ? { [LINEART_LAYOUT_KEY]: pictureValues[LINEART_LAYOUT_KEY] } : {}),
     ...(typeof pictureValues[PART_COLORS_KEY] === 'string' ? { [PART_COLORS_KEY]: pictureValues[PART_COLORS_KEY] } : {}),
   };
@@ -327,7 +328,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // The whole piece's size the user typed in the Print tab wins over the script's width and height.
     const size = parseLineArtSize(pictureValues[LINEART_SIZE_KEY]);
     const sizeNote = size ? `The user set the whole piece's size in the Print tab (${size.width ? `${size.width} mm wide` : ''}${size.width && size.height ? ', ' : ''}${size.height ? `${size.height} mm high` : ''}${size.width && !size.height ? ', the height following the drawing' : ''}), which wins over the script's width and height: the renders and reports already use it. Keep it; to change the size, ask them to change it there (or set the width and height parameters if they ask you to and they clear it).` : '';
-    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote, sizeNote].filter(Boolean).join(' '));
+    // How far loose ends reach to join a line, as the user set it in the Print tab, wins over the script's joinEnds.
+    const ends = parseLineArtEnds(pictureValues[LINEART_ENDS_KEY]);
+    const endsNote = ends === undefined ? '' : ends === 0
+      ? "The user turned Join loose ends off in the Print tab: Jig leaves loose lines as drawn whatever the script's joinEnds says (they glue them down, or turn it on there)."
+      : `The user set Join loose ends to ${ends} mm in the Print tab, which wins over the script's joinEnds; the renders and reports already use it.`;
+    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote, sizeNote, endsNote].filter(Boolean).join(' '));
   }
   // Mesh files attached now: a picture of each as imported, and what the import did.
   for (const name of attachedMeshes) {
