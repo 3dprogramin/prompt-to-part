@@ -244,12 +244,13 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
 /** A line-art part in one line: style, drawings, size, lines, what Jig fixed and the key holder's pegs; split, the pieces (on the first). */
 export function lineArtLine(a: LineArtInfo): string {
   const g = (n: number) => String(+n.toFixed(1));
+  if (a.paintedIn) return `Lines of the line art the user coloured ${a.paintedIn.name ?? a.paintedIn.color} (${a.paintedIn.color}) in Edit drawing: printed in that filament, as one piece with the rest`;
   if (a.piece && !a.split) return `Piece ${a.piece.label} of the split line art (see the first piece for the split)`;
   const fixed = `${a.bridges ? `${a.bridges} bridge${a.bridges > 1 ? 's' : ''} added (longest ${g(a.longestBridge)} mm)` : 'no bridges needed'}, ${a.dropped ? `${a.dropped} speck${a.dropped > 1 ? 's' : ''} dropped` : 'no specks dropped'}`;
   // Openings that closed: lines drawn closer together than the print can keep apart.
   const ends = a.endsJoined || a.endsFree ? `; ${a.endsJoined ? `${a.endsJoined} loose line${a.endsJoined > 1 ? 's' : ''} joined to a nearby line` : 'no loose lines joined'}${a.endsFree ? `, ${a.endsFree} still loose (held at one point only, ${a.joinEnds === 0 ? 'joining loose ends is off' : 'nothing within reach to join'}: they can lift off the wall)` : ''}` : '';
   const lost = a.closed ? `; ${a.closed} of ${a.openings} openings between lines closed up (${Math.round((100 * a.closed) / Math.max(1, a.openings))} %: detail lost – the drawing is too fine for this size)` : '';
-  const line = `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${a.lines === 'keep' ? `lines at least ${g(a.lineWidth)} mm (the drawing's own weights)` : `${g(a.lineWidth)} mm lines (even)`}; ${fixed}${ends}${lost}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}`;
+  const line = `Line art (${LINE_ART_STYLE_INFO[a.style].label.toLowerCase()}) from ${a.sources.map((s) => `"${s}"`).join(' + ') || 'a drawing'}: ${g(a.size[0])} × ${g(a.size[1])} mm, ${g(a.thickness)} mm thick, ${a.lines === 'keep' ? `lines at least ${g(a.lineWidth)} mm (the drawing's own weights)` : `${g(a.lineWidth)} mm lines (even)`}; ${fixed}${ends}${lost}${a.hooks ? `; ${a.hooks} peg${a.hooks > 1 ? 's' : ''}` : ''}${a.colours?.length ? `; the user coloured lines in ${a.colours.map((c) => `${c.name ?? c.color} (${c.color})`).join(', ')} in Edit drawing (parts of their own, named after the piece and the filament)` : ''}`;
   return a.split ? `${line}${splitLines(a.split, g)}` : line;
 }
 

@@ -4,7 +4,8 @@ import { DEFAULT_SPLIT_JOIN, formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_JOI
 import { formatSplitSpec, MAX_PIECE, parseSplitSpec, type SplitSpec } from '../../shared/split';
 import { NumBox } from './NumBox';
 import { DEFAULT_JOIN_ENDS, LINEART_ENDS_KEY, parseLineArtEnds } from '../../shared/lineart';
-import { staleEdits, withoutDrawings } from '../lib/lineArtEdit';
+import { staleEdits, withoutColours, withoutDrawings } from '../lib/lineArtEdit';
+import { AMS_SLOTS } from '../lib/bambu3mf';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import { PRINTER } from '../../shared/printer';
 import { Icon } from './Icon';
@@ -14,25 +15,29 @@ import { load, store } from '../lib/storage';
 /** A line-art part (H.lineart): its style, drawings and what Jig fixed. */
 type LineArtPart = PartMesh & { lineArt: LineArtInfo };
 
-/** The first part of the model that is line art, if any. */
+/** The first part of the model that is line art (not one of its colours), if any. */
 export function lineArtPart(result: EvalResult | null): LineArtPart | undefined {
-  return result?.parts.find((p): p is LineArtPart => !!p.lineArt);
+  const all = result?.parts.filter((p): p is LineArtPart => !!p.lineArt) ?? [];
+  return all.find((p) => !p.lineArt.paintedIn) ?? all[0];
 }
 
 /**
- * The line art as one part on the wall: a piece split into pieces has them put back where they go
- * (each moved back by its layout offset) and merged, for the editor; otherwise the part itself.
+ * The line art as one part on the wall, for the editor: a piece split into pieces has them put back
+ * where they go (each moved back by its layout offset) and merged, with the lines coloured in other
+ * filaments (`paints`: their colour and triangles, from / to in `indices`); otherwise the part itself.
  */
-export function assembledLineArt(result: EvalResult | null): LineArtPart | undefined {
+export function assembledLineArt(result: EvalResult | null): (LineArtPart & { paints?: { color: string; from: number; to: number }[] }) | undefined {
   const first = lineArtPart(result);
-  if (!first?.lineArt.split || !result) return first;
-  const pieces = result.parts.filter((p): p is LineArtPart => !!p.lineArt?.piece);
+  if (!first || !result || (!first.lineArt.split && !first.lineArt.colours?.length)) return first;
+  const pieces = result.parts.filter((p): p is LineArtPart => (first.lineArt.split ? !!p.lineArt?.piece : !!p.lineArt));
   const n = pieces.reduce((a, p) => a + p.positions.length, 0), m = pieces.reduce((a, p) => a + p.indices.length, 0);
   const positions = new Float32Array(n), indices = new Uint32Array(m);
   const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  const paints: { color: string; from: number; to: number }[] = [];
   let pv = 0, pi = 0;
   for (const p of pieces) {
-    const [dx, dy] = p.lineArt.piece!.offset;
+    if (p.lineArt.paintedIn) paints.push({ color: p.color, from: pi, to: pi + p.indices.length });
+    const [dx, dy] = p.lineArt.piece?.offset ?? [0, 0];
     for (let k = 0; k < p.positions.length; k += 3) {
       const x = p.positions[k] - dx, y = p.positions[k + 1] - dy, z = p.positions[k + 2];
       positions[pv + k] = x; positions[pv + k + 1] = y; positions[pv + k + 2] = z;
@@ -42,8 +47,9 @@ export function assembledLineArt(result: EvalResult | null): LineArtPart | undef
     for (let k = 0; k < p.indices.length; k++) indices[pi + k] = p.indices[k] + pv / 3;
     pv += p.positions.length; pi += p.indices.length;
   }
-  // Every piece should be one piece: the most any is in.
-  return { ...first, positions, indices, bbox: { min, max }, components: Math.max(...pieces.map((p) => p.components)) };
+  // Every piece should be one piece: the most any is in (with its colours).
+  const whole = pieces.filter((p) => !p.lineArt.paintedIn).map((p) => p.lineArt.components ?? p.components);
+  return { ...first, positions, indices, bbox: { min, max }, components: Math.max(1, ...whole), ...(paints.length ? { paints } : {}) };
 }
 
 /** Closed-up gaps beyond this share of them, and the drawing is too fine for its size. */
@@ -343,6 +349,9 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
   const la = part.lineArt;
   const stale = staleEdits(edits, la.frames);
   const erased = la.frames.some((f) => edits[f.name]?.fp === f.fp && edits[f.name].strokes.some((st) => st.mode === 'erase'));
+  // With colours, the piece is it and its coloured parts together.
+  const components = la.components ?? part.components;
+  const colours = la.colours ?? [];
   const [w, h] = la.size;
   const bed = PRINTER.name.replace(/^Bambu Lab /, '');
   // Split, each piece must fit the bed (the pieces list says which don't).
@@ -364,7 +373,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
         </div>
       )}
       <div className="lineart-edit">
-        <button className="btn wide" onClick={onEdit} disabled={!la.frames.length} title={la.frames.length ? 'Draw or erase on the piece by hand (B draw, E erase)' : 'Rebuild the model to edit it'}>
+        <button className="btn wide" onClick={onEdit} disabled={!la.frames.length} title={la.frames.length ? 'Draw, erase or colour the lines by hand (B draw, P paint, E erase)' : 'Rebuild the model to edit it'}>
           <Icon name="brush" size={14} /> Edit drawing
         </button>
         {la.edits > 0 && (
@@ -379,9 +388,9 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
             <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, stale.names))}>Clear</button>
           </div>
         )}
-        {part.components > 1 && (
+        {components > 1 && (
           <div className="lineart-edit-row small warn">
-            <span><Icon name="alert" size={12} /> The piece is in {part.components} pieces{erased ? ' – an erase cut it apart' : ''}</span>
+            <span><Icon name="alert" size={12} /> The piece is in {components} pieces{erased ? ': an erase cut it apart' : ''}</span>
           </div>
         )}
       </div>
@@ -413,11 +422,23 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue }:
           {blotchy && <span className="lineart-why"><Icon name="alert" size={12} /> too fine for this size: ask Jig for a bolder, simpler drawing, or make it larger</span>}
         </dd>
         {la.hooks > 0 && <><dt>Pegs</dt><dd className="mono">{la.hooks}</dd></>}
+        {colours.length > 0 && (
+          <>
+            <dt>Colours</dt>
+            <dd className={colours.length + 1 > AMS_SLOTS ? 'warn' : ''}>
+              <span className="lineart-colours">
+                {colours.map((f) => <span key={`${f.color}${f.name ?? ''}`} className="lineart-colour" title={f.brand ? `${f.brand} ${f.name ?? f.color}` : f.name ?? f.color}><span className="swatch" style={{ background: f.color }} />{f.name ?? f.color}</span>)}
+              </span>
+              <button className="link" onClick={() => onEdits((e) => withoutColours(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)))} title="Every line back in the piece's own filament">Remove colours</button>
+              {colours.length + 1 > AMS_SLOTS && <span className="lineart-why"><Icon name="alert" size={12} /> {colours.length + 1} filaments with the piece's own: the AMS lite holds {AMS_SLOTS}</span>}
+            </dd>
+          </>
+        )}
       </dl>
       <LooseEnds la={la} values={values} onValue={onValue} />
       <SplitSection la={la} result={result} values={values} onValue={onValue} />
       <ul className="litho-advice small">
-        <li><b>Print flat</b>, back down, in one colour (black PLA); no brim.</li>
+        <li><b>Print flat</b>, back down, {colours.length ? `in ${colours.length + 1} filaments: the coloured lines go all the way through, so the AMS changes filament on every layer (the Cost tab counts the swaps and the prime tower)` : 'in one colour (black PLA)'}; no brim.</li>
         <li>{la.style === 'stand' ? "Push the piece into the base's slot." : 'Hang with double-sided tape or Command strips.'}</li>
       </ul>
     </div>

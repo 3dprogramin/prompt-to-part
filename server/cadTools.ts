@@ -8,7 +8,7 @@ import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
 import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, lineArtEditPrompt, lineArtPrompt, paintPrompt, picturePrompt, requestImage, traceLineArt } from './artwork';
 import { encode as encodePng } from 'fast-png';
-import { drawingFingerprint, drawingPicture, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtStyle } from '../shared/lineart';
+import { colourStrokes, drawingFingerprint, drawingPicture, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtStyle } from '../shared/lineart';
 import { checkSwaps, cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, toLayerToneImage, type LayerToneSetup } from '../shared/layertone';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
@@ -257,13 +257,14 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         status(old ? `Changing line art "${a.edit}" with ${imageModel()}…` : `Drawing line art "${a.name}" with ${imageModel()}…`);
         try {
           const photos = a.use_attached_photos ? lineArt.references : undefined;
-          let prompt: string, references = photos, aspect = a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1');
+          let prompt: string, references = photos, aspect = a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), lineWidth = a.line_width ?? 1;
           // A change to part of a drawing: the drawing as it is (hand edits drawn in) goes first.
           const edits = old ? parseLineArtEdits(base[LINEART_EDITS_KEY])[a.edit!] : undefined;
           const hand = edits && edits.fp === drawingFingerprint(old!) ? edits.strokes : [];
           if (old) {
             const frame = await lineArtFrame(a.edit!);
-            const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, frame?.lineWidth ?? a.line_width ?? 1);
+            lineWidth = frame?.lineWidth ?? lineWidth;
+            const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, lineWidth);
             references = [`data:image/png;base64,${Buffer.from(encodePng({ width: pic.width, height: pic.height, data: pic.rgba, channels: 4 })).toString('base64')}`, ...(photos ?? [])];
             prompt = lineArtEditPrompt({ change: a.subject, references: photos, width: a.width, style });
             aspect = a.aspect ?? nearestAspect(old.aspect);
@@ -271,11 +272,15 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           const { image, model, cost } = await drawImage(prompt, aspect, references, lineArt.signal, status);
           const traced = traceLineArt(decodeImage(Buffer.from(image.data, 'base64')), a.name);
           storeLineArt(a.name, traced);
-          // The hand edits are in the new picture now: the drawing they were made on is gone.
+          // The hand edits are in the new picture now: the drawing they were made on is gone. Their
+          // colours aren't in it: they stay, on the new drawing.
           if (old && a.name === a.edit && hand.length) {
             const { [a.name]: _baked, ...rest } = parseLineArtEdits(base[LINEART_EDITS_KEY]);
-            if (Object.keys(rest).length) base[LINEART_EDITS_KEY] = JSON.stringify(rest); else delete base[LINEART_EDITS_KEY];
-            emit({ type: 'lineArtEditsBaked', name: a.name });
+            const strokes = colourStrokes(hand, lineWidth);
+            const kept = strokes.length ? { fp: drawingFingerprint(traced.drawing), strokes } : undefined;
+            const all = kept ? { ...rest, [a.name]: kept } : rest;
+            if (Object.keys(all).length) base[LINEART_EDITS_KEY] = JSON.stringify(all); else delete base[LINEART_EDITS_KEY];
+            emit({ type: 'lineArtEditsBaked', name: a.name, ...(kept ? { kept } : {}) });
           }
           emit({ type: 'step', step: {
             kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,

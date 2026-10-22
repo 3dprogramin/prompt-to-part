@@ -936,6 +936,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .lineart-facts dd.warn { color: #f2c66d; }
 .lineart-why { display: flex; align-items: center; gap: 4px; font-size: 11.5px; }
 .lineart-why svg { flex-shrink: 0; }
+.lineart-colours { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; margin-right: 8px; }
+.lineart-colour { display: inline-flex; align-items: center; gap: 5px; }
+.lineart-colour .swatch { width: 11px; height: 11px; box-shadow: inset 0 0 0 1px #ffffff2e; }
 .lineart-edit { display: flex; flex-direction: column; gap: 4px; }
 .lineart-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-2); }
 .lineart-edit-row > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
@@ -971,6 +974,16 @@ body.resizing { cursor: col-resize; user-select: none; }
 .la-ed-tool.on.erase { color: #fff; background: #c0504d; }
 .la-ed-bar > .la-ed-tool { border-color: var(--line-2); }
 .la-ed-bar > .la-ed-tool.on { border-color: var(--accent); }
+/* The filaments to draw and paint with: the piece's own, those used, + another (the picker opens under them). */
+.la-ed-filaments { position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.la-ed-filaments.off { opacity: 0.45; }
+.la-ed-chip { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-2); }
+.la-ed-chip .swatch { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px #ffffff40; }
+.la-ed-chip:hover:not(:disabled) { color: var(--text); background: #ffffff0a; }
+.la-ed-chip.on { border-color: var(--accent); background: #e0a43c22; }
+.la-ed-filament-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
+.la-ed-filaments .layertone-picker { right: auto; width: min(380px, calc(100vw - 32px)); }
+.la-editor.phone .la-ed-chip { width: 34px; height: 34px; }
 .la-ed-width { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
 .la-ed-width input { width: 130px; accent-color: var(--accent); }
 .la-ed-val { min-width: 54px; color: var(--text); font-size: 12px; }

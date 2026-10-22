@@ -7,6 +7,7 @@ import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, t
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
 import { findLayerTonePart } from './components/LayerTonePanel';
 import { LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
+import { recolourEdits } from './lib/lineArtEdit';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
 import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
@@ -383,8 +384,14 @@ export default function App() {
     if (Object.keys(after).length) values[LINEART_EDITS_KEY] = JSON.stringify(after); else delete values[LINEART_EDITS_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
-  // A filament picked for a part (Object tab), or back to the script's colour.
-  const setPartColor = (part: string, filament: PartFilament | null) => setDesign((d) => {
+  // A filament picked for a part (Object tab), or back to the script's colour. Lines of a line art
+  // in another filament (Edit drawing's colours) change filament where they were drawn and painted.
+  const setPartColor = (part: string, filament: PartFilament | null) => {
+    const painted = (result ?? lastGood)?.parts.find((p) => p.name === part)?.lineArt?.paintedIn;
+    if (painted) setLineArtEdits((e) => recolourEdits(e, painted, filament));
+    else setPickedColor(part, filament);
+  };
+  const setPickedColor = (part: string, filament: PartFilament | null) => setDesign((d) => {
     const { [part]: _old, ...rest } = parsePartColors(d.values[PART_COLORS_KEY]);
     const all = filament ? { ...rest, [part]: filament } : rest;
     const values = { ...d.values };
@@ -543,8 +550,9 @@ export default function App() {
       end = await stream((ev, count) => {
         if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
         else if (ev.type === 'lineArtEditsBaked') update((d) => {
-          // A partial edit drew the hand edits into the drawing: they're part of it now.
-          const { [ev.name]: _baked, ...rest } = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
+          // A partial edit drew the hand edits into the drawing: they're part of it now (their colours stay, on it).
+          const { [ev.name]: _baked, ...others } = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
+          const rest = ev.kept ? { ...others, [ev.name]: ev.kept } : others;
           const values = { ...d.values };
           if (Object.keys(rest).length) values[LINEART_EDITS_KEY] = JSON.stringify(rest); else delete values[LINEART_EDITS_KEY];
           return { ...d, values };
@@ -1405,6 +1413,7 @@ export default function App() {
                 summary={design.versions[design.currentVersion]?.summary}
                 result={sizes.viewResult ?? result ?? lastGood}
                 hiddenParts={hiddenParts}
+                oneColour={viewColour}
                 photos={design.photos ?? []}
                 sizes={sizes.sizes.map((s) => ({ id: s.id, label: s.label, mm: s.mm, axis: s.axis, dims: sizes.resolvedOf(s)?.size }))}
                 viewedSize={sizes.viewResult ? sizes.viewed?.id ?? null : null}

@@ -132,7 +132,7 @@ test('hand edits: drawn lines join, erasing has the last word, frames map the dr
   // Edits for another drawing (an old fingerprint) are left out.
   const stale = evaluateScript("function build() { return H.lineart('bike', { style: 'outline', width: 210 }); }", { ...values, [LINEART_EDITS_KEY]: JSON.stringify({ bike: { fp: 'old', strokes: [{ mode: 'erase', points: [[0, 0.3]] }] } }) }, 'draft');
   assert.equal(stale.parts[0].lineArt!.edits, 0);
-  assert.deepEqual(parseLineArtEdits('{"x":{"fp":"a","strokes":[{"mode":"paint","points":[[0,0]]},{"mode":"draw","width":99,"points":[[0,0],[1,"y"]]}]}}'), { x: { fp: 'a', strokes: [{ mode: 'draw', points: [[0, 0]] }] } });
+  assert.deepEqual(parseLineArtEdits('{"x":{"fp":"a","strokes":[{"mode":"smudge","points":[[0,0]]},{"mode":"draw","width":99,"points":[[0,0],[1,"y"]]}]}}'), { x: { fp: 'a', strokes: [{ mode: 'draw', points: [[0, 0]] }] } });
 });
 
 test('line-art info: cleaned and scaled; isLineArt', () => {

@@ -1,4 +1,5 @@
 import { MAX_LINEART_STROKES, MAX_STROKE_POINTS, type LineArtEdits, type LineArtInfo, type LineArtStroke } from '../../shared/lineart';
+import type { PartFilament } from '../../shared/params';
 
 // Pure helpers of the line-art editor (LineArtEditor): pointer (mm) ↔ drawing units, stroke
 // simplification, snapping onto the ink, and the edits value.
@@ -138,12 +139,50 @@ export function removeStroke(edits: LineArtEdits, name: string, stroke: LineArtS
   const e = edits[name];
   if (!e) return edits;
   // Compared by content (a stroke read back from the design has its keys in another order).
-  const same = (s: LineArtStroke) => JSON.stringify([s.mode, s.width ?? null, s.points]);
+  const same = (s: LineArtStroke) => JSON.stringify([s.mode, s.width ?? null, s.points, s.filament ? [s.filament.color, s.filament.name ?? null, s.filament.brand ?? null] : null]);
   const i = e.strokes.map(same).lastIndexOf(same(stroke));
   if (i < 0) return edits;
   const strokes = e.strokes.filter((_, k) => k !== i);
   const out = { ...edits };
   if (strokes.length) out[name] = { ...e, strokes }; else delete out[name];
+  return out;
+}
+
+/** Same colour and name: the same filament (as the piece's colours are told apart). */
+export const sameFilament = (a: PartFilament, b: PartFilament) => a.color.toLowerCase() === b.color.toLowerCase() && (a.name ?? '') === (b.name ?? '');
+
+/** The filaments strokes colour lines in, in the order they were first used. */
+export function strokeFilaments(strokes: LineArtStroke[]): PartFilament[] {
+  const out: PartFilament[] = [];
+  for (const st of strokes) if (st.filament && !out.some((f) => sameFilament(f, st.filament!))) out.push(st.filament);
+  return out;
+}
+
+/** The edits with every line and paint in filament `from` in `to` instead (null: the piece's own filament). */
+export function recolourEdits(edits: LineArtEdits, from: PartFilament, to: PartFilament | null): LineArtEdits {
+  let changed = false;
+  const out: LineArtEdits = {};
+  for (const [name, e] of Object.entries(edits)) {
+    const strokes = e.strokes.map((st) => {
+      if (!st.filament || !sameFilament(st.filament, from)) return st;
+      changed = true;
+      const { filament: _old, ...rest } = st;
+      return to ? { ...rest, filament: to } : rest;
+    });
+    out[name] = { ...e, strokes };
+  }
+  return changed ? out : edits;
+}
+
+/** The edits on the given drawings without their colours: paint goes, drawn lines are in the piece's own filament. */
+export function withoutColours(edits: LineArtEdits, names: string[]): LineArtEdits {
+  const out = { ...edits };
+  for (const n of names) {
+    const e = edits[n];
+    if (!e) continue;
+    const strokes = e.strokes.filter((st) => st.mode !== 'paint').map(({ filament: _f, ...st }) => st);
+    if (strokes.length) out[n] = { ...e, strokes }; else delete out[n];
+  }
   return out;
 }
 
