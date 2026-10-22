@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLOSEUP_SCENE, familiar, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, sceneWriterPrompt, SHOP_SCENE, shopPlan, subScenes, suggestScene, variantName, vsSwitch, type PhotoRequest } from '../shared/photos';
+import { CLOSEUP_SCENE, familiar, IDEA_WRITER_PROMPT, ideaWriterPrompt, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, sceneWriterPrompt, SHOP_SCENE, shopPlan, subScenes, suggestScene, variantName, vsSwitch, writtenPlace, type PhotoRequest } from '../shared/photos';
 import { requestImage } from '../server/artwork';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
@@ -170,6 +170,51 @@ test('the photo prompt uses the chosen sub-scene; a random one as written, or in
   assert.match(photoPrompt(request({ scene: 'wall', product: { name: 'Castle', size: [250, 186.6, 2.2], faceOn: true } })), /shows only about 65 cm of wall from side to side, so it fills about 38% of the width/);
   assert.equal(parseWrittenScene('  "on a slate shelf,  dim light."\n'), 'on a slate shelf, dim light');
   assert.throws(() => parseWrittenScene(' "" '), /did not write/);
+});
+
+test('your idea: Jig writes it out for the product (a wall piece on a plain wall), the photo keeps it; custom stays as written', () => {
+  // What Claude is asked for: the idea, the product, the presets' style, where it goes and its size.
+  const wallAsk = ideaWriterPrompt({ idea: 'cosy cabin, snowy evening', suggested: 'wall', product: 'Castle LayerTone' }, [250, 186.6, 2.2]);
+  assert.match(wallAsk, /The idea: "cosy cabin, snowy evening"\.\nThe product: Castle LayerTone\./);
+  assert.ok(wallAsk.includes(`1. ${subScenes('wall')[0].scene}`), 'the suggested scene as the first example');
+  assert.match(wallAsk, /wall piece, shown face-on: it hangs flat against the wall .* wide, plain, flat stretch of wall.*begin with "hanging"/);
+  assert.match(wallAsk, /Only if the idea clearly asks for it to be held/);
+  assert.match(wallAsk, /The product is small: 250 × 187 × 2\.2 mm .*mostly plain wall around it/);
+  const tableAsk = ideaWriterPrompt({ idea: 'pe o masă de bucătărie', suggested: 'kitchen' }, [600, 300, 200]);
+  assert.match(tableAsk, /rests on a surface .*begin with "on"/);
+  assert.match(tableAsk, /Only if the idea clearly asks for it to hang on a wall/);
+  assert.match(tableAsk, /in English, whatever language/);
+  assert.doesNotMatch(tableAsk, /The product is small|The product:/);
+  assert.match(IDEA_WRITER_PROMPT, /no people other than a hand if the idea asks for one, and no text, signs, logos or screens/);
+  assert.equal(writtenPlace('Hanging flat on a log wall'), 'wall');
+  assert.equal(writtenPlace('held in a person\'s hand by a window'), 'hand');
+  assert.equal(writtenPlace('on a pine table'), 'surface');
+  // The photo uses the scene as written out, with the wall rules when it hangs; without one, the idea as written.
+  const panel = { name: 'Castle LayerTone', size: [250, 186.6, 2.2] as [number, number, number], faceOn: true };
+  const written = 'hanging on a wide, plain stretch of pale pine log wall in a cosy cabin, snow falling past a window softly blurred to the side, warm evening lamp light';
+  const p = photoPrompt(request({ scene: 'idea', notes: 'cosy cabin, snowy evening', sceneText: written, product: panel }));
+  assert.ok(p.includes(`SCENE: ${written}.`));
+  assert.match(p, /entirely on a wide, flat, continuous stretch of wall/);
+  assert.match(p, /it hangs flat on the wall with this face to the viewer/);
+  assert.doesNotMatch(p, /cosy cabin, snowy evening|Also:|rests ON the surface/);
+  const held = photoPrompt(request({ scene: 'idea', notes: 'in a hand', sceneText: 'held in a person\'s hand, a soft blurred garden behind' }));
+  assert.match(held, /Against the hand:/);
+  assert.match(photoPrompt(request({ scene: 'idea', notes: 'cosy cabin, snowy evening' })), /SCENE: cosy cabin, snowy evening\.\n.*rests ON the surface/s);
+  // A change or another size keeps the scene as written (and a custom scene stays the scene).
+  const from = { photo: '/api/designs/test-1234/images/0123456789abcdef0123456789abcdef.png' };
+  assert.ok(photoEditPrompt(request({ scene: 'idea', notes: 'cosy cabin', sceneText: written, from, change: 'warmer', product: panel })).includes(`SCENE: ${written}.`));
+  const customEdit = photoEditPrompt(request({ scene: 'custom', notes: 'on a boat', from, change: 'warmer' }));
+  assert.match(customEdit, /SCENE: on a boat\./);
+  assert.doesNotMatch(customEdit, /undefined|Earlier wishes/);
+  assert.match(photoPrompt(request({ scene: 'custom', notes: 'on a boat', sceneText: 'ignored' })), /SCENE: on a boat\./, 'custom goes in as written');
+  // Checked like a custom scene: the idea is needed, a scene written for it is kept.
+  assert.equal(photoProblem(request({ scene: 'idea', notes: 'cosy cabin', sceneText: written })), null);
+  assert.equal(photoProblem(request({ scene: 'idea', notes: 'cosy cabin' })), null, 'Jig could not write it out: the idea as written');
+  assert.match(photoProblem(request({ scene: 'idea' }))!, /your idea/);
+  assert.match(photoProblem(request({ scene: 'idea', notes: 'x'.repeat(601) }))!, /notes/);
+  assert.match(photoProblem(request({ scene: 'idea', notes: 'cosy cabin', variant: 2 }))!, /variant/);
+  assert.match(photoProblem(request({ scene: 'idea', notes: 'cosy cabin', sceneText: 'x'.repeat(601) }))!, /sceneText/);
+  assert.match(photoProblem(request({ scene: 'custom', notes: 'on a boat', sceneText: written }))!, /sceneText/);
 });
 
 test('a photo made again with a change: its photo is the scene, the product from its render or a new angle', () => {

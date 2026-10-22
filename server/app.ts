@@ -21,7 +21,7 @@ import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../shared/cost';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../shared/scad';
 import { artworkAvailable, imageModel, requestImage } from './artwork';
 import { isLineArtStyle, LINE_ART_STYLES } from '../shared/lineart';
-import { photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneResponse } from '../shared/photos';
+import { IDEA_SCENE, MAX_NOTES_CHARS, photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneRequest, type PhotoSceneResponse } from '../shared/photos';
 import type { Design, DesignSummary, Vec3 } from '../shared/types';
 import { designKind } from '../shared/designKind';
 import { cleanTagMap, cleanTags, hasTag, MAX_TAGS, tagsProblem, withTag } from '../shared/tags';
@@ -468,16 +468,23 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
 
   // A random sub-scene: a fresh setting of a preset's kind, written by Claude before the photo is
   // asked for, so the photo, its changes and its other sizes all keep it. Without Claude the app asks
-  // for the photo anyway and the image model invents the setting (photoPrompt).
-  app.post('/api/photo-scene', json('2kb'), async (req, res) => {
-    const { scene: id, size } = (req.body ?? {}) as { scene?: unknown; size?: unknown };
-    if (typeof id !== 'string' || !sceneById(id)) return void res.status(400).json({ error: 'scene: one of the scene presets' });
-    // The product's size, so the setting suits it (optional).
+  // for the photo anyway and the image model invents the setting (photoPrompt). The 'idea' scene: the
+  // user's few words written out the same way (without Claude the idea goes in as written).
+  app.post('/api/photo-scene', json('4kb'), async (req, res) => {
+    const { scene: id, size, idea, suggested, product } = (req.body ?? {}) as { [k in keyof PhotoSceneRequest]?: unknown };
+    if (typeof id !== 'string' || (id !== IDEA_SCENE && !sceneById(id))) return void res.status(400).json({ error: `scene: one of the scene presets, or ${IDEA_SCENE}` });
+    if (id === IDEA_SCENE && (typeof idea !== 'string' || !idea.trim() || idea.length > MAX_NOTES_CHARS)) return void res.status(400).json({ error: `idea: the scene in a few words, up to ${MAX_NOTES_CHARS} characters` });
+    // The product's size, so the setting suits it (optional); for an idea, the scene suggested for it and its name.
     const dims = Array.isArray(size) && size.length === 3 && size.every((v) => typeof v === 'number' && v > 0 && v < 10000) ? size as Vec3 : undefined;
+    const about = id === IDEA_SCENE ? {
+      idea: idea as string,
+      ...(typeof suggested === 'string' && sceneById(suggested) ? { suggested } : {}),
+      ...(typeof product === 'string' && product.trim() ? { product: product.slice(0, 200) } : {}),
+    } : undefined;
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     try {
-      res.json({ scene: await sceneWriter(id, dims) } satisfies PhotoSceneResponse);
+      res.json({ scene: await sceneWriter(id, dims, about) } satisfies PhotoSceneResponse);
     } catch (e) {
       res.status(502).json({ error: (e as Error).message });
     }

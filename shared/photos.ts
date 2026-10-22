@@ -46,8 +46,8 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'xmas-tree', label: 'On the Christmas tree', icon: 'bauble', hang: true, scene: 'hanging from a branch of a real, decorated Christmas tree (fresh green fir needles), next to a couple of glass baubles, with warm fairy lights glowing as soft bokeh in the blurred background, cosy evening light' },
   { id: 'xmas-gifts', label: 'Under the tree', icon: 'gift', scene: 'on a wooden floor or low table under a Christmas tree, next to a few gifts wrapped in kraft paper with red and white ribbons, pine branches and pine cones around, warm fairy lights glowing as soft bokeh behind, cosy evening light' },
   { id: 'xmas-wall', label: 'Christmas wall', icon: 'star', wall: true, scene: 'hanging in the middle of a wide stretch of light wall decorated for Christmas, mounted flat at eye level well above a sideboard or mantel with a fresh pine garland, warm fairy lights and a few candles softly blurred below it, cosy warm evening light' },
-  // Shown after "More scenes".
   { id: 'fridge', label: 'On the fridge', icon: 'fridge', wall: true, scene: 'stuck in the middle of the wide, flat door of a white or brushed-steel fridge in a bright home kitchen, flat against the door at eye level, with a child\'s drawing or a photo held by another magnet softly blurred nearby, soft daylight' },
+  // Shown after "More scenes".
   { id: 'restaurant', label: 'Restaurant table', icon: 'fork', scene: 'on a table in a stylish restaurant or café, with a plate, a glass and cutlery softly blurred around it, warm ambient light and bokeh from the room behind' },
   { id: 'bedroom', label: 'Bedside table', icon: 'bed', scene: 'on a bedside table next to a book and a small lamp in a calm, softly lit bedroom, linen bedding softly blurred behind, warm morning light' },
   { id: 'bathroom', label: 'Bathroom shelf', icon: 'drop', scene: 'on a clean bathroom shelf or sink edge with white tiles, a folded towel and a small plant softly blurred nearby, bright, fresh daylight' },
@@ -57,9 +57,11 @@ export const PHOTO_SCENES: PhotoScene[] = [
   { id: 'car', label: 'In the car', icon: 'car', scene: 'inside a modern car, placed or mounted on the dashboard or centre console, with the windscreen and a softly blurred road view behind, natural daylight' },
   { id: 'flatlay', label: 'Flat lay', icon: 'grid', scene: 'a top-down flat lay on a light linen or concrete surface, neatly styled with a few small related props around it (leaves, a notebook, a coffee cup), soft even daylight' },
 ];
-/** How many scenes show before "More scenes". */
-export const MAIN_SCENES = 15;
+/** How many scenes show before "More scenes": with Custom and Your idea after them, full rows of 3. */
+export const MAIN_SCENES = 16;
 export const CUSTOM_SCENE = 'custom';
+/** The user's short idea (in `notes`), written out by Claude into a detailed scene (`sceneText`) before the photo is asked for. */
+export const IDEA_SCENE = 'idea';
 export const MAX_SCENE_CHARS = 600;
 export const MAX_NOTES_CHARS = 600;
 
@@ -314,11 +316,52 @@ export function sceneWriterPrompt(id: string, pick: () => number = Math.random, 
     'Write a fresh setting of this kind, clearly different from these three (they show the style and the level of detail):',
     ...subScenes(id).map((s, i) => `${i + 1}. ${s.scene}`),
     studio ? `For variety, if it fits: a ${any(BACKDROPS)} tone.` : `For variety, if it fits the place: a ${any(STYLES)} look, ${any(LIGHTS)}.`,
-    // A small piece in a setting written for a room comes out room-sized: the setting must suit its size.
-    size && Math.max(...size) < 350
-      ? `The product is small: ${mm(size[0])} × ${mm(size[1])} × ${mm(size[2])} mm (${familiar(size, size[2] < 0.25 * Math.min(size[0], size[1]))}). The photo is taken close to it, so write a setting for something this size: only what is right next to it shows, partly and softly blurred at the edges; no whole room, sofa or big furniture in full view${preset?.wall ? ', mostly plain wall around it' : ''}.`
-      : null,
+    smallLine(size, !!preset?.wall),
   ].filter((l) => l !== null).join('\n');
+}
+
+/** A small piece in a setting written for a room comes out room-sized: the setting must suit its size. */
+const smallLine = (size: Vec3 | undefined, wall: boolean) => (size && Math.max(...size) < 350
+  ? `The product is small: ${mm(size[0])} × ${mm(size[1])} × ${mm(size[2])} mm (${familiar(size, size[2] < 0.25 * Math.min(size[0], size[1]))}). The photo is taken close to it, so write a setting for something this size: only what is right next to it shows, partly and softly blurred at the edges; no whole room, sofa or big furniture in full view${wall ? ', mostly plain wall around it' : ''}.`
+  : null);
+
+// The user's idea written out by Claude: a few words ("cosy cabin, snowy evening") made one setting in
+// the presets' style and detail; a wall piece on a wide plain wall, anything else on a surface, or
+// in a hand (or on a wall) when the idea clearly asks for it. How the setting begins tells which.
+export const IDEA_WRITER_PROMPT = `You write the setting for a product photo of a 3D-printed object from the user's short idea: one phrase in the style of the examples given, saying where the product is (the surface or wall it is on), a few things softly blurred around it, and the light. Photorealistic and plausible, calm and uncluttered, nothing that competes with the product or hides it, no people other than a hand if the idea asks for one, and no text, signs, logos or screens anywhere.
+Answer with ONLY the setting phrase, no quotes and no other text, at most 400 characters.`;
+
+/** The idea to write out, with the scene suggested for the product (a wall piece is suggested a wall) and its name. */
+export interface SceneIdea { idea: string; suggested?: string; product?: string }
+
+/** What Claude is asked for to write the user's idea out into a scene. */
+export function ideaWriterPrompt(o: SceneIdea, size?: Vec3): string {
+  const like = sceneById(o.suggested ?? '');
+  const wall = !!like?.wall;
+  // The examples: the scene suggested for the product (when it is a place), then others it could be in.
+  const own = like && !like.studio && !like.closeup && like.id !== 'studio' && like.id !== 'hand' ? [like.scene] : [];
+  const more = wall
+    ? [sceneById('wall')!.scene, sceneById('bedroom-wall')!.scene, subScenes('wall')[2].scene]
+    : [sceneById('table')!.scene, subScenes('kitchen')[1].scene, sceneById('shelf')!.scene];
+  const hand = 'Only if the idea clearly asks for it to be held: it is held in a person\'s hand (only the hand and wrist in view, a relaxed grip that does not cover it); begin with "held in a person\'s hand".';
+  return [
+    `The idea: "${o.idea.trim()}".`,
+    o.product?.trim() ? `The product: ${o.product.trim()}.` : null,
+    'Write it out as one setting, in the style and level of detail of these examples:',
+    ...[...new Set([...own, ...more])].slice(0, 3).map((s, i) => `${i + 1}. ${s}`),
+    'Keep everything the idea says (the place, the mood, the season, the colours, the things it names) and add nothing that contradicts it; fill in the rest so it suits the idea: the surface or wall it is on, a few things softly blurred around it, the light. Write it in English, whatever language the idea is in. Leave out anything the rules forbid (text, signs, logos, screens, people other than a hand), even if the idea names it.',
+    wall
+      ? `The product is a wall piece, shown face-on: it hangs flat against the wall at eye level, in the middle of a wide, plain, flat stretch of wall (no panelling, tiles, wallpaper pattern, shelves or frames behind it), furniture and decor only well below it or to the side, softly blurred; begin with "hanging". ${hand} Only if the idea clearly asks for a table, shelf or other surface: it rests on that; begin with "on".`
+      : `The product rests on a surface (a table, shelf, counter or whatever suits the idea); begin with "on" or "standing on". ${hand} Only if the idea clearly asks for it to hang on a wall: it hangs flat against the wall at eye level, in the middle of a wide, plain, flat stretch of it; begin with "hanging".`,
+    o.suggested === BACKLIT_SCENE ? 'It is a lithophane: keep a warm light right behind it, so its picture glows.' : null,
+    smallLine(size, wall),
+  ].filter((l) => l !== null).join('\n');
+}
+
+/** Where a scene written from an idea puts the product, by how it begins (ideaWriterPrompt): on a wall, in a hand or on a surface. */
+export function writtenPlace(scene: string): 'wall' | 'hand' | 'surface' {
+  const s = scene.trim().toLowerCase();
+  return /^(hanging|hung|mounted|stuck)\b/.test(s) ? 'wall' : /^held\b/.test(s) ? 'hand' : 'surface';
 }
 
 /** Claude's random scene, cleaned up: one phrase, no quotes or final full stop. */
@@ -406,14 +449,17 @@ export interface PhotoRequest {
   /** Change an existing photo instead of making a new one: its stored photo and render (/api/designs/:id/images/…), and what to change. */
   from?: { photo: string; render?: string };
   change?: string;
-  /** A preset's id, or 'custom' with the scene in `notes`. */
+  /** A preset's id, 'custom' with the scene in `notes`, or 'idea' with the user's idea in `notes`. */
   scene: string;
   aspect: PhotoAspect;
-  /** The custom scene, or extra wishes for a preset (light, mood, props). */
+  /** The custom scene, the idea, or extra wishes for a preset (light, mood, props). */
   notes?: string;
   /** A preset's sub-scene (1, its own scene, if left out). */
   variant?: SceneVariant;
-  /** A random sub-scene's scene, as written for its first photo: a change or another size keeps it. */
+  /**
+   * A random sub-scene's scene, or the idea written out, as written for its first photo: a change or
+   * another size keeps it. An idea without it (Jig couldn't write it out) goes in as written.
+   */
   sceneText?: string;
   /** One of the shop set's photos (Shop photos): made at 2K, with what the shot shows in the prompt. */
   shop?: ShopShot;
@@ -439,7 +485,8 @@ export interface PhotoRequest {
   };
 }
 
-/** POST /api/photo-scene { scene }: a random sub-scene of the preset, written by Claude. */
+/** POST /api/photo-scene: a random sub-scene of the preset, or for 'idea' the user's idea written out; both by Claude. */
+export interface PhotoSceneRequest extends Partial<SceneIdea> { scene: string; size?: Vec3 }
 export interface PhotoSceneResponse { scene: string }
 
 export interface PhotoResponse {
@@ -464,12 +511,13 @@ export function photoProblem(b: PhotoRequest): string | null {
     if (typeof b.from !== 'object' || !ok(b.from.photo) || (b.from.render != null && !ok(b.from.render))) return 'from: the photo (and render) to change, as /api/designs/<id>/images/<name> URLs';
     if ((b.resize == null || b.change != null) && (typeof b.change !== 'string' || !b.change.trim() || b.change.length > MAX_NOTES_CHARS)) return `change: what to change in the photo, up to ${MAX_NOTES_CHARS} characters`;
   } else if (b.render == null) return 'render must be a PNG or JPEG image';
-  if (typeof b.scene !== 'string' || (b.scene !== CUSTOM_SCENE && !sceneById(b.scene))) return `scene must be one of ${[...PHOTO_SCENES.map((s) => s.id), CUSTOM_SCENE].join(', ')}`;
+  if (typeof b.scene !== 'string' || (b.scene !== CUSTOM_SCENE && b.scene !== IDEA_SCENE && !sceneById(b.scene))) return `scene must be one of ${[...PHOTO_SCENES.map((s) => s.id), CUSTOM_SCENE, IDEA_SCENE].join(', ')}`;
   if (!PHOTO_ASPECTS.includes(b.aspect)) return `aspect must be one of ${PHOTO_ASPECTS.join(', ')}`;
   if (b.notes != null && (typeof b.notes !== 'string' || b.notes.length > MAX_NOTES_CHARS)) return `notes: text up to ${MAX_NOTES_CHARS} characters`;
   if (b.scene === CUSTOM_SCENE && !b.notes?.trim()) return 'Describe the custom scene';
-  if (b.variant != null && (!SCENE_VARIANTS.includes(b.variant) || b.scene === CUSTOM_SCENE)) return `variant: a preset's sub-scene, one of ${SCENE_VARIANTS.join(', ')}`;
-  if (b.sceneText != null && (b.variant !== 'random' || typeof b.sceneText !== 'string' || !b.sceneText.trim() || b.sceneText.length > MAX_SCENE_CHARS)) return `sceneText: the random sub-scene (variant 'random'), up to ${MAX_SCENE_CHARS} characters`;
+  if (b.scene === IDEA_SCENE && !b.notes?.trim()) return 'Describe your idea for the scene';
+  if (b.variant != null && (!SCENE_VARIANTS.includes(b.variant) || !sceneById(b.scene))) return `variant: a preset's sub-scene, one of ${SCENE_VARIANTS.join(', ')}`;
+  if (b.sceneText != null && ((b.variant !== 'random' && b.scene !== IDEA_SCENE) || typeof b.sceneText !== 'string' || !b.sceneText.trim() || b.sceneText.length > MAX_SCENE_CHARS)) return `sceneText: the random sub-scene (variant 'random') or the idea written out, up to ${MAX_SCENE_CHARS} characters`;
   if (b.shop != null && !SHOP_SHOTS.includes(b.shop)) return `shop must be one of ${SHOP_SHOTS.join(', ')}`;
   const p = b.product;
   if (!p || typeof p.name !== 'string' || p.name.length > 200) return 'product.name: text up to 200 characters';
@@ -565,12 +613,19 @@ function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean): s
   }
 }
 
+/** The idea's scene as Jig wrote it out, and where it puts the product; none for any other scene (or an idea that went in as written). */
+function writtenIdea(b: PhotoRequest): { scene: string; place: ReturnType<typeof writtenPlace> } | null {
+  const scene = b.scene === IDEA_SCENE ? b.sceneText?.trim() : undefined;
+  return scene ? { scene, place: writtenPlace(scene) } : null;
+}
+
 /** The prompt the image model gets with the render. */
 export function photoPrompt(b: PhotoRequest): string {
   const preset = sceneById(b.scene);
   const notes = b.notes?.trim();
+  const idea = writtenIdea(b);
   const [x, y, z] = b.product.size;
-  const wall = !!preset?.wall;
+  const wall = !!preset?.wall || idea?.place === 'wall';
   const hang = !!preset?.hang;
   const closeup = !!preset?.closeup;
   const faceOn = !!b.product.faceOn;
@@ -611,14 +666,14 @@ export function photoPrompt(b: PhotoRequest): string {
     '- very fine, regular horizontal layer lines (0.2 mm) faintly visible on its side walls up close; crisp but not razor-sharp edges; flat top faces smooth',
     b.product.lithophane ? '- translucent white PLA lit from behind: a soft, even glow with the picture inside it, no printed or painted image on its surface' : '- solid, opaque filament colours (no gloss, glass, metal or painted look)',
     '',
-    `SCENE: ${preset ? sceneText(b, preset) : notes}.`,
+    `SCENE: ${preset ? sceneText(b, preset) : idea ? idea.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
     wall && Math.max(x, y) < 350 && shop !== 'size'
       ? surface === 'wall'
         ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
         : `It is a small piece: show the fridge's handle or another magnet beside it on the door, apart from it, so its real size is obvious, and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
       : null,
-    b.scene === 'hand' && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
+    (b.scene === 'hand' || idea?.place === 'hand') && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
     closeup && !shop ? 'A CLOSE-UP PHOTO: taken from close by, so the product fills most of the picture and its surface, edges, relief and the fine layer lines of the print read clearly. If the render is cropped to part of the product, keep that close crop (do not show the whole product or shrink it to fit).' : null,
     shop ? shopLine(shop, b.scene, b.product.size, faceOn) : null,
     preset && notes ? `Also: ${notes}.` : null,
@@ -637,6 +692,9 @@ export function photoPrompt(b: PhotoRequest): string {
   ].filter((l) => l !== null).join('\n');
 }
 
+/** A preset's extra wishes kept apart, to go last as earlier wishes; a custom scene or an idea is the scene itself, so it stays. */
+const wishesApart = (b: PhotoRequest): PhotoRequest => (sceneById(b.scene) ? { ...b, notes: undefined } : b);
+
 /**
  * The prompt for making a photo again with a change: a new photo from the render (the first
  * picture, as photoPrompt) that is the earlier photo (the second picture) with only the change
@@ -646,7 +704,7 @@ export function photoPrompt(b: PhotoRequest): string {
  */
 export function photoEditPrompt(b: PhotoRequest): string {
   return [
-    photoPrompt({ ...b, notes: undefined }),
+    photoPrompt(wishesApart(b)),
     '',
     'THE PHOTO TO CHANGE: the second attached picture is an earlier photo of this product. Make it again with only THE CHANGE below: everything the change does not ask for stays exactly as in that photo (the composition and framing, where the product and each of its pieces are, their size and angle in the frame, the props, background, surface, colours and light). Where the instructions above say how to frame or set up the photo, keep the earlier photo instead.',
     'If the change asks to move, spread, turn or recompose things (e.g. "from above", "closer", "spread them out more"), do that, and keep the rest.',
@@ -654,7 +712,7 @@ export function photoEditPrompt(b: PhotoRequest): string {
       ? 'The first attached picture is a new render of the product: show the product as in it (its design and the angle it is seen from), on the same spot in the scene, still matching the render exactly as said above.'
       : 'The product still matches the render (the first attached picture) exactly, as said above.',
     `THE CHANGE (the reason for the new photo – make it clearly): ${b.change!.trim()}.`,
-    b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
+    sceneById(b.scene) && b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
   ].filter((l) => l !== null).join('\n');
 }
 
@@ -706,8 +764,9 @@ function sizeReference(b: PhotoRequest): { what: string; dim: string; mm: number
   const preset = sceneById(b.scene);
   const faceOn = !!b.product.faceOn;
   const longest = (s: Vec3) => Math.max(s[0], s[1], faceOn ? 0 : s[2]);
-  if (b.scene === 'hand') return { what: 'the hand (about 190 mm long)', dim: 'long', mm: 190, measure: longest, sure: true };
-  if (preset?.wall) return { what: 'the light switch (about 85 mm wide)', dim: 'wide', mm: 85, measure: (s) => s[0], sure: b.shop === 'size' };
+  const idea = writtenIdea(b);
+  if (b.scene === 'hand' || idea?.place === 'hand') return { what: 'the hand (about 190 mm long)', dim: 'long', mm: 190, measure: longest, sure: true };
+  if (preset?.wall || idea?.place === 'wall') return { what: 'the light switch (about 85 mm wide)', dim: 'wide', mm: 85, measure: (s) => s[0], sure: b.shop === 'size' };
   if (b.shop === 'size') {
     // A flat thing lying on the table is measured by its longest side, anything else by its height.
     const flatLying = !faceOn && b.product.size[2] < 0.25 * Math.min(b.product.size[0], b.product.size[1]);
@@ -732,7 +791,7 @@ export function sizeVariantPrompt(b: PhotoRequest): string {
   const bigger = area(now) >= area(base.size);
   const refLine = ref && `${ref.sure ? 'In' : 'If the earlier photo shows a light switch: in'} the earlier photo the product was ${timesX(ref.measure(base.size) / ref.mm)} as ${ref.dim} as ${ref.what}; now it is ${timesX(ref.measure(now) / ref.mm)} as ${ref.dim} as it. The ${ref.what.split(' (')[0].replace('the ', '')} stays exactly the same size in the picture.`;
   return [
-    photoPrompt({ ...b, notes: undefined }),
+    photoPrompt(wishesApart(b)),
     '',
     `THIS PHOTO SHOWS ${label ? `THE ${label.toUpperCase()} SIZE` : 'ANOTHER SIZE'} OF THE PRODUCT: ${sizeWords(now, faceOn)}. The second attached picture is a photo of ${base.label ? `the ${base.label} size` : 'it in another size'}: ${sizeWords(base.size, faceOn)}.`,
     `So the product is ${ratioWords(now, base.size, faceOn)}.`,
@@ -741,6 +800,6 @@ export function sizeVariantPrompt(b: PhotoRequest): string {
     `The product stays on the same spot (centred where it was, at the same height on the wall or in the same place on the surface) and ${bigger ? 'grows' : 'shrinks'} around it; the room and everything in it keep their real size, so the product takes up ${bigger ? 'more' : 'less'} of the picture than before.`,
     'The product itself (its shape, proportions, colours and details) is as in the first attached picture, its render at this size, not as in the earlier photo.',
     b.change?.trim() ? `Also: ${b.change.trim()}.` : null,
-    b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
+    sceneById(b.scene) && b.notes?.trim() ? `Earlier wishes that still apply: ${b.notes.trim()}.` : null,
   ].filter((l) => l !== null).join('\n');
 }

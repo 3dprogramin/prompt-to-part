@@ -1,23 +1,25 @@
-// A random sub-scene for a product photo, written by Claude: a fresh setting of the preset's kind.
+// A scene for a product photo, written by Claude: a fresh setting of a preset's kind (its random
+// sub-scene), or the user's short idea written out (the 'idea' scene).
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
 import { claudeAuthProblem } from './config';
 import { recordRateLimit } from './usage';
-import { parseWrittenScene, SCENE_WRITER_PROMPT, sceneWriterPrompt } from '../shared/photos';
+import { IDEA_SCENE, IDEA_WRITER_PROMPT, ideaWriterPrompt, parseWrittenScene, SCENE_WRITER_PROMPT, sceneWriterPrompt, type SceneIdea } from '../shared/photos';
 import type { Vec3 } from '../shared/types';
 
-export async function writeScene(id: string, size?: Vec3): Promise<string> {
+export async function writeScene(id: string, size?: Vec3, idea?: SceneIdea): Promise<string> {
   const authProblem = claudeAuthProblem();
   if (authProblem) throw new Error(authProblem);
+  const fromIdea = id === IDEA_SCENE && !!idea;
   const abort = new AbortController();
   // Short: the photo waits for it (and is made without it if it fails).
   const timer = setTimeout(() => abort.abort(), 45_000);
   try {
     let text = '';
     for await (const msg of query({
-      prompt: sceneWriterPrompt(id, Math.random, size),
+      prompt: fromIdea ? ideaWriterPrompt(idea, size) : sceneWriterPrompt(id, Math.random, size),
       options: {
-        systemPrompt: SCENE_WRITER_PROMPT,
+        systemPrompt: fromIdea ? IDEA_WRITER_PROMPT : SCENE_WRITER_PROMPT,
         model: 'sonnet',
         tools: [],
         maxTurns: 1,

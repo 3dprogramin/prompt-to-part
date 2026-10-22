@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, suggestScene, variantName, type PhotoAspect, type PhotoRequest, type SceneVariant, type ShopShot } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, MAIN_SCENES, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, suggestScene, variantName, writtenPlace, type PhotoAspect, type PhotoRequest, type SceneIdea, type SceneVariant, type ShopShot } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { mainAxis } from '../../shared/sizes';
 import { api } from '../lib/api';
@@ -143,18 +143,20 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
 
 const ASPECT_RATIO: Record<PhotoAspect, number> = { '1:1': 1, '4:5': 4 / 5, '16:9': 16 / 9 };
 const ASPECT_HINT: Record<PhotoAspect, string> = { '1:1': 'Square', '4:5': 'Portrait, for shop listings', '16:9': 'Wide, for banners' };
-const sceneLabel = (id: string) => sceneById(id)?.label ?? 'Custom scene';
+const sceneLabel = (id: string) => sceneById(id)?.label ?? (id === IDEA_SCENE ? 'Your idea' : 'Custom scene');
 const shopShot = (shot?: string) => (SHOP_SHOTS as readonly string[]).includes(shot ?? '') ? shot as ShopShot : undefined;
-/** A photo's (or request's) sub-scene, as a request or a photo keeps it: sub-scene 1 is left out. */
-const lookOf = (x: { variant?: SceneVariant; sceneText?: string }): Pick<PhotoRequest, 'variant' | 'sceneText'> =>
-  x.variant && x.variant !== 1 && SCENE_VARIANTS.includes(x.variant) ? { variant: x.variant, ...(x.variant === 'random' && x.sceneText ? { sceneText: x.sceneText } : {}) } : {};
-/** A photo's sub-scene in words: "Sub-scene 2: Scandinavian, warm white", the random scene written for it. */
+/** A photo's (or request's) sub-scene, as a request or a photo keeps it: sub-scene 1 is left out; an idea's scene as written. */
+const lookOf = (x: { scene: string; variant?: SceneVariant; sceneText?: string }): Pick<PhotoRequest, 'variant' | 'sceneText'> =>
+  x.scene === IDEA_SCENE ? (x.sceneText ? { sceneText: x.sceneText } : {})
+  : x.variant && x.variant !== 1 && SCENE_VARIANTS.includes(x.variant) ? { variant: x.variant, ...(x.variant === 'random' && x.sceneText ? { sceneText: x.sceneText } : {}) } : {};
+/** A photo's sub-scene in words: "Sub-scene 2: Scandinavian, warm white", the random scene written for it, or the idea's. */
 const lookTitle = (ph: { scene: string; variant?: SceneVariant; sceneText?: string }) => {
+  if (ph.scene === IDEA_SCENE) return ph.sceneText ? `Written out by Jig: ${ph.sceneText}` : 'Your idea as you wrote it (Jig couldn\'t write it out)';
   const v = lookOf(ph).variant;
   return !v ? undefined : v === 'random' ? `Random setting: ${ph.sceneText ?? `one the image model invented (${sceneKind(ph.scene)})`}` : `Sub-scene ${v}: ${variantName(ph.scene, v)}`;
 };
-/** A random sub-scene's setting, written by Claude; none (the image model invents it) when Jig can't reach Claude. */
-const writeScene = (scene: string, size?: Vec3) => api.photoScene(scene, size).catch(() => undefined);
+/** A random sub-scene's setting or the idea written out, by Claude; none (the image model invents it, or gets the idea as written) when Jig can't reach Claude. */
+const writeScene = (scene: string, size?: Vec3, idea?: SceneIdea) => api.photoScene(scene, size, idea).catch(() => undefined);
 /** A photo's name: its scene, or for a shop set's photo its shot; and the sale size it shows. */
 const photoLabel = (scene: string, shop?: string, size?: string) => { const s = shopShot(shop); return (s ? `Shop · ${SHOP_SHOT_LABELS[s]}` : sceneLabel(scene)) + (size ? ` · ${size}` : ''); };
 /** The shop shots that are the same for every sale size (the shape is the same; the size doesn't show). */
@@ -257,6 +259,8 @@ export function PhotosPanel(p: Props) {
   const choice = scenes[p.designId] ?? { scene: suggested, notes: '', variant: 1 as SceneVariant };
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
   const custom = choice.scene === CUSTOM_SCENE;
+  // The user's idea: written out by Jig before the photo is asked for.
+  const idea = choice.scene === IDEA_SCENE;
   const preset = sceneById(choice.scene);
   // The scenes after the first few show on "More scenes", or right away when one of them is picked or suggested.
   const expanded = allScenes || [choice.scene, suggested].some((x) => PHOTO_SCENES.findIndex((sc) => sc.id === x) >= MAIN_SCENES);
@@ -266,16 +270,17 @@ export function PhotosPanel(p: Props) {
   const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang || preset?.closeup) && flat;
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
   /**
-   * The chosen sub-scene for requests in the chosen scene; a random one's setting is written now, once
-   * for all the photos asked for together (without Claude the image model invents it).
+   * The chosen sub-scene for requests in the chosen scene; a random one's setting (or the idea's
+   * scene) is written now, once for all the photos asked for together (without Claude the image
+   * model invents it, or gets the idea as written).
    */
   const look = async (what: 'photo' | 'shop' | 'sizes'): Promise<Pick<PhotoRequest, 'variant' | 'sceneText'>> => {
-    if (!preset || choice.variant === 1) return {};
-    if (choice.variant !== 'random') return { variant: choice.variant };
+    if (!idea && (!preset || choice.variant === 1)) return {};
+    if (!idea && choice.variant !== 'random') return { variant: choice.variant };
     setWriting(what);
     try {
-      const text = await writeScene(choice.scene, size ?? undefined);
-      return { variant: 'random', ...(text ? { sceneText: text } : {}) };
+      const text = await writeScene(choice.scene, size ?? undefined, idea ? { idea: choice.notes.trim(), suggested, product: p.result?.meta.name || p.designName } : undefined);
+      return idea ? (text ? { sceneText: text } : {}) : { variant: 'random', ...(text ? { sceneText: text } : {}) };
     } finally {
       setWriting(null);
     }
@@ -368,6 +373,8 @@ export function PhotosPanel(p: Props) {
     // A shop photo stays one (2K, its shot); its product as it was shown (face-on or not).
     const shop = shopShot(ph.shop);
     if (shop) prod.faceOn = shopPlan({ size: prod.size, suggested }).find((x) => x.shot === shop)?.faceOn ?? false;
+    // A photo of an idea: face-on if its render was (the idea hung it on a wall).
+    else if (ph.scene === IDEA_SCENE) prod.faceOn = !fromView && ph.camera === 'face';
     // A size's photo stays that size's (its product as it was, unless taken from the view again).
     if (ph.dims && !fromView) prod.size = ph.dims;
     p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shop ? { shop } : {}), ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), product: prod },
@@ -525,16 +532,19 @@ export function PhotosPanel(p: Props) {
   const generate = async () => {
     setError(null);
     if (!size || !p.result) return setError('There is no model to photograph yet.');
-    if (custom && !choice.notes.trim()) return setError('Describe the scene first.');
+    if ((custom || idea) && !choice.notes.trim()) return setError(idea ? 'Write your idea first.' : 'Describe the scene first.');
+    // The idea is written out first: a flat print it hangs on a wall is shown face-on.
+    const written = idea ? await look('photo') : null;
+    const onFace = faceOn || (camera === 'best' && flat && !!written?.sceneText && writtenPlace(written.sceneText) === 'wall');
     let shot: string | null = null;
-    const view: PhotoView = camera === 'current' ? 'current' : preset?.closeup ? 'detail' : faceOn ? 'face' : 'angle';
+    const view: PhotoView = camera === 'current' ? 'current' : preset?.closeup ? 'detail' : onFace ? 'face' : 'angle';
     try {
       shot = p.capture(view, ASPECT_RATIO[aspect]);
     } catch (e) {
       return setError(`Couldn't render the model: ${(e as Error).message}`);
     }
     if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
-    const chosen = await look('photo');
+    const chosen = written ?? await look('photo');
     p.onStart({
       render: dataUrlToImage(shot),
       scene: choice.scene,
@@ -542,7 +552,7 @@ export function PhotosPanel(p: Props) {
       aspect,
       notes: choice.notes.trim() || undefined,
       ...(viewedSale ? { saleSize: viewedSale } : {}),
-      product: product()!,
+      product: { ...product()!, faceOn: onFace },
     }, { camera: view, shape: p.shape });
   };
 
@@ -602,9 +612,10 @@ export function PhotosPanel(p: Props) {
 
       <div className="ph-label" id={`${id}-scene`}>Scene</div>
       <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
-        {[...shownScenes, { id: CUSTOM_SCENE, label: 'Custom…', icon: 'pen' }].map((s) => (
+        {[...shownScenes, { id: CUSTOM_SCENE, label: 'Custom…', icon: 'pen', hint: 'Describe the scene yourself: it goes to the image model as you write it' },
+          { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe a scene in a few words; Jig writes it out in detail' }].map((s) => (
           <button key={s.id} role="radio" aria-checked={choice.scene === s.id} className={choice.scene === s.id ? 'on' : ''} onClick={() => setChoice({ scene: s.id, variant: 1 })}
-            title={s.id === suggested ? `${s.label} – suggested for this design` : s.label}>
+            title={'hint' in s ? s.hint : s.id === suggested ? `${s.label}: suggested for this design` : s.label}>
             <Icon name={s.icon} size={18} />
             <span>{s.label}</span>
             {s.id === suggested && <i className="ph-suggested" aria-label="suggested">★</i>}
@@ -630,8 +641,8 @@ export function PhotosPanel(p: Props) {
         </div>
       )}
       <textarea className="text-param ph-notes" rows={custom ? 3 : 2} maxLength={MAX_NOTES_CHARS} value={choice.notes} onChange={(e) => setChoice({ notes: e.target.value })}
-        aria-label={custom ? 'Describe the scene' : 'Extra details (optional)'}
-        placeholder={custom ? 'Describe the scene, e.g. "on a bedside table next to a book, warm evening lamp light"' : 'Extra details (optional), e.g. "autumn leaves around it", "evening light"'} />
+        aria-label={custom ? 'Describe the scene' : idea ? 'Your idea for the scene, in a few words' : 'Extra details (optional)'}
+        placeholder={custom ? 'Describe the scene, e.g. "on a bedside table next to a book, warm evening lamp light"' : idea ? 'A few words, e.g. "cosy cabin, snowy evening"' : 'Extra details (optional), e.g. "autumn leaves around it", "evening light"'} />
 
       <div className="ph-row">
         <span className="ph-label" id={`${id}-aspect`}>Format</span>
@@ -650,7 +661,7 @@ export function PhotosPanel(p: Props) {
       </div>
 
       <button className="btn primary wide" disabled={!p.imageModel || !size || writing === 'photo'} onClick={() => void generate()}>
-        <Icon name="camera" size={14} /> {writing === 'photo' ? 'Writing a random scene…' : 'Generate photo'}
+        <Icon name="camera" size={14} /> {writing === 'photo' ? (idea ? 'Writing out your idea…' : 'Writing a random scene…') : 'Generate photo'}
       </button>
       <div className="dim small ph-note">{p.imageModel ?? 'Image model'} · about $0.04–0.07 and 10–30 s each · the photo is made from a clean render of the model as shown (hidden parts stay hidden).</div>
       <button className="btn wide ph-shop" disabled={!p.imageModel || !size || rendering != null || writing === 'shop' || !!shopProgress} onClick={() => void shopSet()}
