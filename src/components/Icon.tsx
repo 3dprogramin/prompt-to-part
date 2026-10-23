@@ -54,6 +54,8 @@ const PATHS: Record<string, string> = {
   download: 'M12 4v11M7 10l5 5 5-5M4 20h16',
   restore: 'M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5',
   select: 'M4 7V4h3M10 4h4M17 4h3v3M20 10v4M20 17v3h-3M14 20h-4M7 20H4v-3M4 14v-4',
+  round: 'M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14z',
+  square: 'M5.5 5.5h13v13h-13z',
   ortho: 'M5 5h14v14H5zM5 5l14 14',
   chevron: 'M9 6l6 6-6 6',
   spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6',

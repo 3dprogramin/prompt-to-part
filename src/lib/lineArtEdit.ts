@@ -139,7 +139,7 @@ export function removeStroke(edits: LineArtEdits, name: string, stroke: LineArtS
   const e = edits[name];
   if (!e) return edits;
   // Compared by content (a stroke read back from the design has its keys in another order).
-  const same = (s: LineArtStroke) => JSON.stringify([s.mode, s.width ?? null, s.points, s.filament ? [s.filament.color, s.filament.name ?? null, s.filament.brand ?? null] : null]);
+  const same = (s: LineArtStroke) => JSON.stringify([s.mode, s.width ?? null, s.points, s.filament ? [s.filament.color, s.filament.name ?? null, s.filament.brand ?? null] : null, s.shape ?? null]);
   const i = e.strokes.map(same).lastIndexOf(same(stroke));
   if (i < 0) return edits;
   const strokes = e.strokes.filter((_, k) => k !== i);
@@ -173,9 +173,11 @@ const segsOf = (p: Pt[]): [Pt, Pt][] => (p.length === 1 ? [[p[0], p[0]]] : p.sli
  */
 export function clearArea(strokes: LineArtStroke[], area: LineArtStroke[], radius: (st: LineArtStroke) => number): LineArtStroke[] {
   // A stroke is under the restores when every point of its brush is under one of their round
-  // ends' sides: its path tried every `h`, each point within reach less half a step.
+  // ends' sides: its path tried every `h`, each point within reach less half a step. (A square
+  // brush reaches its corners, a restore's square at least its round's sides.)
+  const far = (st: LineArtStroke) => radius(st) * (st.shape === 'square' ? Math.SQRT2 : 1);
   const under = (st: LineArtStroke, after: LineArtStroke[]) => {
-    const r = radius(st), h = Math.max(r / 2, 1e-6);
+    const r = far(st), h = Math.max(radius(st) / 2, 1e-6);
     const segs = after.flatMap((a) => segsOf(a.points).map(([p, q]) => ({ p, q, R: radius(a) * DISC_SHARE })));
     const inside = (x: Pt) => segs.some((s) => segDist(x, x, s.p, s.q) <= s.R - r - h / 2);
     for (const [a, b] of segsOf(st.points)) {
@@ -185,7 +187,7 @@ export function clearArea(strokes: LineArtStroke[], area: LineArtStroke[], radiu
     return true;
   };
   const touches = (a: LineArtStroke, st: LineArtStroke) => {
-    const R = radius(a) + radius(st);
+    const R = far(a) + far(st);
     return segsOf(a.points).some(([p, q]) => segsOf(st.points).some(([u, v]) => segDist(p, q, u, v) <= R));
   };
   let out = [...strokes, ...area];

@@ -486,9 +486,10 @@ export const MAX_STROKE_POINTS = 2000;
  * the piece's own filament (paint puts it back). 'restore' (Clear edits here) takes back the strokes
  * before it under its brush: there the piece is as Jig made it again (lines drawn go, erased ones
  * come back, paint and fills go). Points are in the drawing's own units (1 = its height, centred,
- * y up), so an edit stays put when the piece is resized.
+ * y up), so an edit stays put when the piece is resized. `shape` 'square': the brush is a square
+ * `width` wide (upright in the drawing) rather than round; a drawn line is always round.
  */
-export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill' | 'restore'; width?: number; points: [number, number][]; filament?: PartFilament }
+export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill' | 'restore'; width?: number; points: [number, number][]; filament?: PartFilament; shape?: 'square' }
 /** A fill brush's width when the stroke gives none, mm. */
 export const FILL_WIDTH = 4;
 const STROKE_MODES: readonly string[] = ['draw', 'erase', 'paint', 'fill', 'restore'];
@@ -518,7 +519,8 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
       const width = Number(st.width);
       // (An eraser has no filament, nor does clearing.)
       const filament = st.mode === 'erase' || st.mode === 'restore' ? undefined : cleanFilament(st.filament);
-      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}), ...(filament ? { filament } : {}) });
+      const square = st.shape === 'square' && st.mode !== 'draw';
+      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}), ...(filament ? { filament } : {}), ...(square ? { shape: 'square' as const } : {}) });
     }
     if (strokes.length) out[name.slice(0, 120)] = { fp: e.fp.slice(0, 80), strokes };
   }
@@ -564,8 +566,10 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
     if (st.mode === 'paint' || st.mode === 'fill') continue;
     const r = ((st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit) * H;
     const m = new Uint8Array(W * H), pts = st.points.map(toPx);
-    if (pts.length === 1) capsuleXY(m, W, H, pts[0], pts[0], r);
-    for (let k = 0; k + 1 < pts.length; k++) capsuleXY(m, W, H, pts[k], pts[k + 1], r);
+    // (A square brush: its outlines on the pixels, y up as rasterize has it.)
+    if (st.shape === 'square') for (const c of squareOutlines([pts.map(([x, y]): Pt => [x, -y])], r)) rasterize([c], { w: W, h: H, px: 1, x0: -0.5, y1: 0.5 }, m);
+    else if (pts.length === 1) capsuleXY(m, W, H, pts[0], pts[0], r);
+    else for (let k = 0; k + 1 < pts.length; k++) capsuleXY(m, W, H, pts[k], pts[k + 1], r);
     for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = st.mode === 'draw' ? 1 : st.mode === 'restore' ? own![i] : 0;
   }
   const w = W / S, h = H / S, rgba = new Uint8Array(w * h * 4);
@@ -1353,6 +1357,33 @@ function strokeOutlines(paths: Pt[][], r: number, n: number): Pt[][] {
   return out;
 }
 
+/**
+ * Square-brushed strokes `r` mm from their paths each way (upright squares 2r wide) as
+ * counter-clockwise outlines, whose union (NonZero) is the strokes: a square swept along each
+ * segment is the hull of the squares at its ends (a square alone for a single point).
+ */
+export function squareOutlines(paths: Pt[][], r: number): Pt[][] {
+  const out: Pt[][] = [];
+  const corners = ([x, y]: Pt): Pt[] => [[x - r, y - r], [x + r, y - r], [x + r, y + r], [x - r, y + r]];
+  for (const p of paths) {
+    if (p.length === 1) out.push(corners(p[0]));
+    for (let k = 0; k + 1 < p.length; k++) out.push(hull([...corners(p[k]), ...corners(p[k + 1])]));
+  }
+  return out;
+}
+
+/** The convex hull of points, counter-clockwise (a monotone chain). */
+function hull(pts: Pt[]): Pt[] {
+  const s = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list: Pt[]) => {
+    const h: Pt[] = [];
+    for (const p of list) { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 1e-12) h.pop(); h.push(p); }
+    return h.slice(0, -1);
+  };
+  return [...half(s), ...half(s.reverse())];
+}
+
 /** What buildLineArt needs from the runtime (Manifold's classes, the text and drawing helpers). */
 export interface LineArtDeps {
   M: any;
@@ -1435,8 +1466,10 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   });
   // Where each drawing lands in the piece (drawing units → mm), followed through the layout.
   const frames: LineArtInfo['frames'] = [];
-  const brush = (st: LineArtStroke, toUnit: (p: Pt) => Pt, mmPerUnit: number) =>
-    new C(strokeOutlines([st.points.map(toUnit)], (st.width ?? (st.mode === 'draw' ? lineWidth : st.mode === 'fill' ? FILL_WIDTH : 3)) / 2 / mmPerUnit, segs / 4), 'NonZero');
+  const brush = (st: LineArtStroke, toUnit: (p: Pt) => Pt, mmPerUnit: number) => {
+    const r = (st.width ?? (st.mode === 'draw' ? lineWidth : st.mode === 'fill' ? FILL_WIDTH : 3)) / 2 / mmPerUnit, path = st.points.map(toUnit);
+    return new C(st.shape === 'square' ? squareOutlines([path], r) : strokeOutlines([path], r, segs / 4), 'NonZero');
+  };
   const sumW = units.reduce((a, u) => a + u.w, 0);
   // The art `s` mm high: its width, and the art placed with its box's bottom-left at the origin.
   const artWidth = (s: number) => s * sumW + gap * (names.length - 1);
