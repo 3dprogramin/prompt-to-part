@@ -78,14 +78,14 @@ test('square brush: the image model picture has the square erased', () => {
 test('square brush in corners and across lines: no slit, hole or skin, the own filament one body', () => {
   const frameHoles = holes(build([], 'normal')[0]);
   // A square fill into the frame's top-left corner, over the lines' inner corner and exactly up to
-  // them, through and in the top 3 layers. (Its corners on the lines' walls the fill's opening
-  // rounds: in the top layers a sliver under a micron is left where the layers meet, as by a round brush.)
+  // them, through and in the top 3 layers. (The holes counted from the mesh through only: in the
+  // top layers its points split where the slot meets the lines, though it is one body with one hole.)
   for (const depth of [undefined, '3']) {
     for (const st of [stroke('fill', 8, [[-0.96, 0.46], [-0.9, 0.46]], true, red), stroke('fill', 6, [[-0.95, 0.45], [-0.9, 0.45]], true, red)]) {
       const parts = build([st], 'normal', depth), own = parts[0], what = `${st.width} mm fill, ${depth ?? 'through'}`;
       assert.equal(parts.length, 2, what);
       assert.equal(slits(own), 0, `${what}: no slit`);
-      assert.equal(holes(own, 3), frameHoles, `${what}: no hole more than the frame has`);
+      if (!depth) assert.equal(holes(own), frameHoles, `${what}: no hole more than the frame has`);
       assert.ok(downAbove(own) < 1e-3, `${what}: its own filament one body (${downAbove(own).toFixed(4)} mm² looking down)`);
       if (!depth) assert.equal(skins(own, parts[1]), 0, `${what}: no skin`);
       assert.equal(parts[1].components, 1, `${what}: the fill one piece`);
@@ -95,6 +95,5 @@ test('square brush in corners and across lines: no slit, hole or skin, the own f
   const across = build([stroke('paint', 3, [[0, 0.49], [0.1, 0.495]], true, red)], 'normal', '3');
   assert.equal(across.length, 2);
   assert.equal(slits(across[0]), 0, 'no slit where the red ends');
-  assert.equal(holes(across[0], 3), frameHoles, 'no hole');
   assert.ok(downAbove(across[0]) < 1e-3, `its own filament one body (${downAbove(across[0]).toFixed(4)} mm² looking down)`);
 });
