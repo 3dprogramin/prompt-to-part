@@ -1696,7 +1696,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const base: any[] = [];
     const clean = (cs: any) => (cs.isEmpty() ? cs : cs.offset(-PAINT_CLEAN, 'Round').offset(PAINT_CLEAN, 'Round').intersect(cs));
     // Slits closed (a crack along a fill or a line, made solid, flips faces).
-    const tidy = (cs: any) => (cs.isEmpty() ? cs : cs.offset(PAINT_CLEAN, 'Round').offset(-PAINT_CLEAN, 'Round'));
+    const tidy = (cs: any) => (cs.isEmpty() ? cs : cs.offset(PAINT_CLEAN, 'Round', 2, TIDY_SEGS).offset(-PAINT_CLEAN, 'Round', 2, TIDY_SEGS));
     const part = (kind: PaintMaterial, whole: any, list: { cs: any; filament: PartFilament }[]) => {
       if (!whole || whole.isEmpty()) return;
       const top = z[kind][1];
@@ -1733,13 +1733,20 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       let mine = kept.length ? whole.subtract(union(kept.map((k) => k.cs))) : whole;
       const hair = kept.length ? mine.subtract(clean(mine)) : null;
       if (hair && !hair.isEmpty()) {
-        let moved = false;
-        for (const bit of hair.decompose()) {
-          let best: { cs: any } | null = null, most = 0;
-          for (const k of kept) { const t = bit.intersect(k.cs.offset(2 * PAINT_CLEAN, 'Miter')).area(); if (t > most) { most = t; best = k; } }
-          if (best) { best.cs = best.cs.add(bit); moved = true; }
+        // (Only the hairs by a colour, of all those along the piece's edges.)
+        const by = kept.map((k) => k.cs.offset(2 * PAINT_CLEAN, 'Miter'));
+        const near = hair.intersect(union(by));
+        if (!near.isEmpty()) {
+          const touch = near.offset(PAINT_CLEAN, 'Miter'), bits = hair.intersect(touch).decompose();
+          const moves: any[][] = kept.map(() => []);
+          for (const bit of bits) {
+            let best = -1, most = 0;
+            by.forEach((g, i) => { const t = bit.intersect(g).area(); if (t > most) { most = t; best = i; } });
+            if (best >= 0) moves[best].push(bit);
+          }
+          moves.forEach((m, i) => { if (m.length) kept[i].cs = kept[i].cs.add(C.compose(m)); });
+          mine = whole.subtract(union(kept.map((k) => k.cs)));
         }
-        if (moved) mine = whole.subtract(union(kept.map((k) => k.cs)));
       }
       // The piece's filament is the whole of it made solid, less a slot for each colour from where it
       // starts, which reaches a hair past the piece's edge (and over its top): no wall of the slot is
@@ -1948,8 +1955,10 @@ const PAINT_REACH = 0.1;
 const PAINT_CLEAN = 0.005;
 /** How far a colour's slot in the piece's own filament reaches past the piece (mm). */
 const SLOT_OUT = 0.01;
-/** A colour's slivers and steps thinner than this (mm) go before it is made solid. */
-const LAYER_TIDY = 1e-5;
+/** A colour's steps and points closer than this (mm) go before it is made solid: needle-thin triangles shade wrong. */
+const LAYER_TIDY = 1e-3;
+/** Segments in a circle when closing slits a hair wide (more would only slow the build). */
+const TIDY_SEGS = 8;
 
 /** An erase or fill stroke and its brush on the piece (mm). */
 interface HandOp { st: LineArtStroke; cs: any }
