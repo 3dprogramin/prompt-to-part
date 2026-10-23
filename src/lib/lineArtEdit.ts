@@ -148,6 +148,51 @@ export function removeStroke(edits: LineArtEdits, name: string, stroke: LineArtS
   return out;
 }
 
+/** What of its round ends a brush keeps at least, built with 12 sides (a draft's). */
+const DISC_SHARE = 0.96;
+
+/** The distance between segments ab and cd. */
+function segDist(a: Pt, b: Pt, c: Pt, d: Pt): number {
+  const ptSeg = (p: Pt, u: Pt, v: Pt) => {
+    const dx = v[0] - u[0], dy = v[1] - u[1], L2 = dx * dx + dy * dy;
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((p[0] - u[0]) * dx + (p[1] - u[1]) * dy) / L2)) : 0;
+    return Math.hypot(p[0] - u[0] - t * dx, p[1] - u[1] - t * dy);
+  };
+  const side = (p: Pt, q: Pt, r: Pt) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  // Crossing: no distance at all.
+  if (side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0) return 0;
+  return Math.min(ptSeg(a, c, d), ptSeg(b, c, d), ptSeg(c, a, b), ptSeg(d, a, b));
+}
+const segsOf = (p: Pt[]): [Pt, Pt][] => (p.length === 1 ? [[p[0], p[0]]] : p.slice(1).map((q, k) => [p[k], q]));
+
+/**
+ * A drawing's strokes with `area` (restore strokes: Clear edits here) added after them, less those
+ * that make no difference: a stroke all under a restore after it (as if never made), and a restore
+ * touching no stroke before it. `radius`: how far a stroke's brush reaches from its path, in the
+ * drawing's units (a drawn line: as far as its colour does).
+ */
+export function clearArea(strokes: LineArtStroke[], area: LineArtStroke[], radius: (st: LineArtStroke) => number): LineArtStroke[] {
+  // A stroke is under the restores when every point of its brush is under one of their round
+  // ends' sides: its path tried every `h`, each point within reach less half a step.
+  const under = (st: LineArtStroke, after: LineArtStroke[]) => {
+    const r = radius(st), h = Math.max(r / 2, 1e-6);
+    const segs = after.flatMap((a) => segsOf(a.points).map(([p, q]) => ({ p, q, R: radius(a) * DISC_SHARE })));
+    const inside = (x: Pt) => segs.some((s) => segDist(x, x, s.p, s.q) <= s.R - r - h / 2);
+    for (const [a, b] of segsOf(st.points)) {
+      const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / h));
+      for (let k = 0; k <= n; k++) if (!inside([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n])) return false;
+    }
+    return true;
+  };
+  const touches = (a: LineArtStroke, st: LineArtStroke) => {
+    const R = radius(a) + radius(st);
+    return segsOf(a.points).some(([p, q]) => segsOf(st.points).some(([u, v]) => segDist(p, q, u, v) <= R));
+  };
+  let out = [...strokes, ...area];
+  out = out.filter((st, i) => st.mode === 'restore' || !under(st, out.slice(i + 1).filter((a) => a.mode === 'restore')));
+  return out.filter((st, i) => st.mode !== 'restore' || out.slice(0, i).some((x) => x.mode !== 'restore' && touches(st, x)));
+}
+
 /** Same colour and name: the same filament (as the piece's colours are told apart). */
 export const sameFilament = (a: PartFilament, b: PartFilament) => a.color.toLowerCase() === b.color.toLowerCase() && (a.name ?? '') === (b.name ?? '');
 
