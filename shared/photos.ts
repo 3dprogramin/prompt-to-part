@@ -417,7 +417,7 @@ const HANDHELD = 300;
  * light switch on the wall, a mug on the table. Image models copy the render's layout far better
  * than they follow numbers, so the photo keeps the scale.
  */
-export const SCALE_REFS = ['switch', 'mug'] as const;
+export const SCALE_REFS = ['switch', 'mug', 'wall'] as const;
 export type ScaleRef = (typeof SCALE_REFS)[number];
 
 export interface ShopPlanItem { shot: ShopShot; camera: PhotoCamera; scene: string; faceOn: boolean; scaleRef?: ScaleRef }
@@ -443,7 +443,8 @@ export function shopPlan(o: { size: Vec3; suggested: string }): ShopPlanItem[] {
     { shot: 'main', camera: flat ? 'face' : 'front', scene: SHOP_SCENE, faceOn: flat },
     { shot: 'angle', camera: 'angle', scene: SHOP_SCENE, faceOn: false },
     flat ? { shot: 'detail', camera: 'detail', scene: SHOP_SCENE, faceOn: true } : { shot: 'top', camera: 'top', scene: SHOP_SCENE, faceOn: false },
-    { shot: 'lifestyle', camera: lifeFaceOn ? 'face' : 'angle', scene: lifestyle, faceOn: lifeFaceOn },
+    // (On a wall, face-on: at true scale in its frame, so the room around it is to scale too.)
+    { shot: 'lifestyle', camera: lifeFaceOn ? 'face' : 'angle', scene: lifestyle, faceOn: lifeFaceOn, ...(lifeFaceOn && sceneById(lifestyle)?.wall && lifestyle !== 'fridge' ? { scaleRef: 'wall' as const } : {}) },
     { shot: 'size', camera: wallPiece ? 'face' : 'angle', scene: size, faceOn: wallPiece, ...(size === 'hand' ? {} : { scaleRef: wallPiece ? 'switch' : 'mug' }) },
   ];
 }
@@ -453,6 +454,8 @@ export const SWITCH_PLATE = { side: 85, depth: 10 };
 export const MUG_SIZE = { diameter: 82, height: 95 };
 /** The share of the render's width or height the product and its reference fill together. */
 const REF_FILL = 0.7;
+/** The share a wall piece fills alone on its wall at true scale (`wall`: no reference, room to show around it). */
+const WALL_FILL = 0.45;
 
 /** A render at true scale: the reference beside the product, and for a resize the product's size in the earlier photo (scaleRefLayout's `base`). */
 export interface TrueScale { ref: ScaleRef; base?: Vec3 }
@@ -480,6 +483,8 @@ export function scaleRefLayout(kind: ScaleRef, box: Box, aspect: number, o: { si
   // The product centred on the same spot, at a size.
   const at = (s: Vec3): Box => ({ min: [cx - s[0] / 2, cy - s[1] / 2, z], max: [cx + s[0] / 2, cy + s[1] / 2, z + s[2]] });
   const place = (s: Vec3, clear: Vec3): Box => {
+    // (The wall alone: nothing beside the product.)
+    if (kind === 'wall') return { min: [cx, cy, z], max: [cx, cy, z] };
     if (kind === 'switch') {
       const side = SWITCH_PLATE.side;
       // At least 30 mm of free wall, more beside a bigger piece; never closer to this size than that.
@@ -499,8 +504,8 @@ export function scaleRefLayout(kind: ScaleRef, box: Box, aspect: number, o: { si
   // The area around a product and its reference: on the wall a rectangle of the picture's shape,
   // on the table their box grown about its middle.
   const around = (b: Box): Box => {
-    const c = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2), half = [0, 1, 2].map((k) => (b.max[k] - b.min[k]) / 2 / REF_FILL);
-    if (kind === 'switch') {
+    const c = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2), half = [0, 1, 2].map((k) => (b.max[k] - b.min[k]) / 2 / (kind === 'wall' ? WALL_FILL : REF_FILL));
+    if (kind !== 'mug') {
       const w = Math.max(half[0], half[1] * aspect);
       half[0] = w; half[1] = w / aspect; half[2] = (b.max[2] - b.min[2]) / 2;
     }
@@ -674,10 +679,12 @@ function trueScaleLine(ref: ScaleRef, size: Vec3, faceOn: boolean, sizeShot: boo
   // How much wall or table the render frames, so the room is built to that scale too (left alone,
   // the model put a doll-sized armchair and lamp beside a true-sized switch).
   const f = scaleRefLayout(ref, { min: [0, 0, 0], max: size }, aspect).frame, across = f.max[0] - f.min[0];
+  const room = `everything else in it is to that same scale: nothing bigger than a small plant, a vase or the corner of a picture frame fits in full view. Furniture, a floor lamp or a window the scene names are far bigger than the whole picture (an armchair alone is about ${times(800, across)} times as tall as all of it): show at most a softly blurred sliver of one at the very edge, never one whole`;
+  if (ref === 'wall') return `${sizeShot ? 'A SIZE PHOTO FOR THE LISTING: t' : 'T'}he render already shows it at its true size on the wall, in the frame of the photo: keep it exactly where it is and exactly as large as in the render (the same framing: it neither grows, shrinks nor moves); only make it and the wall photorealistic and add the room around it. The picture shows only about ${mm(across)} mm of wall across (a light switch, ${SWITCH} mm, would be about ${times(SWITCH, across / 100)} % of its width), and ${room}.`;
   const [noun, beside, surface, vs] = ref === 'switch'
     ? ['switch', `on the wall beside a standard white light switch (${SWITCH} mm square)`, 'wall', vsSwitch(size, faceOn)]
     : ['mug', `on the surface beside a plain white coffee mug (${MUG_SIZE.diameter} mm across, ${MUG} mm tall)`, 'surface', vsMug(size)];
-  return `${sizeShot ? 'A SIZE PHOTO FOR THE LISTING: t' : 'T'}he render already shows it at its true size, ${beside}. Keep the product and the ${noun} exactly where they are and exactly as large as in the render, with the free ${surface} between them (the same framing: neither grows, shrinks or moves, and the ${noun} stays a ${noun} of that size); only make them and the ${surface} photorealistic and add the room around them, both fully in view and in focus; ${vs}, so its real size is obvious at a glance. The picture shows only about ${mm(across)} mm of ${surface} across (about ${times(across, ref === 'switch' ? SWITCH : MUG_SIZE.diameter)} ${noun} widths), and everything else in it is to that same scale: nothing bigger than a small plant, a vase or the corner of a picture frame fits in full view. Furniture, a floor lamp or a window the scene names are far bigger than the whole picture (an armchair alone is about ${times(800, across)} times as tall as all of it): show at most a softly blurred sliver of one at the very edge, never one whole.`;
+  return `${sizeShot ? 'A SIZE PHOTO FOR THE LISTING: t' : 'T'}he render already shows it at its true size, ${beside}. Keep the product and the ${noun} exactly where they are and exactly as large as in the render, with the free ${surface} between them (the same framing: neither grows, shrinks or moves, and the ${noun} stays a ${noun} of that size); only make them and the ${surface} photorealistic and add the room around them, both fully in view and in focus; ${vs}, so its real size is obvious at a glance. The picture shows only about ${mm(across)} mm of ${surface} across (about ${times(across, ref === 'switch' ? SWITCH : MUG_SIZE.diameter)} ${noun} widths), and ${room}.`;
 }
 
 /** What a shop photo must show, beyond its scene. */
@@ -748,7 +755,8 @@ export function photoPrompt(b: PhotoRequest): string {
       ? '- the render shows its front face from above: it lies flat on the surface, face up, photographed from almost straight above, so the face reads exactly as in the render'
       : '- keep it in the same orientation and seen from about the same angle as in the render, so no unseen side has to be invented',
     ref
-      ? `- the plain ${ref === 'switch' ? 'wall' : 'surface'} and the white ${ref} in the render are not part of the product: they show its true size (see below)`
+      ? ref === 'wall' ? '- the plain wall in the render is not part of the product: it shows its true size in the frame (see below)'
+        : `- the plain ${ref === 'switch' ? 'wall' : 'surface'} and the white ${ref} in the render are not part of the product: they show its true size (see below)`
       : '- the grey background of the render is not part of the product: replace it completely with the scene',
     '',
     'MAKE IT LOOK LIKE A REAL PRINT, NOT A 3D RENDER:',
@@ -887,7 +895,8 @@ export function sizeVariantPrompt(b: PhotoRequest): string {
     `THIS PHOTO SHOWS ${label ? `THE ${label.toUpperCase()} SIZE` : 'ANOTHER SIZE'} OF THE PRODUCT: ${sizeWords(now, faceOn)}. The second attached picture is a photo of ${base.label ? `the ${base.label} size` : 'it in another size'}: ${sizeWords(base.size, faceOn)}.`,
     `So the product is ${ratioWords(now, base.size, faceOn)}.`,
     refLine,
-    b.scaleRef ? `Its render at this size (the first attached picture) shows it beside the same ${b.scaleRef === 'switch' ? 'light switch' : 'mug'}, on the same spot and in the same framing as the earlier photo, both at their true size: keep those sizes.` : null,
+    b.scaleRef === 'wall' ? 'Its render at this size (the first attached picture) shows it at its true size in the same framing as the earlier photo, the wall as large: keep that size.'
+      : b.scaleRef ? `Its render at this size (the first attached picture) shows it beside the same ${b.scaleRef === 'switch' ? 'light switch' : 'mug'}, on the same spot and in the same framing as the earlier photo, both at their true size: keep those sizes.` : null,
     'THE SCENE TO KEEP EXACTLY: make the second attached picture again, as the same shot: the same place, wall, furniture, props, surface, colours and light, and the same camera position, angle, lens and framing. Nothing in the scene moves, grows, shrinks, appears or disappears; only the size of the product changes. Where the instructions above say how to frame the photo, keep the framing of the earlier photo instead.',
     `The product stays on the same spot (centred where it was, at the same height on the wall or in the same place on the surface) and ${bigger ? 'grows' : 'shrinks'} around it; the room and everything in it keep their real size, so the product takes up ${bigger ? 'more' : 'less'} of the picture than before.`,
     'The product itself (its shape, proportions, colours and details) is as in the first attached picture, its render at this size, not as in the earlier photo.',

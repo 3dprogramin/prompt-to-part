@@ -1,5 +1,6 @@
 // The reference of known size a size photo's render shows beside the product, at true scale
-// (shared/photos scaleRefLayout): a plain wall or table, and on it a light switch or a mug. Only
+// (shared/photos scaleRefLayout): a plain wall or table, and on it a light switch or a mug (or
+// nothing: the wall alone, at true scale in the frame). Only
 // in the photo render: added for it and taken away right after.
 import * as THREE from 'three';
 import { MUG_SIZE, SWITCH_PLATE, type ScaleRef, type ScaleRefLayout } from '../../shared/photos';
@@ -43,6 +44,7 @@ export function scaleRefModel(kind: ScaleRef, layout: ScaleRefLayout, side: THRE
   group.add(plane);
   const white = new THREE.MeshStandardMaterial({ color: '#f4f3ef', roughness: 0.55, metalness: 0, side: THREE.DoubleSide });
   const cx = (ref.min[0] + ref.max[0]) / 2, cy = (ref.min[1] + ref.max[1]) / 2;
+  if (kind === 'wall') return group;
   if (kind === 'switch') {
     const s = SWITCH_PLATE.side;
     const plate = new THREE.Mesh(slab(s, s, 6, SWITCH_PLATE.depth - 2, 1.5), white);

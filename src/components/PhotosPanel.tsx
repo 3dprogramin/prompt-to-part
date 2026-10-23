@@ -569,7 +569,8 @@ export function PhotosPanel(p: Props) {
     const onFace = faceOn || (camera === 'best' && flat && !!written?.sceneText && writtenPlace(written.sceneText) === 'wall');
     let shot: string | null = null;
     const view: PhotoView = camera === 'current' ? 'current' : preset?.closeup ? 'detail' : onFace ? 'face' : 'angle';
-    const scaleRef = canSwitch && trueScale && view === 'face' ? 'switch' as const : undefined;
+    // On a wall, face-on: at true scale in its frame, beside a switch when asked.
+    const scaleRef = canSwitch && view === 'face' ? (trueScale ? 'switch' as const : 'wall' as const) : undefined;
     try {
       shot = p.capture(view, ASPECT_RATIO[aspect], scaleRef ? { ref: scaleRef } : undefined);
     } catch (e) {
