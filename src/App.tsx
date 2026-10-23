@@ -42,6 +42,7 @@ import { sizeText } from '../shared/sizes';
 import { load, store } from './lib/storage';
 import { tell } from './lib/tabs';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
+import type { TrueScale } from '../shared/photos';
 import { summarize, type ValidationState } from './components/ValidationPanel';
 import { exportedParts } from './geometry/parts';
 import { pageKey } from '../shared/sources';
@@ -261,7 +262,7 @@ export default function App() {
   // Line art's joins of loose ends, shown in the 3D view while the Print tab's Line art section asks for them.
   const [showJoins, setShowJoins] = useState(false);
   const snapshotRef = useRef<(() => string | null) | null>(null);
-  const photoRef = useRef<((view: PhotoView, aspect: number, result?: EvalResult) => string | null) | null>(null);
+  const photoRef = useRef<((view: PhotoView, aspect: number, result?: EvalResult, scale?: TrueScale) => string | null) | null>(null);
   const [playback, setPlayback] = useState<{ result: EvalResult; steps: PlaybackStep[] } | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [validation, setValidation] = useState<ValidationState | null>(null);
@@ -860,11 +861,11 @@ export default function App() {
     onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
   });
   /** A sale size's own render for a photo (the design's for null), whatever the view shows. */
-  const sizeShot: SizeShot = async (sizeId, view, aspect) => {
+  const sizeShot: SizeShot = async (sizeId, view, aspect, scale) => {
     const built = sizeId ? await sizes.buildOf(sizeId) : shown ?? { error: 'There is no model yet.' };
     if ('error' in built) return built;
     const dims = visibleSize(built, hiddenParts);
-    const shot = dims && photoRef.current?.(view, aspect, built);
+    const shot = dims && photoRef.current?.(view, aspect, built, scale);
     return shot && dims ? { shot, dims } : { error: 'Every part is hidden: show at least one to photograph it.' };
   };
   const designDims: Vec3 | null = shown ? visibleSize(shown, hiddenParts) : null;
@@ -1433,7 +1434,7 @@ export default function App() {
                 onStartSizes={(groups, more) => photoJobs.startSizes(design.id, groups, more)}
                 onDelete={(url) => deletePhotos([url])}
                 onDeleteMany={deletePhotos}
-                capture={(view, aspect) => photoRef.current?.(view, aspect) ?? null}
+                capture={(view, aspect, scale) => photoRef.current?.(view, aspect, undefined, scale) ?? null}
                 jobs={photoJobs.jobs}
                 onStart={(r, more) => photoJobs.start(design.id, r, more)}
                 onStartSet={(rs, more) => photoJobs.startSet(design.id, rs, more)}

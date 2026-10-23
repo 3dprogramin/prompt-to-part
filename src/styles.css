@@ -1303,4 +1303,5 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-size { flex-shrink: 0; margin-right: 4px; padding: 0 5px; border-radius: 4px; background: #e0a43c26; color: var(--accent-2); font-size: 11px; line-height: 16px; }
 .ph-outdated-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px; background: #2a2416; border: 1px solid #6b5326; color: #f3dcae; }
 .ph-improve { font-size: 12.5px; margin-top: -2px; }
+.ph-true-scale { font-size: 12.5px; }
 .ph-scene-search { margin: -4px 0 0; padding: 5px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg); }

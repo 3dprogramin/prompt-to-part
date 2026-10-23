@@ -7,7 +7,7 @@
 // picture's countdown, the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
 // and an unfolded foldable (the 3D view beside the chat or the side panel), the Designs menu's search, the
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
-// tab, Shop photos (a set of 5 from their own renders, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
+// tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
 // resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`npx playwright install chromium` once).
@@ -766,7 +766,7 @@ test('Shop photos makes a set of 5 square 2K photos, each from its own render, w
     await failed.getByRole('button', { name: 'Try again' }).click();
     await until(async () => ((await getDesign(pid)).photos ?? []).length === 5, 'the close-up made again');
     await page.locator('.ph-tile.failed').waitFor({ state: 'detached' });
-    const photos = (await getDesign(pid)).photos as { shop?: string; scene: string; aspect: string; render?: string }[];
+    const photos = (await getDesign(pid)).photos as { shop?: string; scene: string; aspect: string; render?: string; scaleRef?: string }[];
     assert.deepEqual(photos.map((ph) => ph.shop).sort(), ['angle', 'detail', 'lifestyle', 'main', 'size']);
     assert.ok(photos.every((ph) => ph.aspect === '1:1'));
     assert.deepEqual(Object.fromEntries(photos.map((ph) => [ph.shop, ph.scene])), { main: 'grey-studio', angle: 'grey-studio', detail: 'grey-studio', lifestyle: 'wall', size: 'wall' });
@@ -774,6 +774,11 @@ test('Shop photos makes a set of 5 square 2K photos, each from its own render, w
     const renders = new Map(photos.map((ph) => [ph.shop, ph.render]));
     assert.equal(new Set([renders.get('main'), renders.get('angle'), renders.get('detail')]).size, 3);
     assert.equal(renders.get('main'), renders.get('lifestyle'));
+    // The size photo's own render: the plaque at true size beside a light switch on a plain wall.
+    assert.notEqual(renders.get('size'), renders.get('main'));
+    assert.deepEqual(photos.filter((ph) => ph.scaleRef).map((ph) => [ph.shop, ph.scaleRef]), [['size', 'switch']]);
+    assert.ok(imageAsks.some((a) => a.prompt.includes('SIZE PHOTO FOR THE LISTING: the render already shows it at its true size')));
+    writeFileSync(path.join(shots, '18-shop-size-render.png'), Buffer.from(await (await fetch(`${A}${renders.get('size')}`)).arrayBuffer()));
     assert.ok(imageAsks.every((a) => a.size === '2K' && a.aspect === '1:1'), JSON.stringify(imageAsks.map((a) => [a.size, a.aspect])));
     assert.equal(imageAsks.length, 6, 'five photos and the one tried again');
     for (const label of ['Shop · Main', 'Shop · 3/4 view', 'Shop · Detail', 'Shop · Lifestyle', 'Shop · Size']) await page.locator('.ph-tile-bar', { hasText: label }).waitFor();

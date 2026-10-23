@@ -5,8 +5,9 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
-import type { PhotoCamera } from '../../shared/photos';
+import { scaleRefLayout, type PhotoCamera, type TrueScale } from '../../shared/photos';
 import { buildGrid, buildPlate, updatePlate } from './stage';
+import { disposeScaleRef, scaleRefModel } from './scaleRef';
 import { plateBounds } from '../../shared/printer';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
@@ -1074,9 +1075,11 @@ export class Viewer {
   /**
    * PNG of only the model for a product photo: no grid, plate, labels, edges, section, validation
    * marks or highlight; the real part colours under soft studio light, on a plain grey that
-   * contrasts with them. `aspect` = width / height; the long side is `size` px.
+   * contrasts with them. `aspect` = width / height; the long side is `size` px. `scale`: a size
+   * photo's render, the product at true scale on a plain wall or table beside a light switch or a
+   * mug (scaleRefLayout), the camera framing that area.
    */
-  photo(view: PhotoView, aspect: number, size = 1536): string | null {
+  photo(view: PhotoView, aspect: number, scale?: TrueScale, size = 1536): string | null {
     const box = this.visibleBox();
     if (!box) return null;
     const W = Math.round(aspect >= 1 ? size : size * aspect), H = Math.round(aspect >= 1 ? size / aspect : size);
@@ -1107,10 +1110,23 @@ export class Viewer {
       dir.set(0.55, -1, s.z < 0.3 * Math.min(s.x, s.y) ? 1.05 : 0.5).normalize();
     }
     if (!Number.isFinite(dir.x)) dir.set(...VIEW_DIRS.iso).normalize();
-    cam.position.copy(center).addScaledVector(dir, framingDistance(box, center, dir, cam, share));
+    const parts = this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? [];
+    // A size photo: the reference beside the product (a mug along the render's right on the table,
+    // as far from the camera as the product), the camera framing the wall or table area around both.
+    const side = new THREE.Vector3(-dir.y, dir.x, 0);
+    if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+    side.normalize();
+    const layout = scale && scaleRefLayout(scale.ref, { min: box.min.toArray(), max: box.max.toArray() }, W / H, { side: [side.x, side.y], ...(scale.base ? { base: scale.base } : {}) });
+    let frame = box, ref: THREE.Group | null = null;
+    if (layout) {
+      frame = new THREE.Box3(new THREE.Vector3(...layout.frame.min), new THREE.Vector3(...layout.frame.max));
+      frame.getCenter(center);
+      share = 1;
+    }
+    cam.position.copy(center).addScaledVector(dir, framingDistance(frame, center, dir, cam, share));
     cam.lookAt(center);
     cam.near = cam.position.distanceTo(center) / 100;
-    cam.far = cam.position.distanceTo(center) * 10;
+    cam.far = cam.position.distanceTo(center) * (scale ? 40 : 10);
     cam.updateProjectionMatrix();
 
     // Clean scene: overlays off, true colours, no section or highlight.
@@ -1153,11 +1169,15 @@ export class Viewer {
     const pr = this.renderer.getPixelRatio();
     const clear = this.renderer.getClearColor(new THREE.Color()), alpha = this.renderer.getClearAlpha();
     try {
+      if (scale && layout) {
+        ref = scaleRefModel(scale.ref, layout, side, new THREE.Color(lightParts(parts) ? '#a29e97' : '#e2dfd9'));
+        this.scene.add(ref);
+      }
       // Rendered at twice the size and scaled down: smoother edges than MSAA alone.
       const k = Math.min(2, this.renderer.capabilities.maxTextureSize / Math.max(W, H));
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(Math.round(W * k), Math.round(H * k), false);
-      this.renderer.setClearColor(photoBackground(this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? []), 1);
+      this.renderer.setClearColor(photoBackground(parts), 1);
       this.renderer.render(this.scene, cam);
       const out = document.createElement('canvas');
       out.width = W;
@@ -1167,6 +1187,7 @@ export class Viewer {
       ctx.drawImage(this.renderer.domElement, 0, 0, W, H);
       return out.toDataURL('image/png');
     } finally {
+      if (ref) disposeScaleRef(ref);
       this.renderer.setClearColor(clear, alpha);
       this.renderer.setPixelRatio(pr);
       this.resize();
@@ -1185,11 +1206,11 @@ export class Viewer {
    * photo() of another build of the model (a sale size), framed and lit the same way; the model
    * shown in the view is put back right after.
    */
-  photoOf(result: EvalResult, view: PhotoView, aspect: number, size = 1536): string | null {
+  photoOf(result: EvalResult, view: PhotoView, aspect: number, scale?: TrueScale, size = 1536): string | null {
     const shown = this.result;
     this.setModel(result);
     try {
-      return this.photo(view, aspect, size);
+      return this.photo(view, aspect, scale, size);
     } finally {
       this.setModel(shown);
     }
@@ -1234,14 +1255,16 @@ function framingDistance(box: THREE.Box3, center: THREE.Vector3, dir: THREE.Vect
   return d;
 }
 
-/** A plain grey that the parts stand out from: mid grey behind light models, light grey otherwise. */
-function photoBackground(parts: EvalResult['parts']): THREE.Color {
+/** The parts are light on the whole (by area). */
+function lightParts(parts: EvalResult['parts']): boolean {
   let sum = 0, weight = 0;
   for (const p of parts) {
     const c = new THREE.Color(p.vertexColors || p.paint ? '#808080' : p.color);
     sum += (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * p.surfaceArea;
     weight += p.surfaceArea;
   }
-  const light = weight > 0 && sum / weight > 0.45;
-  return new THREE.Color(light ? '#8a8d93' : '#dcdde0');
+  return weight > 0 && sum / weight > 0.45;
 }
+
+/** A plain grey that the parts stand out from: mid grey behind light models, light grey otherwise. */
+const photoBackground = (parts: EvalResult['parts']) => new THREE.Color(lightParts(parts) ? '#8a8d93' : '#dcdde0');

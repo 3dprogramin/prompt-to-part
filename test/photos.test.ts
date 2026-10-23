@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLOSEUP_SCENE, familiar, IDEA_WRITER_PROMPT, ideaWriterPrompt, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, sceneWriterPrompt, SHOP_SCENE, shopPlan, subScenes, suggestScene, variantName, vsSwitch, writtenPlace, type PhotoRequest } from '../shared/photos';
+import { CLOSEUP_SCENE, familiar, IDEA_WRITER_PROMPT, ideaWriterPrompt, parseWrittenScene, PHOTO_SCENES, photoEditPrompt, photoProblem, photoPrompt, scaleRefLayout, sceneWriterPrompt, SHOP_SCENE, shopPlan, sizeVariantPrompt, subScenes, suggestScene, variantName, vsSwitch, writtenPlace, type PhotoRequest } from '../shared/photos';
+import type { Vec3 } from '../shared/types';
 import { requestImage } from '../server/artwork';
 
 const request = (extra: Partial<PhotoRequest> = {}): PhotoRequest => ({
@@ -378,4 +379,85 @@ test('the bedroom wall hangs a flat print face-on above the bed, and variant 2 u
   assert.match(bw(), /render shows its front face/);
   assert.match(bw(), /entirely on a wide, flat, continuous stretch of wall/);
   assert.ok(bw({ variant: 2 }).includes(`SCENE: ${subScenes('bedroom-wall')[1].scene}.`));
+});
+
+test('a size photo\'s render: the light switch or mug beside the product at true size, in a frame of known size', () => {
+  // The Lady with wine wall piece (116.6 × 250 × 2 mm), face-on in a square render.
+  const lady = { min: [10, 20, 0] as Vec3, max: [126.6, 270, 2] as Vec3 };
+  const { ref, frame } = scaleRefLayout('switch', lady, 1);
+  const w = (b: { min: Vec3; max: Vec3 }, k: number) => +(b.max[k] - b.min[k]).toFixed(9);
+  // An 85 mm plate on the wall, its centre a third of the way up the piece, 0.5 to 1 piece width to its right.
+  assert.deepEqual([w(ref, 0), w(ref, 1), w(ref, 2)], [85, 85, 10]);
+  assert.equal(ref.min[2], 0, 'on the wall, the piece\'s back');
+  assert.ok(Math.abs((ref.min[1] + ref.max[1]) / 2 - (20 + 250 / 3)) < 1e-9);
+  const gap = ref.min[0] - lady.max[0];
+  assert.ok(gap >= 0.5 * 116.6 && gap <= 116.6, `gap ${gap}`);
+  // The frame: a square of wall around both, with free wall on every side.
+  assert.ok(Math.abs(w(frame, 0) - w(frame, 1)) < 1e-9);
+  for (const b of [lady, ref]) for (const k of [0, 1]) assert.ok(frame.min[k] < b.min[k] && frame.max[k] > b.max[k]);
+  // In the render the switch is about a third of the piece's height, as on a real wall.
+  const share = (mm: number) => mm / w(frame, 1);
+  assert.ok(Math.abs(share(85) / share(250) - 0.34) < 1e-9);
+  assert.ok(share(250) > 0.55 && share(250) < 0.75, `the piece fills ${share(250)} of the height`);
+  // A wide picture: the same wall area, wider.
+  const wide = scaleRefLayout('switch', lady, 16 / 9).frame;
+  assert.ok(Math.abs(w(wide, 0) / w(wide, 1) - 16 / 9) < 1e-9);
+  assert.ok(Math.abs(w(wide, 1) - 250 / 0.7) < 1e-6, 'its height from the piece\'s');
+
+  // Another sale size from that photo: the switch on its spot and the same frame; only the piece shrinks.
+  const centre = (b: { min: Vec3; max: Vec3 }) => [0, 1].map((k) => (b.min[k] + b.max[k]) / 2);
+  const small = { min: [29.4, 61.7, 0] as Vec3, max: [107.2, 228.3, 2] as Vec3 };
+  assert.deepEqual(centre(small), centre(lady));
+  const s = scaleRefLayout('switch', small, 1, { base: [116.6, 250, 2] });
+  assert.deepEqual(s.ref, ref);
+  assert.deepEqual(s.frame, frame);
+  // A bigger size: the switch moves out of its way and the frame grows to fit.
+  const big = { min: [-48.3, -105, 0] as Vec3, max: [184.9, 395, 2] as Vec3 };
+  const b = scaleRefLayout('switch', big, 1, { base: [116.6, 250, 2] });
+  assert.ok(b.ref.min[0] >= big.max[0] + 30 - 1e-9, '30 mm of free wall at least');
+  for (const k of [0, 1]) assert.ok(b.frame.min[k] <= frame.min[k] && b.frame.max[k] >= frame.max[k] && b.frame.min[k] < big.min[k] && b.frame.max[k] > big.max[k]);
+
+  // A mug on the table beside a big box, along the render's right: as far from the camera as the box.
+  const box = { min: [0, 0, 0] as Vec3, max: [400, 300, 200] as Vec3 };
+  const side: [number, number] = [1 / Math.hypot(1, 0.55), 0.55 / Math.hypot(1, 0.55)];
+  const mug = scaleRefLayout('mug', box, 1, { side });
+  assert.deepEqual([w(mug.ref, 0), w(mug.ref, 1), w(mug.ref, 2)], [82, 82, 95]);
+  assert.equal(mug.ref.min[2], 0, 'standing on the table');
+  const [mx, my] = centre(mug.ref), [bx, by] = centre(box);
+  assert.ok(Math.abs((mx - bx) * -side[1] + (my - by) * side[0]) < 1e-9, 'not nearer the camera than the box');
+  assert.ok(mug.ref.min[0] > box.max[0], 'clear of the box');
+  for (const k of [0, 1, 2]) assert.ok(mug.frame.min[k] < Math.min(box.min[k], mug.ref.min[k]) + 1e-9 && mug.frame.max[k] > Math.max(box.max[k], mug.ref.max[k]));
+});
+
+test('a render with the light switch or mug at true size: the prompt keeps them as they are, the shop set\'s size photo has one', () => {
+  const plan = (size: Vec3, suggested: string) => shopPlan({ size, suggested }).find((x) => x.shot === 'size')!;
+  assert.equal(plan([116.6, 250, 2], 'wall').scaleRef, 'switch');
+  assert.equal(plan([400, 300, 200], 'table').scaleRef, 'mug');
+  assert.equal(plan([60, 40, 20], 'office').scaleRef, undefined, 'a small thing: in a hand');
+  assert.ok(shopPlan({ size: [116.6, 250, 2], suggested: 'wall' }).filter((x) => x.shot !== 'size').every((x) => !x.scaleRef), 'only the size photo');
+
+  const lady = request({ scene: 'wall', shop: 'size', scaleRef: 'switch', product: { name: 'Lady with wine', size: [116.6, 250, 2], faceOn: true } });
+  const p = photoPrompt(lady);
+  assert.match(p, /A SIZE PHOTO FOR THE LISTING: the render already shows it at its true size, on the wall beside a standard white light switch \(85 mm square\)\. Keep the product and the switch exactly where they are and exactly as large as in the render/);
+  assert.match(p, /the switch stays a switch of that size/);
+  assert.match(p, /about 1\.4 times as wide and 2\.9 times as tall as the switch/);
+  assert.match(p, /the plain wall and the white switch in the render are not part of the product/);
+  assert.match(p, /framed as in the render/);
+  assert.doesNotMatch(p, /grey background|frame the photo around it|beside it on the same wall, with free wall/);
+  // Without it (an older photo's render), as before.
+  assert.match(photoPrompt({ ...lady, scaleRef: undefined }), /a standard white light switch \(about 85 mm square\) beside it on the same wall/);
+  // A wall photo with the switch asked for: no shop line, the true size line instead of the small piece's.
+  const wall = photoPrompt({ ...lady, shop: undefined });
+  assert.match(wall, /\nThe render already shows it at its true size, on the wall beside/);
+  assert.doesNotMatch(wall, /SIZE PHOTO|It is a small piece for a wall/);
+  const mug = photoPrompt(request({ scene: 'table', shop: 'size', scaleRef: 'mug', product: { name: 'Box', size: [400, 300, 200] } }));
+  assert.match(mug, /on the surface beside a plain white coffee mug \(82 mm across, 95 mm tall\)\. Keep the product and the mug exactly where/);
+  assert.match(mug, /the plain surface and the white mug in the render/);
+  // Another size from that photo: its render shows the same switch on the same spot.
+  const l = sizeVariantPrompt({ ...lady, from: { photo: '/api/designs/abcdefgh-1234/images/0123456789abcdef0123456789abcdef.png' }, resize: { base: { label: 'M', size: [77.7, 166.7, 2] } } });
+  assert.match(l, /shows it beside the same light switch, on the same spot and in the same framing as the earlier photo/);
+  assert.match(l, /In the earlier photo the product was 0\.91x as wide as the light switch/);
+  for (const t of [p, wall, mug]) for (const line of t.split('\n').filter((l) => /true size/.test(l))) assert.doesNotMatch(line, /[\u2013\u2014]/, 'plain hyphens in the new lines');
+  assert.equal(photoProblem(lady), null);
+  assert.match(photoProblem({ ...lady, scaleRef: 'hand' as PhotoRequest['scaleRef'] })!, /scaleRef must be one of switch, mug/);
 });

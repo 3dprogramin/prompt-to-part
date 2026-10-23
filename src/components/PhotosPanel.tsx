@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, subScenes, suggestScene, variantName, writtenPlace, type PhotoAspect, type PhotoRequest, type SceneIdea, type SceneVariant, type ShopShot } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, subScenes, suggestScene, variantName, writtenPlace, type PhotoAspect, type PhotoRequest, type ScaleRef, type SceneIdea, type SceneVariant, type ShopShot, type TrueScale } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { mainAxis } from '../../shared/sizes';
 import { api } from '../lib/api';
@@ -58,7 +58,7 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
       done.current(job.designId, {
         url: out.photo, render: out.render, scene: r.scene, notes: r.notes, ...lookOf(r),
         ...(r.from && r.resize ? { sizeOf: r.from.photo, ...(r.change ? { change: r.change } : {}) } : r.from ? { editOf: r.from.photo, change: r.change } : {}),
-        ...(r.shop ? { shop: r.shop } : {}), ...(r.saleSize ? { saleSize: r.saleSize } : {}), dims: r.product.size,
+        ...(r.shop ? { shop: r.shop } : {}), ...(r.scaleRef ? { scaleRef: r.scaleRef } : {}), ...(r.saleSize ? { saleSize: r.saleSize } : {}), dims: r.product.size,
         ...(job.camera ? { camera: job.camera } : {}), ...(job.shape ? { shape: job.shape } : {}),
         aspect: r.aspect, prompt: out.prompt, model: out.model, cost: out.cost, createdAt: Date.now(),
       });
@@ -170,7 +170,7 @@ const mmText = (v: number) => (v >= 100 ? Math.round(v) : +v.toFixed(1)).toStrin
 /** A sale size as the photos panel knows it. */
 export interface SaleSizeInfo { id: string; label: string; mm: number; axis: number; dims?: Vec3 }
 /** A size's own render (or the design's, for null) for a photo, and the product's size in it. */
-export type SizeShot = (sizeId: string | null, view: PhotoView, aspect: number) => Promise<{ shot: string; dims: Vec3 } | { error: string }>;
+export type SizeShot = (sizeId: string | null, view: PhotoView, aspect: number, scale?: TrueScale) => Promise<{ shot: string; dims: Vec3 } | { error: string }>;
 /** A shop photo's place in the set, for its file name (the order a listing shows them in). */
 const SHOP_ORDER: Record<ShopShot, number> = { main: 1, angle: 2, top: 3, detail: 3, lifestyle: 4, size: 5 };
 const money = (usd: number | null) => (usd == null ? 'cost unknown' : `$${usd.toFixed(usd < 0.1 ? 3 : 2)}`);
@@ -190,8 +190,8 @@ interface Props {
   onDelete: (url: string) => void;
   /** Deletes several photos at once (asked first, here). */
   onDeleteMany: (urls: string[]) => void;
-  /** Clean render of the model (Viewer.photo). */
-  capture: (view: PhotoView, aspect: number) => string | null;
+  /** Clean render of the model (Viewer.photo); `scale`: at true scale beside a light switch or a mug. */
+  capture: (view: PhotoView, aspect: number, scale?: TrueScale) => string | null;
   jobs: PhotoJob[];
   onStart: (r: PhotoRequest, more?: Partial<PhotoJob>) => void;
   /** A shop set: its photos, made a few at a time. */
@@ -231,6 +231,9 @@ export function PhotosPanel(p: Props) {
   // Your idea: Jig writes it out in detail (on) or it goes to the image model as written (off, the 'custom' scene).
   const [improve, setImprove] = useState<boolean>(() => load('photoImprove', true));
   useEffect(() => store('photoImprove', improve), [improve]);
+  // A wall photo's render with a light switch beside the piece at true size, so the photo keeps its scale.
+  const [trueScale, setTrueScale] = useState<boolean>(() => load('photoTrueScale', false));
+  useEffect(() => store('photoTrueScale', trueScale), [trueScale]);
   const [error, setError] = useState<string | null>(null);
   // A random sub-scene being written for a photo, the shop set or the photos for all sizes.
   const [writing, setWriting] = useState<'photo' | 'shop' | 'sizes' | null>(null);
@@ -289,6 +292,8 @@ export function PhotosPanel(p: Props) {
   // A flat print (wall art, a sign, an ornament on the tree, its close-up) is shown face-on; anything else from a 3/4 angle.
   const flat = !!size && size[2] < 0.25 * Math.min(size[0], size[1]);
   const faceOn = camera === 'best' && !!(preset?.wall || preset?.hang || preset?.closeup) && flat;
+  // A flat piece on a wall (not a fridge door) can have the light switch in its render.
+  const canSwitch = faceOn && !!preset?.wall && preset.id !== 'fridge';
   const jobs = p.jobs.filter((j) => j.designId === p.designId);
   /**
    * The chosen sub-scene for requests in the chosen scene; a random one's setting (or the idea's
@@ -398,17 +403,19 @@ export function PhotosPanel(p: Props) {
     else if (ph.scene === IDEA_SCENE) prod.faceOn = !fromView && ph.camera === 'face';
     // A size's photo stays that size's (its product as it was, unless taken from the view again).
     if (ph.dims && !fromView) prod.size = ph.dims;
-    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shop ? { shop } : {}), ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), product: prod },
+    // Its own render shows the light switch or mug; a new one from the view does not.
+    const scaleRef = !fromView && ph.scaleRef ? { scaleRef: ph.scaleRef } : {};
+    p.onStart({ from: { photo: ph.url, ...(ph.render ? { render: ph.render } : {}) }, ...(shot ? { render: dataUrlToImage(shot) } : {}), change, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shop ? { shop } : {}), ...scaleRef, ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), product: prod },
       { camera: fromView ? 'current' : ph.camera, shape: fromView ? p.shape : ph.shape });
     closeBig();
   };
 
   /** A size's render (the design's for null): its own build when the panel can make one, else the view. */
-  const renderAt = async (sizeId: string | null, view: PhotoView, ratio: number): Promise<{ shot: string; dims: Vec3 } | { error: string }> => {
+  const renderAt = async (sizeId: string | null, view: PhotoView, ratio: number, scale?: TrueScale): Promise<{ shot: string; dims: Vec3 } | { error: string }> => {
     await new Promise((r) => setTimeout(r, 30));
     try {
-      if (p.sizeShot) return await p.sizeShot(sizeId, view, ratio);
-      const shot = p.capture(view, ratio);
+      if (p.sizeShot) return await p.sizeShot(sizeId, view, ratio, scale);
+      const shot = p.capture(view, ratio, scale);
       return shot && size ? { shot, dims: size } : { error: 'Every part is hidden: show at least one to photograph it.' };
     } catch (e) {
       return { error: `Couldn't render the model: ${(e as Error).message}` };
@@ -437,13 +444,14 @@ export function PhotosPanel(p: Props) {
     const cam = cameraOf(ph, was);
     const shape = (PHOTO_ASPECTS as readonly string[]).includes(ph.aspect) ? ph.aspect as PhotoAspect : aspect;
     closeBig();
-    const shot = await renderAt(sale?.id ?? null, cam.view === 'current' ? 'angle' : cam.view, ASPECT_RATIO[shape]);
+    // A photo beside a light switch or mug: the same one, on the same spot and framing as before.
+    const shot = await renderAt(sale?.id ?? null, cam.view === 'current' ? 'angle' : cam.view, ASPECT_RATIO[shape], ph.scaleRef ? { ref: ph.scaleRef, base: was } : undefined);
     if ('error' in shot) return setError(shot.error);
     const resized = shot.dims.some((v, k) => Math.abs(v - was[k]) > Math.max(0.3, was[k] * 0.005));
     const reshaped = !!ph.shape && !!p.shape && ph.shape !== p.shape;
     p.onStart({
       from: { photo: ph.url }, render: dataUrlToImage(shot.shot), scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes,
-      ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}), ...(sale ? { saleSize: sale } : {}),
+      ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}), ...(ph.scaleRef ? { scaleRef: ph.scaleRef } : {}), ...(sale ? { saleSize: sale } : {}),
       ...(resized ? { resize: { base: { label: sizeName(ph.saleSize), size: was } } } : {}),
       ...(reshaped || !resized ? { change: UPDATED } : {}),
       product: { ...prod, size: shot.dims, faceOn: cam.faceOn },
@@ -455,10 +463,11 @@ export function PhotosPanel(p: Props) {
    * `first` size) and each other size from its own render, with the first photo as the scene to keep.
    * Sizes that already have an up-to-date photo from that first one are left out.
    */
-  const sizeGroup = async (item: { view: PhotoView; faceOn: boolean; scene: string; /** The sub-scene of a first photo made now. */ look?: Pick<PhotoRequest, 'variant' | 'sceneText'>; shop?: ShopShot; aspect: PhotoAspect; notes?: string }, start: { from: ProductPhoto } | { first: NonNullable<ReturnType<typeof saleOf>> },
+  const sizeGroup = async (item: { view: PhotoView; faceOn: boolean; scene: string; /** The sub-scene of a first photo made now. */ look?: Pick<PhotoRequest, 'variant' | 'sceneText'>; shop?: ShopShot; scaleRef?: ScaleRef; aspect: PhotoAspect; notes?: string }, start: { from: ProductPhoto } | { first: NonNullable<ReturnType<typeof saleOf>> },
     prod: PhotoRequest['product'], tick: () => void): Promise<SizeGroup | string> => {
-    // An existing first photo keeps its own sub-scene (its random setting too).
-    const common = { scene: item.scene, ...('from' in start ? lookOf(start.from) : item.look), aspect: item.aspect, ...(item.notes ? { notes: item.notes } : {}), ...(item.shop ? { shop: item.shop } : {}) };
+    // An existing first photo keeps its own sub-scene (its random setting too), and its light switch or mug if its render has one.
+    const ref = 'from' in start ? start.from.scaleRef : item.scaleRef;
+    const common = { scene: item.scene, ...('from' in start ? lookOf(start.from) : item.look), aspect: item.aspect, ...(item.notes ? { notes: item.notes } : {}), ...(item.shop ? { shop: item.shop } : {}), ...(ref ? { scaleRef: ref } : {}) };
     let base: SizeGroup['base'], baseDims: Vec3, baseLabel: string | undefined, baseId: string | undefined;
     if ('from' in start) {
       base = { url: start.from.url };
@@ -467,7 +476,7 @@ export function PhotosPanel(p: Props) {
       baseId = start.from.saleSize?.id;
     } else {
       tick();
-      const shot = await renderAt(start.first.id, item.view, ASPECT_RATIO[item.aspect]);
+      const shot = await renderAt(start.first.id, item.view, ASPECT_RATIO[item.aspect], ref ? { ref } : undefined);
       if ('error' in shot) return shot.error;
       base = { request: { ...common, render: dataUrlToImage(shot.shot), saleSize: start.first, product: { ...prod, size: shot.dims, faceOn: item.faceOn } } };
       baseDims = shot.dims;
@@ -479,7 +488,8 @@ export function PhotosPanel(p: Props) {
       if (s.id === baseId) continue;
       if ('from' in start && allPhotos.some((x) => x.sizeOf === start.from.url && x.saleSize?.id === s.id && !outdated(x))) continue;
       tick();
-      const shot = await renderAt(s.id, item.view, ASPECT_RATIO[item.aspect]);
+      // The reference on the first photo's spot, in its framing: only the product's size changes.
+      const shot = await renderAt(s.id, item.view, ASPECT_RATIO[item.aspect], ref ? { ref, base: baseDims } : undefined);
       if ('error' in shot) return shot.error;
       variants.push({ ...common, render: dataUrlToImage(shot.shot), from: { photo: '' }, saleSize: { id: s.id, label: s.label, mm: s.mm },
         resize: { base: { label: baseLabel, size: baseDims } }, product: { ...prod, size: shot.dims, faceOn: item.faceOn } });
@@ -506,7 +516,7 @@ export function PhotosPanel(p: Props) {
     try {
       for (const item of plan) {
         const from = allPhotos.find((ph) => ph.shop === item.shot && ph.saleSize?.id === first.id && !ph.sizeOf && !outdated(ph));
-        const g = await sizeGroup({ view: item.camera, faceOn: item.faceOn, scene: item.scene, ...(item.scene === choice.scene ? { look: chosen } : {}), shop: item.shot, aspect: '1:1' }, from ? { from } : { first }, prod, () => setSizeRendering(`${++n} / ${total}`));
+        const g = await sizeGroup({ view: item.camera, faceOn: item.faceOn, scene: item.scene, ...(item.scene === choice.scene ? { look: chosen } : {}), shop: item.shot, scaleRef: item.scaleRef, aspect: '1:1' }, from ? { from } : { first }, prod, () => setSizeRendering(`${++n} / ${total}`));
         if (typeof g === 'string') return setError(g);
         if (g.variants.length || 'request' in g.base) groups.push(g);
       }
@@ -544,7 +554,7 @@ export function PhotosPanel(p: Props) {
     const first = allPhotos.find((x) => x.url === ph.sizeOf);
     if (!prod || !first || !ph.sizeOf) return setError('Its first photo was deleted: make this size from another photo.');
     const shape = (PHOTO_ASPECTS as readonly string[]).includes(ph.aspect) ? ph.aspect as PhotoAspect : aspect;
-    p.onStart({ from: { photo: ph.sizeOf, ...(ph.render ? { render: ph.render } : {}) }, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}),
+    p.onStart({ from: { photo: ph.sizeOf, ...(ph.render ? { render: ph.render } : {}) }, scene: ph.scene, ...lookOf(ph), aspect: shape, notes: ph.notes, ...(shopShot(ph.shop) ? { shop: shopShot(ph.shop) } : {}), ...(ph.scaleRef ? { scaleRef: ph.scaleRef } : {}),
       ...(ph.saleSize ? { saleSize: ph.saleSize } : {}), resize: { base: { label: sizeName(first.saleSize), size: first.dims ?? prod.size } },
       product: { ...prod, size: ph.dims ?? prod.size, faceOn: cameraOf(ph, ph.dims ?? prod.size).faceOn } }, { camera: ph.camera, shape: ph.shape });
     closeBig();
@@ -559,8 +569,9 @@ export function PhotosPanel(p: Props) {
     const onFace = faceOn || (camera === 'best' && flat && !!written?.sceneText && writtenPlace(written.sceneText) === 'wall');
     let shot: string | null = null;
     const view: PhotoView = camera === 'current' ? 'current' : preset?.closeup ? 'detail' : onFace ? 'face' : 'angle';
+    const scaleRef = canSwitch && trueScale && view === 'face' ? 'switch' as const : undefined;
     try {
-      shot = p.capture(view, ASPECT_RATIO[aspect]);
+      shot = p.capture(view, ASPECT_RATIO[aspect], scaleRef ? { ref: scaleRef } : undefined);
     } catch (e) {
       return setError(`Couldn't render the model: ${(e as Error).message}`);
     }
@@ -572,6 +583,7 @@ export function PhotosPanel(p: Props) {
       ...chosen,
       aspect,
       notes: choice.notes.trim() || undefined,
+      ...(scaleRef ? { scaleRef } : {}),
       ...(viewedSale ? { saleSize: viewedSale } : {}),
       product: { ...product()!, faceOn: onFace },
     }, { camera: view, shape: p.shape });
@@ -596,14 +608,14 @@ export function PhotosPanel(p: Props) {
         await new Promise((r) => setTimeout(r, 30));
         let shot: string | null;
         try {
-          shot = p.capture(item.camera, 1);
+          shot = p.capture(item.camera, 1, item.scaleRef ? { ref: item.scaleRef } : undefined);
         } catch (e) {
           return setError(`Couldn't render the model: ${(e as Error).message}`);
         }
         if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
         // The studio shots are every size's; the scene ones are of the size shown, if one is.
         const sale = viewedSale && !STUDIO_SHOTS.includes(item.shot) ? { saleSize: viewedSale } : {};
-        rs.push({ render: dataUrlToImage(shot), scene: item.scene, ...(scened(item) ? chosen : {}), aspect: '1:1', shop: item.shot, ...sale, product: { ...prod, faceOn: item.faceOn } });
+        rs.push({ render: dataUrlToImage(shot), scene: item.scene, ...(scened(item) ? chosen : {}), aspect: '1:1', shop: item.shot, ...(item.scaleRef ? { scaleRef: item.scaleRef } : {}), ...sale, product: { ...prod, faceOn: item.faceOn } });
       }
     } finally {
       setRendering(null);
@@ -695,6 +707,13 @@ export function PhotosPanel(p: Props) {
             title="The angle you turned the 3D view to">Current view</button>
         </div>
       </div>
+      {canSwitch && (
+        <label className="switch ph-true-scale" title="The render shows a standard light switch (85 mm) beside the piece at true size, and the photo keeps both as large as in the render, so the piece is not blown up. The shop set's size photo always has it.">
+          <input type="checkbox" checked={trueScale} onChange={(e) => setTrueScale(e.target.checked)} />
+          <span className="track" />
+          <span className="switch-label">Light switch for scale</span>
+        </label>
+      )}
 
       <button className="btn primary wide" disabled={!p.imageModel || !size || writing === 'photo'} onClick={() => void generate()}>
         <Icon name="camera" size={14} /> {writing === 'photo' ? (idea ? 'Writing out your idea…' : 'Writing a random scene…') : 'Generate photo'}

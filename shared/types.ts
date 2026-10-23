@@ -300,6 +300,8 @@ export interface ProductPhoto {
   sizeOf?: string;
   /** The camera of its render (a PhotoView: 'angle', 'face'…), to take the other sizes' renders alike. */
   camera?: string;
+  /** Its render shows a light switch or a mug beside the product at true size (shared/photos ScaleRef). */
+  scaleRef?: 'switch' | 'mug';
   aspect: string;
   prompt: string;
   model: string;

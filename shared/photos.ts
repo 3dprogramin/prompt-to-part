@@ -412,7 +412,15 @@ export const SHOP_IMAGE_SIZE = '2K';
 /** Longer than this (mm), a product is too big to hold up in one hand: its size photo puts a mug beside it. */
 const HANDHELD = 300;
 
-export interface ShopPlanItem { shot: ShopShot; camera: PhotoCamera; scene: string; faceOn: boolean }
+/**
+ * Something of known size the render shows beside the product at its true size (a size photo): a
+ * light switch on the wall, a mug on the table. Image models copy the render's layout far better
+ * than they follow numbers, so the photo keeps the scale.
+ */
+export const SCALE_REFS = ['switch', 'mug'] as const;
+export type ScaleRef = (typeof SCALE_REFS)[number];
+
+export interface ShopPlanItem { shot: ShopShot; camera: PhotoCamera; scene: string; faceOn: boolean; scaleRef?: ScaleRef }
 
 /**
  * The shop set for a product: what each photo shows, from which angle its render is taken and in
@@ -436,8 +444,71 @@ export function shopPlan(o: { size: Vec3; suggested: string }): ShopPlanItem[] {
     { shot: 'angle', camera: 'angle', scene: SHOP_SCENE, faceOn: false },
     flat ? { shot: 'detail', camera: 'detail', scene: SHOP_SCENE, faceOn: true } : { shot: 'top', camera: 'top', scene: SHOP_SCENE, faceOn: false },
     { shot: 'lifestyle', camera: lifeFaceOn ? 'face' : 'angle', scene: lifestyle, faceOn: lifeFaceOn },
-    { shot: 'size', camera: wallPiece ? 'face' : 'angle', scene: size, faceOn: wallPiece },
+    { shot: 'size', camera: wallPiece ? 'face' : 'angle', scene: size, faceOn: wallPiece, ...(size === 'hand' ? {} : { scaleRef: wallPiece ? 'switch' : 'mug' }) },
   ];
+}
+
+// The references' sizes (mm): a standard EU switch plate with a rocker, a plain coffee mug.
+export const SWITCH_PLATE = { side: 85, depth: 10 };
+export const MUG_SIZE = { diameter: 82, height: 95 };
+/** The share of the render's width or height the product and its reference fill together. */
+const REF_FILL = 0.7;
+
+/** A render at true scale: the reference beside the product, and for a resize the product's size in the earlier photo (scaleRefLayout's `base`). */
+export interface TrueScale { ref: ScaleRef; base?: Vec3 }
+
+type Box = { min: Vec3; max: Vec3 };
+export interface ScaleRefLayout {
+  /** The reference's box (mm, the model's coordinates; the wall or the table is the plane z = the product's min z). */
+  ref: Box;
+  /** The box the render's camera frames: the wall or table area the picture shows. */
+  frame: Box;
+}
+
+/**
+ * Where the reference goes beside the product (its box, mm): a light switch on the wall to its
+ * right, its centre a third of the way up the piece, with free wall between them; a mug on the
+ * table beside it, along `side` (the render's right on the table, a unit vector), so it is as far
+ * from the camera as the product. The frame shows both with free wall or table around them, for a
+ * picture of `aspect` (width / height). `base`: the product's size in the earlier photo of another
+ * sale size; the reference keeps its spot from that photo and the frame its area (moved or grown
+ * only when this size would not fit), so only the product's size changes.
+ */
+export function scaleRefLayout(kind: ScaleRef, box: Box, aspect: number, o: { side?: [number, number]; base?: Vec3 } = {}): ScaleRefLayout {
+  const own = [0, 1, 2].map((k) => box.max[k] - box.min[k]) as Vec3;
+  const cx = (box.min[0] + box.max[0]) / 2, cy = (box.min[1] + box.max[1]) / 2, z = box.min[2];
+  // The product centred on the same spot, at a size.
+  const at = (s: Vec3): Box => ({ min: [cx - s[0] / 2, cy - s[1] / 2, z], max: [cx + s[0] / 2, cy + s[1] / 2, z + s[2]] });
+  const place = (s: Vec3, clear: Vec3): Box => {
+    if (kind === 'switch') {
+      const side = SWITCH_PLATE.side;
+      // At least 30 mm of free wall, more beside a bigger piece; never closer to this size than that.
+      const x = Math.max(cx + s[0] / 2 + Math.max(30, 0.6 * s[0]), cx + clear[0] / 2 + 30) + side / 2;
+      const y = cy - s[1] / 2 + s[1] / 3;
+      return { min: [x - side / 2, y - side / 2, z], max: [x + side / 2, y + side / 2, z + SWITCH_PLATE.depth] };
+    }
+    const [ux, uy] = o.side ?? [1, 0], r = MUG_SIZE.diameter / 2;
+    // How far the product reaches along the side, then a gap.
+    const reach = (v: Vec3) => (Math.abs(ux) * v[0] + Math.abs(uy) * v[1]) / 2;
+    const d = Math.max(reach(s) + Math.max(25, 0.15 * Math.max(s[0], s[1])), reach(clear) + 20) + r;
+    const mx = cx + ux * d, my = cy + uy * d;
+    return { min: [mx - r, my - r, z], max: [mx + r, my + r, z + MUG_SIZE.height] };
+  };
+  const ref = place(o.base ?? own, own);
+  const union = (a: Box, b: Box): Box => ({ min: a.min.map((v, k) => Math.min(v, b.min[k])) as Vec3, max: a.max.map((v, k) => Math.max(v, b.max[k])) as Vec3 });
+  // The area around a product and its reference: on the wall a rectangle of the picture's shape,
+  // on the table their box grown about its middle.
+  const around = (b: Box): Box => {
+    const c = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2), half = [0, 1, 2].map((k) => (b.max[k] - b.min[k]) / 2 / REF_FILL);
+    if (kind === 'switch') {
+      const w = Math.max(half[0], half[1] * aspect);
+      half[0] = w; half[1] = w / aspect; half[2] = (b.max[2] - b.min[2]) / 2;
+    }
+    return { min: c.map((v, k) => v - half[k]) as Vec3, max: c.map((v, k) => v + half[k]) as Vec3 };
+  };
+  const frame = around(union(box, ref));
+  // A resize: the earlier photo's area, grown only if this size needs more.
+  return { ref, frame: o.base ? union(around(union(at(o.base), place(o.base, o.base))), frame) : frame };
 }
 
 /** POST /api/designs/:id/photos */
@@ -461,6 +532,8 @@ export interface PhotoRequest {
   sceneText?: string;
   /** One of the shop set's photos (Shop photos): made at 2K, with what the shot shows in the prompt. */
   shop?: ShopShot;
+  /** The render shows a light switch or a mug beside the product at its true size (scaleRefLayout), to keep as it is. */
+  scaleRef?: ScaleRef;
   /** The sale size the photo shows (Design.sizes), kept with the photo. */
   saleSize?: { id: string; label: string; mm?: number };
   /**
@@ -517,6 +590,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (b.variant != null && (!SCENE_VARIANTS.includes(b.variant) || !sceneById(b.scene))) return `variant: a preset's sub-scene, one of ${SCENE_VARIANTS.join(', ')}`;
   if (b.sceneText != null && ((b.variant !== 'random' && b.scene !== IDEA_SCENE) || typeof b.sceneText !== 'string' || !b.sceneText.trim() || b.sceneText.length > MAX_SCENE_CHARS)) return `sceneText: the random sub-scene (variant 'random') or the idea written out, up to ${MAX_SCENE_CHARS} characters`;
   if (b.shop != null && !SHOP_SHOTS.includes(b.shop)) return `shop must be one of ${SHOP_SHOTS.join(', ')}`;
+  if (b.scaleRef != null && !SCALE_REFS.includes(b.scaleRef)) return `scaleRef must be one of ${SCALE_REFS.join(', ')}`;
   const p = b.product;
   if (!p || typeof p.name !== 'string' || p.name.length > 200) return 'product.name: text up to 200 characters';
   if (p.description != null && (typeof p.description !== 'string' || p.description.length > 2000)) return 'product.description: text up to 2,000 characters';
@@ -568,7 +642,7 @@ export function familiar(size: Vec3, flat: boolean): string {
 }
 
 // Things of a known size in some scenes (mm), and how many times as big the product is.
-const SWITCH = 85, HAND = 190, PALM = 85, MUG = 95;
+const SWITCH = SWITCH_PLATE.side, HAND = 190, PALM = 85, MUG = MUG_SIZE.height;
 const times = (v: number, ref: number) => { const r = v / ref; return (r >= 10 ? Math.round(r) : +r.toFixed(r < 0.1 ? 2 : 1)).toString(); };
 
 /** The product beside a light switch (a standard EU plate, about 85 mm square). */
@@ -593,8 +667,16 @@ const wallFrame = ([x, y]: Vec3, surface: string) => {
 const isThin = ([x, y, z]: Vec3) => z <= 10 && z < 0.08 * Math.min(x, y);
 const thinLine = (z: number) => `It is a THIN, FLAT panel: only ${mm(z)} mm thick (${z <= 5 ? `about ${times(z, 2)} times as thick as a coin` : `about ${times(z, 8)} times as thick as a smartphone`}), so from any angle its edge is just a thin line. Never show it as a thick slab, block, box or canvas on a frame.`;
 
+/** The render shows the product beside a light switch or a mug at its true size (scaleRefLayout): keep it as it is. */
+function trueScaleLine(ref: ScaleRef, size: Vec3, faceOn: boolean, sizeShot: boolean): string {
+  const [noun, beside, surface, vs] = ref === 'switch'
+    ? ['switch', `on the wall beside a standard white light switch (${SWITCH} mm square)`, 'wall', vsSwitch(size, faceOn)]
+    : ['mug', `on the surface beside a plain white coffee mug (${MUG_SIZE.diameter} mm across, ${MUG} mm tall)`, 'surface', vsMug(size)];
+  return `${sizeShot ? 'A SIZE PHOTO FOR THE LISTING: t' : 'T'}he render already shows it at its true size, ${beside}. Keep the product and the ${noun} exactly where they are and exactly as large as in the render, with the free ${surface} between them (the same framing: neither grows, shrinks or moves, and the ${noun} stays a ${noun} of that size); only make them and the ${surface} photorealistic and add the room around them, both fully in view and in focus; ${vs}, so its real size is obvious at a glance.`;
+}
+
 /** What a shop photo must show, beyond its scene. */
-function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean): string | null {
+function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean, ref: ScaleRef | null): string | null {
   const thin = isThin(size);
   const whole = 'the whole product centred, filling about three quarters of the square frame, nothing cut off';
   switch (shot) {
@@ -603,7 +685,8 @@ function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean): s
     case 'top': return `A HIGH VIEW FROM ABOVE FOR THE LISTING, showing its top: ${whole}.`;
     case 'detail': return 'A CLOSE-UP DETAIL PHOTO FOR THE LISTING: the render is cropped to part of the product, which goes on past the edges of the picture. Keep this close crop (do not show the whole product or shrink it to fit), so the surface, the edges and the fine detail of the print fill the photo, with a gentle depth of field.';
     case 'lifestyle': return null;
-    case 'size': return scene === 'wall'
+    case 'size': return ref ? trueScaleLine(ref, size, faceOn, true)
+      : scene === 'wall'
       ? `A SIZE PHOTO FOR THE LISTING: a standard white light switch (about ${SWITCH} mm square) beside it on the same wall, with free wall between them (never touching or overlapping it), both fully in view and in focus; ${vsSwitch(size, faceOn)}, so its real size is obvious at a glance.`
       : scene === 'hand'
       ? `A SIZE PHOTO FOR THE LISTING: the hand shows how big it is: ${vsHand(size)}; the product and the hand fully in view.`
@@ -629,6 +712,8 @@ export function photoPrompt(b: PhotoRequest): string {
   const faceOn = !!b.product.faceOn;
   const shop = b.shop && SHOP_SHOTS.includes(b.shop) ? b.shop : null;
   const surface = b.scene === 'fridge' ? 'fridge door' : 'wall';
+  // A light switch or mug in the render, at true size.
+  const ref = b.scaleRef && SCALE_REFS.includes(b.scaleRef) ? b.scaleRef : null;
   // A flat print shown face-on: its face and thickness; otherwise the box as printed.
   const size = faceOn
     ? `${mm(x)} mm wide, ${mm(y)} mm tall and ${mm(z)} mm thick`
@@ -638,7 +723,7 @@ export function photoPrompt(b: PhotoRequest): string {
     'Turn the attached render into a photorealistic product photo of the real, 3D-printed object.',
     '',
     `THE PRODUCT${what ? `: ${what}` : ''}.`,
-    `Real size: ${size} (${familiar(b.product.size, faceOn || z < 0.25 * Math.min(x, y))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' || closeup ? '' : ', and frame the photo around it so it is not lost in the room'}.`,
+    `Real size: ${size} (${familiar(b.product.size, faceOn || z < 0.25 * Math.min(x, y))}). Show it at exactly this scale: everything around it in true proportion to it (a coffee mug is about 95 mm tall, a light switch about 85 mm wide, an adult hand about 190 mm long, a sofa about 2 m wide)${shop === 'detail' || closeup ? '' : ref ? ', framed as in the render' : ', and frame the photo around it so it is not lost in the room'}.`,
     !b.product.lithophane && isThin(b.product.size) ? thinLine(z) : null,
     b.product.lithophane
       ? 'It is a LITHOPHANE: one panel of white PLA whose thickness varies, so its picture appears only when light shines through it – thin areas glow bright warm white, thick areas stay dark. The render shows it lit from behind: in the photo it must glow from a warm light behind it, the picture showing through exactly as in the render, with the panel\'s frame and stand as they are.'
@@ -657,7 +742,9 @@ export function photoPrompt(b: PhotoRequest): string {
       : faceOn
       ? '- the render shows its front face from above: it lies flat on the surface, face up, photographed from almost straight above, so the face reads exactly as in the render'
       : '- keep it in the same orientation and seen from about the same angle as in the render, so no unseen side has to be invented',
-    '- the grey background of the render is not part of the product: replace it completely with the scene',
+    ref
+      ? `- the plain ${ref === 'switch' ? 'wall' : 'surface'} and the white ${ref} in the render are not part of the product: they show its true size (see below)`
+      : '- the grey background of the render is not part of the product: replace it completely with the scene',
     '',
     'MAKE IT LOOK LIKE A REAL PRINT, NOT A 3D RENDER:',
     '- a matte to satin PLA surface with a soft, slightly diffuse sheen, realistic light falloff and subtle ambient occlusion in the corners',
@@ -666,14 +753,15 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `SCENE: ${preset ? sceneText(b, preset) : idea ? idea.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
-    wall && Math.max(x, y) < 350 && shop !== 'size'
+    ref && shop !== 'size' ? trueScaleLine(ref, b.product.size, faceOn, false)
+      : wall && Math.max(x, y) < 350 && shop !== 'size'
       ? surface === 'wall'
         ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
         : `It is a small piece: show the fridge's handle or another magnet beside it on the door, apart from it, so its real size is obvious, and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
       : null,
     (b.scene === 'hand' || idea?.place === 'hand') && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
     closeup && !shop ? 'A CLOSE-UP PHOTO: taken from close by, so the product fills most of the picture and its surface, edges, relief and the fine layer lines of the print read clearly. If the render is cropped to part of the product, keep that close crop (do not show the whole product or shrink it to fit).' : null,
-    shop ? shopLine(shop, b.scene, b.product.size, faceOn) : null,
+    shop ? shopLine(shop, b.scene, b.product.size, faceOn, ref) : null,
     preset && notes ? `Also: ${notes}.` : null,
     wall
       ? `It hangs flat against the ${surface}, its back touching it, with a soft contact shadow, in light that matches the surroundings. It is entirely on a wide, flat, continuous stretch of ${surface} with a wide margin of free ${surface} on every side: it never crosses or touches ${surface === 'wall' ? 'a corner, pillar, edge, door or window frame, shelf or furniture' : 'an edge of the door, its handle or another magnet'}, and nothing overlaps it.`
@@ -764,7 +852,7 @@ function sizeReference(b: PhotoRequest): { what: string; dim: string; mm: number
   const longest = (s: Vec3) => Math.max(s[0], s[1], faceOn ? 0 : s[2]);
   const idea = writtenIdea(b);
   if (b.scene === 'hand' || idea?.place === 'hand') return { what: 'the hand (about 190 mm long)', dim: 'long', mm: 190, measure: longest, sure: true };
-  if (preset?.wall || idea?.place === 'wall') return { what: 'the light switch (about 85 mm wide)', dim: 'wide', mm: 85, measure: (s) => s[0], sure: b.shop === 'size' };
+  if (preset?.wall || idea?.place === 'wall') return { what: 'the light switch (about 85 mm wide)', dim: 'wide', mm: 85, measure: (s) => s[0], sure: b.shop === 'size' || b.scaleRef === 'switch' };
   if (b.shop === 'size') {
     // A flat thing lying on the table is measured by its longest side, anything else by its height.
     const flatLying = !faceOn && b.product.size[2] < 0.25 * Math.min(b.product.size[0], b.product.size[1]);
@@ -794,6 +882,7 @@ export function sizeVariantPrompt(b: PhotoRequest): string {
     `THIS PHOTO SHOWS ${label ? `THE ${label.toUpperCase()} SIZE` : 'ANOTHER SIZE'} OF THE PRODUCT: ${sizeWords(now, faceOn)}. The second attached picture is a photo of ${base.label ? `the ${base.label} size` : 'it in another size'}: ${sizeWords(base.size, faceOn)}.`,
     `So the product is ${ratioWords(now, base.size, faceOn)}.`,
     refLine,
+    b.scaleRef ? `Its render at this size (the first attached picture) shows it beside the same ${b.scaleRef === 'switch' ? 'light switch' : 'mug'}, on the same spot and in the same framing as the earlier photo, both at their true size: keep those sizes.` : null,
     'THE SCENE TO KEEP EXACTLY: make the second attached picture again, as the same shot: the same place, wall, furniture, props, surface, colours and light, and the same camera position, angle, lens and framing. Nothing in the scene moves, grows, shrinks, appears or disappears; only the size of the product changes. Where the instructions above say how to frame the photo, keep the framing of the earlier photo instead.',
     `The product stays on the same spot (centred where it was, at the same height on the wall or in the same place on the surface) and ${bigger ? 'grows' : 'shrinks'} around it; the room and everything in it keep their real size, so the product takes up ${bigger ? 'more' : 'less'} of the picture than before.`,
     'The product itself (its shape, proportions, colours and details) is as in the first attached picture, its render at this size, not as in the earlier photo.',

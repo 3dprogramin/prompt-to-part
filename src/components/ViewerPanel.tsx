@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Viewer, type Measurement, type PhotoView, type PlaybackStep, type RepaintView, type ViewName, type ViewerOptions } from '../viewer/Viewer';
 import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
 import type { LayerColor } from '../../shared/layertone';
+import type { TrueScale } from '../../shared/photos';
 import { Icon } from './Icon';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
 
@@ -31,8 +32,8 @@ interface Props {
   paintRef?: React.MutableRefObject<((mesh: string, mask: Uint8Array, color: string) => void) | null>;
   /** Receives a function that captures the current view as a JPEG data URL. */
   snapshotRef?: React.MutableRefObject<(() => string | null) | null>;
-  /** Receives a function that renders the model alone for a product photo (PNG data URL); `result`: another build of it (a sale size). */
-  photoRef?: React.MutableRefObject<((view: PhotoView, aspect: number, result?: EvalResult) => string | null) | null>;
+  /** Receives a function that renders the model alone for a product photo (PNG data URL); `result`: another build of it (a sale size); `scale`: at true scale beside a reference. */
+  photoRef?: React.MutableRefObject<((view: PhotoView, aspect: number, result?: EvalResult, scale?: TrueScale) => string | null) | null>;
   /** A note over the view (the sale size it shows). */
   banner?: React.ReactNode;
   /** The product photos panel: open or not, toggled by the camera button; photos being made. */
@@ -165,7 +166,7 @@ export function ViewerPanel({ costStatus, result, recolor, previewColors, error,
     v.onRepaintStroke = (faces) => repaintRef.current.stroke?.(faces);
     if (paintRef) paintRef.current = (mesh, mask, color) => v.paintStored(mesh, mask, color);
     if (snapshotRef) snapshotRef.current = () => v.snapshot();
-    if (photoRef) photoRef.current = (view, aspect, other) => (other ? v.photoOf(other, view, aspect) : v.photo(view, aspect));
+    if (photoRef) photoRef.current = (view, aspect, other, scale) => (other ? v.photoOf(other, view, aspect, scale) : v.photo(view, aspect, scale));
     v.onDimEdit = (target, rect, current) => {
       const p = panel.current!.getBoundingClientRect();
       setEditing({ target, x: rect.left - p.left + rect.width / 2, y: rect.top - p.top + rect.height / 2, value: current.toFixed(2) });
