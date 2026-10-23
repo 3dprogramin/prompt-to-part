@@ -824,6 +824,11 @@ export default function App() {
   const splitArt = !!shownLineArt?.lineArt.split;
   // The editor draws on the whole piece: a split one put back together.
   const editorPart = useMemo(() => (editingLineArt ? assembledLineArt(shown) : undefined), [editingLineArt, shown]);
+  // The line art as Jig made it, without the hand edits: the editor shows it where edits are cleared.
+  const lineArtOriginal = useCallback(async () => {
+    const { [LINEART_EDITS_KEY]: _edits, ...values } = design.values;
+    return assembledLineArt((await geo.evaluate(design.code, values, quality)).result ?? null);
+  }, [design.code, design.values, quality]);
   const scriptLayoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
   const layoutKey = scriptLayoutKey ?? (splitArt ? LINEART_LAYOUT_KEY : undefined);
   // Re-fit the camera when a new script version arrives, and when the model shown is laid out
@@ -1539,6 +1544,7 @@ export default function App() {
           error={error?.message ?? null}
           onEdits={setLineArtEdits}
           onClose={() => setEditingLineArt(false)}
+          original={lineArtOriginal}
         />
       )}
       {pendingRestore != null && (

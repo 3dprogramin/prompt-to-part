@@ -1016,3 +1016,82 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   await until(async () => (await getDesign(lid)).values?.$lineartColourDepth === 'through', 'the depth is saved with the design');
   assert.deepEqual(errors, []);
 });
+
+test('Edit drawing selects an area and clears the hand edits there only: shown as Jig made it, then built so', TEST, async () => {
+  const { drawingFingerprint } = await import('../../shared/lineart');
+  const cid = 'ui-smoke-0000000a';
+  const box = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  // The frame of the paint test, with a line drawn by hand down each half.
+  const frame = { name: 'frame', aspect: 2, shapes: [{ rule: 'EvenOdd' as const, contours: [box(-1, -0.5, 1, 0.5), box(-0.98, -0.48, 0.98, 0.48)], color: '#000000' }] };
+  const line = (x: number) => ({ mode: 'draw', width: 1.5, points: [[x, -0.48], [x, 0.48]] });
+  const edits = { frame: { fp: drawingFingerprint(frame), strokes: [line(-0.6), line(0.6)] } };
+  const art = "function build() { return H.lineart('frame', { style: 'outline', width: 120 }); }";
+  const r = await putDesign({ id: cid, name: 'Cleared frame', createdAt: 1, updatedAt: 1, code: art, values: { $drawings: JSON.stringify({ frame }), $lineartEdits: JSON.stringify(edits) }, messages: [], currentVersion: 0,
+    versions: [{ code: art, summary: 'A frame', createdAt: 1, source: 'manual' }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${A}/?design=${cid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Cleared frame');
+  await built(page);
+  await page.getByRole('tab', { name: /Print/ }).click();
+  await page.locator('.lineart-edit-row', { hasText: '2 hand edits' }).waitFor();
+  await page.getByRole('button', { name: 'Edit drawing' }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit the drawing' });
+  await editor.waitFor();
+  await editor.getByRole('radio', { name: 'Select' }).click();
+  const here = editor.getByRole('button', { name: 'Clear edits here' });
+  assert.ok(await here.isDisabled(), 'nothing selected yet');
+  // The dark runs across the middle of the piece: the frame, the left line, the right line, the frame.
+  const over = editor.locator('.la-ed-over');
+  const b = (await over.boundingBox())!;
+  const runs = await editor.locator('.la-ed-canvas').first().evaluate((c: HTMLCanvasElement) => {
+    const k = c.width / c.getBoundingClientRect().width, d = c.getContext('2d')!.getImageData(0, Math.round(c.height / 2), c.width, 1).data, out: number[] = [];
+    for (let x = 0, start = -1; x < c.width; x++) {
+      const dark = d[x * 4] < 100;
+      if (dark && start < 0) start = x;
+      if (!dark && start >= 0) { out.push((start + x) / 2 / k); start = -1; }
+    }
+    return out;
+  });
+  assert.equal(runs.length, 4, `dark runs at ${runs.map(Math.round)}`);
+  // Down the left line, past the piece's top and bottom.
+  const select = async () => {
+    await page.mouse.move(b.x + runs[1], b.y + 4);
+    await page.mouse.down();
+    for (let k = 1; k <= 10; k++) await page.mouse.move(b.x + runs[1], b.y + 4 + ((b.height - 8) * k) / 10);
+    await page.mouse.up();
+  };
+  await select();
+  assert.ok(!(await here.isDisabled()), 'selected');
+  // Escape drops the selection (the editor stays open), and it is selected again.
+  await page.keyboard.press('Escape');
+  await until(async () => here.isDisabled(), 'Escape deselects');
+  await select();
+  await page.screenshot({ path: path.join(shots, '20-lineart-select.png') });
+  await here.click();
+  // Once the piece as Jig made it is known, the left line is gone from the view, the frame's top line there as it was.
+  await editor.locator('.la-ed-note', { hasText: 'Working out the piece' }).waitFor({ state: 'detached' });
+  const at = (x: number, y: number) => over.evaluate((c: HTMLCanvasElement, [px, py]: number[]) => {
+    const k = c.width / c.getBoundingClientRect().width;
+    return [...c.getContext('2d')!.getImageData(Math.round(px * k), Math.round(py * k), 1, 1).data];
+  }, [x, y]);
+  const top = await editor.locator('.la-ed-canvas').first().evaluate((c: HTMLCanvasElement, x: number) => {
+    const k = c.width / c.getBoundingClientRect().width, d = c.getContext('2d')!.getImageData(Math.round(x * k), 0, 1, c.height).data;
+    let y = 0;
+    while (y < c.height && d[y * 4] > 100) y++;
+    return (y + 2) / k;
+  }, runs[1]);
+  await until(async () => { const p = await at(runs[1], b.height / 2); return p[3] > 200 && p[0] > 200; }, 'the left line cleared in the view');
+  const t = await at(runs[1], top);
+  assert.ok(t[3] > 200 && t[0] < 100, `the frame's top line shows there (${t})`);
+  await page.screenshot({ path: path.join(shots, '20-lineart-cleared.png') });
+  await editor.getByRole('button', { name: 'Done' }).click();
+  await editor.waitFor({ state: 'detached' });
+  // Saved: only the right line is left (the left one all cleared, so no clear is kept either).
+  await until(async () => JSON.parse((await getDesign(cid)).values.$lineartEdits ?? '{}').frame?.strokes.length === 1, 'the cleared edit is gone from the design');
+  assert.deepEqual(JSON.parse((await getDesign(cid)).values.$lineartEdits).frame.strokes, [line(0.6)]);
+  await page.locator('.lineart-edit-row', { hasText: '1 hand edit' }).waitFor();
+  assert.deepEqual(errors, []);
+});

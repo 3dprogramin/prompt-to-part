@@ -4,27 +4,30 @@ import { FILL_WIDTH, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, MAX_LINEART_STROKES, 
 import { colourCost, depthLabel } from './LineArtPanel';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import { SCALE_KEY, type PartFilament } from '../../shared/params';
-import { addStroke, frameAt, leanStroke, niceLength, removeStroke, sameFilament, snapEnd, staleEdits, strokeFilaments, strokesOf, toDrawing, withoutDrawings, type InkMask } from '../lib/lineArtEdit';
+import { addStroke, clearArea, frameAt, inkAt, leanStroke, niceLength, removeStroke, sameFilament, snapEnd, staleEdits, strokeFilaments, strokesOf, toDrawing, withoutDrawings, type InkMask } from '../lib/lineArtEdit';
 import { useLayoutMode } from '../hooks/useLayoutMode';
 import { useEscape } from './useEscape';
 import { Icon } from './Icon';
 import { FilamentPicker } from './FilamentPicker';
 
 type Pt = [number, number];
-type Tool = 'draw' | 'erase' | 'paint' | 'fill';
-/** A step of this session, for Undo / Redo: a stroke added, or edits cleared. */
-type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown: ShownStroke } | { kind: 'clear'; names: string[]; before: LineArtEdits; shown: ShownStroke[] };
+type Tool = 'draw' | 'erase' | 'paint' | 'fill' | 'clear';
+/** A step of this session, for Undo / Redo: a stroke added, edits cleared, or cleared where selected (the selection it cleared kept for Undo). */
+type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown: ShownStroke } | { kind: 'clear'; names: string[]; before: LineArtEdits; shown: ShownStroke[] }
+  | { kind: 'here'; names: string[]; before: LineArtEdits; after: LineArtEdits; shown: ShownStroke[]; selection: ShownStroke[] };
 /**
  * A stroke of this session on the screen (mm, the piece's XY), drawn over the piece: it is only
  * built when the editor closes with Done. `src` is the stroke as saved; `color` its filament's
- * (none: the piece's own).
+ * (none: the piece's own). A 'clear' one is where edits were cleared (the piece as Jig made it shows there).
  */
 interface ShownStroke { mode: Tool; width: number; points: Pt[]; name?: string; src?: LineArtStroke; live?: boolean; color?: string }
 
-/** Brush widths (mm): draw, erase, paint, fill. */
-const WIDTH = { draw: { min: 0.6, max: 5 }, erase: { min: 1, max: 15 }, paint: { min: 0.5, max: 15 }, fill: { min: 0.5, max: 15 } };
+/** Brush widths (mm): draw, erase, paint, fill, and the selection to clear edits in. */
+const WIDTH = { draw: { min: 0.6, max: 5 }, erase: { min: 1, max: 15 }, paint: { min: 0.5, max: 15 }, fill: { min: 0.5, max: 15 }, clear: { min: 1, max: 50 } };
 /** Paint shows only on the piece, a fill only off it. */
 const masked = (mode: Tool) => mode === 'paint' || mode === 'fill';
+/** Strokes put together off screen (composed): those masked, and where edits were cleared. */
+const composite = (mode: Tool) => masked(mode) || mode === 'clear';
 /** Snap within this many mm of the ink (and at least SNAP_PX screen pixels). */
 const SNAP_MM = 1.5;
 const SNAP_PX = 10;
@@ -32,6 +35,9 @@ const SNAP_PX = 10;
 const INK = '#141414';
 const RAISED = ['#3a3d42', '#6a6e75'];
 const ERASE = 'rgba(229, 103, 95, 0.5)';
+/** The area selected to clear edits in, see-through over the piece, and the brush's ring. */
+const SELECT = ['#3d8bfd', 0.35] as const;
+const SELECT_RING = '#1f6fe0';
 /** The seams of a piece split into pieces. */
 const SEAM = '#2f80d1';
 /** Where Jig joined a loose end to a line, and the loose ends left (as in the 3D view). */
@@ -121,9 +127,13 @@ function pieceImage(part: PartMesh & { paints?: { color: string; from: number; t
   return { fill, bitmap, mask, box: { x0, y0, x1, y1 } };
 }
 
-/** A stroke stamped into the ink grid: a drawn line or a fill adds ink (all under it is ink then), erasing takes it away (paint changes none). */
-function stamp(m: InkMask, st: ShownStroke) {
-  if (st.mode === 'paint') return;
+/**
+ * A stroke stamped into the ink grid: a drawn line or a fill adds ink (all under it is ink then),
+ * erasing takes it away (paint changes none), clearing puts the ink of the piece as Jig made it
+ * back (`own`, when it is known).
+ */
+function stamp(m: InkMask, st: ShownStroke, own?: InkMask | null) {
+  if (st.mode === 'paint' || (st.mode === 'clear' && !own)) return;
   const r = st.width / 2 / m.res, v = st.mode === 'erase' ? 0 : 1;
   const px = st.points.map(([x, y]): Pt => [(x - m.x0) / m.res, (m.y1 - y) / m.res]);
   const segs = px.length === 1 ? [[px[0], px[0]]] : px.slice(1).map((p, i) => [px[i], p]);
@@ -133,7 +143,8 @@ function stamp(m: InkMask, st: ShownStroke) {
     const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r)), y1 = Math.min(m.h - 1, Math.ceil(Math.max(ay, by) + r));
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2));
-      if ((x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 <= r * r) m.data[y * m.w + x] = v;
+      if ((x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 > r * r) continue;
+      m.data[y * m.w + x] = st.mode === 'clear' ? (inkAt(own!, [m.x0 + (x + 0.5) * m.res, m.y1 - (y + 0.5) * m.res]) ? 1 : 0) : v;
     }
   }
 }
@@ -149,6 +160,8 @@ interface Props {
   error: string | null;
   onEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
   onClose: () => void;
+  /** The piece built without any hand edits (as Jig made it), shown where edits are cleared. */
+  original: () => Promise<(PartMesh & { lineArt: LineArtInfo; paints?: { color: string; from: number; to: number }[] }) | null | undefined>;
 }
 
 /**
@@ -159,7 +172,7 @@ interface Props {
  * drawn over the piece, until Done (or Escape) saves them in the design at once (LINEART_EDITS_KEY,
  * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft.
  */
-export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: Props) {
+export function LineArtEditor({ part, values, busy, error, onEdits, onClose, original }: Props) {
   const layout = useLayoutMode();
   const la = part.lineArt;
   // A piece split into pieces: its seams, shown (read-only) over it.
@@ -175,12 +188,15 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   finish.current = () => { if (changed) onEdits(() => edits); onClose(); };
   const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
   useEscape(true, () => finish.current());
+  // The area selected to clear edits in (mm, the piece's XY): Escape drops it first.
+  const [selection, setSelection] = useState<ShownStroke[]>([]);
+  useEscape(selection.length > 0, () => setSelection([]));
   const drawings = useMemo(() => parseDrawings(values[DRAWINGS_KEY]), [values[DRAWINGS_KEY]]);
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
   const image = useMemo(() => pieceImage(part, la.thickness), [part, la.thickness]);
 
   const [tool, setTool] = useState<Tool>('draw');
-  const [widths, setWidths] = useState(() => ({ draw: round(clamp(la.lineWidth, WIDTH.draw.min, WIDTH.draw.max), 1), erase: 3, paint: 3, fill: FILL_WIDTH }));
+  const [widths, setWidths] = useState(() => ({ draw: round(clamp(la.lineWidth, WIDTH.draw.min, WIDTH.draw.max), 1), erase: 3, paint: 3, fill: FILL_WIDTH, clear: 10 }));
   // The filament lines are drawn and painted in (null: the piece's own), and the picker for another.
   const [filament, setFilament] = useState<PartFilament | null>(null);
   const [picking, setPicking] = useState(false);
@@ -192,17 +208,28 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const [panning, setPanning] = useState(false);
   // This session's strokes, drawn over the piece (it is built only when the editor closes).
   const [shown, setShown] = useState<ShownStroke[]>([]);
+  // The piece as Jig made it, for where edits are cleared: this one when it has no hand edits, else
+  // built (once) as soon as there is something to clear.
+  const [built, setBuilt] = useState<ReturnType<typeof pieceImage> | 'building' | 'failed'>(null);
+  const clearing = selection.length > 0 || shown.some((st) => st.mode === 'clear');
+  useEffect(() => {
+    if (la.edits === 0 || !clearing || built) return;
+    setBuilt('building');
+    original().then((p) => setBuilt((p && pieceImage(p, p.lineArt.thickness)) || 'failed'), () => setBuilt('failed'));
+  }, [la.edits, clearing, built, original]);
+  const own = la.edits === 0 ? image : built && typeof built === 'object' ? built : null;
   // The ink to snap to: the piece, with this session's lines drawn in and its erasing taken out.
   const ink = useMemo(() => {
     if (!image) return null;
     if (!shown.length) return image.mask;
     const m = { ...image.mask, data: image.mask.data.slice() };
-    for (const st of shown) stamp(m, st);
+    for (const st of shown) stamp(m, st, own?.mask);
     return m;
-  }, [image, shown]);
+  }, [image, shown, own]);
   const width = widths[tool];
   const stale = staleEdits(edits, la.frames);
-  const applied = la.frames.reduce((n, f) => n + strokesOf(edits, f.name, f.fp).length, 0);
+  // (A clear isn't a hand edit: it takes them back.)
+  const applied = la.frames.reduce((n, f) => n + strokesOf(edits, f.name, f.fp).filter((st) => st.mode !== 'restore').length, 0);
   const erased = la.frames.some((f) => strokesOf(edits, f.name, f.fp).some((st) => st.mode === 'erase'));
   // The filaments a click away: those the piece is in and those of the strokes so far.
   const palette = useMemo(() => {
@@ -211,7 +238,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     if (filament && !out.some((g) => sameFilament(g, filament))) out.push(filament);
     return out;
   }, [la.colours, la.frames, edits, filament]);
-  const coloured = tool !== 'erase';
+  const coloured = tool !== 'erase' && tool !== 'clear';
   // What the colours as built cost in filament changes (an estimate; the Print tab compares the depths).
   const swaps = useMemo(() => {
     if (!part.colourInfo?.length) return null;
@@ -233,8 +260,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const hover = useRef<{ at: Pt; snap: Pt | null; show: boolean }>({ at: [0, 0], snap: null, show: false });
   const keys = useRef({ space: false, shift: false });
   // The latest of everything the pointer and key handlers use.
-  const now = useRef({ tool, width, snap, image, ink, la, edits, scale, shown, hist, filament });
-  now.current = { tool, width, snap, image, ink, la, edits, scale, shown, hist, filament };
+  const now = useRef({ tool, width, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own });
+  now.current = { tool, width, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own };
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -267,9 +294,11 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   // This session's strokes once they have paint, put together off screen (paint shows only on the
   // lines under it), kept while they and the view stay the same.
   const layer = useRef<{ out: HTMLCanvasElement; ink: HTMLCanvasElement; tmp: HTMLCanvasElement; key: unknown[] } | null>(null);
+  // The selection, put together off screen.
+  const selLayer = useRef<HTMLCanvasElement | null>(null);
   const composed = (strokes: ShownStroke[], width: number, height: number) => {
-    const v = view.current, im = now.current.image, { w, h, dpr } = size.current;
-    const key = [strokes, im, v.s, v.cx, v.cy, width, height, moving.current];
+    const v = view.current, im = now.current.image, own = now.current.own, { w, h, dpr } = size.current;
+    const key = [strokes, im, own, v.s, v.cx, v.cy, width, height, moving.current];
     let L = layer.current;
     if (L && L.key.every((k, i) => k === key[i])) return L.out;
     if (!L || L.out.width !== width || L.out.height !== height) {
@@ -290,6 +319,21 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     mm(ink); mm(out);
     for (const st of strokes) {
       if (st.mode === 'draw') { strokeOn(out, st, st.color ?? INK); strokeOn(ink, st, INK); }
+      else if (st.mode === 'clear') {
+        // Cleared: the piece as Jig made it there, over the strokes before (once it is known).
+        if (!own) continue;
+        // Its ink, then the paper with it in (as one, so its soft edge shows no seam).
+        const brushed = (under: string, op: GlobalCompositeOperation) => {
+          px(tmp); tmp.clearRect(0, 0, width, height); mm(tmp);
+          strokeOn(tmp, st, under);
+          tmp.globalCompositeOperation = op; own.fill(tmp); tmp.globalCompositeOperation = 'source-over';
+        };
+        brushed(INK, 'source-in');
+        ink.globalCompositeOperation = 'destination-out'; strokeOn(ink, st, INK); ink.globalCompositeOperation = 'source-over';
+        px(ink); ink.drawImage(L.tmp, 0, 0); mm(ink);
+        brushed(PAPER, 'source-atop');
+        px(out); out.drawImage(L.tmp, 0, 0); mm(out);
+      }
       else if (st.mode === 'erase') {
         strokeOn(out, st, PAPER);
         ink.globalCompositeOperation = 'destination-out'; strokeOn(ink, st, INK); ink.globalCompositeOperation = 'source-over';
@@ -334,10 +378,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
     // Erased: the paper shows (red while it is being drawn).
     const stroke = (st: ShownStroke) => strokeOn(ctx, st, st.mode === 'draw' ? st.color ?? INK : st.live ? ERASE : PAPER);
-    const live: ShownStroke | null = a.mode === 'draw' && a.points.length ? { mode: n.tool, width: n.width, points: livePoints(), live: true, color: n.tool === 'erase' ? undefined : n.filament?.color } : null;
+    const live: ShownStroke | null = a.mode === 'draw' && a.points.length ? { mode: n.tool, width: n.width, points: livePoints(), live: true, color: n.tool === 'erase' || n.tool === 'clear' ? undefined : n.filament?.color } : null;
     // Paint only shows on the piece (its lines, frame, bar, text and pegs), a fill only off it: the
     // strokes over the ink layer, which is kept while they and the view stay the same.
-    if ((live && masked(live.mode)) || n.shown.some((st) => masked(st.mode))) {
+    if ((live && masked(live.mode)) || n.shown.some((st) => composite(st.mode))) {
       const img = composed(n.shown, c.width, c.height);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(img, 0, 0);
@@ -354,7 +398,21 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 0.6; ctx.drawImage(L.tmp, 0, 0); ctx.globalAlpha = 1;
       ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
-    } else if (live) stroke(live);
+    } else if (live && live.mode !== 'clear') stroke(live);
+    // The area selected to clear edits in (with the stroke adding to it), see-through: drawn whole
+    // off screen, so where strokes cross it is no darker. Where edits were cleared shows so too
+    // until the piece as Jig made it is known.
+    const sel = [...n.selection, ...(live?.mode === 'clear' ? [live] : []), ...(n.own ? [] : n.shown.filter((st) => st.mode === 'clear'))];
+    if (sel.length) {
+      const S = (selLayer.current ??= document.createElement('canvas'));
+      if (S.width !== c.width || S.height !== c.height) { S.width = c.width; S.height = c.height; }
+      const sctx = S.getContext('2d')!;
+      sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, S.width, S.height);
+      sctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
+      for (const st of sel) strokeOn(sctx, st, SELECT[0]);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = SELECT[1]; ctx.drawImage(S, 0, 0); ctx.globalAlpha = 1;
+    }
     // Screen-sized marks: the seams of a piece split into pieces (where it is cut), where a line will snap to, and the brush.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const seamLook: [string, number, number[]][] = [['#ffffffd0', 3.5, []], [SEAM, 1.5, [7, 5]]];
@@ -381,7 +439,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     for (const p of snaps) if (p) { ring(p, 6, '#fff', 4); ring(p, 6, '#e0a43c', 2); }
     if (hover.current.show && a.mode !== 'pan' && a.mode !== 'pinch' && !keys.current.space) {
       const p = toMm(...hover.current.at), r = Math.max(1.5, (n.width / 2) * v.s);
-      const mark = n.tool === 'erase' ? '#c0392b' : n.filament?.color ?? '#1d1d1f';
+      const mark = n.tool === 'erase' ? '#c0392b' : n.tool === 'clear' ? SELECT_RING : n.filament?.color ?? '#1d1d1f';
       ring(p, r, '#ffffffcc', 3); ring(p, r, mark, 1.2);
       const [x, y] = hover.current.at;
       ctx.fillStyle = mark;
@@ -437,7 +495,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     else paintBase(true);
     repaintOver();
   }, [image, fit, paintBase, repaintOver]);
-  useEffect(repaintOver, [shown, tool, width, filament, repaintOver]);
+  useEffect(repaintOver, [shown, tool, width, filament, selection, own, repaintOver]);
 
   // ---- strokes
   const snapRadius = () => Math.max(SNAP_MM, SNAP_PX / view.current.s);
@@ -473,6 +531,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       if (s0) pts = [s0, ...pts.slice(1)];
       if (s1) pts = [...pts.slice(0, -1), s1];
     }
+    // Selecting where to clear edits: the stroke adds to the selection (nothing is saved yet).
+    if (n.tool === 'clear') { setSelection((s) => [...s, { mode: 'clear', width: n.width, points: pts }]); setNote(null); return; }
     const f = frameAt(n.la.frames, pts[0], (name) => drawings[name]?.aspect ?? 1);
     if (!f) return;
     if (strokesOf(n.edits, f.name, f.fp).length >= MAX_LINEART_STROKES) {
@@ -495,7 +555,16 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     setNote(null);
   };
   const apply = (op: Op, undo: boolean) => {
-    if (op.kind === 'add') {
+    if (op.kind === 'here') {
+      const from = undo ? op.before : op.after;
+      setEdits((e) => {
+        const out = { ...e };
+        for (const k of op.names) if (from[k]) out[k] = from[k]; else delete out[k];
+        return out;
+      });
+      setShown((s) => (undo ? s.filter((x) => !op.shown.includes(x)) : [...s, ...op.shown]));
+      setSelection(undo ? op.selection : []);
+    } else if (op.kind === 'add') {
       setEdits((e) => (undo ? removeStroke(e, op.name, op.stroke) : addStroke(e, op.name, op.fp, op.stroke)));
       setShown((s) => (undo ? s.filter((x) => x !== op.shown) : [...s, op.shown]));
     } else {
@@ -522,6 +591,37 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     const op: Op = { kind: 'clear', names, before: Object.fromEntries(names.map((k) => [k, e[k]])), shown: now.current.shown.filter((x) => names.includes(x.name ?? '')) };
     apply(op, false);
     setHist((h) => ({ undo: [...h.undo, op], redo: [] }));
+  };
+
+  /**
+   * Clear edits here: on each drawing, its hand edits under the selection taken back (a restore
+   * stroke per selection stroke, after them), so there the piece is as Jig made it again.
+   */
+  const clearHere = () => {
+    const n = now.current;
+    if (!n.selection.length) return;
+    const names: string[] = [], before: LineArtEdits = {}, after: LineArtEdits = {};
+    for (const f of n.la.frames) {
+      const strokes = strokesOf(n.edits, f.name, f.fp);
+      if (!strokes.length) continue;
+      const area = n.selection.map((st): LineArtStroke => ({ mode: 'restore', width: round(st.width / n.scale, 3), points: st.points.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt) }));
+      // How far each brush reaches, in the drawing's units (a drawn line: its colour, at least the piece's line width).
+      const reach = (st: LineArtStroke) => {
+        const w = (st.width ?? (st.mode === 'draw' ? n.la.lineWidth / n.scale : st.mode === 'fill' ? FILL_WIDTH : 3)) * n.scale;
+        return (st.mode === 'draw' ? Math.max(w, n.la.lineWidth) : w) / 2 / f.k;
+      };
+      const kept = clearArea(strokes, area, reach);
+      if (JSON.stringify(kept) === JSON.stringify(strokes)) continue;
+      if (kept.length > MAX_LINEART_STROKES) { setNote(`At most ${MAX_LINEART_STROKES} strokes per drawing: undo or clear some first.`); return; }
+      names.push(f.name);
+      before[f.name] = n.edits[f.name];
+      if (kept.length) after[f.name] = { fp: f.fp, strokes: kept };
+    }
+    if (!names.length) { setNote('No hand edits there to clear.'); return; }
+    const op: Op = { kind: 'here', names, before, after, shown: n.selection.map((st) => ({ ...st })), selection: n.selection };
+    apply(op, false);
+    setHist((h) => ({ undo: [...h.undo, op], redo: [] }));
+    setNote(null);
   };
 
   // ---- pointer: one finger, the pen or the left button draws; two fingers, the middle or right button or Space + drag pan (and pinch zooms)
@@ -607,7 +707,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     return () => c.removeEventListener('wheel', onWheel);
   }, [zoomAt]);
 
-  // Keys: B draw, P paint, G fill, E erase, S snap, [ ] width, F fit, + − zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
+  // Keys: B draw, P paint, G fill, E erase, C select where to clear edits, S snap, [ ] width, F fit, + − zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
   // Space pans, Shift draws straight. The editor is on top: the app's own keys wait (Escape closes it).
   // (Not in the filament picker, which has keys of its own.)
   useEffect(() => {
@@ -622,12 +722,13 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       if (e.key === ' ') { e.preventDefault(); if (!keys.current.space) { keys.current.space = true; setPanning(true); repaintOver(); } return; }
       const step = (d: number) => setWidths((w) => {
         const t = now.current.tool, lim = WIDTH[t];
-        return { ...w, [t]: round(clamp(w[t] + d * (t === 'draw' ? 0.1 : 0.5), lim.min, lim.max), 1) };
+        return { ...w, [t]: round(clamp(w[t] + d * (t === 'draw' ? 0.1 : t === 'clear' ? 2 : 0.5), lim.min, lim.max), 1) };
       });
       if (k === 'b') setTool('draw');
       else if (k === 'p') setTool('paint');
       else if (k === 'g') setTool('fill');
       else if (k === 'e') setTool('erase');
+      else if (k === 'c') setTool('clear');
       else if (k === 's') setSnap((s) => !s);
       else if (k === 'f' || k === '0') fit();
       else if (k === '+' || k === '=') zoomAt(1.25);
@@ -675,6 +776,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
           <button className={`la-ed-tool ${tool === 'erase' ? 'on erase' : ''}`} role="radio" aria-checked={tool === 'erase'} onClick={() => setTool('erase')} title="Erase (E): also what Jig drew there">
             <Icon name="eraser" size={15} /><span className="la-ed-label">Erase</span>
           </button>
+          <button className={`la-ed-tool ${tool === 'clear' ? 'on' : ''}`} role="radio" aria-checked={tool === 'clear'} onClick={() => setTool('clear')} title="Select (C): brush over where to clear the hand edits (strokes add up), then Clear edits here">
+            <Icon name="select" size={15} /><span className="la-ed-label">Select</span>
+          </button>
         </div>
         {/* The filament lines are drawn and painted in: the piece's own, those used, or another from the picker. */}
         <div className={`la-ed-filaments ${coloured ? '' : 'off'}`} role="radiogroup" aria-label="Filament to draw, paint and fill with">
@@ -702,7 +806,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         </div>
         <label className="la-ed-width" title="Brush width ([ and ])">
           <span className="la-ed-label">Width</span>
-          <input type="range" min={lim.min} max={lim.max} step={0.1} value={width} aria-label={`${tool === 'draw' ? 'Line' : tool === 'paint' ? 'Paint brush' : tool === 'fill' ? 'Fill brush' : 'Eraser'} width, mm`}
+          <input type="range" min={lim.min} max={lim.max} step={0.1} value={width} aria-label={`${tool === 'draw' ? 'Line' : tool === 'paint' ? 'Paint brush' : tool === 'fill' ? 'Fill brush' : tool === 'clear' ? 'Selection brush' : 'Eraser'} width, mm`}
             onChange={(e) => setWidths((w) => ({ ...w, [tool]: Number(e.target.value) }))} />
           <span className="mono la-ed-val">{width.toFixed(1)} mm</span>
         </label>
@@ -714,9 +818,21 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
           <button className="la-ed-tool" disabled={!hist.undo.length} onClick={undo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={15} /></button>
           <button className="la-ed-tool" disabled={!hist.redo.length} onClick={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={15} /></button>
         </div>
-        <button className="la-ed-tool" disabled={!applied} onClick={() => clear(la.frames.filter((f) => edits[f.name]?.fp === f.fp).map((f) => f.name))} title="Remove every hand edit of this piece">
-          <Icon name="trash" size={15} /><span className="la-ed-label">Clear edits</span>
-        </button>
+        {/* While selecting, edits are cleared only where selected. */}
+        {tool === 'clear' || selection.length > 0 ? (
+          <div className="la-ed-group">
+            <button className="la-ed-tool" disabled={!selection.length} onClick={clearHere} title="Take back the hand edits in the area selected: there the piece is as Jig made it (lines drawn go, erased ones come back, paint and fills go)">
+              <Icon name="restore" size={15} /><span className="la-ed-label">Clear edits here</span>
+            </button>
+            {selection.length > 0 && (
+              <button className="la-ed-tool" onClick={() => setSelection([])} title="Deselect (Esc)" aria-label="Deselect"><Icon name="x" size={15} /></button>
+            )}
+          </div>
+        ) : (
+          <button className="la-ed-tool" disabled={!applied} onClick={() => clear(la.frames.filter((f) => edits[f.name]?.fp === f.fp).map((f) => f.name))} title="Remove every hand edit of this piece">
+            <Icon name="trash" size={15} /><span className="la-ed-label">Clear edits</span>
+          </button>
+        )}
         {/* (It takes the room left, cut short rather than pushing Done onto a row of its own.) */}
         <span className="la-ed-status small" aria-live="polite" title={busy ? undefined : `${status}${showSwaps ? ` · ${swaps.text}` : ''}`}>
           {busy ? <><span className="spinner" /> updating…</> : status}
@@ -730,7 +846,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-          onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint, fill or erase" />
+          onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint, fill, erase or select" />
         <div className="la-ed-notes">
           {stale.strokes > 0 && (
             <div className="la-ed-note warn"><Icon name="alert" size={13} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing <button className="link" onClick={() => clear(stale.names)}>Clear</button></div>
@@ -741,6 +857,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
           )}
           {error && <div className="la-ed-note warn"><Icon name="alert" size={13} /> The model didn't build: {error}</div>}
           {note && <div className="la-ed-note">{note}</div>}
+          {clearing && built === 'building' && <div className="la-ed-note"><span className="spinner" /> Working out the piece as Jig made it, to show where edits are cleared…</div>}
+          {clearing && built === 'failed' && la.edits > 0 && <div className="la-ed-note">Where edits are cleared shows once built (Done).</div>}
         </div>
         <div className="la-ed-scale" aria-label={`Scale: the bar is ${barMm} mm`}>
           <span className="la-ed-scale-bar" style={{ width: barMm * zoom }} />
@@ -753,7 +871,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         </div>
         {!phone && (
           <div className="la-ed-hint small">
-            {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : tool === 'fill' ? 'fills' : 'erases'}${using} · two fingers move and zoom` : `Drag to ${tool}${using} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width`}
+            {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : tool === 'fill' ? 'fills' : tool === 'clear' ? 'selects where to clear edits' : 'erases'}${using} · two fingers move and zoom`
+              : `${tool === 'clear' ? 'Drag to select where to clear edits (strokes add up) · Esc: deselect' : `Drag to ${tool}${using}`} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width`}
           </div>
         )}
       </div>

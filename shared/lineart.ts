@@ -483,13 +483,15 @@ export const MAX_STROKE_POINTS = 2000;
  * (default 3 mm wide) in `filament`, adding nothing; 'fill' (default FILL_WIDTH wide) is the
  * opposite of paint: it adds material only where the piece has none yet (inside an outline), in
  * `filament`, never over its lines. A drawn line is in `filament` too; without one, any of them is
- * the piece's own filament (paint puts it back). Points are in the drawing's own units (1 = its
- * height, centred, y up), so an edit stays put when the piece is resized.
+ * the piece's own filament (paint puts it back). 'restore' (Clear edits here) takes back the strokes
+ * before it under its brush: there the piece is as Jig made it again (lines drawn go, erased ones
+ * come back, paint and fills go). Points are in the drawing's own units (1 = its height, centred,
+ * y up), so an edit stays put when the piece is resized.
  */
-export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill'; width?: number; points: [number, number][]; filament?: PartFilament }
+export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill' | 'restore'; width?: number; points: [number, number][]; filament?: PartFilament }
 /** A fill brush's width when the stroke gives none, mm. */
 export const FILL_WIDTH = 4;
-const STROKE_MODES: readonly string[] = ['draw', 'erase', 'paint', 'fill'];
+const STROKE_MODES: readonly string[] = ['draw', 'erase', 'paint', 'fill', 'restore'];
 /** The strokes on a drawing, with the fingerprint of the drawing they were made on: a new drawing under the same name leaves them out. */
 export type LineArtEdits = Record<string, { fp: string; strokes: LineArtStroke[] }>;
 
@@ -514,8 +516,8 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
       const points = st.points.slice(0, MAX_STROKE_POINTS).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [p[0], p[1]] as [number, number]);
       if (!points.length) continue;
       const width = Number(st.width);
-      // (An eraser has no filament.)
-      const filament = st.mode === 'erase' ? undefined : cleanFilament(st.filament);
+      // (An eraser has no filament, nor does clearing.)
+      const filament = st.mode === 'erase' || st.mode === 'restore' ? undefined : cleanFilament(st.filament);
       strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}), ...(filament ? { filament } : {}) });
     }
     if (strokes.length) out[name.slice(0, 120)] = { fp: e.fp.slice(0, 80), strokes };
@@ -527,10 +529,11 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
  * The colours of a drawing's hand edits, to keep when the edits are drawn into a new picture of it
  * (Jig changing part of the drawing): its paint strokes, and its lines as paint along them (a line
  * in the piece's own filament takes the colour back there, as it did). Fills aren't in the picture
- * (drawingPicture): they stay as they are and fill the new drawing where it is empty.
+ * (drawingPicture): they stay as they are and fill the new drawing where it is empty. A clear stays
+ * too, so the colours before it stay off there.
  */
 export function colourStrokes(strokes: LineArtStroke[], lineWidth = 1): LineArtStroke[] {
-  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' || st.mode === 'fill' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}) }] : []));
+  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' || st.mode === 'fill' || st.mode === 'restore' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}) }] : []));
   const first = out.findIndex((st) => st.filament || st.mode === 'fill');
   return first < 0 ? [] : out.slice(first);
 }
@@ -555,14 +558,15 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
     for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = on ? 1 : 0;
   }
   const toPx = ([x, y]: [number, number]): Pt => [(x - g.x0) * H - 0.5, (g.y1 - y) * H - 0.5];
-  // (Paint adds no ink; fills stay strokes of their own, kept by colourStrokes.)
+  // (Paint adds no ink; fills stay strokes of their own, kept by colourStrokes. A clear puts the drawing's own ink back.)
+  const own = strokes.some((st) => st.mode === 'restore') ? ink.slice() : null;
   for (const st of strokes) {
     if (st.mode === 'paint' || st.mode === 'fill') continue;
     const r = ((st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit) * H;
     const m = new Uint8Array(W * H), pts = st.points.map(toPx);
     if (pts.length === 1) capsuleXY(m, W, H, pts[0], pts[0], r);
     for (let k = 0; k + 1 < pts.length; k++) capsuleXY(m, W, H, pts[k], pts[k + 1], r);
-    for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = st.mode === 'draw' ? 1 : 0;
+    for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = st.mode === 'draw' ? 1 : st.mode === 'restore' ? own![i] : 0;
   }
   const w = W / S, h = H / S, rgba = new Uint8Array(w * h * 4);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -1443,7 +1447,11 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       // Hand edits first, in the drawing's unit height (so Jig's clean-up treats them like the rest).
       let cs = u.cs;
       const toUnit = ([px_, py_]: Pt): Pt => [(px_ - u.bx) / u.h, (py_ - u.by) / u.h];
-      for (const st of u.edits) if (st.mode === 'draw') cs = cs.add(brush(st, toUnit, s)); else if (st.mode === 'erase') cs = cs.subtract(brush(st, toUnit, s));
+      for (const st of u.edits) {
+        if (st.mode === 'draw') cs = cs.add(brush(st, toUnit, s)); else if (st.mode === 'erase') cs = cs.subtract(brush(st, toUnit, s));
+        // A clear: the drawing as it was, under its brush.
+        else if (st.mode === 'restore') { const b = brush(st, toUnit, s); cs = cs.subtract(b).add(u.cs.intersect(b)); }
+      }
       const p = cs.scale(s).translate([x, 0]);
       art = art ? art.add(p) : p;
       frames.push({ name: u.name, k: s / u.h, tx: x - (u.bx * s) / u.h, ty: -(u.by * s) / u.h, fp: d.fingerprint(u.name) });
@@ -1570,13 +1578,20 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   // What changes the piece's shape through Jig's clean-up (paint and the lines' filaments don't: a
   // new colour isn't traced again; nor do fills, added after it).
   const shapeEdits = units.map((u) => u.edits.filter((st) => st.mode !== 'paint' && st.mode !== 'fill').map(({ filament: _f, ...st }) => st));
-  // Erasing and filling by hand, in stroke order, after the clean-up (mm).
-  const handOps: HandOp[] = units.flatMap((u, i) => u.edits.filter((st) => st.mode === 'erase' || st.mode === 'fill').map((st) => {
-    const f = frames[i];
-    return { st, cs: brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1) };
-  }));
+  // Erasing and filling by hand, in stroke order, after the clean-up (mm): a clear later takes back
+  // what each did under it.
+  const handOps: HandOp[] = units.flatMap((u, i) => {
+    const f = frames[i], toMm = ([x, y]: Pt): Pt => [x * f.k + f.tx, y * f.k + f.ty], ops: HandOp[] = [];
+    for (const st of u.edits) {
+      if (st.mode === 'erase' || st.mode === 'fill') ops.push({ st, cs: brush(st, toMm, 1) });
+      else if (st.mode === 'restore') { const b = brush(st, toMm, 1); for (const op of ops) op.cs = op.cs.subtract(b); }
+    }
+    return ops.filter((op) => !op.cs.isEmpty());
+  });
+  // The hand edits (a clear isn't one: it takes them back).
+  const editCount = units.reduce((n, u) => n + u.edits.filter((st) => st.mode !== 'restore').length, 0);
   // Colours: each filament's area on the piece (mm), the later stroke winning where two cross; a
-  // stroke in the piece's own filament (none, or its colour) takes it back. A drawn line colours
+  // stroke in the piece's own filament (none, or its colour) takes it back, as a clear does. A drawn line colours
   // all of itself, also where Jig made it thicker; a fill what it added (`filled`, once the piece is
   // made), so the lines it filled up to keep their own colour (`fill`: the area's filled part).
   const baseColour = color.toLowerCase();
@@ -1757,7 +1772,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     marks = res;
     // What is in other filaments is parts of their own; the rest is the piece's.
     const { shape, colours, paint } = paintPiece('Line art', lineCs, anchor);
-    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0), ...(hand.loose ? { fillsLoose: hand.loose } : {}) };
+    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: editCount, ...(hand.loose ? { fillsLoose: hand.loose } : {}) };
     if (colours.length) { info.components = (anchor ? lineCs.add(anchor) : lineCs).decompose().length; info.paint = paint; }
     parts = [{ name: 'Line art', shape, color, lineArt: info, colours }];
   } else {
@@ -1770,7 +1785,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       clearance: num('clearance', 0.15, 0, 1), maxBridge: d.join ?? (opts.splitJoin != null ? num('splitJoin', DEFAULT_SPLIT_JOIN, 5, 300) : DEFAULT_SPLIT_JOIN), minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,
     });
     const totals = sp.pieces.reduce((t, p) => ({ bridges: t.bridges + p.info.bridges, longestBridge: Math.max(t.longestBridge, p.info.longestBridge), dropped: t.dropped + p.info.dropped, endsJoined: t.endsJoined + p.info.endsJoined, endsFree: t.endsFree + p.info.endsFree, closed: t.closed + p.closed, openings: t.openings + p.openings }), { bridges: 0, longestBridge: 0, dropped: vectorDropped, endsJoined: 0, endsFree: 0, closed: 0, openings: 0 });
-    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, ...totals, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0), ...(sp.fillsLoose ? { fillsLoose: sp.fillsLoose } : {}) };
+    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, ...totals, hooks, frames, edits: editCount, ...(sp.fillsLoose ? { fillsLoose: sp.fillsLoose } : {}) };
     // What each fill added, over the pieces, for its colour.
     colourAreas(sp.filled);
     const labels = opts.labels !== false;
