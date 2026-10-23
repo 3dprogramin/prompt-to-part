@@ -1652,8 +1652,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       const top = z[kind][1];
       if (!list.length) return void base.push(whole.extrude(top));
       const own = clean(whole.subtract(union(list.map((c) => c.cs))));
-      if (!own.isEmpty()) base.push(own.extrude(top));
-      const rest = clean(whole.subtract(own));
+      const rest = whole.subtract(own);
+      const kept: { filament: PartFilament; cs: any }[] = [];
       let taken: any = null;
       for (const c of list) {
         let cs = rest.intersect(c.cs.offset(PAINT_REACH, 'Miter'));
@@ -1661,12 +1661,37 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
         taken = taken ? taken.add(cs) : cs;
         // Bits narrower than MIN_PAINT (where it reached past its brush) would print as junk: the piece's filament.
         const bits = cs.decompose(), narrow = bits.filter((x: any) => { const r = x.bounds(); return Math.max(r.max[0] - r.min[0], r.max[1] - r.min[1]) < MIN_PAINT; });
-        if (narrow.length) { cs = C.compose(bits.filter((x: any) => !narrow.includes(x))); base.push(C.compose(narrow).extrude(top)); }
-        if (cs.isEmpty()) continue;
-        const b = colourBottom(depthLayers(depth, needOf(c.filament).need), z[kind][0], top, printLayers);
-        put(c.filament, kind, cs.extrude(top - b).translate([0, 0, b]), cs.area());
-        if (b > 0) base.push(cs.extrude(b));
+        if (narrow.length) cs = C.compose(bits.filter((x: any) => !narrow.includes(x)));
+        cs = clean(cs);
+        if (!cs.isEmpty()) kept.push({ filament: c.filament, cs });
       }
+      // The piece's filament: all the rest, in one outline (made of pieces, it showed their seams),
+      // less its hairs against a colour, which go to the colour they lie against most: every bit of
+      // the flat is in one part, with no crack or sliver between them.
+      let mine = kept.length ? whole.subtract(union(kept.map((k) => k.cs))) : whole;
+      const hair = kept.length ? mine.subtract(clean(mine)) : null;
+      if (hair && !hair.isEmpty()) {
+        let moved = false;
+        for (const bit of hair.decompose()) {
+          let best: { cs: any } | null = null, most = 0;
+          for (const k of kept) { const t = bit.intersect(k.cs.offset(2 * PAINT_CLEAN, 'Miter')).area(); if (t > most) { most = t; best = k; } }
+          if (best) { best.cs = best.cs.add(bit); moved = true; }
+        }
+        if (moved) mine = whole.subtract(union(kept.map((k) => k.cs)));
+      }
+      // In layers by where the colours start, each the flat less the colours started at or under it:
+      // stacked, not side by side (blocks of one part that meet in a wall leave a slit in it).
+      const bottoms = kept.map((k) => colourBottom(depthLayers(depth, needOf(k.filament).need), z[kind][0], top, printLayers));
+      kept.forEach((k, i) => put(k.filament, kind, k.cs.simplify(LAYER_TIDY).extrude(top - bottoms[i]).translate([0, 0, bottoms[i]]), k.cs.area()));
+      const levels = [...new Set([0, ...bottoms])].filter((b) => b < top).sort((x, y) => x - y);
+      levels.forEach((b, i) => {
+        const started = kept.filter((_, j) => bottoms[j] <= b).map((k) => k.cs);
+        const layer = started.length === kept.length ? mine : started.length ? whole.subtract(union(started)) : whole;
+        const up = i + 1 < levels.length ? levels[i + 1] : top;
+        // (A hair into the layer under it: only touching, the two stayed apart.)
+        const from = i ? b - LAYER_LAP : 0;
+        if (!layer.isEmpty()) base.push(layer.simplify(LAYER_TIDY).extrude(up - from).translate([0, 0, from]));
+      });
     };
     part('lines', anc && !lc.isEmpty() ? lc.subtract(anc) : lc, colourLines(lc, anc, areas));
     if (anc && !anc.isEmpty()) part('frame', anc, shows ? colourLines(shows, null, areas) : []);
@@ -1864,6 +1889,10 @@ const MIN_BODY = 0.01;
 const PAINT_REACH = 0.1;
 /** Slivers of the piece's own filament or of a colour narrower than twice this (mm) are cleaned away when the lines are split. */
 const PAINT_CLEAN = 0.005;
+/** How far the piece's own filament's layers reach into the one under them (mm), so they make one body. */
+const LAYER_LAP = 0.001;
+/** Outlines' slivers and steps thinner than this (mm) go before they are made solid: they spoil the joining. */
+const LAYER_TIDY = 1e-5;
 
 /** An erase or fill stroke and its brush on the piece (mm). */
 interface HandOp { st: LineArtStroke; cs: any }
@@ -1897,7 +1926,7 @@ function handEdits(C: any, lineCs: any, anchor: any, ops: HandOp[], region?: any
     if (add.isEmpty() || add.area() <= 1e-4) continue;
     // What the opening took that the piece now closes in all round (a corner of an outline, a
     // crack along a fill before): filled too, or it prints as a pinhole.
-    const shut = pockets(C, anchor ? lineCs.add(add).add(anchor) : lineCs.add(add), cs, r);
+    const shut = pockets(C, anchor ? lineCs.add(add).add(anchor) : lineCs.add(add), cs, add, r);
     if (shut) add = add.add(shut);
     add = add.offset(FILL_SEAL, 'Miter');
     lineCs = lineCs.add(add);
@@ -1917,14 +1946,16 @@ function handEdits(C: any, lineCs: any, anchor: any, ops: HandOp[], region?: any
 }
 
 /**
- * The holes of `solid` near the brush `cs` that lie under it and are narrower than 2 × `r` (a
- * fill's opening left them), as one CrossSection, or null.
+ * The holes of `solid` near the brush `cs` that the fill `add` meets and that are narrower than
+ * 2 × `r` (a fill's opening left them, along a line it ends on or in a corner), as one
+ * CrossSection, or null.
  */
-function pockets(C: any, solid: any, cs: any, r: number): any {
-  const near = solid.intersect(cs.offset(2 * r, 'Round'));
+function pockets(C: any, solid: any, cs: any, add: any, r: number): any {
+  const near = solid.intersect(cs.offset(1 + 2 * r, 'Round'));
+  const by = add.offset(2 * FILL_SEAL + 1e-4, 'Miter');
   const holes = near.toPolygons().filter((c: Pt[]) => c.length > 2 && ringArea(c) < 0)
     .map((c: Pt[]) => new C([c], 'NonZero'))
-    .filter((h: any) => h.offset(-r, 'Round').isEmpty() && h.subtract(cs).area() <= 1e-6);
+    .filter((h: any) => h.offset(-r, 'Round').isEmpty() && !h.intersect(by).isEmpty());
   return holes.length ? holes.reduce((u: any, h: any) => u.add(h)) : null;
 }
 
