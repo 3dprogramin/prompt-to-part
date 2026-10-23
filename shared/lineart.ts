@@ -1624,23 +1624,50 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       if (!c.on.includes(kind)) c.on.push(kind);
       coloured[kind] += area;
     };
-    const band = (kind: PaintMaterial, cs: any, fil: PartFilament) => {
-      const b = colourBottom(depthLayers(depth, needOf(fil).need), z[kind][0], z[kind][1], printLayers);
-      put(fil, kind, cs.offset(PAINT_SKIN, 'Miter').extrude(z[kind][1] - b).translate([0, 0, b]), cs.area());
+    // The lines and the bar or frame are split in the flat into the piece's own filament and the
+    // colours, without hair-thin slivers, and each part is made from its own outline: cut out of one
+    // another in 3D, a hair's difference between the outlines leaves a skin of one on the other's walls.
+    const base: any[] = [];
+    const clean = (cs: any) => (cs.isEmpty() ? cs : cs.offset(-PAINT_CLEAN, 'Round').offset(PAINT_CLEAN, 'Round').intersect(cs));
+    const part = (kind: PaintMaterial, whole: any, list: { cs: any; filament: PartFilament }[]) => {
+      if (!whole || whole.isEmpty()) return;
+      const top = z[kind][1];
+      if (!list.length) return void base.push(whole.extrude(top));
+      const own = clean(whole.subtract(union(list.map((c) => c.cs))));
+      if (!own.isEmpty()) base.push(own.extrude(top));
+      const rest = clean(whole.subtract(own));
+      let taken: any = null;
+      for (const c of list) {
+        let cs = rest.intersect(c.cs.offset(PAINT_REACH, 'Miter'));
+        if (taken) cs = cs.subtract(taken);
+        taken = taken ? taken.add(cs) : cs;
+        // Bits narrower than MIN_PAINT (where it reached past its brush) would print as junk: the piece's filament.
+        const bits = cs.decompose(), narrow = bits.filter((x: any) => { const r = x.bounds(); return Math.max(r.max[0] - r.min[0], r.max[1] - r.min[1]) < MIN_PAINT; });
+        if (narrow.length) { cs = C.compose(bits.filter((x: any) => !narrow.includes(x))); base.push(C.compose(narrow).extrude(top)); }
+        if (cs.isEmpty()) continue;
+        const b = colourBottom(depthLayers(depth, needOf(c.filament).need), z[kind][0], top, printLayers);
+        put(c.filament, kind, cs.extrude(top - b).translate([0, 0, b]), cs.area());
+        if (b > 0) base.push(cs.extrude(b));
+      }
     };
-    for (const c of colourLines(lc, anc, areas)) band('lines', c.cs, c.filament);
-    if (shows) for (const c of colourLines(shows, null, areas)) band('frame', c.cs, c.filament);
-    if (text && !text.isEmpty()) for (const c of colourLines(text, null, areas)) band('text', c.cs, c.filament);
+    part('lines', anc && !lc.isEmpty() ? lc.subtract(anc) : lc, colourLines(lc, anc, areas));
+    if (anc && !anc.isEmpty()) part('frame', anc, shows ? colourLines(shows, null, areas) : []);
+    // The sign's text and the pegs stand on the bar: cut out of the piece as they are.
+    const cutOut: any[] = [];
+    if (text && !text.isEmpty()) for (const c of colourLines(text, null, areas)) {
+      const b = colourBottom(depthLayers(depth, needOf(c.filament).need), z.text[0], z.text[1], printLayers);
+      const solid = c.cs.extrude(z.text[1] - b).translate([0, 0, b]);
+      put(c.filament, 'text', solid, c.cs.area());
+      cutOut.push(solid);
+    }
     for (const p of pegs) {
       const top = disc(p);
       let best: PartFilament | null = null, most = top.area() / 4;
       for (const a of areas) { const t = top.intersect(a.area).area(); if (t > most) { most = t; best = a.filament; } }
-      if (best) put(best, 'pegs', peg.translate([p[0], p[1], anchorThickness]), 1);
+      if (best) { const solid = peg.translate([p[0], p[1], anchorThickness]); put(best, 'pegs', solid, 1); cutOut.push(solid); }
     }
     if (!cols.length) return none;
-    // Each colour trimmed to the piece (its walls are the piece's), and off the colours before it.
-    const solids: any[] = [];
-    for (const c of cols) solids.push(solids.reduce((sh: any, o: any) => sh.subtract(o), union(c.solids).intersect(full)));
+    const solids = cols.map((c) => union(c.solids));
     for (const c of cols) if (!used.some((f) => filamentKey(f) === filamentKey(c.filament))) used.push(c.filament);
     const there: [PaintMaterial, number][] = [['lines', lc.area()], ['frame', anc ? anc.area() : 0], ['text', text ? text.area() : 0], ['pegs', pegs.length]];
     const paint: LineArtPaint = {
@@ -1648,8 +1675,10 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       materials: there.filter(([, a]) => a > 0).map(([kind, a]) => ({ kind, z: z[kind], own: a - coloured[kind] > 1e-3 })),
       colours: cols.map((c) => ({ filament: c.filament, ...needOf(c.filament), on: c.on })),
     };
-    // The piece's own filament: what is left, without the skins cutting the colours out can leave on their walls.
-    const rest = full.subtract(union(solids)), bodies = rest.decompose();
+    // The piece's own filament: its parts put together, with the pegs and the text, less those coloured.
+    let rest = decorate(union(base), on, region);
+    if (cutOut.length) rest = rest.subtract(union(cutOut));
+    const bodies = rest.decompose();
     const own = bodies.some((b: any) => b.volume() < MIN_BODY) ? M.compose(bodies.filter((b: any) => b.volume() >= MIN_BODY)) : rest;
     return { shape: own, colours: cols.map((c, i): Coloured => ({ name: `${piece} (${colourName(c.filament)})`, shape: solids[i], filament: c.filament })), paint };
   };
@@ -1814,8 +1843,10 @@ export const MIN_PAINT = 0.4;
 const PAINT_SNAP = 0.05;
 /** Bits of a part smaller than this (mm³) are skins left by cutting the colours out: dropped. */
 const MIN_BODY = 0.01;
-/** A colour is cut out of the piece this much wider (mm) and then trimmed to it, so its walls are the piece's own and none of the piece's filament is left on them. */
-const PAINT_SKIN = 0.02;
+/** How far past its brush (mm) a colour takes in the colour's share of the lines, so the bits the clean-up left go to it. */
+const PAINT_REACH = 0.1;
+/** Slivers of the piece's own filament or of a colour narrower than twice this (mm) are cleaned away when the lines are split. */
+const PAINT_CLEAN = 0.005;
 
 /**
  * The lines `lineCs` coloured by `areas` (which don't overlap): each filament's part of them, off

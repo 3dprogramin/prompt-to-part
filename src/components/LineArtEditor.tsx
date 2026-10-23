@@ -518,14 +518,14 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     setHist((h) => ({ undo: [...h.undo, op], redo: [] }));
   };
 
-  // ---- pointer: one finger, the pen or the left button draws; two fingers, the middle button or Space + drag pan (and pinch zooms)
+  // ---- pointer: one finger, the pen or the left button draws; two fingers, the middle or right button or Space + drag pan (and pinch zooms)
   const local = (e: { clientX: number; clientY: number }): Pt => {
     const r = over.current!.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
   };
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const p = local(e), a = act.current;
-    if (e.button === 1) e.preventDefault();
+    if (e.button === 1 || e.button === 2) e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, p);
     hover.current = { at: p, snap: null, show: e.pointerType !== 'touch' };
@@ -539,7 +539,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     }
     if (pointers.current.size > 1 || a.mode !== 'idle') return;
     a.id = e.pointerId; a.last = p;
-    if (e.button === 1 || (e.button === 0 && keys.current.space)) { a.mode = 'pan'; setPanning(true); return; }
+    if (e.button === 1 || e.button === 2 || (e.button === 0 && keys.current.space)) { a.mode = 'pan'; setPanning(true); return; }
     if (e.button !== 0) return;
     const m = toMm(...p);
     a.mode = 'draw'; a.points = [m]; a.startSnap = snapAt(m); a.endSnap = null;
@@ -737,7 +737,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         </div>
         {!phone && (
           <div className="la-ed-hint small">
-            {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : 'erases'} · two fingers move and zoom` : `Drag to ${tool} · Shift: straight line · Space or middle button: move · wheel: zoom · [ ]: width`}
+            {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : 'erases'} · two fingers move and zoom` : `Drag to ${tool} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width`}
           </div>
         )}
       </div>
