@@ -993,6 +993,15 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   const fill = await filled(200);
   assert.ok(fill.off > 300 * fill.px && fill.on < 0.1 * fill.off, `filled: ${fill.off} red pixels off the lines, ${fill.on} on them`);
   await page.screenshot({ path: path.join(shots, '18-lineart-fill.png') });
+  // A square brush (Draw's lines stay round): a dab by the top line, saved square.
+  const square = editor.getByRole('radio', { name: 'Square brush' });
+  await square.click();
+  assert.equal(await square.getAttribute('aria-checked'), 'true');
+  await editor.getByRole('radio', { name: 'Draw' }).click();
+  assert.ok(await square.isDisabled(), 'no square for a line');
+  await editor.getByRole('radio', { name: 'Fill' }).click();
+  assert.equal(await square.getAttribute('aria-checked'), 'true');
+  await page.mouse.click(fb.x + fb.width * 0.7, fb.y + edge + 2);
   await editor.getByRole('button', { name: 'Done' }).click();
   await editor.waitFor({ state: 'detached' });
   // Built: the painted lines are a part in that filament, saved with the design.
@@ -1003,6 +1012,7 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   assert.equal(saved[0].mode, 'paint');
   assert.equal(saved[0].filament.name, name);
   assert.deepEqual([saved[1].mode, saved[1].filament.name], ['fill', name]);
+  assert.deepEqual([saved[1].shape, saved[2].mode, saved[2].shape], [undefined, 'fill', 'square']);
   await page.screenshot({ path: path.join(shots, '18-lineart-painted.png') });
   // The first colour goes in the top layers; the Print tab says what its filament changes cost, and the other choice.
   assert.equal((await getDesign(lid)).values.$lineartColourDepth, 'auto');

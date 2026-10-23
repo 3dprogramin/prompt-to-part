@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ParamValues, PartMesh } from '../../shared/types';
-import { FILL_WIDTH, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtDepth, parseLineArtEdits, type LineArtEdits, type LineArtInfo, type LineArtPaint, type LineArtStroke } from '../../shared/lineart';
+import { FILL_WIDTH, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtDepth, parseLineArtEdits, squareOutlines, type LineArtEdits, type LineArtInfo, type LineArtPaint, type LineArtStroke } from '../../shared/lineart';
 import { colourCost, depthLabel } from './LineArtPanel';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import { SCALE_KEY, type PartFilament } from '../../shared/params';
@@ -19,8 +19,9 @@ type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown:
  * A stroke of this session on the screen (mm, the piece's XY), drawn over the piece: it is only
  * built when the editor closes with Done. `src` is the stroke as saved; `color` its filament's
  * (none: the piece's own). A 'clear' one is where edits were cleared (the piece as Jig made it shows there).
+ * `shape` 'square': brushed with a square `width` wide.
  */
-interface ShownStroke { mode: Tool; width: number; points: Pt[]; name?: string; src?: LineArtStroke; live?: boolean; color?: string }
+interface ShownStroke { mode: Tool; width: number; points: Pt[]; name?: string; src?: LineArtStroke; live?: boolean; color?: string; shape?: 'square' }
 
 /** Brush widths (mm): draw, erase, paint, fill, and the selection to clear edits in. */
 const WIDTH = { draw: { min: 0.6, max: 5 }, erase: { min: 1, max: 15 }, paint: { min: 0.5, max: 15 }, fill: { min: 0.5, max: 15 }, clear: { min: 1, max: 50 } };
@@ -55,6 +56,13 @@ const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
 /** A stroke (mm) in `color`, on a context set to mm. */
 function strokeOn(ctx: CanvasRenderingContext2D, st: ShownStroke, color: string) {
   ctx.fillStyle = ctx.strokeStyle = color;
+  if (st.shape === 'square') {
+    // The outlines the piece is built with.
+    ctx.beginPath();
+    for (const c of squareOutlines([st.points], st.width / 2)) { c.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
+    ctx.fill('nonzero');
+    return;
+  }
   if (st.points.length === 1 || st.points.every((p) => p[0] === st.points[0][0] && p[1] === st.points[0][1])) {
     ctx.beginPath(); ctx.arc(st.points[0][0], st.points[0][1], st.width / 2, 0, 2 * Math.PI); ctx.fill();
     return;
@@ -135,6 +143,19 @@ function pieceImage(part: PartMesh & { paints?: { color: string; from: number; t
 function stamp(m: InkMask, st: ShownStroke, own?: InkMask | null) {
   if (st.mode === 'paint' || (st.mode === 'clear' && !own)) return;
   const r = st.width / 2 / m.res, v = st.mode === 'erase' ? 0 : 1;
+  const set = (x: number, y: number) => { m.data[y * m.w + x] = st.mode === 'clear' ? (inkAt(own!, [m.x0 + (x + 0.5) * m.res, m.y1 - (y + 0.5) * m.res]) ? 1 : 0) : v; };
+  if (st.shape === 'square') {
+    // A square brush: the cells inside its outlines (mm, counter-clockwise).
+    for (const c of squareOutlines([st.points], st.width / 2)) {
+      const x0 = Math.max(0, Math.floor((Math.min(...c.map((p) => p[0])) - m.x0) / m.res)), x1 = Math.min(m.w - 1, Math.ceil((Math.max(...c.map((p) => p[0])) - m.x0) / m.res));
+      const y0 = Math.max(0, Math.floor((m.y1 - Math.max(...c.map((p) => p[1]))) / m.res)), y1 = Math.min(m.h - 1, Math.ceil((m.y1 - Math.min(...c.map((p) => p[1]))) / m.res));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const px = m.x0 + (x + 0.5) * m.res, py = m.y1 - (y + 0.5) * m.res;
+        if (c.every(([ax, ay], k) => { const [bx, by] = c[(k + 1) % c.length]; return (bx - ax) * (py - ay) - (by - ay) * (px - ax) >= 0; })) set(x, y);
+      }
+    }
+    return;
+  }
   const px = st.points.map(([x, y]): Pt => [(x - m.x0) / m.res, (m.y1 - y) / m.res]);
   const segs = px.length === 1 ? [[px[0], px[0]]] : px.slice(1).map((p, i) => [px[i], p]);
   for (const [[ax, ay], [bx, by]] of segs) {
@@ -143,8 +164,7 @@ function stamp(m: InkMask, st: ShownStroke, own?: InkMask | null) {
     const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r)), y1 = Math.min(m.h - 1, Math.ceil(Math.max(ay, by) + r));
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2));
-      if ((x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 > r * r) continue;
-      m.data[y * m.w + x] = st.mode === 'clear' ? (inkAt(own!, [m.x0 + (x + 0.5) * m.res, m.y1 - (y + 0.5) * m.res]) ? 1 : 0) : v;
+      if ((x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 <= r * r) set(x, y);
     }
   }
 }
@@ -197,6 +217,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
 
   const [tool, setTool] = useState<Tool>('draw');
   const [widths, setWidths] = useState(() => ({ draw: round(clamp(la.lineWidth, WIDTH.draw.min, WIDTH.draw.max), 1), erase: 3, paint: 3, fill: FILL_WIDTH, clear: 10 }));
+  // The brush's shape, for every brush but Draw (a line is drawn round: Jig draws it again at the line width).
+  const [shape, setShape] = useState<'round' | 'square'>('round');
+  const square = shape === 'square' && tool !== 'draw';
   // The filament lines are drawn and painted in (null: the piece's own), and the picker for another.
   const [filament, setFilament] = useState<PartFilament | null>(null);
   const [picking, setPicking] = useState(false);
@@ -260,8 +283,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   const hover = useRef<{ at: Pt; snap: Pt | null; show: boolean }>({ at: [0, 0], snap: null, show: false });
   const keys = useRef({ space: false, shift: false });
   // The latest of everything the pointer and key handlers use.
-  const now = useRef({ tool, width, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own });
-  now.current = { tool, width, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own };
+  const now = useRef({ tool, width, square, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own });
+  now.current = { tool, width, square, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own };
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -378,7 +401,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
     // Erased: the paper shows (red while it is being drawn).
     const stroke = (st: ShownStroke) => strokeOn(ctx, st, st.mode === 'draw' ? st.color ?? INK : st.live ? ERASE : PAPER);
-    const live: ShownStroke | null = a.mode === 'draw' && a.points.length ? { mode: n.tool, width: n.width, points: livePoints(), live: true, color: n.tool === 'erase' || n.tool === 'clear' ? undefined : n.filament?.color } : null;
+    const live: ShownStroke | null = a.mode === 'draw' && a.points.length ? { mode: n.tool, width: n.width, points: livePoints(), live: true, color: n.tool === 'erase' || n.tool === 'clear' ? undefined : n.filament?.color, ...(n.square ? { shape: 'square' as const } : {}) } : null;
     // Paint only shows on the piece (its lines, frame, bar, text and pegs), a fill only off it: the
     // strokes over the ink layer, which is kept while they and the view stay the same.
     if ((live && masked(live.mode)) || n.shown.some((st) => composite(st.mode))) {
@@ -440,8 +463,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     if (hover.current.show && a.mode !== 'pan' && a.mode !== 'pinch' && !keys.current.space) {
       const p = toMm(...hover.current.at), r = Math.max(1.5, (n.width / 2) * v.s);
       const mark = n.tool === 'erase' ? '#c0392b' : n.tool === 'clear' ? SELECT_RING : n.filament?.color ?? '#1d1d1f';
-      ring(p, r, '#ffffffcc', 3); ring(p, r, mark, 1.2);
       const [x, y] = hover.current.at;
+      // (A square brush: a square as wide.)
+      const box = (color: string, lw: number) => { ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.strokeRect(x - r, y - r, 2 * r, 2 * r); };
+      if (n.square) { box('#ffffffcc', 3); box(mark, 1.2); } else { ring(p, r, '#ffffffcc', 3); ring(p, r, mark, 1.2); }
       ctx.fillStyle = mark;
       ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
     }
@@ -495,7 +520,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     else paintBase(true);
     repaintOver();
   }, [image, fit, paintBase, repaintOver]);
-  useEffect(repaintOver, [shown, tool, width, filament, selection, own, repaintOver]);
+  useEffect(repaintOver, [shown, tool, width, square, filament, selection, own, repaintOver]);
 
   // ---- strokes
   const snapRadius = () => Math.max(SNAP_MM, SNAP_PX / view.current.s);
@@ -532,7 +557,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       if (s1) pts = [...pts.slice(0, -1), s1];
     }
     // Selecting where to clear edits: the stroke adds to the selection (nothing is saved yet).
-    if (n.tool === 'clear') { setSelection((s) => [...s, { mode: 'clear', width: n.width, points: pts }]); setNote(null); return; }
+    const sq = n.square ? { shape: 'square' as const } : {};
+    if (n.tool === 'clear') { setSelection((s) => [...s, { mode: 'clear', width: n.width, points: pts, ...sq }]); setNote(null); return; }
     const f = frameAt(n.la.frames, pts[0], (name) => drawings[name]?.aspect ?? 1);
     if (!f) return;
     if (strokesOf(n.edits, f.name, f.fp).length >= MAX_LINEART_STROKES) {
@@ -547,8 +573,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       width: round(n.width / n.scale, 3),
       points: pts.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt),
       ...(fil ? { filament: fil } : {}),
+      ...sq,
     };
-    const view: ShownStroke = { mode: n.tool, width: n.width, points: pts, name: f.name, src: stroke, ...(fil ? { color: fil.color } : {}) };
+    const view: ShownStroke = { mode: n.tool, width: n.width, points: pts, name: f.name, src: stroke, ...(fil ? { color: fil.color } : {}), ...sq };
     setEdits((e) => addStroke(e, f.name, f.fp, stroke));
     setHist((h) => ({ undo: [...h.undo, { kind: 'add', name: f.name, fp: f.fp, stroke, shown: view }], redo: [] }));
     setShown((s) => [...s, view]);
@@ -604,7 +631,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     for (const f of n.la.frames) {
       const strokes = strokesOf(n.edits, f.name, f.fp);
       if (!strokes.length) continue;
-      const area = n.selection.map((st): LineArtStroke => ({ mode: 'restore', width: round(st.width / n.scale, 3), points: st.points.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt) }));
+      const area = n.selection.map((st): LineArtStroke => ({ mode: 'restore', width: round(st.width / n.scale, 3), points: st.points.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt), ...(st.shape ? { shape: st.shape } : {}) }));
       // How far each brush reaches, in the drawing's units (a drawn line: its colour, at least the piece's line width).
       const reach = (st: LineArtStroke) => {
         const w = (st.width ?? (st.mode === 'draw' ? n.la.lineWidth / n.scale : st.mode === 'fill' ? FILL_WIDTH : 3)) * n.scale;
@@ -707,7 +734,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     return () => c.removeEventListener('wheel', onWheel);
   }, [zoomAt]);
 
-  // Keys: B draw, P paint, G fill, E erase, C select where to clear edits, S snap, [ ] width, F fit, + − zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
+  // Keys: B draw, P paint, G fill, E erase, C select where to clear edits, S snap, [ ] width, Q round / square brush, F fit, + − zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
   // Space pans, Shift draws straight. The editor is on top: the app's own keys wait (Escape closes it).
   // (Not in the filament picker, which has keys of its own.)
   useEffect(() => {
@@ -730,6 +757,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       else if (k === 'e') setTool('erase');
       else if (k === 'c') setTool('clear');
       else if (k === 's') setSnap((s) => !s);
+      else if (k === 'q') setShape((s) => (s === 'square' ? 'round' : 'square'));
       else if (k === 'f' || k === '0') fit();
       else if (k === '+' || k === '=') zoomAt(1.25);
       else if (k === '-' || k === '_') zoomAt(0.8);
@@ -810,6 +838,16 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
             onChange={(e) => setWidths((w) => ({ ...w, [tool]: Number(e.target.value) }))} />
           <span className="mono la-ed-val">{width.toFixed(1)} mm</span>
         </label>
+        {/* The brush round or square (upright, as wide as the brush); Draw's lines are round. */}
+        <div className="la-ed-group" role="radiogroup" aria-label="Brush shape">
+          <button className={`la-ed-tool ${!square ? 'on' : ''}`} role="radio" aria-checked={!square} disabled={tool === 'draw'} onClick={() => setShape('round')} title="Round brush (Q)" aria-label="Round brush">
+            <Icon name="round" size={15} />
+          </button>
+          <button className={`la-ed-tool ${square ? 'on' : ''}`} role="radio" aria-checked={square} disabled={tool === 'draw'} onClick={() => setShape('square')}
+            title={tool === 'draw' ? 'Square brush (Q): for paint, fill, erase and select (a line is drawn round)' : 'Square brush (Q): a square as wide as the brush, upright'} aria-label="Square brush">
+            <Icon name="square" size={15} />
+          </button>
+        </div>
         <button className={`la-ed-tool ${snap ? 'on' : ''}`} aria-pressed={snap} disabled={tool !== 'draw'} onClick={() => setSnap((s) => !s)}
           title="Snap (S): a line starting or ending near the drawing joins it exactly">
           <Icon name="magnet" size={15} /><span className="la-ed-label">Snap</span>
@@ -872,7 +910,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
         {!phone && (
           <div className="la-ed-hint small">
             {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : tool === 'fill' ? 'fills' : tool === 'clear' ? 'selects where to clear edits' : 'erases'}${using} · two fingers move and zoom`
-              : `${tool === 'clear' ? 'Drag to select where to clear edits (strokes add up) · Esc: deselect' : `Drag to ${tool}${using}`} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width`}
+              : `${tool === 'clear' ? 'Drag to select where to clear edits (strokes add up) · Esc: deselect' : `Drag to ${tool}${using}`} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width · Q: square`}
           </div>
         )}
       </div>
