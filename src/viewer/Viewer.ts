@@ -11,6 +11,7 @@ import { plateBounds } from '../../shared/printer';
 import { clearGroup, declutter, dimLine, fmt, label } from './overlay';
 import { boxDimensions } from '../lib/dimensions';
 import { linearColors, paintedGeometry, usableColors } from '../geometry/vertexColors';
+import { sliverFree } from '../geometry/sliverFree';
 import { vertexColors, type LayerColor } from '../../shared/layertone';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -284,6 +285,8 @@ export class Viewer {
             if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
             g.setIndex(new THREE.BufferAttribute(part.indices, 1));
           }
+          // (Line art: without the booleans' slivers, which shaded and outlined as stripes and lines.)
+          if (part.lineArt) { const clean = sliverFree(g); if (clean !== g) { g.dispose(); g = clean; } }
           geom = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
           g.dispose();
           geom.computeBoundsTree();

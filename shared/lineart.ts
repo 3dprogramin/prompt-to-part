@@ -187,7 +187,9 @@ export interface LineArtInfo {
    * (its own units: 1 = its height, centred, y up) is at (x·k + tx, y·k + ty) mm in the piece's XY.
    * `fp` is the drawing's fingerprint (hand edits belong to it).
    */
-  frames: { name: string; k: number; tx: number; ty: number; fp: string }[];
+  /** Each drawing in the piece: mm per its unit (`k`), where it sits, and `k0`: the k its strokes
+   * saved without one were drawn at (the script's own size, before the whole piece's typed size). */
+  frames: { name: string; k: number; tx: number; ty: number; fp: string; k0?: number }[];
   /** Hand edits (LINEART_EDITS_KEY) applied, over all drawings. */
   edits: number;
   /** Filled bits (Edit drawing's Fill) that touched nothing of the piece, so would fall off: dropped. */
@@ -235,7 +237,7 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   const joins = (Array.isArray(o.joins) ? o.joins : []).slice(0, MAX_JOIN_MARKS).map((j) => (Array.isArray(j) && j.length === 2 ? j.map(pt) : [null])).filter((j): j is [number, number][] => j.every((p) => !!p));
   const loose = (Array.isArray(o.loose) ? o.loose : []).slice(0, MAX_JOIN_MARKS).map(pt).filter((p): p is [number, number] => !!p);
   const frames = (Array.isArray(o.frames) ? o.frames : []).slice(0, 8).filter((f) => f && typeof f.name === 'string' && [f.k, f.tx, f.ty].every((v) => Number.isFinite(v)) && f.k > 0)
-    .map((f) => ({ name: f.name.slice(0, 120), k: f.k * scale, tx: f.tx * scale, ty: f.ty * scale, fp: String(f.fp ?? '').slice(0, 80) }));
+    .map((f) => ({ name: f.name.slice(0, 120), k: f.k * scale, tx: f.tx * scale, ty: f.ty * scale, fp: String(f.fp ?? '').slice(0, 80), ...(Number.isFinite(f.k0) && f.k0! > 0 ? { k0: f.k0! * scale } : {}) }));
   const colours = (Array.isArray(o.colours) ? o.colours : []).slice(0, 16).map(cleanFilament).filter((f): f is PartFilament => !!f);
   const paintedIn = cleanFilament(o.paintedIn);
   return {
@@ -489,7 +491,7 @@ export const MAX_STROKE_POINTS = 2000;
  * y up), so an edit stays put when the piece is resized. `shape` 'square': the brush is a square
  * `width` wide (upright in the drawing) rather than round; a drawn line is always round.
  */
-export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill' | 'restore'; width?: number; points: [number, number][]; filament?: PartFilament; shape?: 'square' }
+export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill' | 'restore'; width?: number; points: [number, number][]; filament?: PartFilament; shape?: 'square'; k?: number }
 /** A fill brush's width when the stroke gives none, mm. */
 export const FILL_WIDTH = 4;
 const STROKE_MODES: readonly string[] = ['draw', 'erase', 'paint', 'fill', 'restore'];
@@ -520,7 +522,9 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
       // (An eraser has no filament, nor does clearing.)
       const filament = st.mode === 'erase' || st.mode === 'restore' ? undefined : cleanFilament(st.filament);
       const square = st.shape === 'square' && st.mode !== 'draw';
-      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}), ...(filament ? { filament } : {}), ...(square ? { shape: 'square' as const } : {}) });
+      // (The piece's mm per drawing unit it was drawn at: its width follows the piece's size.)
+      const k = Number(st.k);
+      strokes.push({ mode: st.mode, points, ...(width > 0 && width <= 50 ? { width } : {}), ...(filament ? { filament } : {}), ...(square ? { shape: 'square' as const } : {}), ...(k > 0 && Number.isFinite(k) ? { k } : {}) });
     }
     if (strokes.length) out[name.slice(0, 120)] = { fp: e.fp.slice(0, 80), strokes };
   }
@@ -535,7 +539,7 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
  * too, so the colours before it stay off there.
  */
 export function colourStrokes(strokes: LineArtStroke[], lineWidth = 1): LineArtStroke[] {
-  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' || st.mode === 'fill' || st.mode === 'restore' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}) }] : []));
+  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' || st.mode === 'fill' || st.mode === 'restore' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}), ...(st.k ? { k: st.k } : {}) }] : []));
   const first = out.findIndex((st) => st.filament || st.mode === 'fill');
   return first < 0 ? [] : out.slice(first);
 }
@@ -546,9 +550,9 @@ const filamentKey = (f: PartFilament) => `${f.color.toLowerCase()}|${f.name ?? '
 /**
  * A drawing as a black-on-white picture `heightPx` high (RGBA, anti-aliased), with its hand edits
  * drawn in – what the image model gets to change part of a drawing. `mmPerUnit`: the drawing's
- * size in the piece (its frame's k), for the strokes' widths.
+ * size in the piece (its frame's k), for the strokes' widths; `drawnAt`: its k0.
  */
-export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx: number, mmPerUnit: number, lineWidth = 1): { width: number; height: number; rgba: Uint8Array } {
+export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx: number, mmPerUnit: number, lineWidth = 1, drawnAt = mmPerUnit): { width: number; height: number; rgba: Uint8Array } {
   const S = 2, H = Math.round(heightPx) * S, W = Math.round(d.aspect * heightPx) * S;
   const g: LineArtGrid = { w: W, h: H, px: 1 / H, x0: -d.aspect / 2, y1: 0.5 };
   const ink = new Uint8Array(W * H);
@@ -564,7 +568,8 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
   const own = strokes.some((st) => st.mode === 'restore') ? ink.slice() : null;
   for (const st of strokes) {
     if (st.mode === 'paint' || st.mode === 'fill') continue;
-    const r = ((st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit) * H;
+    // (A width in mm at the size it was drawn at: `k`, else `drawnAt`.)
+    const r = (st.width != null ? st.width / 2 / (st.k ?? drawnAt) : (st.mode === 'draw' ? lineWidth : 3) / 2 / mmPerUnit) * H;
     const m = new Uint8Array(W * H), pts = st.points.map(toPx);
     // (A square brush: its outlines on the pixels, y up as rasterize has it.)
     if (st.shape === 'square') for (const c of squareOutlines([pts.map(([x, y]): Pt => [x, -y])], r)) rasterize([c], { w: W, h: H, px: 1, x0: -0.5, y1: 0.5 }, m);
@@ -1425,6 +1430,7 @@ const MAX_SIZE = 3000;
 export function buildLineArt(d: LineArtDeps, source: string | string[], opts: LineArtOptions = {}): LineArtResult {
   // The size the user typed wins: a width alone frees the height (it follows the drawing), a
   // height alone sets the largest width, so the height decides.
+  const scriptOpts = opts;
   if (d.size) opts = { ...opts, width: d.size.width ?? MAX_LINEART_SIZE, height: d.size.height };
   // Both sides typed: a frame's box or a medallion's oval is exactly that size, the art fitted inside.
   const exact = d.size?.width && d.size.height ? { w: d.size.width, h: d.size.height } : null;
@@ -1466,8 +1472,13 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   });
   // Where each drawing lands in the piece (drawing units → mm), followed through the layout.
   const frames: LineArtInfo['frames'] = [];
-  const brush = (st: LineArtStroke, toUnit: (p: Pt) => Pt, mmPerUnit: number) => {
-    const r = (st.width ?? (st.mode === 'draw' ? lineWidth : st.mode === 'fill' ? FILL_WIDTH : 3)) / 2 / mmPerUnit, path = st.points.map(toUnit);
+  // A stroke's width follows the piece's size: as wide on the drawing as it was drawn, at its `k`
+  // (the mm per drawing unit then), or, saved without one, at the script's own size (`grown`: how
+  // much bigger the typed whole piece size makes the drawing).
+  let grown = 1;
+  const wide = (st: LineArtStroke, k: number) => (st.width != null ? st.width * (st.k ? k / st.k : grown) : st.mode === 'draw' ? lineWidth : st.mode === 'fill' ? FILL_WIDTH : 3);
+  const brush = (st: LineArtStroke, toUnit: (p: Pt) => Pt, mmPerUnit: number, k: number, w = wide(st, k)) => {
+    const r = w / 2 / mmPerUnit, path = st.points.map(toUnit);
     return new C(st.shape === 'square' ? squareOutlines([path], r) : strokeOutlines([path], r, segs / 4), 'NonZero');
   };
   const sumW = units.reduce((a, u) => a + u.w, 0);
@@ -1481,13 +1492,13 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       let cs = u.cs;
       const toUnit = ([px_, py_]: Pt): Pt => [(px_ - u.bx) / u.h, (py_ - u.by) / u.h];
       for (const st of u.edits) {
-        if (st.mode === 'draw') cs = cs.add(brush(st, toUnit, s)); else if (st.mode === 'erase') cs = cs.subtract(brush(st, toUnit, s));
+        if (st.mode === 'draw') cs = cs.add(brush(st, toUnit, s, s / u.h)); else if (st.mode === 'erase') cs = cs.subtract(brush(st, toUnit, s, s / u.h));
         // A clear: the drawing as it was, under its brush.
-        else if (st.mode === 'restore') { const b = brush(st, toUnit, s); cs = cs.subtract(b).add(u.cs.intersect(b)); }
+        else if (st.mode === 'restore') { const b = brush(st, toUnit, s, s / u.h); cs = cs.subtract(b).add(u.cs.intersect(b)); }
       }
       const p = cs.scale(s).translate([x, 0]);
       art = art ? art.add(p) : p;
-      frames.push({ name: u.name, k: s / u.h, tx: x - (u.bx * s) / u.h, ty: -(u.by * s) / u.h, fp: d.fingerprint(u.name) });
+      frames.push({ name: u.name, k: s / u.h, tx: x - (u.bx * s) / u.h, ty: -(u.by * s) / u.h, fp: d.fingerprint(u.name), k0: s / u.h / grown });
       x += u.w * s + gap;
     }
     return art;
@@ -1498,18 +1509,24 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   // How far the art reaches into a bar or frame it touches.
   const overlap = Math.min(lineWidth, bar ? barHeight / 3 : frameWidth / 2);
   const ov = padding > 0 ? 0 : overlap;
-  let s: number;
-  if (style === 'outline') s = heightFor(width);
-  else if (bar) s = heightFor(width - 2 * overhang);
-  else if (style === 'framed') s = heightFor(width - 2 * (frameWidth + padding - ov));
-  else s = heightFor(width - 2 * frameWidth); // medallion: refined below
+  // The art's height for a width and height limit.
+  const fit = (w: number, h: number | undefined) => {
+    let v = style === 'outline' ? heightFor(w) : bar ? heightFor(w - 2 * overhang) : style === 'framed' ? heightFor(w - 2 * (frameWidth + padding - ov)) : heightFor(w - 2 * frameWidth); // medallion: refined below
+    // A height limit shrinks the art.
+    if (h != null) {
+      const room = style === 'outline' ? h : bar ? h - barHeight + overlap : style === 'framed' ? h - 2 * (frameWidth + padding - ov) : h - 2 * frameWidth;
+      if (!(room > 0)) throw new Error('H.lineart: height leaves no room for the drawing');
+      v = Math.min(v, room);
+    }
+    return v;
+  };
+  let s = fit(width, opts.height != null ? num('height', 0, 5, MAX_SIZE) : undefined);
   if (!(s > 0)) throw new Error('H.lineart: the drawing has no room – make width larger or gap, overhang or frameWidth smaller');
-  // A height limit shrinks the art.
-  if (opts.height != null) {
-    const H = num('height', 0, 5, MAX_SIZE);
-    const room = style === 'outline' ? H : bar ? H - barHeight + overlap : style === 'framed' ? H - 2 * (frameWidth + padding - ov) : H - 2 * frameWidth;
-    if (!(room > 0)) throw new Error('H.lineart: height leaves no room for the drawing');
-    s = Math.min(s, room);
+  if (d.size) {
+    try {
+      const s0 = fit(typeof scriptOpts.width === 'number' ? scriptOpts.width : 200, typeof scriptOpts.height === 'number' ? scriptOpts.height : undefined);
+      if (s0 > 0) grown = s / s0;
+    } catch { /* the script's own size leaves no room: its strokes as they are */ }
   }
 
   let art = placeArt(s);
@@ -1616,8 +1633,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   const handOps: HandOp[] = units.flatMap((u, i) => {
     const f = frames[i], toMm = ([x, y]: Pt): Pt => [x * f.k + f.tx, y * f.k + f.ty], ops: HandOp[] = [];
     for (const st of u.edits) {
-      if (st.mode === 'erase' || st.mode === 'fill') ops.push({ st, cs: brush(st, toMm, 1) });
-      else if (st.mode === 'restore') { const b = brush(st, toMm, 1); for (const op of ops) op.cs = op.cs.subtract(b); }
+      if (st.mode === 'erase' || st.mode === 'fill') ops.push({ st, cs: brush(st, toMm, 1, f.k) });
+      else if (st.mode === 'restore') { const b = brush(st, toMm, 1, f.k); for (const op of ops) op.cs = op.cs.subtract(b); }
     }
     return ops.filter((op) => !op.cs.isEmpty());
   });
@@ -1635,7 +1652,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       if (st.mode === 'erase') continue;
       const fil = st.filament && st.filament.color !== baseColour ? st.filament : null;
       if (!fil && !areas.length) continue;
-      const b = st.mode === 'fill' ? filled.get(st) : brush(st.mode === 'draw' ? { ...st, width: Math.max(st.width ?? lineWidth, lineWidth) } : st, toMm, 1);
+      const b = st.mode === 'fill' ? filled.get(st) : brush(st, toMm, 1, f.k, st.mode === 'draw' ? Math.max(wide(st, f.k), lineWidth) : undefined);
       if (!b || b.isEmpty()) continue;
       for (const a of areas) if (!fil || filamentKey(a.filament) !== filamentKey(fil)) { a.area = a.area.subtract(b); if (a.fill) a.fill = a.fill.subtract(b); }
       if (!fil) continue;
@@ -1803,7 +1820,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     let px = lineWidth / (d.quality === 'draft' ? 3 : d.quality === 'high' ? 6 : 5);
     const area = (ab.max[0] - ab.min[0] + 8 * px) * (ab.max[1] - ab.min[1] + 8 * px);
     px = Math.max(px, Math.sqrt(area / MAX_PIXELS[d.quality]));
-    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, shapeEdits]);
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', px, joinEnds, shapeEdits, grown]);
     let res = cache.get(key);
     if (!res) {
       const g: LineArtGrid = { px, x0: ab.min[0] - 4 * px, y1: ab.max[1] + 4 * px, w: Math.ceil((ab.max[0] - ab.min[0]) / px) + 8, h: Math.ceil((ab.max[1] - ab.min[1]) / px) + 8 };
@@ -1831,7 +1848,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by
     // itself; erasing and filling by hand are applied to each piece.
     for (const op of handOps) if (op.st.mode === 'erase') erased = erased ? erased.add(op.cs) : op.cs;
-    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, shapeEdits, d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
+    const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, shapeEdits, grown, d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
     sp = splitPieces({
       d, key, art, anchor, hand: handOps, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
       clearance: num('clearance', 0.15, 0, 1), maxBridge: d.join ?? (opts.splitJoin != null ? num('splitJoin', DEFAULT_SPLIT_JOIN, 5, 300) : DEFAULT_SPLIT_JOIN), minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,

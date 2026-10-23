@@ -85,7 +85,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       const r = await geometry.evaluate(code, v(), 'draft');
       const la = r.ok ? r.parts.find((p) => p.lineArt?.frames.some((f) => f.name === name))?.lineArt : undefined;
       const f = la?.frames.find((x) => x.name === name);
-      return f && la ? { k: f.k, lineWidth: la.lineWidth } : null;
+      return f && la ? { k: f.k, k0: f.k0 ?? f.k, lineWidth: la.lineWidth } : null;
     } catch { return null; }
   };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
@@ -264,7 +264,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           if (old) {
             const frame = await lineArtFrame(a.edit!);
             lineWidth = frame?.lineWidth ?? lineWidth;
-            const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, lineWidth);
+            const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, lineWidth, frame?.k0 ?? frame?.k ?? 80);
             references = [`data:image/png;base64,${Buffer.from(encodePng({ width: pic.width, height: pic.height, data: pic.rgba, channels: 4 })).toString('base64')}`, ...(photos ?? [])];
             prompt = lineArtEditPrompt({ change: a.subject, references: photos, width: a.width, style });
             aspect = a.aspect ?? nearestAspect(old.aspect);

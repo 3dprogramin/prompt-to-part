@@ -569,8 +569,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     const fil = n.tool !== 'erase' && n.filament ? n.filament : undefined;
     const stroke: LineArtStroke = {
       mode: n.tool,
-      // In the drawing's units (it stays put when the piece is resized), the width as Jig builds it (before the scale).
+      // In the drawing's units (it stays put when the piece is resized), the width as Jig builds it (before the scale),
+      // and the mm per drawing unit now (`k`): resized, the stroke is as wide on the drawing as it was drawn.
       width: round(n.width / n.scale, 3),
+      k: round(f.k / n.scale, 6),
       points: pts.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt),
       ...(fil ? { filament: fil } : {}),
       ...sq,
@@ -631,10 +633,12 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     for (const f of n.la.frames) {
       const strokes = strokesOf(n.edits, f.name, f.fp);
       if (!strokes.length) continue;
-      const area = n.selection.map((st): LineArtStroke => ({ mode: 'restore', width: round(st.width / n.scale, 3), points: st.points.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt), ...(st.shape ? { shape: st.shape } : {}) }));
+      const area = n.selection.map((st): LineArtStroke => ({ mode: 'restore', width: round(st.width / n.scale, 3), k: round(f.k / n.scale, 6), points: st.points.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as Pt), ...(st.shape ? { shape: st.shape } : {}) }));
       // How far each brush reaches, in the drawing's units (a drawn line: its colour, at least the piece's line width).
       const reach = (st: LineArtStroke) => {
-        const w = (st.width ?? (st.mode === 'draw' ? n.la.lineWidth / n.scale : st.mode === 'fill' ? FILL_WIDTH : 3)) * n.scale;
+        // (Resized since it was drawn: as wide on the drawing as then.)
+        const grow = st.width == null ? 1 : st.k ? f.k / n.scale / st.k : f.k / (f.k0 ?? f.k);
+        const w = (st.width ?? (st.mode === 'draw' ? n.la.lineWidth / n.scale : st.mode === 'fill' ? FILL_WIDTH : 3)) * grow * n.scale;
         return (st.mode === 'draw' ? Math.max(w, n.la.lineWidth) : w) / 2 / f.k;
       };
       const kept = clearArea(strokes, area, reach);

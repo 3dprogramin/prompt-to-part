@@ -12,6 +12,7 @@ import { withFonts } from '../../shared/text';
 import { decodeMesh, withMeshes, type MeshData } from '../../shared/meshes';
 import { validateResult, type ValidateOptions } from './validate';
 import { linearColors, paintedGeometry, usableColors } from './vertexColors';
+import { sliverFree } from './sliverFree';
 import { api, HttpError, request } from '../lib/api';
 import type { DimTarget, ParamValues, PartDisplay, PartMesh, Quality } from '../../shared/types';
 
@@ -69,8 +70,11 @@ function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transfer
     if (colors) g.setAttribute('color', new THREE.BufferAttribute(linearColors(colors), 3));
     g.setIndex(new THREE.BufferAttribute(part.indices, 1));
   }
+  // (Line art: without the booleans' slivers, which shaded and outlined as stripes and lines.)
+  if (part.lineArt) g = sliverFree(g);
   const creased = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
-  const edges = new THREE.EdgesGeometry(creased, 30);
+  // (No feature lines on a relief: the view draws none, every layer step would be one.)
+  const edges = colors ? new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([], 3)) : new THREE.EdgesGeometry(creased, 30);
   const bvh = MeshBVH.serialize(new MeshBVH(creased));
   const display: PartDisplay = {
     positions: creased.getAttribute('position').array as Float32Array,
