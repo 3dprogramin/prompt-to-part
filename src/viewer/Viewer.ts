@@ -1104,7 +1104,7 @@ export class Viewer {
       dir.set(0.12, -1, 0.3).normalize();
     } else if (view === 'angle' && scale?.ref === 'wall') {
       // A wall piece hanging on its wall, from the side: upright, its edge a thin line off the wall.
-      dir.set(0.85, -0.12, 1).normalize();
+      dir.set(1.25, -0.12, 1).normalize();
       cam.up.set(0, 1, 0);
     } else if (view === 'top') {
       // From high above, so its top shows (and what is inside it).
