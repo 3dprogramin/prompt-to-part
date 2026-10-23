@@ -40,6 +40,8 @@ export interface GenerateRequest {
   versionNote?: string;
   /** Let Claude use WebSearch / WebFetch (on by default; the user can turn it off per design). */
   webSearch?: boolean;
+  /** "Ask first" (on by default): before building, Claude asks the few questions it can't answer itself (none, or up to 5); off, it picks defaults and says which. */
+  askFirst?: boolean;
   /** SVG drawings attached in the chat (name → drawing): model scripts use them with H.svg(name). */
   drawings?: Record<string, SvgDrawing>;
   /** OpenSCAD files attached in the chat: Claude rebuilds them as Jig scripts. */

@@ -245,6 +245,9 @@ export default function App() {
   waitForOkRef.current = waitForOk;
   const [sendView, setSendView] = useState<boolean>(() => load('sendView', true));
   useEffect(() => store('sendView', sendView), [sendView]);
+  // "Ask first": Jig asks the few questions it can't answer itself before it builds (all modes).
+  const [askFirst, setAskFirst] = useState<boolean>(() => load('askFirst', true));
+  useEffect(() => store('askFirst', askFirst), [askFirst]);
   // The countdown under a reply that ended with new concept pictures ("Wait for my OK" off).
   const [autoBuild, setAutoBuild] = useState<AutoBuild | null>(null);
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
@@ -679,6 +682,8 @@ export default function App() {
       model: chat.model,
       effort: chat.effort,
       webSearch: chat.webSearch,
+      // (An approval of concept pictures just goes ahead.)
+      askFirst: askFirst && !approval,
       imageMode: chat.imageMode,
       ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
       ...(chat.imageMode === 'lineart' ? { lineArtStyle: chat.lineArtStyle ?? DEFAULT_LINE_ART_STYLE } : {}),
@@ -1377,6 +1382,8 @@ export default function App() {
           onWaitForOk={setWaitForOk}
           sendView={sendView}
           onSendView={setSendView}
+          askFirst={askFirst}
+          onAskFirst={setAskFirst}
           autoBuild={autoBuild && autoBuild.designId === design.id && design.messages.at(-1)?.id === autoBuild.messageId ? autoBuild : null}
           onBuildNow={() => buildConcepts.current()}
           onStopAutoBuild={() => setAutoBuild(null)}

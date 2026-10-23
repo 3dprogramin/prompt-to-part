@@ -477,7 +477,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
     await route.fulfill({ response, json: { ...await response.json(), meshy: true, artwork: 'Image model', effort: 'high' } });
   });
   await page.route('**/api/meshy/balance', (route) => route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200 } }));
-  const sent: { prompt: string; currentView?: unknown; renderValues?: unknown; model?: string; effort?: string }[] = [];
+  const sent: { prompt: string; currentView?: unknown; renderValues?: unknown; model?: string; effort?: string; askFirst?: boolean }[] = [];
   const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
   await page.route('**/api/generate', (route) => {
     const body = route.request().postDataJSON();
@@ -494,6 +494,10 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   const view = page.getByRole('button', { name: 'Send my view' });
   assert.equal(await view.getAttribute('aria-pressed'), 'true');
   assert.match(await view.getAttribute('title') ?? '', /what you mean by "this"/);
+  // Ask first: on by default, every mode; off, Jig is told to pick defaults.
+  const askFirst = page.getByRole('button', { name: 'Ask first' });
+  assert.equal(await askFirst.getAttribute('aria-pressed'), 'true');
+  assert.match(await askFirst.getAttribute('title') ?? '', /at most 5/);
   await page.locator('.composer').screenshot({ path: path.join(shots, '10-chat-bar.png') });
   const figureMode = async () => {
     await page.getByRole('button', { name: /^Picture mode:/ }).click();
@@ -511,9 +515,11 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.mode-btn .figure-marks svg').count(), 1);
   await view.click();
+  await askFirst.click();
   await page.reload();
   await page.waitForFunction(() => document.title === 'Jig - Knight');
   assert.equal(await view.getAttribute('aria-pressed'), 'false');
+  assert.equal(await askFirst.getAttribute('aria-pressed'), 'false');
   await figureMode();
   await figureOptions.click();
   assert.equal(await wait.getAttribute('aria-checked'), 'false');
@@ -546,6 +552,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.equal(sent[0].renderValues, undefined);
   assert.equal(sent[0].model, 'sonnet');
   assert.equal(sent[0].effort, 'xhigh');
+  assert.equal(sent[0].askFirst, false, 'Ask first off');
   assert.match(await card.innerText(), /Building with Meshy in \d+ s · 25 credits/);
   await page.screenshot({ path: path.join(shots, '11-countdown.png') });
   // Stop: the countdown is gone and nothing is sent.
@@ -564,6 +571,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   await page.locator('.msg.user .bubble', { hasText: 'Approved – build it.' }).waitFor();
   assert.equal(sent.length, 4);
   assert.equal(sent[3].prompt, 'Approved – build it.');
+  assert.equal(sent[3].askFirst, false, 'an approval never asks');
   assert.equal(sent[3].currentView, undefined);
   assert.equal(sent[3].renderValues, undefined);
   // Left alone, the countdown sends the approval by itself (the one 10 s wait).

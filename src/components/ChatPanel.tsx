@@ -75,6 +75,8 @@ interface Props {
   /** Follow-ups bring Jig the user's current view and a four-view render at their settings (on by default). */
   sendView: boolean;
   onSendView: (on: boolean) => void;
+  askFirst: boolean;
+  onAskFirst: (on: boolean) => void;
   /** The countdown under the last reply ("Wait for my OK" off), null when there is none. */
   autoBuild: AutoBuild | null;
   onBuildNow: () => void;
@@ -402,6 +404,17 @@ export function ChatPanel(p: Props) {
               title={p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products'}
             >
               <Icon name="globe" size={14} />
+            </button>
+            <button
+              className={`web-toggle ask-first ${p.askFirst ? 'on' : ''}`}
+              aria-label="Ask first"
+              aria-pressed={p.askFirst}
+              onClick={() => p.onAskFirst(!p.askFirst)}
+              title={p.askFirst
+                ? 'Ask first is on: when your request leaves an important choice open, Jig asks a few short questions (at most 5) before it builds; clear requests and small changes it just does. Click to have it pick defaults instead.'
+                : 'Ask first is off: Jig never asks, it picks defaults and says which. Click to let it ask a few short questions first when something important is unclear.'}
+            >
+              <Icon name="ask" size={14} />
             </button>
             {/* 3D figure and Line art modes: the picture mode button with a ▾ for the mode's options
                 (the figure's Colour, Wait for my OK and credits; the line art's style). */}
