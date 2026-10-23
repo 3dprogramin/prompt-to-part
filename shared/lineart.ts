@@ -1696,7 +1696,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     const base: any[] = [];
     const clean = (cs: any) => (cs.isEmpty() ? cs : cs.offset(-PAINT_CLEAN, 'Round').offset(PAINT_CLEAN, 'Round').intersect(cs));
     // Slits closed (a crack along a fill or a line, made solid, flips faces).
-    const tidy = (cs: any) => (cs.isEmpty() ? cs : cs.offset(PAINT_CLEAN, 'Round', 2, TIDY_SEGS).offset(-PAINT_CLEAN, 'Round', 2, TIDY_SEGS));
+    const tidy = (cs: any) => (cs.isEmpty() ? cs : cs.offset(PAINT_CLEAN, 'Miter', TIDY_MITER).offset(-PAINT_CLEAN, 'Miter', TIDY_MITER));
     const part = (kind: PaintMaterial, whole: any, list: { cs: any; filament: PartFilament }[]) => {
       if (!whole || whole.isEmpty()) return;
       const top = z[kind][1];
@@ -1752,6 +1752,9 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       // starts, which reaches a hair past the piece's edge (and over its top): no wall of the slot is
       // on one of the piece's, which would leave a skin, and no blocks of it are joined side by side,
       // which left slits.
+      // (Without spikes of no width where a colour ends on its edge: made solid, they stood as fins on
+      // the colour's walls, drawn as stripes in the view. The slots take what this leaves.)
+      if (kept.length) mine = mine.offset(-SPIKE, 'Miter').offset(SPIKE, 'Miter');
       const bottoms = kept.map((k) => colourBottom(depthLayers(depth, needOf(k.filament).need), z[kind][0], top, printLayers));
       kept.forEach((k, i) => put(k.filament, kind, k.cs.simplify(LAYER_TIDY).extrude(top - bottoms[i]).translate([0, 0, bottoms[i]]), k.cs.area()));
       const slots = kept.map((k, i) => k.cs.offset(SLOT_OUT, 'Miter').subtract(mine).extrude(top - bottoms[i] + SLOT_OUT).translate([0, 0, bottoms[i]]));
@@ -1955,10 +1958,12 @@ const PAINT_REACH = 0.1;
 const PAINT_CLEAN = 0.005;
 /** How far a colour's slot in the piece's own filament reaches past the piece (mm). */
 const SLOT_OUT = 0.01;
+/** Narrower than this (mm), a spike of the piece's own filament against a colour goes. */
+const SPIKE = 5e-4;
 /** A colour's steps and points closer than this (mm) go before it is made solid: needle-thin triangles shade wrong. */
 const LAYER_TIDY = 1e-3;
-/** Segments in a circle when closing slits a hair wide (more would only slow the build). */
-const TIDY_SEGS = 8;
+/** How far a corner may reach when closing slits a hair wide (× the hair): square corners stay square, no arcs. */
+const TIDY_MITER = 1000;
 
 /** An erase or fill stroke and its brush on the piece (mm). */
 interface HandOp { st: LineArtStroke; cs: any }
