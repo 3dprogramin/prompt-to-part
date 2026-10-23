@@ -230,6 +230,10 @@ export function SidePanel(p: Props) {
   );
 }
 
+/** What the export button does: the format last picked in its menu, kept until the page reloads. */
+type MainExport = 'stl' | '3mf' | 'blend' | 'project';
+let lastExport: MainExport = 'stl';
+
 function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, oneColour, onOneColour, onExport3mf, onExportProject, painted }: {
   disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: Props['blender']; count: number;
   /** A part has a coloured mesh's colours, which only the 3MF keeps. */
@@ -243,12 +247,21 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
   const wrap = useRef<HTMLDivElement>(null);
   const more = useRef<HTMLButtonElement>(null);
   usePopover(!!open, () => setOpen(false), wrap, more);
-  const pick = (f: ExportFormat) => { setOpen(false); onExport(f); };
+  const [main, setMainState] = useState<MainExport>(lastExport);
+  const setMain = (m: MainExport) => { lastExport = m; setMainState(m); };
+  const pick = (f: ExportFormat) => { setOpen(false); setMain(f === 'blend' ? 'blend' : 'stl'); onExport(f); };
   const printOn = threeMf.print && !!bambu;
+  // Blender gone since it was picked: STL.
+  const now: MainExport = main === 'blend' && (!blender || blender.problem) ? 'stl' : main;
+  const run = () => (now === '3mf' ? onExport3mf() : now === 'project' ? onExportProject() : onExport(now));
+  const label = { stl: 'Export STL', '3mf': 'Export 3MF', blend: 'Export .blend', project: 'Export project' }[now];
+  const title = now === 'stl' ? `${count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}${painted ? ' (geometry only: the figure\'s colours are only in the 3MF)' : ''}`
+    : now === '3mf' ? `Export 3MF for Bambu Studio (${oneColour ? 'one filament' : 'colours (AMS)'}${printOn ? ', with print settings' : ''}); the arrow changes the format`
+    : now === 'blend' ? 'Export a Blender file; the arrow changes the format' : 'Export the project folder; the arrow changes the format';
   return (
     <div className="export-split" ref={wrap}>
-      <button className="btn primary export-main" disabled={disabled} onClick={() => onExport('stl')} title={`${count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}${painted ? ' (geometry only: the figure\'s colours are only in the 3MF)' : ''}`}>
-        <Icon name="download" /> {exporting ? 'Exporting…' : 'Export STL'}
+      <button className="btn primary export-main" disabled={disabled} onClick={run} title={title}>
+        <Icon name="download" /> {exporting ? 'Exporting…' : label}
       </button>
       <button ref={more} className="btn primary export-more" disabled={disabled} onClick={() => setOpen(open ? false : 'menu')} title="More formats" aria-label="More export formats" aria-haspopup="menu" aria-expanded={!!open}><Icon name="chevron" size={14} /></button>
       {open === 'menu' && (
@@ -256,7 +269,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
           <button onClick={() => pick('stl')}><b>STL</b><span>{painted ? 'Geometry only: the figure\'s colours are lost – use 3MF for them' : 'Single mesh, works everywhere'}</span></button>
           <button onClick={() => setOpen('3mf')}><b>3MF…</b><span>For Bambu Studio – choose colours (AMS) and print settings</span></button>
           <button onClick={() => pick('blend')} disabled={!blender || !!blender.problem}><b>Blender (.blend)</b><span>{!blender ? 'Blender not found on this computer' : blender.problem ?? `One object per part, materials, dimensions, params · Blender ${blender.version}`}</span></button>
-          <button onClick={() => { setOpen(false); onExportProject(); }}><b>Export project…</b><span>Model, STL, 3MF, .blend, pictures and a README in one folder (a zip in Firefox)</span></button>
+          <button onClick={() => { setOpen(false); setMain('project'); onExportProject(); }}><b>Export project…</b><span>Model, STL, 3MF, .blend, pictures and a README in one folder (a zip in Firefox)</span></button>
         </div>
       )}
       {open === '3mf' && (
@@ -272,7 +285,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
               : printChanges ? `A1 · PLA · 0.20 Standard with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
                 : 'A1 · PLA · 0.20 Standard profile, no changes.'}</small></span>
           </label>
-          <button className="btn primary wide" onClick={() => { setOpen(false); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
+          <button className="btn primary wide" onClick={() => { setOpen(false); setMain('3mf'); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
         </div>
       )}
     </div>
