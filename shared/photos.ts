@@ -558,6 +558,8 @@ export interface PhotoRequest {
     lithophane?: boolean;
     /** The filament colours of the parts shown (#rrggbb). */
     colors?: string[];
+    /** An open cut-out (line art): only its lines are material, the areas between them empty. */
+    open?: boolean;
   };
 }
 
@@ -601,6 +603,7 @@ export function photoProblem(b: PhotoRequest): string | null {
   if (p.description != null && (typeof p.description !== 'string' || p.description.length > 2000)) return 'product.description: text up to 2,000 characters';
   if (!Array.isArray(p.size) || p.size.length !== 3 || !p.size.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 10000)) return 'product.size: [x, y, z] in mm';
   if (p.lithophane != null && typeof p.lithophane !== 'boolean') return 'product.lithophane: true or false';
+  if (p.open != null && typeof p.open !== 'boolean') return 'product.open: true or false';
   if (p.colors != null && (!Array.isArray(p.colors) || p.colors.length > 16 || !p.colors.every((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)))) return 'product.colors: up to 16 #rrggbb colours';
   return saleSizeProblem(b);
 }
@@ -746,6 +749,8 @@ export function photoPrompt(b: PhotoRequest): string {
     'KEEP THE OBJECT EXACTLY AS IN THE RENDER – it is the real product the customer receives:',
     '- the same shape, outline, proportions and thickness; every hole, edge, cut-out, relief and detail in the same place',
     '- the same colours on the same areas',
+    // (Left alone, a close-up got a solid backing plate filling the figure.)
+    b.product.open ? '- it is an OPEN CUT-OUT: only its lines are material; every area between them, inside its outline too, is empty, so the wall or background shows through there exactly as around it. Never fill those areas, and never add a backing panel, board or plate behind or under it' : null,
     '- any text, numbers, logos or patterns on it copied exactly from the render: the same typeface, letter shapes, stroke widths, spacing and position, letter for letter (never retyped in another font)',
     `- do not add, remove, move, mirror, bend or redesign any part; add nothing to it (no hardware, cords, stands, labels or decorations that are not in the render${hang ? ' – only the thin ribbon it hangs from' : ''})`,
     '- if the render shows several separate pieces (a set), they stay separate pieces, apart as in the render: never join, link, chain or tie them to each other',

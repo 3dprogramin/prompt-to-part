@@ -267,6 +267,8 @@ export function PhotosPanel(p: Props) {
   const about = [p.designName, p.result?.meta.name, p.result?.meta.description, p.summary].filter(Boolean).join('. ');
   // A lithophane is best shown glowing.
   const lithophane = !!p.result?.parts.some((x) => x.lithophane);
+  // Line art: open, only its lines (a close-up got a backing plate).
+  const open = !!p.result?.parts.some((x) => x.lineArt);
   const suggested = useMemo(() => (lithophane ? BACKLIT_SCENE : suggestScene(about, size ?? undefined)), [about, size, lithophane]);
   const choice = scenes[p.designId] ?? { scene: suggested, notes: '', variant: 1 as SceneVariant };
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
@@ -379,7 +381,7 @@ export function PhotosPanel(p: Props) {
 
   // What the image model is told about the product (name, size, colours).
   const product = (): PhotoRequest['product'] | null => (!size || !p.result ? null : {
-    name: p.result.meta.name || p.designName, description: p.result.meta.description || p.summary, size, faceOn, lithophane,
+    name: p.result.meta.name || p.designName, description: p.result.meta.description || p.summary, size, faceOn, lithophane, ...(open ? { open } : {}),
     // Per-vertex (LayerTone) parts are many colours: the render shows them.
     // A coloured mesh's part: its filaments' colours. Printed in one colour: that one.
     colors: p.oneColour ? [p.oneColour.toLowerCase()] : [...new Set(parts.filter((x) => !x.vertexColors).flatMap((x) => (x.paint ? x.paint.filaments.map((f) => f.color) : [x.color])).map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 16),

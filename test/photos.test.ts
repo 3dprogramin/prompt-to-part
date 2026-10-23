@@ -465,3 +465,12 @@ test('a render with the light switch or mug at true size: the prompt keeps them 
   assert.equal(photoProblem(lady), null);
   assert.match(photoProblem({ ...lady, scaleRef: 'hand' as PhotoRequest['scaleRef'] })!, /scaleRef must be one of switch, mug, wall/);
 });
+
+test('an open cut-out (line art): the prompt keeps the areas between its lines empty, no backing plate', () => {
+  const open = photoPrompt(request({ scene: SHOP_SCENE, shop: 'detail', product: { name: 'Lady with wine', size: [116.6, 250, 2], faceOn: true, open: true } }));
+  assert.match(open, /it is an OPEN CUT-OUT: only its lines are material/);
+  assert.match(open, /never add a backing panel, board or plate behind or under it/);
+  assert.doesNotMatch(photoPrompt(request({ scene: SHOP_SCENE, product: { name: 'Coaster', size: [90, 90, 4], faceOn: true } })), /OPEN CUT-OUT/);
+  assert.match(photoProblem(request({ scene: SHOP_SCENE, product: { name: 'x', size: [1, 1, 1], open: 'yes' as unknown as boolean } }))!, /product.open/);
+});
+
