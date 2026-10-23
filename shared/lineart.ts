@@ -1726,7 +1726,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge); filling
     // by hand adds to the piece as it is then.
     for (const op of handOps) if (op.st.mode === 'erase') erased = erased ? erased.add(op.cs) : op.cs;
-    const hand = handEdits(lineCs, anchor, handOps);
+    const hand = handEdits(C, lineCs, anchor, handOps);
     lineCs = hand.lineCs;
     colourAreas(hand.filled);
     marks = res;
@@ -1880,7 +1880,7 @@ const FILL_SEAL = 0.0002;
  * nothing else of the piece would fall off: it goes (`loose` counts it). `filled`: what each fill
  * added and kept, for its colour.
  */
-function handEdits(lineCs: any, anchor: any, ops: HandOp[], region?: any): { lineCs: any; filled: Map<LineArtStroke, any>; loose: number } {
+function handEdits(C: any, lineCs: any, anchor: any, ops: HandOp[], region?: any): { lineCs: any; filled: Map<LineArtStroke, any>; loose: number } {
   const filled = new Map<LineArtStroke, any>();
   const r = MIN_PAINT / 2;
   for (const { st, cs } of ops) {
@@ -1895,6 +1895,10 @@ function handEdits(lineCs: any, anchor: any, ops: HandOp[], region?: any): { lin
     if (open.isEmpty()) continue;
     add = open.offset(PAINT_SNAP, 'Miter').intersect(add);
     if (add.isEmpty() || add.area() <= 1e-4) continue;
+    // What the opening took that the piece now closes in all round (a corner of an outline, a
+    // crack along a fill before): filled too, or it prints as a pinhole.
+    const shut = pockets(C, anchor ? lineCs.add(add).add(anchor) : lineCs.add(add), cs, r);
+    if (shut) add = add.add(shut);
     add = add.offset(FILL_SEAL, 'Miter');
     lineCs = lineCs.add(add);
     filled.set(st, add);
@@ -1910,6 +1914,25 @@ function handEdits(lineCs: any, anchor: any, ops: HandOp[], region?: any): { lin
     for (const [st, x] of filled) filled.set(st, x.subtract(gone));
   }
   return { lineCs, filled, loose: loose.length };
+}
+
+/**
+ * The holes of `solid` near the brush `cs` that lie under it and are narrower than 2 × `r` (a
+ * fill's opening left them), as one CrossSection, or null.
+ */
+function pockets(C: any, solid: any, cs: any, r: number): any {
+  const near = solid.intersect(cs.offset(2 * r, 'Round'));
+  const holes = near.toPolygons().filter((c: Pt[]) => c.length > 2 && ringArea(c) < 0)
+    .map((c: Pt[]) => new C([c], 'NonZero'))
+    .filter((h: any) => h.offset(-r, 'Round').isEmpty() && h.subtract(cs).area() <= 1e-6);
+  return holes.length ? holes.reduce((u: any, h: any) => u.add(h)) : null;
+}
+
+/** A ring's signed area (mm², counter-clockwise positive). */
+function ringArea(c: Pt[]): number {
+  let a = 0;
+  for (let i = 0, j = c.length - 1; i < c.length; j = i++) a += (c[j][0] - c[i][0]) * (c[j][1] + c[i][1]);
+  return a / 2;
 }
 
 /**
@@ -2169,7 +2192,7 @@ function splitPieces(o: SplitInput): SplitResult {
     const anc = pan && !pan.isEmpty() ? pan : null;
     // Erased and filled by hand, on this piece (a fill too, so what it holds on to is on it).
     if (o.hand.length) {
-      const h = handEdits(lineCs, anc, o.hand, region);
+      const h = handEdits(C, lineCs, anc, o.hand, region);
       lineCs = h.lineCs;
       fillsLoose += h.loose;
       for (const [st, x] of h.filled) filled.set(st, filled.has(st) ? filled.get(st).add(x) : x);

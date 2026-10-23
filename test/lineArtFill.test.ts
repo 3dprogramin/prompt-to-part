@@ -128,6 +128,23 @@ test('fill up to a round line: no crack between them, no skin of one part on the
   assert.equal(skins(parts[0], parts[1]), 0);
 });
 
+test('fill up to the lines: no pinhole left where it ends on them', () => {
+  // By the frame's top-left corner, in the piece's own filament (rounder than a draft, as the view
+  // builds it: there a disc's opening left a hole where the brush's end meets the top line).
+  const run = (strokes: LineArtStroke[]) => evaluateScript(`function build() { return H.lineart('frame', { style: 'outline', width: 200 }); }`,
+    { [DRAWINGS_KEY]: JSON.stringify({ frame }), [LINEART_EDITS_KEY]: JSON.stringify({ frame: { fp, strokes } }) }, 'normal').parts;
+  assert.equal(holes(run([fill(0.45, -0.99, -0.92)])[0]), holes(run([])[0]), 'no hole more than the frame has');
+});
+
+/** How many holes go through a part (its genus, from V − E + F = 2 − 2g of one body). */
+function holes(p: PartMesh): number {
+  const P = p.positions, I = p.indices, id = new Map<string, number>(), v: number[] = [];
+  for (let i = 0; i < P.length / 3; i++) { const k = `${P[3 * i].toFixed(5)},${P[3 * i + 1].toFixed(5)},${P[3 * i + 2].toFixed(5)}`; if (!id.has(k)) id.set(k, id.size); v.push(id.get(k)!); }
+  const edges = new Set<string>();
+  for (let t = 0; t < I.length; t += 3) for (let j = 0; j < 3; j++) { const a = v[I[t + j]], b = v[I[t + ((j + 1) % 3)]]; edges.add(a < b ? `${a},${b}` : `${b},${a}`); }
+  return (2 - (id.size - edges.size + I.length / 3)) / 2;
+}
+
 /**
  * Walls of `a` with the other part `b` on their inner side (just inside the wall, seen from above)
  * and the other way round: a skin of one left on the other's walls. Both through the same height

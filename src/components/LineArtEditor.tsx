@@ -299,7 +299,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         strokeOn(tmp, st, st.color ?? INK);
         px(tmp); tmp.globalCompositeOperation = st.mode === 'fill' ? 'destination-out' : 'destination-in'; tmp.drawImage(L.ink, 0, 0); tmp.globalCompositeOperation = 'source-over';
         px(out); out.drawImage(L.tmp, 0, 0); mm(out);
-        if (st.mode === 'fill') strokeOn(ink, st, INK);
+        // (A pixel narrower: a fill after it covers its soft edge, so two fills show no seam.)
+        if (st.mode === 'fill') strokeOn(ink, { ...st, width: Math.max(0, st.width - 2 / (dpr * v.s)) }, INK);
       }
     }
     return L.out;
