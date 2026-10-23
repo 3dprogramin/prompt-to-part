@@ -1,6 +1,6 @@
 {
   "name": "jig",
-  "version": "0.0.80",
+  "version": "0.0.81",
   "private": true,
   "description": "AI-powered parametric CAD for 3D printing",
   "author": "3dprogramin <andrei@3dprogramin.io>",
