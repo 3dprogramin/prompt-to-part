@@ -643,6 +643,8 @@ export function familiar(size: Vec3, flat: boolean): string {
 
 // Things of a known size in some scenes (mm), and how many times as big the product is.
 const SWITCH = SWITCH_PLATE.side, HAND = 190, PALM = 85, MUG = MUG_SIZE.height;
+/** A picture's width / height: '4:5' is 0.8. */
+const aspectOf = (a: string | undefined) => { const [w, h] = (a ?? '1:1').split(':').map(Number); return w > 0 && h > 0 ? w / h : 1; };
 const times = (v: number, ref: number) => { const r = v / ref; return (r >= 10 ? Math.round(r) : +r.toFixed(r < 0.1 ? 2 : 1)).toString(); };
 
 /** The product beside a light switch (a standard EU plate, about 85 mm square). */
@@ -668,15 +670,18 @@ const isThin = ([x, y, z]: Vec3) => z <= 10 && z < 0.08 * Math.min(x, y);
 const thinLine = (z: number) => `It is a THIN, FLAT panel: only ${mm(z)} mm thick (${z <= 5 ? `about ${times(z, 2)} times as thick as a coin` : `about ${times(z, 8)} times as thick as a smartphone`}), so from any angle its edge is just a thin line. Never show it as a thick slab, block, box or canvas on a frame.`;
 
 /** The render shows the product beside a light switch or a mug at its true size (scaleRefLayout): keep it as it is. */
-function trueScaleLine(ref: ScaleRef, size: Vec3, faceOn: boolean, sizeShot: boolean): string {
+function trueScaleLine(ref: ScaleRef, size: Vec3, faceOn: boolean, sizeShot: boolean, aspect: number): string {
+  // How much wall or table the render frames, so the room is built to that scale too (left alone,
+  // the model put a doll-sized armchair and lamp beside a true-sized switch).
+  const f = scaleRefLayout(ref, { min: [0, 0, 0], max: size }, aspect).frame, across = f.max[0] - f.min[0];
   const [noun, beside, surface, vs] = ref === 'switch'
     ? ['switch', `on the wall beside a standard white light switch (${SWITCH} mm square)`, 'wall', vsSwitch(size, faceOn)]
     : ['mug', `on the surface beside a plain white coffee mug (${MUG_SIZE.diameter} mm across, ${MUG} mm tall)`, 'surface', vsMug(size)];
-  return `${sizeShot ? 'A SIZE PHOTO FOR THE LISTING: t' : 'T'}he render already shows it at its true size, ${beside}. Keep the product and the ${noun} exactly where they are and exactly as large as in the render, with the free ${surface} between them (the same framing: neither grows, shrinks or moves, and the ${noun} stays a ${noun} of that size); only make them and the ${surface} photorealistic and add the room around them, both fully in view and in focus; ${vs}, so its real size is obvious at a glance.`;
+  return `${sizeShot ? 'A SIZE PHOTO FOR THE LISTING: t' : 'T'}he render already shows it at its true size, ${beside}. Keep the product and the ${noun} exactly where they are and exactly as large as in the render, with the free ${surface} between them (the same framing: neither grows, shrinks or moves, and the ${noun} stays a ${noun} of that size); only make them and the ${surface} photorealistic and add the room around them, both fully in view and in focus; ${vs}, so its real size is obvious at a glance. The picture shows only about ${mm(across)} mm of ${surface} across (about ${times(across, ref === 'switch' ? SWITCH : MUG_SIZE.diameter)} ${noun} widths), and everything else in it is to that same scale: nothing bigger than a small plant, a vase or the corner of a picture frame fits in full view, so no furniture, lamps or windows in full view (at most a softly blurred edge of one).`;
 }
 
 /** What a shop photo must show, beyond its scene. */
-function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean, ref: ScaleRef | null): string | null {
+function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean, ref: ScaleRef | null, aspect: number): string | null {
   const thin = isThin(size);
   const whole = 'the whole product centred, filling about three quarters of the square frame, nothing cut off';
   switch (shot) {
@@ -685,7 +690,7 @@ function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean, re
     case 'top': return `A HIGH VIEW FROM ABOVE FOR THE LISTING, showing its top: ${whole}.`;
     case 'detail': return 'A CLOSE-UP DETAIL PHOTO FOR THE LISTING: the render is cropped to part of the product, which goes on past the edges of the picture. Keep this close crop (do not show the whole product or shrink it to fit), so the surface, the edges and the fine detail of the print fill the photo, with a gentle depth of field.';
     case 'lifestyle': return null;
-    case 'size': return ref ? trueScaleLine(ref, size, faceOn, true)
+    case 'size': return ref ? trueScaleLine(ref, size, faceOn, true, aspect)
       : scene === 'wall'
       ? `A SIZE PHOTO FOR THE LISTING: a standard white light switch (about ${SWITCH} mm square) beside it on the same wall, with free wall between them (never touching or overlapping it), both fully in view and in focus; ${vsSwitch(size, faceOn)}, so its real size is obvious at a glance.`
       : scene === 'hand'
@@ -753,7 +758,7 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `SCENE: ${preset ? sceneText(b, preset) : idea ? idea.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
-    ref && shop !== 'size' ? trueScaleLine(ref, b.product.size, faceOn, false)
+    ref && shop !== 'size' ? trueScaleLine(ref, b.product.size, faceOn, false, aspectOf(b.aspect))
       : wall && Math.max(x, y) < 350 && shop !== 'size'
       ? surface === 'wall'
         ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by: ${wallFrame(b.product.size, surface)}.`
@@ -761,7 +766,7 @@ export function photoPrompt(b: PhotoRequest): string {
       : null,
     (b.scene === 'hand' || idea?.place === 'hand') && shop !== 'size' ? `Against the hand: ${vsHand(b.product.size)}.` : null,
     closeup && !shop ? 'A CLOSE-UP PHOTO: taken from close by, so the product fills most of the picture and its surface, edges, relief and the fine layer lines of the print read clearly. If the render is cropped to part of the product, keep that close crop (do not show the whole product or shrink it to fit).' : null,
-    shop ? shopLine(shop, b.scene, b.product.size, faceOn, ref) : null,
+    shop ? shopLine(shop, b.scene, b.product.size, faceOn, ref, aspectOf(b.aspect)) : null,
     preset && notes ? `Also: ${notes}.` : null,
     wall
       ? `It hangs flat against the ${surface}, its back touching it, with a soft contact shadow, in light that matches the surroundings. It is entirely on a wide, flat, continuous stretch of ${surface} with a wide margin of free ${surface} on every side: it never crosses or touches ${surface === 'wall' ? 'a corner, pillar, edge, door or window frame, shelf or furniture' : 'an edge of the door, its handle or another magnet'}, and nothing overlaps it.`
