@@ -1646,7 +1646,10 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       materials: there.filter(([, a]) => a > 0).map(([kind, a]) => ({ kind, z: z[kind], own: a - coloured[kind] > 1e-3 })),
       colours: cols.map((c) => ({ filament: c.filament, ...needOf(c.filament), on: c.on })),
     };
-    return { shape: full.subtract(union(solids)), colours: cols.map((c, i): Coloured => ({ name: `${piece} (${colourName(c.filament)})`, shape: solids[i], filament: c.filament })), paint };
+    // The piece's own filament: what is left, without the skins cutting the colours out can leave on their walls.
+    const rest = full.subtract(union(solids)), bodies = rest.decompose();
+    const own = bodies.some((b: any) => b.volume() < MIN_BODY) ? M.compose(bodies.filter((b: any) => b.volume() >= MIN_BODY)) : rest;
+    return { shape: own, colours: cols.map((c, i): Coloured => ({ name: `${piece} (${colourName(c.filament)})`, shape: solids[i], filament: c.filament })), paint };
   };
 
   let parts: (LineArtResult['parts'][number] & { colours?: Coloured[] })[];
@@ -1805,6 +1808,10 @@ interface Coloured { name: string; shape: any; filament: PartFilament }
 
 /** Paint narrower than this (mm) would print as junk: it goes to the filament around it. */
 export const MIN_PAINT = 0.4;
+/** A colour this close to a line's edge (mm) reaches it exactly, so no skin of the piece's own filament is left on its walls. */
+const PAINT_SNAP = 0.05;
+/** Bits of a part smaller than this (mm³) are skins left by cutting the colours out: dropped. */
+const MIN_BODY = 0.01;
 
 /**
  * The lines `lineCs` coloured by `areas` (which don't overlap): each filament's part of them, off
@@ -1822,6 +1829,11 @@ function colourLines(lineCs: any, anchor: any, areas: { filament: PartFilament; 
     if (anchor && !cs.isEmpty()) cs = cs.subtract(anchor);
     if (cs.isEmpty()) continue;
     cs = open(cs).intersect(cs);
+    if (cs.isEmpty() || cs.area() <= 1e-4) continue;
+    // Out to the line's own edge (the opening rounds it a hair inside), not over the colours before it.
+    cs = cs.offset(PAINT_SNAP, 'Miter').intersect(lineCs);
+    if (anchor) cs = cs.subtract(anchor);
+    for (const c of colours) cs = cs.subtract(c.cs);
     if (!cs.isEmpty() && cs.area() > 1e-4) colours.push({ filament: a.filament, cs });
   }
   if (!colours.length) return colours;

@@ -167,3 +167,15 @@ test('Bambu Studio slices coloured line art: every filament used, the swaps on e
   const swaps = (strFromU8(sliced['Metadata/plate_1.gcode']).match(/^T[01]\b/gm) ?? []).length;
   assert.ok(swaps >= 9, `${swaps} filament changes`);
 });
+
+test('paint over a round line leaves no skin of the piece\'s own filament on the colour\'s walls', () => {
+  // A ring (like a bottle cap) painted half: the opening rounds the colour a hair inside the ring's edges.
+  const circle = (r: number): Vec2[] => Array.from({ length: 96 }, (_, k) => [r * Math.cos((k / 96) * 2 * Math.PI), r * Math.sin((k / 96) * 2 * Math.PI)]);
+  const ring: SvgDrawing = { name: 'ring', aspect: 1, shapes: [{ rule: 'EvenOdd', contours: [circle(0.45), circle(0.4)], color: '#000000' }] };
+  const strokes: LineArtStroke[] = [{ mode: 'paint', width: 30, points: [[-0.45, 0.3], [0, 0.45], [0.45, 0.3]], filament: red }];
+  const r = evaluateScript(`function build() { return H.lineart('ring', { style: 'outline', width: 60 }); }`,
+    { [DRAWINGS_KEY]: JSON.stringify({ ring }), [LINEART_EDITS_KEY]: JSON.stringify({ ring: { fp: drawingFingerprint(ring), strokes } }) }, 'draft');
+  const base = r.parts.find((p) => p.name === 'Line art')!;
+  assert.ok(r.parts.some((p) => p.name === 'Line art (Red)'), 'the top of the ring is coloured');
+  assert.equal(base.components, 1, 'the rest of the ring is one body, with no slivers beside the colour');
+});
