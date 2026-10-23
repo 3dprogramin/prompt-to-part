@@ -491,6 +491,9 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
           {loose && <span className="lineart-why"><Icon name="alert" size={12} /> ask Jig for a more connected drawing</span>}
         </dd>
         <dt>Specks</dt><dd>{la.dropped ? <><span className="mono">{la.dropped}</span> dropped (too small to print)</> : 'none dropped'}</dd>
+        {(la.fillsLoose ?? 0) > 0 && (
+          <><dt>Fills</dt><dd className="warn"><span className="mono">{la.fillsLoose}</span> left out<span className="lineart-why"><Icon name="alert" size={12} /> filled where it touched nothing of the piece, so it would fall off: fill up to a line (Edit drawing)</span></dd></>
+        )}
         <dt>Loose lines</dt>
         <dd className={la.endsFree && la.joinEnds !== 0 ? 'warn' : ''}>
           {la.endsJoined ? <><span className="mono">{la.endsJoined}</span> joined to a nearby line</> : la.endsFree ? null : 'none dangling'}

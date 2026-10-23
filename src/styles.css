@@ -979,6 +979,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .la-ed-tool:hover:not(:disabled) { color: var(--text); background: #ffffff0a; }
 .la-ed-tool.on { color: var(--accent-ink); background: var(--accent); }
 .la-ed-tool.on.erase { color: #fff; background: #c0504d; }
+.la-ed-tool-swatch { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1px #ffffff80; }
 .la-ed-bar > .la-ed-tool { border-color: var(--line-2); }
 .la-ed-bar > .la-ed-tool.on { border-color: var(--accent); }
 /* The filaments to draw and paint with: the piece's own, those used, + another (the picker opens under them). */
@@ -994,7 +995,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .la-ed-width { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
 .la-ed-width input { width: 130px; accent-color: var(--accent); }
 .la-ed-val { min-width: 54px; color: var(--text); font-size: 12px; }
-.la-ed-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); white-space: nowrap; }
+.la-ed-status { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-3); }
+.la-ed-status .spinner { vertical-align: middle; margin-right: 6px; }
+.la-ed-status .la-ed-swaps { margin-left: 6px; }
 .la-ed-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #fff; border-radius: 10px; box-shadow: 0 20px 60px #000b; }
 .la-ed-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .la-ed-over { touch-action: none; cursor: none; }
@@ -1015,6 +1018,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .la-editor.phone .la-ed-bar { border-radius: 0; border-width: 0 0 1px; gap: 6px; }
 .la-editor.phone .la-ed-stage { border-radius: 0; }
 .la-editor.phone .la-ed-label { display: none; }
+.la-editor.phone .la-ed-status { flex-basis: auto; }
 .la-editor.phone .la-ed-tool { min-height: 38px; padding: 4px 9px; }
 .la-editor.phone .la-ed-width { flex: 1 1 160px; }
 .la-editor.phone .la-ed-width input { flex: 1; width: auto; min-width: 80px; }

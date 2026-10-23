@@ -915,7 +915,7 @@ test('sale sizes: S / M / L suggested, one shown and resized alone, sliced one a
   }
 });
 
-test('Edit drawing paints lines in another filament: shown on the lines only (also while painting), built as a part of its own, its top layers by default with the swaps it costs', TEST, async () => {
+test('Edit drawing paints lines in another filament: shown on the lines only (also while painting), and fills inside an outline: shown off them only; built as a part of its own, its top layers by default with the swaps it costs', TEST, async () => {
   const lid = 'ui-smoke-00000009';
   const box = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   // A 2:1 rectangle outline, 120 mm wide.
@@ -962,6 +962,37 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   const red = await reds(200);
   assert.ok(red.n > 100 * red.px && red.n < 4000 * red.px, `${red.n} red pixels`);
   await page.screenshot({ path: path.join(shots, '18-lineart-paint.png') });
+  // Fill (in the same red): a stroke along the inside of the top line, over its edge. It shows only
+  // off the lines (the paper inside), never on them: while it is drawn and once it is.
+  await editor.getByRole('radio', { name: 'Fill' }).click();
+  const edge = await editor.locator('.la-ed-canvas').first().evaluate((c: HTMLCanvasElement) => {
+    const d = c.getContext('2d')!.getImageData(Math.round(c.width * 0.3), 0, 1, c.height).data;
+    let y = 0;
+    while (y < c.height && d[y * 4] > 128) y++;
+    while (y < c.height && d[y * 4] <= 128) y++;
+    return y / (c.height / c.getBoundingClientRect().height);
+  });
+  const fb = (await over.boundingBox())!;
+  await page.mouse.move(fb.x + fb.width * 0.2, fb.y + edge + 2);
+  await page.mouse.down();
+  for (let k = 1; k <= 10; k++) await page.mouse.move(fb.x + fb.width * (0.2 + (0.2 * k) / 10), fb.y + edge + 2);
+  // Red over the paper and over the lines, left of the paint down the middle.
+  const filled = (alpha: number) => page.evaluate((a) => {
+    const [base, top] = [...document.querySelectorAll<HTMLCanvasElement>('.la-ed-canvas')];
+    const w = top.width, h = top.height, bd = base.getContext('2d')!.getImageData(0, 0, w, h).data, od = top.getContext('2d')!.getImageData(0, 0, w, h).data;
+    let on = 0, off = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w * 0.45; x++) {
+      const i = (y * w + x) * 4;
+      if (od[i + 3] > a && od[i] > 150 && od[i + 1] < 90 && od[i + 2] < 90) { if (bd[i] < 100) on++; else off++; }
+    }
+    return { on, off, px: (w * h) / (top.getBoundingClientRect().width * top.getBoundingClientRect().height) };
+  }, alpha);
+  const liveFill = await filled(60);
+  assert.ok(liveFill.off > 300 * liveFill.px && liveFill.on < 0.1 * liveFill.off, `filling: ${liveFill.off} red pixels off the lines, ${liveFill.on} on them`);
+  await page.mouse.up();
+  const fill = await filled(200);
+  assert.ok(fill.off > 300 * fill.px && fill.on < 0.1 * fill.off, `filled: ${fill.off} red pixels off the lines, ${fill.on} on them`);
+  await page.screenshot({ path: path.join(shots, '18-lineart-fill.png') });
   await editor.getByRole('button', { name: 'Done' }).click();
   await editor.waitFor({ state: 'detached' });
   // Built: the painted lines are a part in that filament, saved with the design.
@@ -971,6 +1002,7 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   const saved = JSON.parse((await getDesign(lid)).values.$lineartEdits).frame.strokes;
   assert.equal(saved[0].mode, 'paint');
   assert.equal(saved[0].filament.name, name);
+  assert.deepEqual([saved[1].mode, saved[1].filament.name], ['fill', name]);
   await page.screenshot({ path: path.join(shots, '18-lineart-painted.png') });
   // The first colour goes in the top layers; the Print tab says what its filament changes cost, and the other choice.
   assert.equal((await getDesign(lid)).values.$lineartColourDepth, 'auto');

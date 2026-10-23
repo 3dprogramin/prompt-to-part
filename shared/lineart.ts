@@ -190,6 +190,8 @@ export interface LineArtInfo {
   frames: { name: string; k: number; tx: number; ty: number; fp: string }[];
   /** Hand edits (LINEART_EDITS_KEY) applied, over all drawings. */
   edits: number;
+  /** Filled bits (Edit drawing's Fill) that touched nothing of the piece, so would fall off: dropped. */
+  fillsLoose?: number;
   /** Split into pieces (bridges, specks and loose lines above are then the totals over the pieces); only on the first piece. */
   split?: LineArtSplitInfo;
   /** This part is one piece of a split line art: its name, and how far the layout moved it from its place on the wall (mm). */
@@ -237,7 +239,7 @@ export function cleanLineArtInfo(raw: unknown, scale = 1): LineArtInfo | undefin
   const colours = (Array.isArray(o.colours) ? o.colours : []).slice(0, 16).map(cleanFilament).filter((f): f is PartFilament => !!f);
   const paintedIn = cleanFilament(o.paintedIn);
   return {
-    frames, edits: count(o.edits),
+    frames, edits: count(o.edits), ...(count(o.fillsLoose) ? { fillsLoose: count(o.fillsLoose) } : {}),
     ...cleanSplit(o, scale),
     ...(colours.length ? { colours } : {}), ...(paintedIn ? { paintedIn } : {}), ...(Number.isInteger(o.components) && o.components! > 0 ? { components: o.components } : {}),
     style: o.style, sources: o.sources.filter((s) => typeof s === 'string').slice(0, 8).map((s) => s.slice(0, 120)),
@@ -478,11 +480,16 @@ export const MAX_STROKE_POINTS = 2000;
  * One brush stroke on a drawing: 'draw' adds a line `width` mm wide (default: the piece's
  * lineWidth), 'erase' removes everything within width / 2 of its path (default 3 mm) – also what
  * Jig drew there, so a join or bridge can be erased; 'paint' colours the lines under it
- * (default 3 mm wide) in `filament`, adding nothing. A drawn line is in `filament` too; without
- * one, either is the piece's own filament (paint puts it back). Points are in the drawing's own
- * units (1 = its height, centred, y up), so an edit stays put when the piece is resized.
+ * (default 3 mm wide) in `filament`, adding nothing; 'fill' (default FILL_WIDTH wide) is the
+ * opposite of paint: it adds material only where the piece has none yet (inside an outline), in
+ * `filament`, never over its lines. A drawn line is in `filament` too; without one, any of them is
+ * the piece's own filament (paint puts it back). Points are in the drawing's own units (1 = its
+ * height, centred, y up), so an edit stays put when the piece is resized.
  */
-export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint'; width?: number; points: [number, number][]; filament?: PartFilament }
+export interface LineArtStroke { mode: 'draw' | 'erase' | 'paint' | 'fill'; width?: number; points: [number, number][]; filament?: PartFilament }
+/** A fill brush's width when the stroke gives none, mm. */
+export const FILL_WIDTH = 4;
+const STROKE_MODES: readonly string[] = ['draw', 'erase', 'paint', 'fill'];
 /** The strokes on a drawing, with the fingerprint of the drawing they were made on: a new drawing under the same name leaves them out. */
 export type LineArtEdits = Record<string, { fp: string; strokes: LineArtStroke[] }>;
 
@@ -503,7 +510,7 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
     if (!e || typeof e.fp !== 'string' || !Array.isArray(e.strokes)) continue;
     const strokes: LineArtStroke[] = [];
     for (const st of e.strokes.slice(-MAX_LINEART_STROKES) as LineArtStroke[]) {
-      if (!st || (st.mode !== 'draw' && st.mode !== 'erase' && st.mode !== 'paint') || !Array.isArray(st.points)) continue;
+      if (!st || !STROKE_MODES.includes(st.mode) || !Array.isArray(st.points)) continue;
       const points = st.points.slice(0, MAX_STROKE_POINTS).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [p[0], p[1]] as [number, number]);
       if (!points.length) continue;
       const width = Number(st.width);
@@ -519,11 +526,12 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
 /**
  * The colours of a drawing's hand edits, to keep when the edits are drawn into a new picture of it
  * (Jig changing part of the drawing): its paint strokes, and its lines as paint along them (a line
- * in the piece's own filament takes the colour back there, as it did).
+ * in the piece's own filament takes the colour back there, as it did). Fills aren't in the picture
+ * (drawingPicture): they stay as they are and fill the new drawing where it is empty.
  */
 export function colourStrokes(strokes: LineArtStroke[], lineWidth = 1): LineArtStroke[] {
-  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}) }] : []));
-  const first = out.findIndex((st) => st.filament);
+  const out = strokes.flatMap((st): LineArtStroke[] => (st.mode === 'paint' || st.mode === 'fill' ? [st] : st.mode === 'draw' ? [{ mode: 'paint', width: Math.max(st.width ?? lineWidth, lineWidth), points: st.points, ...(st.filament ? { filament: st.filament } : {}) }] : []));
+  const first = out.findIndex((st) => st.filament || st.mode === 'fill');
   return first < 0 ? [] : out.slice(first);
 }
 
@@ -547,8 +555,9 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
     for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = on ? 1 : 0;
   }
   const toPx = ([x, y]: [number, number]): Pt => [(x - g.x0) * H - 0.5, (g.y1 - y) * H - 0.5];
+  // (Paint adds no ink; fills stay strokes of their own, kept by colourStrokes.)
   for (const st of strokes) {
-    if (st.mode === 'paint') continue;
+    if (st.mode === 'paint' || st.mode === 'fill') continue;
     const r = ((st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit) * H;
     const m = new Uint8Array(W * H), pts = st.points.map(toPx);
     if (pts.length === 1) capsuleXY(m, W, H, pts[0], pts[0], r);
@@ -1423,7 +1432,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   // Where each drawing lands in the piece (drawing units → mm), followed through the layout.
   const frames: LineArtInfo['frames'] = [];
   const brush = (st: LineArtStroke, toUnit: (p: Pt) => Pt, mmPerUnit: number) =>
-    new C(strokeOutlines([st.points.map(toUnit)], (st.width ?? (st.mode === 'draw' ? lineWidth : 3)) / 2 / mmPerUnit, segs / 4), 'NonZero');
+    new C(strokeOutlines([st.points.map(toUnit)], (st.width ?? (st.mode === 'draw' ? lineWidth : st.mode === 'fill' ? FILL_WIDTH : 3)) / 2 / mmPerUnit, segs / 4), 'NonZero');
   const sumW = units.reduce((a, u) => a + u.w, 0);
   // The art `s` mm high: its width, and the art placed with its box's bottom-left at the origin.
   const artWidth = (s: number) => s * sumW + gap * (names.length - 1);
@@ -1558,24 +1567,33 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     return shape;
   };
 
-  // What changes the piece's shape (paint and the lines' filaments don't: a new colour isn't traced again).
-  const shapeEdits = units.map((u) => u.edits.filter((st) => st.mode !== 'paint').map(({ filament: _f, ...st }) => st));
+  // What changes the piece's shape through Jig's clean-up (paint and the lines' filaments don't: a
+  // new colour isn't traced again; nor do fills, added after it).
+  const shapeEdits = units.map((u) => u.edits.filter((st) => st.mode !== 'paint' && st.mode !== 'fill').map(({ filament: _f, ...st }) => st));
+  // Erasing and filling by hand, in stroke order, after the clean-up (mm).
+  const handOps: HandOp[] = units.flatMap((u, i) => u.edits.filter((st) => st.mode === 'erase' || st.mode === 'fill').map((st) => {
+    const f = frames[i];
+    return { st, cs: brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1) };
+  }));
   // Colours: each filament's area on the piece (mm), the later stroke winning where two cross; a
   // stroke in the piece's own filament (none, or its colour) takes it back. A drawn line colours
-  // all of itself, also where Jig made it thicker.
+  // all of itself, also where Jig made it thicker; a fill what it added (`filled`, once the piece is
+  // made), so the lines it filled up to keep their own colour (`fill`: the area's filled part).
   const baseColour = color.toLowerCase();
-  const areas: { filament: PartFilament; area: any }[] = [];
-  units.forEach((u, i) => {
+  const areas: { filament: PartFilament; area: any; fill?: any }[] = [];
+  const colourAreas = (filled: Map<LineArtStroke, any>) => units.forEach((u, i) => {
     const f = frames[i], toMm = ([x, y]: Pt): Pt => [x * f.k + f.tx, y * f.k + f.ty];
     for (const st of u.edits) {
       if (st.mode === 'erase') continue;
       const fil = st.filament && st.filament.color !== baseColour ? st.filament : null;
       if (!fil && !areas.length) continue;
-      const b = brush(st.mode === 'draw' ? { ...st, width: Math.max(st.width ?? lineWidth, lineWidth) } : st, toMm, 1);
-      for (const a of areas) if (!fil || filamentKey(a.filament) !== filamentKey(fil)) a.area = a.area.subtract(b);
+      const b = st.mode === 'fill' ? filled.get(st) : brush(st.mode === 'draw' ? { ...st, width: Math.max(st.width ?? lineWidth, lineWidth) } : st, toMm, 1);
+      if (!b || b.isEmpty()) continue;
+      for (const a of areas) if (!fil || filamentKey(a.filament) !== filamentKey(fil)) { a.area = a.area.subtract(b); if (a.fill) a.fill = a.fill.subtract(b); }
       if (!fil) continue;
-      const mine = areas.find((a) => filamentKey(a.filament) === filamentKey(fil));
-      if (mine) mine.area = mine.area.add(b); else areas.push({ filament: fil, area: b });
+      let mine = areas.find((a) => filamentKey(a.filament) === filamentKey(fil));
+      if (mine) mine.area = mine.area.add(b); else areas.push((mine = { filament: fil, area: b }));
+      if (st.mode === 'fill') mine.fill = mine.fill ? mine.fill.add(b) : b;
     }
   });
   // Each colour's part name: the piece's, with the filament's name (its colour too when two share one).
@@ -1705,32 +1723,31 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     }
     // Lines kept as drawn: the drawing itself, exactly, with what Jig drew (thickened lines, bridges) added as exact shapes.
     let lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
-    // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge).
-    units.forEach((u, i) => {
-      const f = frames[i];
-      for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); lineCs = lineCs.subtract(b); erased = erased ? erased.add(b) : b; }
-    });
+    // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge); filling
+    // by hand adds to the piece as it is then.
+    for (const op of handOps) if (op.st.mode === 'erase') erased = erased ? erased.add(op.cs) : op.cs;
+    const hand = handEdits(lineCs, anchor, handOps);
+    lineCs = hand.lineCs;
+    colourAreas(hand.filled);
     marks = res;
     // What is in other filaments is parts of their own; the rest is the piece's.
     const { shape, colours, paint } = paintPiece('Line art', lineCs, anchor);
-    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
+    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, bridges: res.bridges, longestBridge: res.longestBridge, dropped: res.dropped + vectorDropped, closed: res.closed, openings: res.openings, endsJoined: res.endsJoined, endsFree: res.endsFree, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0), ...(hand.loose ? { fillsLoose: hand.loose } : {}) };
     if (colours.length) { info.components = (anchor ? lineCs.add(anchor) : lineCs).decompose().length; info.paint = paint; }
     parts = [{ name: 'Line art', shape, color, lineArt: info, colours }];
   } else {
-    // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by itself.
-    let erase: any = null;
-    units.forEach((u, i) => {
-      const f = frames[i];
-      for (const st of u.edits) if (st.mode === 'erase') { const b = brush(st, ([x, y]) => [x * f.k + f.tx, y * f.k + f.ty], 1); erase = erase ? erase.add(b) : b; }
-    });
-    erased = erase;
+    // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by
+    // itself; erasing and filling by hand are applied to each piece.
+    for (const op of handOps) if (op.st.mode === 'erase') erased = erased ? erased.add(op.cs) : op.cs;
     const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, shapeEdits, d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null]);
     sp = splitPieces({
-      d, key, art, anchor, erase, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
+      d, key, art, anchor, hand: handOps, ab, cols: grid.cols, rows: grid.rows, lineWidth, fill, minIsland, lines, joinEnds, segs,
       clearance: num('clearance', 0.15, 0, 1), maxBridge: d.join ?? (opts.splitJoin != null ? num('splitJoin', DEFAULT_SPLIT_JOIN, 5, 300) : DEFAULT_SPLIT_JOIN), minPart: SPLIT_MIN_PART * lineWidth, pegAt, pegZone: pegFoot + 1, barHeight, signText,
     });
     const totals = sp.pieces.reduce((t, p) => ({ bridges: t.bridges + p.info.bridges, longestBridge: Math.max(t.longestBridge, p.info.longestBridge), dropped: t.dropped + p.info.dropped, endsJoined: t.endsJoined + p.info.endsJoined, endsFree: t.endsFree + p.info.endsFree, closed: t.closed + p.closed, openings: t.openings + p.openings }), { bridges: 0, longestBridge: 0, dropped: vectorDropped, endsJoined: 0, endsFree: 0, closed: 0, openings: 0 });
-    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, ...totals, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0) };
+    info = { style, sources: names, size: [pieceW, pieceH], thickness, lineWidth, lines, ...totals, hooks, frames, edits: units.reduce((n, u) => n + u.edits.length, 0), ...(sp.fillsLoose ? { fillsLoose: sp.fillsLoose } : {}) };
+    // What each fill added, over the pieces, for its colour.
+    colourAreas(sp.filled);
     const labels = opts.labels !== false;
     const res = sp;
     parts = res.pieces.map((p, i) => {
@@ -1848,28 +1865,78 @@ const PAINT_REACH = 0.1;
 /** Slivers of the piece's own filament or of a colour narrower than twice this (mm) are cleaned away when the lines are split. */
 const PAINT_CLEAN = 0.005;
 
+/** An erase or fill stroke and its brush on the piece (mm). */
+interface HandOp { st: LineArtStroke; cs: any }
+/** A filled bit no bigger than this (mm²) of the piece's own lines: nothing of the piece holds it. */
+const FILL_HELD = 0.05;
+/** How far a fill reaches over the lines it ends on (mm), so it meets them with no crack. */
+const FILL_SEAL = 0.0002;
+
+/**
+ * Erasing and filling by hand on the lines `lineCs` (mm, after Jig's clean-up), in stroke order:
+ * an erase takes away everything under it; a fill adds what under it is still empty (off the lines,
+ * what was filled before and the bar or frame `anchor`; inside `region`, a split piece's), without
+ * bits narrower than MIN_PAINT, so it never covers a line. Filled material that ends up touching
+ * nothing else of the piece would fall off: it goes (`loose` counts it). `filled`: what each fill
+ * added and kept, for its colour.
+ */
+function handEdits(lineCs: any, anchor: any, ops: HandOp[], region?: any): { lineCs: any; filled: Map<LineArtStroke, any>; loose: number } {
+  const filled = new Map<LineArtStroke, any>();
+  const r = MIN_PAINT / 2;
+  for (const { st, cs } of ops) {
+    if (st.mode === 'erase') { lineCs = lineCs.subtract(cs); continue; }
+    let add = region ? cs.intersect(region) : cs;
+    add = add.subtract(lineCs);
+    if (anchor && !add.isEmpty()) add = add.subtract(anchor);
+    if (add.isEmpty()) continue;
+    // (Opened, then out to its own edges again, and a hair over the lines' edges: where it ends on
+    // a line a rounding's difference would leave a crack, a skin of the piece's walls in it.)
+    const open = add.offset(-r, 'Round').offset(r, 'Round');
+    if (open.isEmpty()) continue;
+    add = open.offset(PAINT_SNAP, 'Miter').intersect(add);
+    if (add.isEmpty() || add.area() <= 1e-4) continue;
+    add = add.offset(FILL_SEAL, 'Miter');
+    lineCs = lineCs.add(add);
+    filled.set(st, add);
+  }
+  if (!filled.size) return { lineCs, filled, loose: 0 };
+  // A body of the piece that is all fill holds on to nothing.
+  const all = [...filled.values()].reduce((u: any, x) => u.add(x));
+  const bodies = (anchor && !anchor.isEmpty() ? lineCs.add(anchor) : lineCs).decompose();
+  const loose = bodies.length > 1 ? bodies.filter((b: any) => b.subtract(all).area() <= FILL_HELD) : [];
+  if (loose.length) {
+    const gone = loose.reduce((u: any, x: any) => u.add(x));
+    lineCs = lineCs.subtract(gone);
+    for (const [st, x] of filled) filled.set(st, x.subtract(gone));
+  }
+  return { lineCs, filled, loose: loose.length };
+}
+
 /**
  * The lines `lineCs` coloured by `areas` (which don't overlap): each filament's part of them, off
  * the bar or frame (`anchor`) and without slivers narrower than MIN_PAINT; a sliver of the piece's
  * own filament left between a colour and the edge of a line (a stroke that just missed it) takes
- * that colour. The rest of the lines stays in the piece's own filament.
+ * that colour (not beside a fill: the lines it was filled up to are the drawing's own). The rest of
+ * the lines stays in the piece's own filament.
  */
-function colourLines(lineCs: any, anchor: any, areas: { filament: PartFilament; area: any }[]): { filament: PartFilament; cs: any }[] {
+function colourLines(lineCs: any, anchor: any, areas: { filament: PartFilament; area: any; fill?: any }[]): { filament: PartFilament; cs: any }[] {
   if (!areas.length || lineCs.isEmpty()) return [];
   const r = MIN_PAINT / 2;
   const open = (cs: any) => cs.offset(-r, 'Round').offset(r, 'Round');
-  const colours: { filament: PartFilament; cs: any }[] = [];
+  const colours: { filament: PartFilament; cs: any; fill?: any }[] = [];
   for (const a of areas) {
     let cs = lineCs.intersect(a.area);
     if (anchor && !cs.isEmpty()) cs = cs.subtract(anchor);
     if (cs.isEmpty()) continue;
     cs = open(cs).intersect(cs);
     if (cs.isEmpty() || cs.area() <= 1e-4) continue;
-    // Out to the line's own edge (the opening rounds it a hair inside), not over the colours before it.
+    // Out to the line's own edge (the opening rounds it a hair inside), not over the colours before
+    // it (nor, filled, over the lines it was filled up to).
     cs = cs.offset(PAINT_SNAP, 'Miter').intersect(lineCs);
+    if (a.fill && !a.fill.isEmpty()) cs = cs.subtract(lineCs.subtract(a.area).intersect(a.fill.offset(2 * PAINT_SNAP, 'Miter')));
     if (anchor) cs = cs.subtract(anchor);
     for (const c of colours) cs = cs.subtract(c.cs);
-    if (!cs.isEmpty() && cs.area() > 1e-4) colours.push({ filament: a.filament, cs });
+    if (!cs.isEmpty() && cs.area() > 1e-4) colours.push({ filament: a.filament, cs, fill: a.fill && !a.fill.isEmpty() ? a.fill : undefined });
   }
   if (!colours.length) return colours;
   // The piece's own filament near the colours, and its slivers there.
@@ -1877,12 +1944,18 @@ function colourLines(lineCs: any, anchor: any, areas: { filament: PartFilament; 
   let own = lineCs.subtract(all).intersect(all.offset(3 * r, 'Round'));
   if (anchor && !own.isEmpty()) own = own.subtract(anchor);
   if (own.isEmpty()) return colours;
-  const thin = own.subtract(open(own));
+  let thin = own.subtract(open(own));
+  // (What of it was filled goes back to its fill's colour; the lines a fill met stay as they are.)
+  for (const c of colours) if (c.fill && !thin.isEmpty()) {
+    const f = thin.intersect(c.fill);
+    if (!f.isEmpty()) { c.cs = c.cs.add(f); thin = thin.subtract(c.fill); }
+  }
   if (thin.isEmpty()) return colours;
-  const grown = colours.map((c) => c.cs.offset(0.02, 'Miter'));
+  const grown = colours.map((c) => { const p = c.fill ? c.cs.subtract(c.fill.offset(PAINT_SNAP, 'Miter')) : c.cs; return p.area() > 1e-4 ? p.offset(0.02, 'Miter') : null; });
+  if (grown.every((g) => !g)) return colours;
   for (const bit of thin.decompose()) {
     let best = -1, most = 1e-6;
-    grown.forEach((g, k) => { const t = bit.intersect(g).area(); if (t > most) { most = t; best = k; } });
+    grown.forEach((g, k) => { const t = g ? bit.intersect(g).area() : 0; if (t > most) { most = t; best = k; } });
     if (best >= 0) colours[best].cs = colours[best].cs.add(bit);
   }
   return colours;
@@ -1927,6 +2000,9 @@ interface SplitResult {
   pieceAt: (p: Pt) => number;
   /** Where a piece's name goes on its back. */
   label: (i: number) => { x: number; y: number; size: number; rot: boolean } | null;
+  /** What each fill added, over the pieces, and the filled bits dropped as loose. */
+  filled: Map<LineArtStroke, any>;
+  fillsLoose: number;
 }
 
 interface SplitInput {
@@ -1934,8 +2010,8 @@ interface SplitInput {
   key: string;
   art: any;
   anchor: any;
-  /** What the user erased by hand (mm), taken off each piece after the clean-up. */
-  erase: any;
+  /** What the user erased and filled by hand (mm), applied to each piece after the clean-up. */
+  hand: HandOp[];
   ab: { min: number[]; max: number[] };
   cols: number;
   rows: number;
@@ -2080,16 +2156,24 @@ function splitPieces(o: SplitInput): SplitResult {
   // Each cell's parts: its main one (`mains`: the cells whose main part it is) and bits too far to bridge.
   interface Part { cell: number; lc: any; an: any; region: any; stats: SplitCached['pieces'][number][]; mains: number[] }
   const parts: Part[] = [];
+  const filled = new Map<LineArtStroke, any>();
+  let fillsLoose = 0;
   for (const [i, p] of cached.pieces.entries()) {
     const f = fresh[i];
     const region = f ? f.region : new C(p.region, 'EvenOdd');
     const pan = f ? f.pan : anchor ? anchor.intersect(region) : null;
     const pa = f ? f.pa : dropSpecks(C, art.intersect(region), pan, o.minIsland).cs;
     let lineCs = o.lines === 'keep' ? (p.paths.length ? pa.add(new C(strokeOutlines(p.paths, lineWidth / 2, o.segs / 4), 'NonZero')) : pa) : new C(p.loops, 'EvenOdd');
-    if (o.erase) lineCs = lineCs.subtract(o.erase);
     // What Jig drew stays on the piece: a bridge or a thickened line ends at the seam.
     lineCs = lineCs.intersect(region);
     const anc = pan && !pan.isEmpty() ? pan : null;
+    // Erased and filled by hand, on this piece (a fill too, so what it holds on to is on it).
+    if (o.hand.length) {
+      const h = handEdits(lineCs, anc, o.hand, region);
+      lineCs = h.lineCs;
+      fillsLoose += h.loose;
+      for (const [st, x] of h.filled) filled.set(st, filled.has(st) ? filled.get(st).add(x) : x);
+    }
     // Bits too far apart to bridge become pieces of their own (A2, A2b…): the one on the bar or frame,
     // or the biggest, first – every part one piece, nothing loose in it. Specks too small to print
     // on their own (cut apart by an erase) go.
@@ -2212,7 +2296,7 @@ function splitPieces(o: SplitInput): SplitResult {
     for (const p of s.loose) { const i = pieceOf(p); if (i != null) pieces[i].loose.push(p); }
   }
   return {
-    seams: cached.seams, pieces, joints, cuts,
+    seams: cached.seams, pieces, joints, cuts, filled, fillsLoose,
     // (A crossing of the frame where two strips were joined needs no dovetail.)
     noJoint: cached.noJoint.filter((j, k) => meets(cached.seams[cached.noJointSeam[k]], j.at)),
     pieceAt: (q) => mainOf.get(geo.pieceAt(q)) ?? -1,

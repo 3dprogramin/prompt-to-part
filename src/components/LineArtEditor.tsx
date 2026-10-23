@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ParamValues, PartMesh } from '../../shared/types';
-import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtDepth, parseLineArtEdits, type LineArtEdits, type LineArtInfo, type LineArtPaint, type LineArtStroke } from '../../shared/lineart';
+import { FILL_WIDTH, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtDepth, parseLineArtEdits, type LineArtEdits, type LineArtInfo, type LineArtPaint, type LineArtStroke } from '../../shared/lineart';
 import { colourCost, depthLabel } from './LineArtPanel';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import { SCALE_KEY, type PartFilament } from '../../shared/params';
@@ -11,7 +11,7 @@ import { Icon } from './Icon';
 import { FilamentPicker } from './FilamentPicker';
 
 type Pt = [number, number];
-type Tool = 'draw' | 'erase' | 'paint';
+type Tool = 'draw' | 'erase' | 'paint' | 'fill';
 /** A step of this session, for Undo / Redo: a stroke added, or edits cleared. */
 type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown: ShownStroke } | { kind: 'clear'; names: string[]; before: LineArtEdits; shown: ShownStroke[] };
 /**
@@ -21,8 +21,10 @@ type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown:
  */
 interface ShownStroke { mode: Tool; width: number; points: Pt[]; name?: string; src?: LineArtStroke; live?: boolean; color?: string }
 
-/** Brush widths (mm): draw, erase, paint. */
-const WIDTH = { draw: { min: 0.6, max: 5 }, erase: { min: 1, max: 15 }, paint: { min: 0.5, max: 15 } };
+/** Brush widths (mm): draw, erase, paint, fill. */
+const WIDTH = { draw: { min: 0.6, max: 5 }, erase: { min: 1, max: 15 }, paint: { min: 0.5, max: 15 }, fill: { min: 0.5, max: 15 } };
+/** Paint shows only on the piece, a fill only off it. */
+const masked = (mode: Tool) => mode === 'paint' || mode === 'fill';
 /** Snap within this many mm of the ink (and at least SNAP_PX screen pixels). */
 const SNAP_MM = 1.5;
 const SNAP_PX = 10;
@@ -119,10 +121,10 @@ function pieceImage(part: PartMesh & { paints?: { color: string; from: number; t
   return { fill, bitmap, mask, box: { x0, y0, x1, y1 } };
 }
 
-/** A stroke stamped into the ink grid: a drawn line adds ink, erasing takes it away (paint changes none). */
+/** A stroke stamped into the ink grid: a drawn line or a fill adds ink (all under it is ink then), erasing takes it away (paint changes none). */
 function stamp(m: InkMask, st: ShownStroke) {
   if (st.mode === 'paint') return;
-  const r = st.width / 2 / m.res, v = st.mode === 'draw' ? 1 : 0;
+  const r = st.width / 2 / m.res, v = st.mode === 'erase' ? 0 : 1;
   const px = st.points.map(([x, y]): Pt => [(x - m.x0) / m.res, (m.y1 - y) / m.res]);
   const segs = px.length === 1 ? [[px[0], px[0]]] : px.slice(1).map((p, i) => [px[i], p]);
   for (const [[ax, ay], [bx, by]] of segs) {
@@ -152,7 +154,8 @@ interface Props {
 /**
  * The Edit drawing brush: the piece large and straight on, to draw lines on (they go through Jig's
  * clean-up like the drawing's own), paint the lines, frame, bar, text or pegs in another filament
- * (as deep as LINEART_DEPTH_KEY says; a line can be drawn in one too) or erase (also what Jig drew there). The strokes are a draft,
+ * (as deep as LINEART_DEPTH_KEY says; a line can be drawn in one too), fill where the piece has
+ * nothing yet (inside an outline, in a filament too) or erase (also what Jig drew there). The strokes are a draft,
  * drawn over the piece, until Done (or Escape) saves them in the design at once (LINEART_EDITS_KEY,
  * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft.
  */
@@ -177,7 +180,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const image = useMemo(() => pieceImage(part, la.thickness), [part, la.thickness]);
 
   const [tool, setTool] = useState<Tool>('draw');
-  const [widths, setWidths] = useState(() => ({ draw: round(clamp(la.lineWidth, WIDTH.draw.min, WIDTH.draw.max), 1), erase: 3, paint: 3 }));
+  const [widths, setWidths] = useState(() => ({ draw: round(clamp(la.lineWidth, WIDTH.draw.min, WIDTH.draw.max), 1), erase: 3, paint: 3, fill: FILL_WIDTH }));
   // The filament lines are drawn and painted in (null: the piece's own), and the picker for another.
   const [filament, setFilament] = useState<PartFilament | null>(null);
   const [picking, setPicking] = useState(false);
@@ -278,7 +281,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     const mm = (ctx: CanvasRenderingContext2D) => ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
     const px = (ctx: CanvasRenderingContext2D) => ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (const ctx of [out, ink, tmp]) { px(ctx); ctx.clearRect(0, 0, width, height); }
-    // The lines as they are: the piece (its bitmap while the view moves), with this session's lines drawn and erasing taken out.
+    // The lines as they are: the piece (its bitmap while the view moves), with this session's lines and fills drawn and erasing taken out.
     if (im && moving.current) {
       const m = im.mask, [sx, sy] = toScreen([m.x0, m.y1]);
       ink.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -291,10 +294,12 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         strokeOn(out, st, PAPER);
         ink.globalCompositeOperation = 'destination-out'; strokeOn(ink, st, INK); ink.globalCompositeOperation = 'source-over';
       } else {
+        // Paint on the ink only, a fill off it only (then it is ink too, for what comes after it).
         px(tmp); tmp.clearRect(0, 0, width, height); mm(tmp);
         strokeOn(tmp, st, st.color ?? INK);
-        px(tmp); tmp.globalCompositeOperation = 'destination-in'; tmp.drawImage(L.ink, 0, 0); tmp.globalCompositeOperation = 'source-over';
+        px(tmp); tmp.globalCompositeOperation = st.mode === 'fill' ? 'destination-out' : 'destination-in'; tmp.drawImage(L.ink, 0, 0); tmp.globalCompositeOperation = 'source-over';
         px(out); out.drawImage(L.tmp, 0, 0); mm(out);
+        if (st.mode === 'fill') strokeOn(ink, st, INK);
       }
     }
     return L.out;
@@ -329,22 +334,22 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     // Erased: the paper shows (red while it is being drawn).
     const stroke = (st: ShownStroke) => strokeOn(ctx, st, st.mode === 'draw' ? st.color ?? INK : st.live ? ERASE : PAPER);
     const live: ShownStroke | null = a.mode === 'draw' && a.points.length ? { mode: n.tool, width: n.width, points: livePoints(), live: true, color: n.tool === 'erase' ? undefined : n.filament?.color } : null;
-    // Paint only shows on the piece (its lines, frame, bar, text and pegs): the strokes over the ink
-    // layer, which is kept while they and the view stay the same.
-    if (live?.mode === 'paint' || n.shown.some((st) => st.mode === 'paint')) {
+    // Paint only shows on the piece (its lines, frame, bar, text and pegs), a fill only off it: the
+    // strokes over the ink layer, which is kept while they and the view stay the same.
+    if ((live && masked(live.mode)) || n.shown.some((st) => masked(st.mode))) {
       const img = composed(n.shown, c.width, c.height);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(img, 0, 0);
       ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
     } else for (const st of n.shown) stroke(st);
-    if (live?.mode === 'paint' && layer.current) {
-      // The stroke being painted: see-through, on the ink only.
+    if (live && masked(live.mode) && layer.current) {
+      // The stroke being painted: see-through, on the ink only (filled: off it only).
       const L = layer.current, t = L.tmp.getContext('2d')!;
       t.setTransform(1, 0, 0, 1, 0, 0); t.clearRect(0, 0, L.tmp.width, L.tmp.height);
       t.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
       strokeOn(t, live, live.color ?? INK);
       t.setTransform(1, 0, 0, 1, 0, 0);
-      t.globalCompositeOperation = 'destination-in'; t.drawImage(L.ink, 0, 0); t.globalCompositeOperation = 'source-over';
+      t.globalCompositeOperation = live.mode === 'fill' ? 'destination-out' : 'destination-in'; t.drawImage(L.ink, 0, 0); t.globalCompositeOperation = 'source-over';
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 0.6; ctx.drawImage(L.tmp, 0, 0); ctx.globalAlpha = 1;
       ctx.setTransform(dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s));
@@ -601,7 +606,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
     return () => c.removeEventListener('wheel', onWheel);
   }, [zoomAt]);
 
-  // Keys: B draw, P paint, E erase, S snap, [ ] width, F fit, + − zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
+  // Keys: B draw, P paint, G fill, E erase, S snap, [ ] width, F fit, + − zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
   // Space pans, Shift draws straight. The editor is on top: the app's own keys wait (Escape closes it).
   // (Not in the filament picker, which has keys of its own.)
   useEffect(() => {
@@ -620,6 +625,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       });
       if (k === 'b') setTool('draw');
       else if (k === 'p') setTool('paint');
+      else if (k === 'g') setTool('fill');
       else if (k === 'e') setTool('erase');
       else if (k === 's') setSnap((s) => !s);
       else if (k === 'f' || k === '0') fit();
@@ -644,24 +650,33 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
   const barMm = niceLength(90 / zoom);
   const phone = layout === 'phone';
   const lim = WIDTH[tool];
+  // The filament the brush puts down, when it isn't the piece's own (a line is drawn in it too).
+  const using = coloured && filament ? ` in ${filament.name ?? filament.color}` : '';
+  const status = changed ? 'Not built yet: Done builds it' : `${applied} hand edit${applied === 1 ? '' : 's'}`;
+  const showSwaps = !!swaps && (tool === 'paint' || tool === 'fill' || palette.length > 0);
   // Clearing edits the piece was built with only shows once it is rebuilt.
   const clearedBuilt = la.edits > 0 && applied === 0;
   return (
     <div className={`la-editor ${phone ? 'phone' : ''}`} role="dialog" aria-modal="true" aria-label="Edit the drawing" ref={dialog} tabIndex={-1}>
       <div className="la-ed-bar" role="toolbar" aria-label="Brush">
         <div className="la-ed-group" role="radiogroup" aria-label="Tool">
-          <button className={`la-ed-tool ${tool === 'draw' ? 'on' : ''}`} role="radio" aria-checked={tool === 'draw'} onClick={() => setTool('draw')} title="Draw a line (B)">
+          {/* (In the filament chosen too: its swatch on the button says so.) */}
+          <button className={`la-ed-tool ${tool === 'draw' ? 'on' : ''}`} role="radio" aria-checked={tool === 'draw'} onClick={() => setTool('draw')} title={`Draw a line (B), in ${filament ? filament.name ?? filament.color : "the piece's own filament"}`}>
             <Icon name="brush" size={15} /><span className="la-ed-label">Draw</span>
+            {filament && <span className="swatch la-ed-tool-swatch" style={{ background: filament.color }} />}
           </button>
           <button className={`la-ed-tool ${tool === 'paint' ? 'on' : ''}`} role="radio" aria-checked={tool === 'paint'} onClick={() => setTool('paint')} title="Paint (P): colour what is under the brush (lines, frame, bar, text, pegs) in the filament chosen, as deep as the Print tab's Colours say (adds no line)">
             <Icon name="palette" size={15} /><span className="la-ed-label">Paint</span>
+          </button>
+          <button className={`la-ed-tool ${tool === 'fill' ? 'on' : ''}`} role="radio" aria-checked={tool === 'fill'} onClick={() => setTool('fill')} title="Fill (G): add material in the filament chosen, only where the piece has none (inside an outline), never over its lines">
+            <Icon name="bucket" size={15} /><span className="la-ed-label">Fill</span>
           </button>
           <button className={`la-ed-tool ${tool === 'erase' ? 'on erase' : ''}`} role="radio" aria-checked={tool === 'erase'} onClick={() => setTool('erase')} title="Erase (E): also what Jig drew there">
             <Icon name="eraser" size={15} /><span className="la-ed-label">Erase</span>
           </button>
         </div>
         {/* The filament lines are drawn and painted in: the piece's own, those used, or another from the picker. */}
-        <div className={`la-ed-filaments ${coloured ? '' : 'off'}`} role="radiogroup" aria-label="Filament to draw and paint with">
+        <div className={`la-ed-filaments ${coloured ? '' : 'off'}`} role="radiogroup" aria-label="Filament to draw, paint and fill with">
           <button className={`la-ed-chip ${!filament ? 'on' : ''}`} role="radio" aria-checked={!filament} disabled={!coloured} onClick={() => setFilament(null)}
             title="The piece's own filament: paint with it to take a colour off" aria-label="The piece's own filament">
             <span className="swatch" style={{ background: part.color }} />
@@ -686,7 +701,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         </div>
         <label className="la-ed-width" title="Brush width ([ and ])">
           <span className="la-ed-label">Width</span>
-          <input type="range" min={lim.min} max={lim.max} step={0.1} value={width} aria-label={`${tool === 'draw' ? 'Line' : tool === 'paint' ? 'Paint brush' : 'Eraser'} width, mm`}
+          <input type="range" min={lim.min} max={lim.max} step={0.1} value={width} aria-label={`${tool === 'draw' ? 'Line' : tool === 'paint' ? 'Paint brush' : tool === 'fill' ? 'Fill brush' : 'Eraser'} width, mm`}
             onChange={(e) => setWidths((w) => ({ ...w, [tool]: Number(e.target.value) }))} />
           <span className="mono la-ed-val">{width.toFixed(1)} mm</span>
         </label>
@@ -701,10 +716,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         <button className="la-ed-tool" disabled={!applied} onClick={() => clear(la.frames.filter((f) => edits[f.name]?.fp === f.fp).map((f) => f.name))} title="Remove every hand edit of this piece">
           <Icon name="trash" size={15} /><span className="la-ed-label">Clear edits</span>
         </button>
-        <span className="spacer" />
-        <span className="la-ed-status small" aria-live="polite">
-          {busy ? <><span className="spinner" /> updating…</> : changed ? 'Not built yet: Done builds it' : `${applied} hand edit${applied === 1 ? '' : 's'}`}
-          {swaps && (tool === 'paint' || palette.length > 0) && (
+        {/* (It takes the room left, cut short rather than pushing Done onto a row of its own.) */}
+        <span className="la-ed-status small" aria-live="polite" title={busy ? undefined : `${status}${showSwaps ? ` · ${swaps.text}` : ''}`}>
+          {busy ? <><span className="spinner" /> updating…</> : status}
+          {showSwaps && (
             <span className="la-ed-swaps" title={`Colours ${depthLabel(swaps.depth).toLowerCase()}, as built: an estimate for the A1 (the Print tab's Colours set how deep they go and compare; the Cost tab's slice is exact)`}>· {swaps.text}</span>
           )}
         </span>
@@ -714,7 +729,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
       <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-          onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint or erase" />
+          onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint, fill or erase" />
         <div className="la-ed-notes">
           {stale.strokes > 0 && (
             <div className="la-ed-note warn"><Icon name="alert" size={13} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing <button className="link" onClick={() => clear(stale.names)}>Clear</button></div>
@@ -737,7 +752,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose }: P
         </div>
         {!phone && (
           <div className="la-ed-hint small">
-            {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : 'erases'} · two fingers move and zoom` : `Drag to ${tool} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width`}
+            {touch ? `One finger ${tool === 'draw' ? 'draws' : tool === 'paint' ? 'paints' : tool === 'fill' ? 'fills' : 'erases'}${using} · two fingers move and zoom` : `Drag to ${tool}${using} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width`}
           </div>
         )}
       </div>
