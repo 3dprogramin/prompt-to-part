@@ -1662,10 +1662,13 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     // another in 3D, a hair's difference between the outlines leaves a skin of one on the other's walls.
     const base: any[] = [];
     const clean = (cs: any) => (cs.isEmpty() ? cs : cs.offset(-PAINT_CLEAN, 'Round').offset(PAINT_CLEAN, 'Round').intersect(cs));
+    // Slits closed (a crack along a fill or a line, made solid, flips faces).
+    const tidy = (cs: any) => (cs.isEmpty() ? cs : cs.offset(PAINT_CLEAN, 'Round').offset(-PAINT_CLEAN, 'Round'));
     const part = (kind: PaintMaterial, whole: any, list: { cs: any; filament: PartFilament }[]) => {
       if (!whole || whole.isEmpty()) return;
       const top = z[kind][1];
       if (!list.length) return void base.push(whole.extrude(top));
+      whole = tidy(whole);
       const own = clean(whole.subtract(union(list.map((c) => c.cs))));
       const rest = whole.subtract(own);
       const kept: { filament: PartFilament; cs: any }[] = [];
@@ -1680,6 +1683,17 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
         cs = clean(cs);
         if (!cs.isEmpty()) kept.push({ filament: c.filament, cs });
       }
+      // A filament in one outline: its areas side by side, made apart, left slits and faces in it.
+      for (let i = kept.length - 1; i > 0; i--) {
+        const j = kept.findIndex((k) => filamentKey(k.filament) === filamentKey(kept[i].filament));
+        if (j < i) { kept[j].cs = kept[j].cs.add(kept[i].cs); kept.splice(i, 1); }
+      }
+      // And without slits (where a brush edge ran along a hair of the piece's own filament): its
+      // top made over one flips faces, which show as a dark band.
+      kept.forEach((k, i) => {
+        k.cs = tidy(k.cs).intersect(whole);
+        for (const o of kept.slice(0, i)) k.cs = k.cs.subtract(o.cs);
+      });
       // The piece's filament: all the rest, in one outline (made of pieces, it showed their seams),
       // less its hairs against a colour, which go to the colour they lie against most: every bit of
       // the flat is in one part, with no crack or sliver between them.
@@ -1694,19 +1708,14 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
         }
         if (moved) mine = whole.subtract(union(kept.map((k) => k.cs)));
       }
-      // In layers by where the colours start, each the flat less the colours started at or under it:
-      // stacked, not side by side (blocks of one part that meet in a wall leave a slit in it).
+      // The piece's filament is the whole of it made solid, less a slot for each colour from where it
+      // starts, which reaches a hair past the piece's edge (and over its top): no wall of the slot is
+      // on one of the piece's, which would leave a skin, and no blocks of it are joined side by side,
+      // which left slits.
       const bottoms = kept.map((k) => colourBottom(depthLayers(depth, needOf(k.filament).need), z[kind][0], top, printLayers));
       kept.forEach((k, i) => put(k.filament, kind, k.cs.simplify(LAYER_TIDY).extrude(top - bottoms[i]).translate([0, 0, bottoms[i]]), k.cs.area()));
-      const levels = [...new Set([0, ...bottoms])].filter((b) => b < top).sort((x, y) => x - y);
-      levels.forEach((b, i) => {
-        const started = kept.filter((_, j) => bottoms[j] <= b).map((k) => k.cs);
-        const layer = started.length === kept.length ? mine : started.length ? whole.subtract(union(started)) : whole;
-        const up = i + 1 < levels.length ? levels[i + 1] : top;
-        // (A hair into the layer under it: only touching, the two stayed apart.)
-        const from = i ? b - LAYER_LAP : 0;
-        if (!layer.isEmpty()) base.push(layer.simplify(LAYER_TIDY).extrude(up - from).translate([0, 0, from]));
-      });
+      const slots = kept.map((k, i) => k.cs.offset(SLOT_OUT, 'Miter').subtract(mine).extrude(top - bottoms[i] + SLOT_OUT).translate([0, 0, bottoms[i]]));
+      base.push(slots.length ? whole.extrude(top).subtract(union(slots)) : whole.extrude(top));
     };
     part('lines', anc && !lc.isEmpty() ? lc.subtract(anc) : lc, colourLines(lc, anc, areas));
     if (anc && !anc.isEmpty()) part('frame', anc, shows ? colourLines(shows, null, areas) : []);
@@ -1904,9 +1913,9 @@ const MIN_BODY = 0.01;
 const PAINT_REACH = 0.1;
 /** Slivers of the piece's own filament or of a colour narrower than twice this (mm) are cleaned away when the lines are split. */
 const PAINT_CLEAN = 0.005;
-/** How far the piece's own filament's layers reach into the one under them (mm), so they make one body. */
-const LAYER_LAP = 0.001;
-/** Outlines' slivers and steps thinner than this (mm) go before they are made solid: they spoil the joining. */
+/** How far a colour's slot in the piece's own filament reaches past the piece (mm). */
+const SLOT_OUT = 0.01;
+/** A colour's slivers and steps thinner than this (mm) go before it is made solid. */
 const LAYER_TIDY = 1e-5;
 
 /** An erase or fill stroke and its brush on the piece (mm). */
