@@ -434,8 +434,9 @@ test('a render with the light switch or mug at true size: the prompt keeps them 
   assert.equal(plan([116.6, 250, 2], 'wall').scaleRef, 'switch');
   assert.equal(plan([400, 300, 200], 'table').scaleRef, 'mug');
   assert.equal(plan([60, 40, 20], 'office').scaleRef, undefined, 'a small thing: in a hand');
-  // The size photo beside a switch, the lifestyle one at true scale on its wall alone, the studio ones as they were.
-  assert.deepEqual(shopPlan({ size: [116.6, 250, 2], suggested: 'wall' }).filter((x) => x.scaleRef).map((x) => [x.shot, x.scaleRef]), [['lifestyle', 'wall'], ['size', 'switch']]);
+  // The size photo beside a switch, the lifestyle one at true scale on its wall alone, the 3/4 view on a plain wall from the side.
+  assert.deepEqual(shopPlan({ size: [116.6, 250, 2], suggested: 'wall' }).filter((x) => x.scaleRef).map((x) => [x.shot, x.scaleRef]), [['angle', 'wall'], ['lifestyle', 'wall'], ['size', 'switch']]);
+  assert.match(photoPrompt(request({ scene: SHOP_SCENE, shop: 'angle', scaleRef: 'wall', product: { name: 'Lady with wine', size: [116.6, 250, 2] } })), /it hangs flat on the plain light studio wall of the render, upright, seen from the side/);
   const alone = scaleRefLayout('wall', { min: [0, 0, 0], max: [116.6, 250, 2] }, 1).frame;
   assert.ok(Math.abs(250 / (alone.max[1] - alone.min[1]) - 0.45) < 0.01, 'on its wall alone, the piece 45 % of the picture high');
   assert.match(photoPrompt(request({ scene: 'wall', shop: 'lifestyle', scaleRef: 'wall', product: { name: 'Lady with wine', size: [116.6, 250, 2], faceOn: true } })), /The picture shows only about 556 mm of wall across \(a light switch, 85 mm, would be about 15 % of its width\)/);

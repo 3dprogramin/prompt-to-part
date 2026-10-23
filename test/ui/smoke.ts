@@ -777,7 +777,7 @@ test('Shop photos makes a set of 5 square 2K photos, each from its own render, w
     assert.equal(new Set([renders.get('main'), renders.get('lifestyle'), renders.get('size')]).size, 3);
     // The size photo's own render: the plaque at true size beside a light switch on a plain wall.
     assert.notEqual(renders.get('size'), renders.get('main'));
-    assert.deepEqual(photos.filter((ph) => ph.scaleRef).map((ph) => [ph.shop, ph.scaleRef]).sort(), [['lifestyle', 'wall'], ['size', 'switch']]);
+    assert.deepEqual(photos.filter((ph) => ph.scaleRef).map((ph) => [ph.shop, ph.scaleRef]).sort(), [['angle', 'wall'], ['lifestyle', 'wall'], ['size', 'switch']]);
     assert.ok(imageAsks.some((a) => a.prompt.includes('SIZE PHOTO FOR THE LISTING: the render already shows it at its true size')));
     writeFileSync(path.join(shots, '18-shop-size-render.png'), Buffer.from(await (await fetch(`${A}${renders.get('size')}`)).arrayBuffer()));
     assert.ok(imageAsks.every((a) => a.size === '2K' && a.aspect === '1:1'), JSON.stringify(imageAsks.map((a) => [a.size, a.aspect])));

@@ -441,7 +441,8 @@ export function shopPlan(o: { size: Vec3; suggested: string }): ShopPlanItem[] {
   const lifeFaceOn = flat && !!(sceneById(lifestyle)?.wall || sceneById(lifestyle)?.hang);
   return [
     { shot: 'main', camera: flat ? 'face' : 'front', scene: SHOP_SCENE, faceOn: flat },
-    { shot: 'angle', camera: 'angle', scene: SHOP_SCENE, faceOn: false },
+    // (A wall piece from the side on a plain wall: floating, it came out standing on its edge, leaning.)
+    { shot: 'angle', camera: 'angle', scene: SHOP_SCENE, faceOn: false, ...(wallPiece ? { scaleRef: 'wall' as const } : {}) },
     flat ? { shot: 'detail', camera: 'detail', scene: SHOP_SCENE, faceOn: true } : { shot: 'top', camera: 'top', scene: SHOP_SCENE, faceOn: false },
     // (On a wall, face-on: at true scale in its frame, so the room around it is to scale too.)
     { shot: 'lifestyle', camera: lifeFaceOn ? 'face' : 'angle', scene: lifestyle, faceOn: lifeFaceOn, ...(lifeFaceOn && sceneById(lifestyle)?.wall && lifestyle !== 'fridge' ? { scaleRef: 'wall' as const } : {}) },
@@ -696,7 +697,9 @@ function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean, re
   const whole = 'the whole product centred, filling about three quarters of the square frame, nothing cut off';
   switch (shot) {
     case 'main': return `THE MAIN LISTING PHOTO: ${whole}.`;
-    case 'angle': return `A 3/4 VIEW FOR THE LISTING, showing ${thin ? 'how thin it is (its edge a thin line)' : 'its depth and thickness'}: ${whole}.`;
+    case 'angle': return ref === 'wall'
+      ? `A 3/4 VIEW FOR THE LISTING: it hangs flat on the plain light studio wall of the render, upright, seen from the side as in the render, so ${thin ? 'its edge is a thin line just off the wall' : 'its depth shows'}: ${whole}.`
+      : `A 3/4 VIEW FOR THE LISTING, showing ${thin ? 'how thin it is (its edge a thin line)' : 'its depth and thickness'}: ${whole}.`;
     case 'top': return `A HIGH VIEW FROM ABOVE FOR THE LISTING, showing its top: ${whole}.`;
     case 'detail': return 'A CLOSE-UP DETAIL PHOTO FOR THE LISTING: the render is cropped to part of the product, which goes on past the edges of the picture. Keep this close crop (do not show the whole product or shrink it to fit), so the surface, the edges and the fine detail of the print fill the photo, with a gentle depth of field.';
     case 'lifestyle': return null;
@@ -760,7 +763,8 @@ export function photoPrompt(b: PhotoRequest): string {
       ? '- the render shows its front face from above: it lies flat on the surface, face up, photographed from almost straight above, so the face reads exactly as in the render'
       : '- keep it in the same orientation and seen from about the same angle as in the render, so no unseen side has to be invented',
     ref
-      ? ref === 'wall' ? '- the plain wall in the render is not part of the product: it shows its true size in the frame (see below)'
+      ? ref === 'wall' && shop === 'angle' ? '- the plain wall in the render is the studio wall it hangs on, not part of the product'
+        : ref === 'wall' ? '- the plain wall in the render is not part of the product: it shows its true size in the frame (see below)'
         : `- the plain ${ref === 'switch' ? 'wall' : 'surface'} and the white ${ref} in the render are not part of the product: they show its true size (see below)`
       : '- the grey background of the render is not part of the product: replace it completely with the scene',
     '',
@@ -771,7 +775,7 @@ export function photoPrompt(b: PhotoRequest): string {
     '',
     `SCENE: ${preset ? sceneText(b, preset) : idea ? idea.scene : notes}.`,
     // A small sign alone on a wall reads as a big one: give it something of known size beside it.
-    ref && shop !== 'size' ? trueScaleLine(ref, b.product.size, faceOn, false, aspectOf(b.aspect))
+    ref && shop !== 'size' && shop !== 'angle' ? trueScaleLine(ref, b.product.size, faceOn, false, aspectOf(b.aspect))
       : wall && Math.max(x, y) < 350 && shop !== 'size'
       ? surface === 'wall'
         ? `It is a small piece for a wall: show a light switch (about ${SWITCH} mm square) or a small framed picture beside it on the same wall, with free wall between them, or a door frame further along, so its real size is obvious (${vsSwitch(b.product.size, faceOn)}), and photograph it from close by: ${wallFrame(b.product.size, surface)}.`

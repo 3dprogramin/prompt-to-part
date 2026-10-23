@@ -1102,6 +1102,10 @@ export class Viewer {
     } else if (view === 'front') {
       // From the front and a little above, turned a touch so it doesn't look flat.
       dir.set(0.12, -1, 0.3).normalize();
+    } else if (view === 'angle' && scale?.ref === 'wall') {
+      // A wall piece hanging on its wall, from the side: upright, its edge a thin line off the wall.
+      dir.set(0.85, -0.12, 1).normalize();
+      cam.up.set(0, 1, 0);
     } else if (view === 'top') {
       // From high above, so its top shows (and what is inside it).
       dir.set(0.3, -0.55, 1.1).normalize();
@@ -1110,6 +1114,9 @@ export class Viewer {
       dir.set(0.55, -1, s.z < 0.3 * Math.min(s.x, s.y) ? 1.05 : 0.5).normalize();
     }
     if (!Number.isFinite(dir.x)) dir.set(...VIEW_DIRS.iso).normalize();
+    // The detail of a tall flat print: its top in the picture (a head, a name), cut off only below
+    // and at the sides, so the model has nothing up there to make up.
+    if (view === 'detail' && s.z < 0.25 * Math.min(s.x, s.y) && s.y > s.x) center.y = box.max.y - (0.5 - 0.04) * (s.y / share);
     const parts = this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? [];
     // A size photo: the reference beside the product (a mug along the render's right on the table,
     // as far from the camera as the product), the camera framing the wall or table area around both.
@@ -1118,7 +1125,8 @@ export class Viewer {
     side.normalize();
     const layout = scale && scaleRefLayout(scale.ref, { min: box.min.toArray(), max: box.max.toArray() }, W / H, { side: [side.x, side.y], ...(scale.base ? { base: scale.base } : {}) });
     let frame = box, ref: THREE.Group | null = null;
-    if (layout) {
+    // (From the side, only the wall behind it: framed on the piece as any 3/4 view.)
+    if (layout && !(view === 'angle' && scale?.ref === 'wall')) {
       frame = new THREE.Box3(new THREE.Vector3(...layout.frame.min), new THREE.Vector3(...layout.frame.max));
       frame.getCenter(center);
       share = 1;
