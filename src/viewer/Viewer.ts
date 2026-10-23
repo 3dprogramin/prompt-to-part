@@ -296,9 +296,12 @@ export class Viewer {
         // No feature lines on a relief: every layer step would draw one.
         if (perVertex && !painted) { edgeGeom.dispose(); edgeGeom = new THREE.BufferGeometry(); }
         const color = perVertex ? new THREE.Color(0xffffff) : new THREE.Color(part.color);
+        // Line art lines in another filament draw in front of the piece's own where their walls meet it
+        // (a hair-thin skin of it there would show as stripes).
+        const ahead = part.lineArt?.paintedIn ? 0 : 1;
         const front = new THREE.MeshStandardMaterial({
           color, roughness: 0.55, metalness: 0.05, side: THREE.FrontSide, vertexColors: perVertex,
-          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+          polygonOffset: true, polygonOffsetFactor: ahead, polygonOffsetUnits: ahead,
         });
         // Per-vertex colours are what the print will look like: mostly shown as they are (emissive),
         // with a little lighting so the relief still reads. A lithophane is lit from behind, so it

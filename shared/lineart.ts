@@ -1626,7 +1626,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     };
     const band = (kind: PaintMaterial, cs: any, fil: PartFilament) => {
       const b = colourBottom(depthLayers(depth, needOf(fil).need), z[kind][0], z[kind][1], printLayers);
-      put(fil, kind, cs.extrude(z[kind][1] - b).translate([0, 0, b]), cs.area());
+      put(fil, kind, cs.offset(PAINT_SKIN, 'Miter').extrude(z[kind][1] - b).translate([0, 0, b]), cs.area());
     };
     for (const c of colourLines(lc, anc, areas)) band('lines', c.cs, c.filament);
     if (shows) for (const c of colourLines(shows, null, areas)) band('frame', c.cs, c.filament);
@@ -1638,7 +1638,9 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       if (best) put(best, 'pegs', peg.translate([p[0], p[1], anchorThickness]), 1);
     }
     if (!cols.length) return none;
-    const solids = cols.map((c) => union(c.solids));
+    // Each colour trimmed to the piece (its walls are the piece's), and off the colours before it.
+    const solids: any[] = [];
+    for (const c of cols) solids.push(solids.reduce((sh: any, o: any) => sh.subtract(o), union(c.solids).intersect(full)));
     for (const c of cols) if (!used.some((f) => filamentKey(f) === filamentKey(c.filament))) used.push(c.filament);
     const there: [PaintMaterial, number][] = [['lines', lc.area()], ['frame', anc ? anc.area() : 0], ['text', text ? text.area() : 0], ['pegs', pegs.length]];
     const paint: LineArtPaint = {
@@ -1812,6 +1814,8 @@ export const MIN_PAINT = 0.4;
 const PAINT_SNAP = 0.05;
 /** Bits of a part smaller than this (mm³) are skins left by cutting the colours out: dropped. */
 const MIN_BODY = 0.01;
+/** A colour is cut out of the piece this much wider (mm) and then trimmed to it, so its walls are the piece's own and none of the piece's filament is left on them. */
+const PAINT_SKIN = 0.02;
 
 /**
  * The lines `lineCs` coloured by `areas` (which don't overlap): each filament's part of them, off
