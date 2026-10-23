@@ -13,6 +13,7 @@ import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api, generate, HttpError, resumeReply, steer, type AgentEvent, type ReplyEnd } from './lib/api';
 import { addStep, applyBlock } from './lib/activity';
+import { answerText } from '../shared/questions';
 import { approvalText, autoBuildAfter, withView, type AutoBuild, type DrawnConcept } from './lib/autoBuild';
 import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
@@ -582,6 +583,7 @@ export default function App() {
           if (ev.step.text.startsWith('Meshy task ')) usedMeshy = true;
           patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
         }
+        else if (ev.type === 'questions') patchAsst((m) => ({ ...m, questions: ev.questions }));
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
         else if (ev.type === 'model') {
@@ -694,8 +696,21 @@ export default function App() {
       meshes: meshNames.length ? meshNames : undefined,
       scad: scad.length ? scad : undefined,
       // In case the session can't be continued: what was said, for a fresh one.
-      history: design.messages.slice(-12).flatMap((m) => ((m.text || '').trim() ? [{ role: m.role, text: m.text.slice(0, 1500) }] : [])),
+      // (A reply that asked questions brings them along.)
+      history: design.messages.slice(-12).flatMap((m) => {
+        const t = [m.text.trim(), m.questions ? `Asked: ${m.questions.map((q) => q.question).join(' ')}` : ''].filter(Boolean).join('\n');
+        return t ? [{ role: m.role, text: t.slice(0, 1500) }] : [];
+      }),
     }, onEvent, signal));
+  };
+
+  // "Ask first": the answers chosen on a question card go out as the user's message (with the
+  // current toggles, as any other), and the card keeps them to show read-only.
+  const onAnswer = (messageId: string, answers: string[][]) => {
+    const m = design.messages.find((x) => x.id === messageId);
+    if (!m?.questions) return;
+    setDesign((d) => ({ ...d, messages: d.messages.map((x) => (x.id === messageId ? { ...x, answers } : x)) }));
+    void onSend(answerText(m.questions, answers), []);
   };
 
   // ---- messages sent while Claude works: queued per design, sent together once the reply is done
@@ -1357,6 +1372,7 @@ export default function App() {
           generating={generating}
           busyElsewhere={busyElsewhere}
           onSend={onSend}
+          onAnswer={onAnswer}
           onStop={() => running[design.id]?.abort()}
           queued={queue?.items ?? []}
           queuePaused={!!queue?.paused}

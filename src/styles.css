@@ -890,6 +890,33 @@ body.resizing { cursor: col-resize; user-select: none; }
 @keyframes auto-build-left { from { width: 100%; } to { width: 0; } }
 .auto-build-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .auto-build-actions .btn { padding: 4px 10px; }
+/* "Ask first": Jig's questions under its reply, each option a chip; Jig's pick preselected and marked. */
+.questions { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px 12px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel-2); }
+.questions.done { gap: 8px; padding: 8px 10px; background: transparent; border-color: var(--line); }
+.questions-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--accent-2); font-size: 12px; font-weight: 600; }
+.questions.done .questions-head { color: var(--text-3); }
+.question { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.question legend { padding: 0; margin-bottom: 6px; font-weight: 500; color: var(--text); }
+.q-num { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.q-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.q-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 3px 11px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--panel); color: var(--text-2); font-size: 12.5px; cursor: pointer; overflow-wrap: anywhere; }
+.q-chip:hover { border-color: #4a505b; color: var(--text); }
+.q-chip.on { background: #e0a43c24; border-color: var(--accent); color: var(--text); }
+.q-chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q-chip.other:not(.on) { border-style: dashed; }
+.q-box { display: grid; place-items: center; flex-shrink: 0; width: 13px; height: 13px; border: 1px solid var(--input-line); border-radius: 3px; }
+.q-chip.on .q-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.q-pick { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; margin-right: -4px; padding: 0 6px; border-radius: 999px; background: #e0a43c2e; color: var(--accent-2); font-size: 10px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.q-pick svg { fill: currentColor; }
+.q-other { width: 100%; min-width: 0; background: var(--bg); border: 1px solid var(--input-line); border-radius: 6px; padding: 5px 9px; color: var(--text); font-size: 12.5px; outline: none; }
+.q-other:focus { border-color: var(--accent); }
+.q-why { color: var(--text-3); font-size: 11.5px; }
+.questions-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.questions-actions .btn { padding: 5px 12px; }
+.questions.done .q-chip { cursor: default; }
+.questions.done .q-chip:not(.on) { opacity: 0.5; }
+.questions.done .q-chip:hover { border-color: var(--line-2); color: var(--text-2); }
+.questions.done .q-chip.on:hover { border-color: var(--accent); color: var(--text); }
 .mode-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); overflow-y: auto; overscroll-behavior: contain; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 -10px 40px #000a; padding: 4px; z-index: 30; }
 .mode-menu button { display: flex; align-items: flex-start; gap: 6px; width: 100%; background: none; border: 0; border-radius: 6px; padding: 7px 10px 7px 6px; text-align: left; }
 .mode-menu button:hover, .mode-menu button:focus-visible { background: #ffffff0d; outline: none; }
@@ -1262,6 +1289,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   :root :is(input:not([type='range'], [type='checkbox'], [type='radio'], [type='color'], [type='file']), textarea, select, .code-colours) { font-size: 16px; }
   .topbar :is(.btn, .version-btn, .conn-chip) { min-height: 36px; }
   .edge-tab { width: 28px; height: 72px; }
+  .q-chip { min-height: 36px; padding: 5px 13px; }
 }
 
 /* ---------- sale sizes (Object tab, under Overall size) ---------- */

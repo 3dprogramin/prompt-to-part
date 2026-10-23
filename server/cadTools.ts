@@ -21,6 +21,7 @@ import { filamentLabel, matchFilaments, MAX_MESH_COLORS } from '../shared/meshCo
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from './meshes';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
+import { checkQuestions, MAX_OPTION_CHARS, MAX_OPTIONS, MAX_QUESTION_CHARS, MAX_QUESTIONS, MAX_WHY_CHARS, MIN_OPTIONS } from '../shared/questions';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
 
 const sourcesSchema = z.array(z.object({
@@ -44,7 +45,8 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * turned on Colour) makes figures coloured by default (a textured model, printed in up to 4 filaments).
  * With `lineArt` (Line art mode, or a line-art design), Claude can trace an attached picture that
  * already is line art (trace_line_art) and, with its `pictures`, have the image model draw some
- * (generate_line_art); both store a drawing for H.lineart.
+ * (generate_line_art); both store a drawing for H.lineart. With `askFirst` (Ask first on), Claude can
+ * ask the user a few questions before it builds (ask_questions), shown as a card of options.
  */
 export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: {
   artwork?: AiImages; pictures?: AiImages; layerTone?: boolean; lithophane?: boolean;
@@ -54,18 +56,20 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   lineArt?: AiImages & { style: LineArtStyle; pictures: boolean };
   /** The image model (replaceable in tests). */
   image?: typeof requestImage;
+  /** "Ask first" is on: ask_questions is there. */
+  askFirst?: boolean;
 } = {}) {
-  const { artwork, pictures, layerTone, lithophane, meshy, lineArt } = extra;
+  const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst } = extra;
   const drawImage = extra.image ?? requestImage;
   // What generate_picture's pictures are for.
   const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.layertone', what: 'a LayerTone filament painting (H.layertone)' };
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   // meshyCalls: generate_3d calls since the user's last message (each may cost credits);
-  // newConcepts: concept pictures drawn since then, which the user hasn't approved yet.
-  const state = { submitted: false, meshyCalls: 0, newConcepts: new Set<string>() };
+  // newConcepts: concept pictures drawn since then, which the user hasn't approved yet; asked: the questions were asked.
+  const state = { submitted: false, meshyCalls: 0, newConcepts: new Set<string>(), asked: false };
   /** The user sent a message (one read mid-reply too): a fresh Meshy allowance, and the concepts drawn before it are theirs to judge. */
-  const newUserMessage = () => { state.meshyCalls = 0; state.newConcepts.clear(); };
+  const newUserMessage = () => { state.meshyCalls = 0; state.newConcepts.clear(); state.asked = false; };
   const readModel = async () => {
     try { return await readFile(file, 'utf8'); } catch { return null; }
   };
@@ -496,6 +500,24 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           // The credits changed: the next balance asks Meshy.
           if (started) forgetBalance();
         }
+      })] : []),
+      ...(askFirst ? [tool('ask_questions', `Ask the user the few questions you can't settle yourself before you build (Ask first is on). They see them under your reply as a card: each question with its options as buttons, the one you would pick already selected and marked, and "Other" for their own words; they click and send, and their answers come as their next message. Only for choices left open that change the result a lot (which way a phone is held, with or without a case, what it hangs on, the size or the wall it is for, the words on it, the style); never what you can look up (real product dimensions) or decide yourself (clearances, walls, parameters, print settings). Not for a clear request, a small change, or right after the user answered. At most ${MAX_QUESTIONS}, as few as needed. Then build nothing: end your reply.`, {
+        questions: z.array(z.object({
+          question: z.string().max(MAX_QUESTION_CHARS).describe('Short and plain, e.g. "Which way is the phone held?"'),
+          options: z.array(z.string().max(MAX_OPTION_CHARS)).min(MIN_OPTIONS).max(MAX_OPTIONS).describe(`${MIN_OPTIONS} to ${MAX_OPTIONS} likely answers, a few words each (e.g. "Landscape", "Portrait"); no "Other" (the card has one)`),
+          pick: z.number().int().min(0).max(MAX_OPTIONS - 1).describe('Index (0-based) of the option you would choose: it is preselected'),
+          multi: z.boolean().optional().describe('Several options may be chosen together (e.g. which tools it holds)'),
+          why: z.string().max(MAX_WHY_CHARS).optional().describe('Why you would pick it, a few words (optional)'),
+        })).min(1).max(MAX_QUESTIONS),
+      }, async (a) => {
+        if (state.asked) return { content: [{ type: 'text' as const, text: 'You have already asked your questions in this reply: end your reply now and wait for the answers.' }], isError: true };
+        const checked = checkQuestions(a.questions);
+        if ('error' in checked) return { content: [{ type: 'text' as const, text: `Not shown - ${checked.error} Fix it and call ask_questions again.` }], isError: true };
+        state.asked = true;
+        const n = checked.questions.length;
+        emit({ type: 'questions', questions: checked.questions });
+        emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Asked ${n} question${n > 1 ? 's' : ''} before building` } });
+        return { content: [{ type: 'text' as const, text: `The user sees your ${n} question${n > 1 ? 's' : ''} as a card with your picks preselected. Build nothing now: end your reply with one short line (e.g. "A few quick questions before I build."), without repeating the questions or their options. Their answers come as their next message: then build with them, without asking again.` }] };
       })] : []),
       tool('render_scad', 'Render an OpenSCAD file the user attached (saved in the workspace scad/ folder) with OpenSCAD itself, at the given Customizer parameter values (defaults for the rest): the same four views as render_model, plus its parameters and part sizes. Use it to compare your model.js with the original.', {
         file: z.string().max(100).describe('The attached file\'s name, e.g. "box.scad"'),

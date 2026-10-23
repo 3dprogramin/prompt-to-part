@@ -50,6 +50,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__cad__trace_line_art: 'Tracing line art',
   mcp__cad__generate_concept: 'Drawing a concept picture',
   mcp__cad__generate_3d: 'Making a 3D model with Meshy',
+  mcp__cad__ask_questions: 'Asking you a few questions',
   mcp__cad__submit_model: 'Validating & submitting',
   WebSearch: 'Searching the web',
   WebFetch: 'Reading a web page',
@@ -242,6 +243,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     lithophane,
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
     lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
+    askFirst: req.askFirst !== false,
   });
   // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
@@ -252,7 +254,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // "Ask first": a few questions before building, only where the answer changes the design (every mode).
   parts.push(req.askFirst === false
     ? 'Ask first is off: don\'t ask questions before building. Choose sensible defaults for anything left open and say in your final message which ones you chose.'
-    : 'Ask first is on: before you build, check whether the request leaves open a choice that would change the result a lot and that you can\'t tell from the message, the attached pictures or the design so far (for example which way a phone is held, with or without a case, what it hangs on or stands on, the size or the wall it is for, the words on it, who it is for, the style). If so, build nothing yet: reply only with those questions, as few as needed and at most 5, short and numbered, each with its likely options and the one you would pick in brackets, then stop and wait. Ask nothing when the request is clear enough, for a small change to a design you already made, or when the user has just answered your questions (then build with their answers, filling any gap with sensible defaults). Never ask what you can look up (the real dimensions of products) or decide yourself (clearances, wall thickness, parameters, print settings).');
+    : 'Ask first is on: before you build, check whether the request leaves open a choice that would change the result a lot and that you can\'t tell from the message, the attached pictures or the design so far (for example which way a phone is held, with or without a case, what it hangs on or stands on, the size or the wall it is for, the words on it, who it is for, the style). If so, build nothing yet: call ask_questions with those questions (as few as needed and at most 5, each short, with its 2 to 5 likely options and the one you would pick), then end your reply with one short line and wait. Don\'t write the questions as text: the user clicks their answers on the card. Ask nothing when the request is clear enough, for a small change to a design you already made, or when the user has just answered your questions (then build with their answers, filling any gap with sensible defaults). Never ask what you can look up (the real dimensions of products) or decide yourself (clearances, wall thickness, parameters, print settings).');
 
   // Follow-ups: show Claude exactly what the user is looking at before they describe the change.
   if (isFollowUp) {

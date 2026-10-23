@@ -8,6 +8,7 @@ import { EditTags, groupEdits } from './EditTags';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, scadFileName, type ScadFile } from '../../shared/scad';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
+import { QuestionCard } from './QuestionCard';
 import { ActivityPanel, ThinkTime } from './ActivityPanel';
 import { activityOf, INTERRUPTED, thinkingSince, wasInterrupted } from '../lib/activity';
 import { useEscape } from './useEscape';
@@ -33,6 +34,8 @@ interface Props {
   busyElsewhere: boolean;
   /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg); `scad`: attached OpenSCAD files; `meshes`: attached mesh files, already imported. */
   onSend: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => void;
+  /** "Ask first": the answers chosen on the question card under reply `messageId` (sent as the user's message). */
+  onAnswer: (messageId: string, answers: string[][]) => void;
   /** Messages written while Claude works, sent once its reply is done. */
   queued: { text: string; images: string[]; scad: ScadFile[]; meshes: MeshUpload[] }[];
   /** The reply was stopped or failed: the queue waits for "Send now". */
@@ -309,10 +312,16 @@ export function ChatPanel(p: Props) {
             </div>
           </div>
         )}
-        {p.messages.map((m, i) => (
-          <Message key={m.id} m={m} live={(p.generating || p.busyElsewhere) && i === p.messages.length - 1} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
-            followed={followedMsgs.some((f) => f.id === m.id)} onFollow={(on) => follow(m.id, on)} />
-        ))}
+        {p.messages.map((m, i) => {
+          const live = (p.generating || p.busyElsewhere) && i === p.messages.length - 1;
+          // Only the newest reply's question card can be answered, once it has ended.
+          const answerable = !!m.questions && !m.answers && !live && i === p.messages.length - 1;
+          return (
+            <Message key={m.id} m={m} live={live} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
+              followed={followedMsgs.some((f) => f.id === m.id)} onFollow={(on) => follow(m.id, on)}
+              onAnswer={answerable ? (answers) => p.onAnswer(m.id, answers) : undefined} answerBlocked={p.busyElsewhere || !!p.claudeProblem} />
+          );
+        })}
         {p.autoBuild && <AutoBuildCard key={p.autoBuild.messageId} a={p.autoBuild} onBuildNow={p.onBuildNow} onStop={p.onStopAutoBuild} />}
       </div>
 
@@ -746,11 +755,13 @@ function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineArtStyle
   );
 }
 
-function Message({ m, live, versions, currentVersion, onRestore, onImage, followed, onFollow }: {
+function Message({ m, live, versions, currentVersion, onRestore, onImage, followed, onFollow, onAnswer, answerBlocked }: {
   m: ChatMessage; live: boolean; versions: DesignVersion[]; currentVersion: number;
   onRestore: (i: number) => void; onImage: (src: string) => void;
   /** This reply's activity is the panel that follows Claude across designs (ChatPanel shows it). */
   followed: boolean; onFollow: (on: boolean) => void;
+  /** Its question card can be answered (the newest reply, not answered yet); `answerBlocked`: not just now. */
+  onAnswer?: (answers: string[][]) => void; answerBlocked: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const elapsed = useElapsed(live ? m.createdAt : null);
@@ -838,6 +849,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
         </div>
       )}
       {m.text && <div className="bubble md-bubble"><Markdown text={m.text} /></div>}
+      {m.questions?.length && !live ? <QuestionCard questions={m.questions} answers={m.answers} onSend={onAnswer} disabled={answerBlocked} /> : null}
       {assembly.length > 0 && (
         <div className="assembly">
           <div className="assembly-title">Assembly</div>

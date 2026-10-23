@@ -6,6 +6,7 @@ import type { LineArtInfo } from './lineart';
 import type { PaintFilament } from './meshColors';
 import type { DesignSize } from './sizes';
 import type { DesignKind } from './designKind';
+import type { ChatQuestion } from './questions';
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -239,6 +240,10 @@ export interface ChatMessage {
   pending?: boolean;
   /** The server's run of this pending reply and how many of its events this copy has (a page opened later catches up from there). */
   run?: { id: string; seen: number };
+  /** "Ask first": the questions Jig asked in this reply (ask_questions), shown as a card of options. */
+  questions?: ChatQuestion[];
+  /** What the user chose on that card, per question (the options' words or their own); unset until sent from it. */
+  answers?: string[][];
 }
 
 export interface DesignVersion {

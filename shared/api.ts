@@ -10,6 +10,7 @@ import type { PrintSettings } from './print';
 import type { ConceptEntry, MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
 import type { UsageWindow } from './usage';
+import type { ChatQuestion } from './questions';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -89,6 +90,8 @@ export type AgentEvent =
   | { type: 'mesh'; name: string; entry: MeshEntry }
   /** A concept picture of a 3D figure (generate_concept), kept in the design's CONCEPTS_KEY index for generate_3d's from_concept. */
   | { type: 'concept'; name: string; entry: ConceptEntry }
+  /** "Ask first": Claude's questions before it builds (ask_questions), shown under its reply as a card of options. */
+  | { type: 'questions'; questions: ChatQuestion[] }
   /** Claude changed the LayerTone setup (set_layertone): the design's LAYERTONE_KEY value, or null to clear it. */
   | { type: 'layerToneSetup'; setup: LayerToneSetup | null }
   /** Transient one-line status (throttled), replaced by the next one. */

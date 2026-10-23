@@ -4,7 +4,7 @@
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
 // import, Export project… (as a zip), stepping through enlarged product photos, a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
-// picture's countdown, the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
+// picture's countdown, Ask first's question card (clicked answers sent as the next message), the small-screen layouts: a phone (one panel at a time, picked in the bottom tab bar)
 // and an unfolded foldable (the 3D view beside the chat or the side panel), the Designs menu's search, the
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
@@ -589,6 +589,79 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.ok(bar && bar.height < 36, `one row (${bar?.height} px high)`);
   assert.equal(await page.locator('.model-text').isVisible(), false);
   await page.locator('.composer').screenshot({ path: path.join(shots, '12-chat-bar-narrow.png') });
+  await page.close();
+});
+
+test('Ask first: Jig\'s questions come as a card of options with its pick preselected; the answers go as the next message, and the card stays read-only after a reload', TEST, async () => {
+  const qid = 'ui-smoke-30000001';
+  const saved = await putDesign({ id: qid, name: 'Phone stand', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], messages: [] });
+  assert.equal(saved.status, 200, await saved.text());
+  const page = await newPage();
+  // The stand-in reply asks three questions; the next one (the answers) just answers.
+  const questions = [
+    { question: 'Which way is the phone held?', options: ['Landscape', 'Portrait'], pick: 0, why: 'best for watching' },
+    { question: 'What should it hold too?', options: ['Charging cable slot', 'Pen holder', 'Card slot'], pick: 0, multi: true },
+    { question: 'How tall?', options: ['Desk height (12 cm)', 'Tall (18 cm)'], pick: 0 },
+  ];
+  const sent: { prompt: string; askFirst?: boolean }[] = [];
+  await page.route('**/api/generate', (route) => {
+    sent.push(route.request().postDataJSON());
+    const events = sent.length > 1 ? [{ type: 'done', durationMs: 900, turns: 1, submitted: false, text: 'Building it.' }] : [
+      { type: 'questions', questions },
+      { type: 'step', step: { kind: 'tool', ok: true, text: 'Asked 3 questions before building' } },
+      { type: 'done', durationMs: 1200, turns: 1, submitted: false, text: 'A few quick questions before I build.' },
+    ];
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
+  });
+  await page.goto(`${A}/?design=${qid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Phone stand');
+  const box = page.locator('.chat-panel textarea');
+  await box.fill('A phone stand');
+  await box.press('Enter');
+  const card = page.getByRole('form', { name: "Jig's questions" });
+  await card.waitFor();
+  assert.equal(sent[0].askFirst, true);
+  // Jig's pick is chosen and marked.
+  const held = card.getByRole('radiogroup', { name: 'Which way is the phone held?' });
+  assert.ok(await held.getByRole('radio', { name: /^Landscape/ }).isChecked());
+  assert.ok(!await held.getByRole('radio', { name: /^Portrait/ }).isChecked());
+  assert.match(await held.locator('.q-chip.on').innerText(), /Landscape\s*Jig's pick/);
+  assert.ok(await card.getByRole('group', { name: 'What should it hold too?' }).getByRole('checkbox', { name: /^Charging cable slot/ }).isChecked());
+  await card.screenshot({ path: path.join(shots, '13-questions.png') });
+  // At a narrow chat (320 px) the chips wrap inside the card.
+  await page.evaluate(() => localStorage.setItem('sidebarWidthsUser', JSON.stringify({ left: 320 })));
+  await page.reload();
+  await card.waitFor();
+  assert.ok(await card.evaluate((el) => el.scrollWidth <= el.clientWidth), 'nothing sticks out');
+  await page.locator('.chat-panel').screenshot({ path: path.join(shots, '13-questions-narrow.png') });
+  // Another option, a second one where several may go, and Other… with the user's own words; Enter sends.
+  await held.getByText('Portrait').click();
+  assert.ok(await held.getByRole('radio', { name: /^Portrait/ }).isChecked());
+  await card.getByRole('group', { name: 'What should it hold too?' }).getByText('Pen holder').click();
+  await card.getByRole('radiogroup', { name: 'How tall?' }).getByText('Other…').click();
+  const other = card.getByRole('textbox', { name: 'Your own answer: How tall?' });
+  assert.equal(await card.getByRole('button', { name: 'Send answers' }).isDisabled(), true, 'Other… needs words');
+  await other.fill('About 15 cm');
+  await card.screenshot({ path: path.join(shots, '13-questions-chosen.png') });
+  await other.press('Enter');
+  const answer = '1. Which way is the phone held? Portrait\n2. What should it hold too? Charging cable slot + Pen holder\n3. How tall? About 15 cm';
+  await page.locator('.msg.user .bubble', { hasText: 'About 15 cm' }).waitFor();
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].prompt, answer);
+  assert.equal(sent[1].askFirst, true, 'with the current toggles');
+  await page.locator('.msg.assistant', { hasText: 'Building it.' }).waitFor();
+  // Answered: read-only, showing the answers, also after a reload.
+  assert.equal(await card.getByRole('button', { name: 'Send answers' }).count(), 0);
+  await until(async () => !!(await getDesign(qid)).messages[1]?.answers, 'saved with the answers');
+  assert.deepEqual((await getDesign(qid)).messages[1].answers, [['Portrait'], ['Charging cable slot', 'Pen holder'], ['About 15 cm']]);
+  await page.reload();
+  await card.waitFor();
+  assert.match(await card.innerText(), /Your answers/);
+  const portrait = card.getByRole('radio', { name: /^Portrait/ });
+  assert.ok(await portrait.isChecked());
+  assert.ok(await portrait.isDisabled());
+  assert.equal(await card.locator('.q-chip.on', { hasText: 'About 15 cm' }).count(), 1);
+  await card.screenshot({ path: path.join(shots, '13-questions-answered.png') });
   await page.close();
 });
 
