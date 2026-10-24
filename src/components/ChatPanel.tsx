@@ -137,13 +137,14 @@ export function ChatPanel(p: Props) {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [p.designId]);
-  // On a computer the prompt box is ready to type or paste into as Jig opens (or another design does),
-  // unless something else already has the focus. Not on touch screens, where it would pop up the keyboard.
+  // On a computer the prompt box is ready to type or paste into as Jig opens, or another design does
+  // (New, a tab, the Designs menu: their button gives its focus over), unless the user is typing in
+  // another field. Not on touch screens, where it would pop up the keyboard.
   useEffect(() => {
     if (!window.matchMedia('(pointer: fine)').matches || window.matchMedia('(max-width: 700px)').matches) return;
     const f = requestAnimationFrame(() => {
       const active = document.activeElement;
-      if (!active || active === document.body) textarea.current?.focus({ preventScroll: true });
+      if (!active?.closest('input, textarea, select, [contenteditable]')) textarea.current?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(f);
   }, [p.designId]);
