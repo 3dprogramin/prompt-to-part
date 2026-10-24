@@ -627,12 +627,16 @@ test('Ask first: Jig\'s questions come as a card of options with its pick presel
   assert.ok(!await held.getByRole('radio', { name: /^Portrait/ }).isChecked());
   assert.match(await held.locator('.q-chip.on').innerText(), /Landscape\s*Jig's pick/);
   assert.ok(await card.getByRole('group', { name: 'What should it hold too?' }).getByRole('checkbox', { name: /^Charging cable slot/ }).isChecked());
+  // A card that just arrived counts down to sending Jig's picks.
+  assert.match(await card.getByRole('timer').innerText(), /Sending Jig's picks in \d+ s/);
   await card.screenshot({ path: path.join(shots, '13-questions.png') });
   // At a narrow chat (320 px) the chips wrap inside the card.
   await page.evaluate(() => localStorage.setItem('sidebarWidthsUser', JSON.stringify({ left: 320 })));
   await page.reload();
   await card.waitFor();
   assert.ok(await card.evaluate((el) => el.scrollWidth <= el.clientWidth), 'nothing sticks out');
+  // Found unanswered after a reload, it waits for the user.
+  assert.equal(await card.getByRole('timer').count(), 0);
   await page.locator('.chat-panel').screenshot({ path: path.join(shots, '13-questions-narrow.png') });
   // Another option, a second one where several may go, and Other… with the user's own words; Enter sends.
   await held.getByText('Portrait').click();
@@ -662,6 +666,49 @@ test('Ask first: Jig\'s questions come as a card of options with its pick presel
   assert.ok(await portrait.isDisabled());
   assert.equal(await card.locator('.q-chip.on', { hasText: 'About 15 cm' }).count(), 1);
   await card.screenshot({ path: path.join(shots, '13-questions-answered.png') });
+  await page.close();
+});
+
+test('Ask first: a question card nobody touches sends Jig\'s picks after its countdown; a click on it stops the countdown', TEST, async () => {
+  const qid = 'ui-smoke-30000002';
+  const saved = await putDesign({ id: qid, name: 'Hook', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], messages: [] });
+  assert.equal(saved.status, 200, await saved.text());
+  const page = await newPage();
+  await page.clock.install();
+  const questions = [
+    { question: 'Which side?', options: ['Left', 'Right'], pick: 1 },
+    { question: 'Extras?', options: ['Cable clip', 'Label'], pick: 0, multi: true },
+  ];
+  const sent: { prompt: string }[] = [];
+  await page.route('**/api/generate', (route) => {
+    sent.push(route.request().postDataJSON());
+    const events = sent.length === 2 ? [{ type: 'done', durationMs: 900, turns: 1, submitted: false, text: 'Building it.' }] : [
+      { type: 'questions', questions },
+      { type: 'done', durationMs: 1200, turns: 1, submitted: false, text: 'Two quick questions.' },
+    ];
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
+  });
+  await page.goto(`${A}/?design=${qid}`);
+  await page.waitForFunction(() => document.title === 'Jig - Hook');
+  const box = page.locator('.chat-panel textarea');
+  await box.fill('A desk hook');
+  await box.press('Enter');
+  const card = page.getByRole('form', { name: "Jig's questions" });
+  await card.waitFor();
+  await card.getByRole('timer').waitFor();
+  await page.clock.fastForward(61_000);
+  await page.locator('.msg.user .bubble', { hasText: '1. Which side? Right' }).waitFor();
+  assert.equal(sent[1].prompt, '1. Which side? Right\n2. Extras? Cable clip');
+  await page.locator('.msg.assistant', { hasText: 'Building it.' }).waitFor();
+  // A new card, and this time a click on it: no countdown any more, nothing goes out by itself.
+  await box.fill('Another one');
+  await box.press('Enter');
+  const second = page.locator('.questions:not(.done)');
+  await second.getByRole('timer').waitFor();
+  await second.getByText('Left').click();
+  assert.equal(await second.getByRole('timer').count(), 0);
+  await page.clock.fastForward(61_000);
+  assert.equal(sent.length, 3);
   await page.close();
 });
 

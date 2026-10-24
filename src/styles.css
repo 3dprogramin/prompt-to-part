@@ -895,6 +895,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 .questions.done { gap: 8px; padding: 8px 10px; background: transparent; border-color: var(--line); }
 .questions-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--accent-2); font-size: 12px; font-weight: 600; }
 .questions.done .questions-head { color: var(--text-3); }
+.q-countdown { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.q-countdown .auto-build-bar { flex: 1 0 100%; }
 .question { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .question legend { padding: 0; margin-bottom: 6px; font-weight: 500; color: var(--text); }
 .q-num { color: var(--text-3); font-variant-numeric: tabular-nums; }

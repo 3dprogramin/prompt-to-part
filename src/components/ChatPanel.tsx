@@ -80,6 +80,9 @@ interface Props {
   onSendView: (on: boolean) => void;
   askFirst: boolean;
   onAskFirst: (on: boolean) => void;
+  /** Chimes when Jig needs you and when a reply has finished. */
+  sounds: boolean;
+  onSounds: (on: boolean) => void;
   /** The countdown under the last reply ("Wait for my OK" off), null when there is none. */
   autoBuild: AutoBuild | null;
   onBuildNow: () => void;
@@ -185,6 +188,9 @@ export function ChatPanel(p: Props) {
   };
 
   const hasDraft = !!text.trim() || images.length > 0 || scad.length > 0 || readyMeshes.length > 0;
+  // Replies seen generating in this window: only their question cards count down to Jig's picks
+  // (one found unanswered after a reload waits for the user).
+  const seenLive = useRef(new Set<string>());
   // Typing (or dictating) an answer to the concept pictures stops their countdown.
   useEffect(() => { if (text.trim() && p.autoBuild) p.onStopAutoBuild(); }, [text]);
   const send = (message = text, later = false) => {
@@ -314,12 +320,14 @@ export function ChatPanel(p: Props) {
         )}
         {p.messages.map((m, i) => {
           const live = (p.generating || p.busyElsewhere) && i === p.messages.length - 1;
+          if (live) seenLive.current.add(m.id);
           // Only the newest reply's question card can be answered, once it has ended.
           const answerable = !!m.questions && !m.answers && !live && i === p.messages.length - 1;
           return (
             <Message key={m.id} m={m} live={live} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
               followed={followedMsgs.some((f) => f.id === m.id)} onFollow={(on) => follow(m.id, on)}
-              onAnswer={answerable ? (answers) => p.onAnswer(m.id, answers) : undefined} answerBlocked={p.busyElsewhere || !!p.claudeProblem} />
+              onAnswer={answerable ? (answers) => p.onAnswer(m.id, answers) : undefined} answerBlocked={p.busyElsewhere || !!p.claudeProblem}
+              answerCountdown={seenLive.current.has(m.id)} answerHold={hasDraft} />
           );
         })}
         {p.autoBuild && <AutoBuildCard key={p.autoBuild.messageId} a={p.autoBuild} onBuildNow={p.onBuildNow} onStop={p.onStopAutoBuild} />}
@@ -424,6 +432,17 @@ export function ChatPanel(p: Props) {
                 : 'Ask first is off: Jig never asks, it picks defaults and says which. Click to let it ask a few short questions first when something important is unclear.'}
             >
               <Icon name="ask" size={14} />
+            </button>
+            <button
+              className={`web-toggle sounds ${p.sounds ? 'on' : ''}`}
+              aria-label="Sounds"
+              aria-pressed={p.sounds}
+              onClick={() => p.onSounds(!p.sounds)}
+              title={p.sounds
+                ? 'Sounds are on: a chime when Jig needs you (questions to answer, concept pictures to approve, an error) and a softer one when a reply has finished. Click to turn them off.'
+                : 'Sounds are off. Click for a chime when Jig needs you and when a reply has finished.'}
+            >
+              <Icon name={p.sounds ? 'sound' : 'soundOff'} size={14} />
             </button>
             {/* 3D figure and Line art modes: the picture mode button with a ▾ for the mode's options
                 (the figure's Colour, Wait for my OK and credits; the line art's style). */}
@@ -755,13 +774,15 @@ function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineArtStyle
   );
 }
 
-function Message({ m, live, versions, currentVersion, onRestore, onImage, followed, onFollow, onAnswer, answerBlocked }: {
+function Message({ m, live, versions, currentVersion, onRestore, onImage, followed, onFollow, onAnswer, answerBlocked, answerCountdown, answerHold }: {
   m: ChatMessage; live: boolean; versions: DesignVersion[]; currentVersion: number;
   onRestore: (i: number) => void; onImage: (src: string) => void;
   /** This reply's activity is the panel that follows Claude across designs (ChatPanel shows it). */
   followed: boolean; onFollow: (on: boolean) => void;
   /** Its question card can be answered (the newest reply, not answered yet); `answerBlocked`: not just now. */
   onAnswer?: (answers: string[][]) => void; answerBlocked: boolean;
+  /** The card sends Jig's picks if nobody answers in time (it arrived in this window); `answerHold`: the user is typing. */
+  answerCountdown: boolean; answerHold: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const elapsed = useElapsed(live ? m.createdAt : null);
@@ -849,7 +870,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
         </div>
       )}
       {m.text && <div className="bubble md-bubble"><Markdown text={m.text} /></div>}
-      {m.questions?.length && !live ? <QuestionCard questions={m.questions} answers={m.answers} onSend={onAnswer} disabled={answerBlocked} /> : null}
+      {m.questions?.length && !live ? <QuestionCard questions={m.questions} answers={m.answers} onSend={onAnswer} disabled={answerBlocked} countdown={answerCountdown} hold={answerHold} /> : null}
       {assembly.length > 0 && (
         <div className="assembly">
           <div className="assembly-title">Assembly</div>

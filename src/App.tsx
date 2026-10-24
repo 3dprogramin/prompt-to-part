@@ -15,6 +15,7 @@ import { api, generate, HttpError, resumeReply, steer, type AgentEvent, type Rep
 import { addStep, applyBlock } from './lib/activity';
 import { answerText } from '../shared/questions';
 import { approvalText, autoBuildAfter, withView, type AutoBuild, type DrawnConcept } from './lib/autoBuild';
+import { playCue, unlockSounds } from './lib/sounds';
 import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
 import { dataUrlToImage, download, slug, uid } from './lib/files';
 import { exportParts, type ExportFormat } from './lib/export';
@@ -249,6 +250,11 @@ export default function App() {
   // "Ask first": Jig asks the few questions it can't answer itself before it builds (all modes).
   const [askFirst, setAskFirst] = useState<boolean>(() => load('askFirst', true));
   useEffect(() => store('askFirst', askFirst), [askFirst]);
+  const [sounds, setSounds] = useState<boolean>(() => load('sounds', true));
+  useEffect(() => store('sounds', sounds), [sounds]);
+  const soundsRef = useRef(sounds);
+  soundsRef.current = sounds;
+  useEffect(() => unlockSounds(), []);
   // The countdown under a reply that ended with new concept pictures ("Wait for my OK" off).
   const [autoBuild, setAutoBuild] = useState<AutoBuild | null>(null);
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
@@ -555,6 +561,8 @@ export default function App() {
     // Concept pictures drawn in this reply, and whether it failed (for the countdown).
     const drawn: DrawnConcept[] = [];
     let failed = false;
+    // Jig asked questions in this reply (they wait for an answer).
+    let asked = false;
     let end: ReplyEnd | undefined;
     try {
       end = await stream((ev, count) => {
@@ -583,7 +591,7 @@ export default function App() {
           if (ev.step.text.startsWith('Meshy task ')) usedMeshy = true;
           patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
         }
-        else if (ev.type === 'questions') patchAsst((m) => ({ ...m, questions: ev.questions }));
+        else if (ev.type === 'questions') { asked = true; patchAsst((m) => ({ ...m, questions: ev.questions })); }
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
         else if (ev.type === 'model') {
@@ -622,6 +630,9 @@ export default function App() {
       const next = autoBuildAfter({ designId, messageId: asstId, concepts: drawn, completed, error: failed, openDesignId: currentId.current,
         waitForOk: waitForOkRef.current, queued: !!queuesRef.current[designId]?.items.length, now: Date.now() });
       if (next) setAutoBuild(next);
+      // A chime: Jig needs you (questions, concept pictures to approve, an error) or the reply is done.
+      // Nothing when the user stopped it, or another window carries on with it.
+      if (soundsRef.current && !abort.signal.aborted && (completed || failed)) playCue(failed || asked || drawn.length ? 'attention' : 'done');
       // A design that finished in the background is persisted, then dropped from memory (by
       // onSaved; a failed save keeps it, so "Retry" still has the changes).
       setTimeout(() => {
@@ -1399,6 +1410,8 @@ export default function App() {
           sendView={sendView}
           onSendView={setSendView}
           askFirst={askFirst}
+          sounds={sounds}
+          onSounds={setSounds}
           onAskFirst={setAskFirst}
           autoBuild={autoBuild && autoBuild.designId === design.id && design.messages.at(-1)?.id === autoBuild.messageId ? autoBuild : null}
           onBuildNow={() => buildConcepts.current()}
