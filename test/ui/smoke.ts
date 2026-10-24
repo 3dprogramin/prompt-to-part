@@ -712,6 +712,20 @@ test('Ask first: a question card nobody touches sends Jig\'s picks after its cou
   await page.close();
 });
 
+test('on a computer the prompt box has the focus as Jig opens, ready for a paste; on a phone it does not (no keyboard popping up)', TEST, async () => {
+  const page = await newPage();
+  await page.goto(`${A}/?design=${id}`);
+  await page.locator('.chat-panel textarea').waitFor();
+  await until(async () => page.evaluate(() => document.activeElement?.matches('.chat-panel textarea') ?? false), 'the prompt box is focused');
+  await page.close();
+  const phone = await newPage(PHONE);
+  await phone.goto(`${A}/?design=${id}`);
+  await phone.locator('.app.layout-phone').waitFor();
+  await phone.waitForTimeout(500);
+  assert.equal(await phone.evaluate(() => document.activeElement?.matches('textarea') ?? false), false);
+  await phone.close();
+});
+
 test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded one the 3D view beside a pane', TEST, async () => {
   const page = await newPage(PHONE);
   await page.goto(`${A}/?design=${id}`);

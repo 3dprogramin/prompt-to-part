@@ -137,6 +137,16 @@ export function ChatPanel(p: Props) {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [p.designId]);
+  // On a computer the prompt box is ready to type or paste into as Jig opens (or another design does),
+  // unless something else already has the focus. Not on touch screens, where it would pop up the keyboard.
+  useEffect(() => {
+    if (!window.matchMedia('(pointer: fine)').matches || window.matchMedia('(max-width: 700px)').matches) return;
+    const f = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) textarea.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(f);
+  }, [p.designId]);
 
   // SVG attachments also bring their exact shapes (keyed by their picture), for Claude's H.svg.
   const [svgShapes, setSvgShapes] = useState<Record<string, SvgDrawing>>({});
