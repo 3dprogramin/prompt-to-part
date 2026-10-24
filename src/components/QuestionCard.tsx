@@ -16,7 +16,7 @@ interface Choice { chosen: number[]; otherOn: boolean; other: string }
  * QUESTION_SECONDS sends Jig's picks; any click on it, Keep waiting, or typing in the chat (`hold`)
  * stops that.
  */
-export function QuestionCard({ questions, answers, onSend, disabled, countdown, hold }: {
+export function QuestionCard({ questions, answers, onSend, disabled, countdown, hold, midway }: {
   questions: ChatQuestion[];
   answers?: string[][];
   onSend?: (answers: string[][]) => void;
@@ -24,6 +24,8 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
   disabled?: boolean;
   countdown?: boolean;
   hold?: boolean;
+  /** Asked while building (the reply already made a version): Jig carries on after the answers. */
+  midway?: boolean;
 }) {
   const id = useId();
   const active = !!onSend;
@@ -87,7 +89,7 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
     >
       <div className="questions-head">
         <Icon name="ask" size={14} />
-        <span>{active ? `${n === 1 ? 'A question' : `${n} questions`} before Jig builds` : answers ? 'Your answers' : `Jig's question${n > 1 ? 's' : ''}`}</span>
+        <span>{active ? `${n === 1 ? 'A question' : `${n} questions`} before Jig ${midway ? 'carries on' : 'builds'}` : answers ? 'Your answers' : `Jig's question${n > 1 ? 's' : ''}`}</span>
         {!active && !answers && <span className="dim small">answered in the chat</span>}
       </div>
       {questions.map((q, i) => (

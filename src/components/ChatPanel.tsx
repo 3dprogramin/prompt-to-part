@@ -881,7 +881,7 @@ function Message({ m, live, versions, currentVersion, onRestore, onImage, follow
         </div>
       )}
       {m.text && <div className="bubble md-bubble"><Markdown text={m.text} /></div>}
-      {m.questions?.length && !live ? <QuestionCard questions={m.questions} answers={m.answers} onSend={onAnswer} disabled={answerBlocked} countdown={answerCountdown} hold={answerHold} /> : null}
+      {m.questions?.length && !live ? <QuestionCard questions={m.questions} answers={m.answers} onSend={onAnswer} disabled={answerBlocked} countdown={answerCountdown} hold={answerHold} midway={m.versionIndex != null} /> : null}
       {assembly.length > 0 && (
         <div className="assembly">
           <div className="assembly-title">Assembly</div>

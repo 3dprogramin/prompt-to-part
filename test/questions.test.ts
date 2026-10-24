@@ -45,9 +45,9 @@ test('ask_questions is there only with Ask first on, shows the card once per rep
   assert.equal(events.length, 0, 'nothing shown');
   const ok = await ask.handler({ questions: [held, holds] }, {});
   assert.ok(!ok.isError);
-  assert.match(ok.content[0].text!, /Build nothing now: end your reply/);
+  assert.match(ok.content[0].text!, /Stop building now: end your reply/);
   assert.deepEqual(events[0], { type: 'questions', questions: [held, holds] });
-  assert.equal(events[1].type === 'step' && events[1].step.text, 'Asked 2 questions before building');
+  assert.equal(events[1].type === 'step' && events[1].step.text, 'Asked 2 questions');
   assert.match((await ask.handler({ questions: [held] }, {})).content[0].text!, /already asked/);
   // A message from the user mid-reply may raise new ones.
   newUserMessage();

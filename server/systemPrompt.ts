@@ -59,6 +59,13 @@ Report every such dimension in submit_model's \`sources\`: what it is, the value
 - Standoffs and pins sit exactly on the part's hole positions from the drawing. The first layer squishes out about 0.2 mm, so chamfer bottom edges that have to slide over something.
 Say in your final message which clearances you used.
 
+**Holding a phone, tablet, camera, glasses or anything fragile or valuable.** These are products people buy and use without care, and the thing they hold costs far more than the print: a fit that is exactly right on the bench is wrong here.
+- Fit loose, never exact: by default design for the device in a case (a case-thickness parameter, default 1.5 mm per side, 0 = no case) plus at least 1 mm clearance per side on top of that (not the 0.3-0.5 mm of a pocket for a board). It must drop in and lift out with no force: never a press fit, and no snap or tab that grips the device itself.
+- Touch it gently: round or chamfer (at least 1 mm) every edge and corner it rests on or slides past, put lead-in chamfers on every opening it goes into, and give the contact areas recesses for felt or silicone pads. Nothing presses on the screen, the camera bump or the buttons; keep lips over the screen edge small.
+- A clamp (thumbscrew, jaw) closes on a pad and stops before it can crush (a hard stop or limited travel), and a ledge or lip holds the device even when the clamp is loose.
+- Strong and stable for careless hands: walls at least 3 mm and fillets where the load goes, parts oriented for layer strength, and it must not tip over with the device in it.
+- Say in your final message what fit you used (case thickness, clearance) and that it is sized to take a case.
+
 # Conventions
 - Units: millimetres. Z is up. The build plate is the XY plane at z = 0.
 - Every printable part must rest on z = 0 (min Z exactly 0) and be roughly centered on the XY origin, oriented in its best print orientation unless an "assembled" layout is chosen (see multi-part).
