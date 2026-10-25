@@ -1,73 +1,58 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, Design, DesignSummary, DimTarget, EvalResult, ParamDef, ParamValue, ParamValues, Quality, SolveResult, Vec3 } from '../shared/types';
-import { parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY, type PartFilament } from '../shared/params';
-import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../shared/textFeatures';
-import { MAX_SCAD_FILES, type ScadFile } from '../shared/scad';
-import { DRAWINGS_KEY, MAX_DRAWINGS, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgDrawing, type SvgFeature } from '../shared/svgFeatures';
-import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, type LayerToneImage, type LayerToneSetup } from '../shared/layertone';
-import { findLayerTonePart } from './components/LayerTonePanel';
-import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, type LineArtEdits } from '../shared/lineart';
-import { recolourEdits } from './lib/lineArtEdit';
-import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes, withConcept, type MeshEntry } from '../shared/meshes';
-import type { GenerateRequest, MeshUpload, MeshyBalance } from '../shared/api';
+import type { Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult, Vec3 } from '../shared/types';
+import { SCALE_KEY } from '../shared/params';
+import { DRAWINGS_KEY } from '../shared/svgFeatures';
+import { LAYERTONE_IMAGES_KEY } from '../shared/layertone';
+import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } from '../shared/meshes';
+import type { MeshyBalance } from '../shared/api';
 import type { FontEntry } from './lib/api';
-import { api, generate, HttpError, resumeReply, steer, type AgentEvent, type ReplyEnd } from './lib/api';
-import { addStep, applyBlock } from './lib/activity';
-import { answerText } from '../shared/questions';
-import { approvalText, autoBuildAfter, withView, type AutoBuild, type DrawnConcept } from './lib/autoBuild';
-import { playCue, unlockSounds } from './lib/sounds';
-import { describeSettings, HIDDEN_KEY, settingsChanged } from './lib/settings';
-import { dataUrlToImage, download, slug, uid } from './lib/files';
-import { exportParts, type ExportFormat } from './lib/export';
-import { chooseTarget, exportProject, type ProjectTarget } from './lib/projectExport';
+import { api } from './lib/api';
+import type { AutoBuild } from './lib/autoBuild';
+import { describeSettings, settingsChanged } from './lib/settings';
 import { GeometryClient } from './geometry/client';
-import { ChatPanel, type ImageMode } from './components/ChatPanel';
+import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
 import { SidePanel } from './components/SidePanel';
 import { Icon } from './components/Icon';
 import type { DesignTab } from './components/DesignTabs';
 import { TopBar } from './components/TopBar';
-import { LayoutTabs, type LayoutTab } from './components/LayoutTabs';
+import { LayoutTabs } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
 import { LineArtEditor } from './components/LineArtEditor';
-import { assembledLineArt, lineArtPart } from './components/LineArtPanel';
 import { PhotosPanel, usePhotoJobs, type SizeShot } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
 import { useCrossTabSync } from './hooks/useCrossTabSync';
-import { useLayoutMode } from './hooks/useLayoutMode';
 import { useLiveModel } from './hooks/useLiveModel';
 import { useRepaint } from './hooks/useRepaint';
 import { STAGE_TEXT, useCost } from './hooks/useCost';
 import { useSizes, visibleSize } from './hooks/useSizes';
 import { sizeText } from '../shared/sizes';
 import { load, store } from './lib/storage';
-import { tell } from './lib/tabs';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import type { TrueScale } from '../shared/photos';
-import { summarize, type ValidationState } from './components/ValidationPanel';
-import { exportedParts } from './geometry/parts';
-import { pageKey } from '../shared/sources';
-import { formatReset } from '../shared/usage';
-import { A1_DEFAULTS, defaultsFromTemplate, effectiveSettings, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../shared/print';
+import type { ValidationState } from './components/ValidationPanel';
+import { A1_DEFAULTS, defaultsFromTemplate, type PrintSettings } from '../shared/print';
 import { oneColourFilament } from './lib/bambu3mf';
-import { DEFAULT_LINE_ART_STYLE, type LineArtStyle } from '../shared/lineart';
-import { designKind, kindImageMode } from '../shared/designKind';
-import { forgetChatMode, loadChatModes, storeChatMode } from './lib/chatModes';
-import { cleanTags, withTag } from '../shared/tags';
-import { deletePlan, someNames } from './lib/designList';
+import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
+import { forgetChatMode } from './lib/chatModes';
+import { cleanTags } from '../shared/tags';
+import { newDesign, keepAppValues, UNTITLED, withLayerToneImage, withMesh } from './app/designValues';
+import type { Notice } from './app/notice';
+import { useDesignTabs } from './app/useDesignTabs';
+import { useSidebars } from './app/useSidebars';
+import { useHiddenParts } from './app/useHiddenParts';
+import { useChatOptions } from './app/useChatOptions';
+import { useLayoutPanels } from './app/useLayoutPanels';
+import { useDesignEdits } from './app/useDesignEdits';
+import { useReplies } from './app/useReplies';
+import { usePrintSettings } from './app/usePrintSettings';
+import { designExports } from './app/exports';
+import { useDesignList } from './app/useDesignList';
+import { useModelLayout } from './app/useModelLayout';
+import { modelChecks } from './app/modelChecks';
 
-const UNTITLED = 'Untitled design';
 const geo = new GeometryClient();
-interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode; figureColor?: boolean; lineArtStyle?: LineArtStyle }
-/** Most design tabs open at once in the top bar. */
-const MAX_TABS = 8;
-const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, imageMode: 'off' };
-
-function newDesign(): Design {
-  const now = Date.now();
-  return { id: uid(), name: UNTITLED, createdAt: now, updatedAt: now, messages: [], versions: [], currentVersion: -1, code: '', values: {} };
-}
 
 export default function App() {
   const [design, setDesign] = useState<Design>(newDesign);
@@ -105,76 +90,9 @@ export default function App() {
     forgetDesign(id);
   });
   const generating = !!running[design.id];
-  // Designs open as tabs in the top bar (kept across reloads), and those that finished in the background unseen.
-  // At most MAX_TABS: opening another closes the one used longest ago (never the open one, one
-  // Claude is working on, or one that finished unseen); the others are still in Designs.
-  const tabUsed = useRef<Record<string, number>>(load('designTabsUsed', {}));
-  const trimTabs = (ids: string[], keep: (id: string) => boolean) => {
-    const out = [...ids];
-    while (out.length > MAX_TABS) {
-      const drop = out.filter((id) => !keep(id)).sort((a, b) => (tabUsed.current[a] ?? 0) - (tabUsed.current[b] ?? 0))[0];
-      if (!drop) break;
-      out.splice(out.indexOf(drop), 1);
-    }
-    return out;
-  };
-  const [tabIds, setTabIds] = useState<string[]>(() => trimTabs(load('designTabs', []), (id) => id === currentId.current));
-  useEffect(() => store('designTabs', tabIds), [tabIds]);
-  const [unseen, setUnseen] = useState<string[]>([]);
-  const hasContent = design.messages.length > 0 || !!design.code;
-  useEffect(() => {
-    tabUsed.current = Object.fromEntries(Object.entries({ ...tabUsed.current, [design.id]: Date.now() }).sort((a, b) => b[1] - a[1]).slice(0, 200));
-    store('designTabsUsed', tabUsed.current);
-    if (hasContent) setTabIds((t) => (t.includes(design.id) ? t : trimTabs([...t, design.id], (id) => id === design.id || !!runningRef.current[id] || unseen.includes(id))));
-    setUnseen((u) => (u.includes(design.id) ? u.filter((x) => x !== design.id) : u));
-  }, [design.id, hasContent]);
+  const { tabIds, setTabIds, unseen, setUnseen } = useDesignTabs({ design, currentId, runningRef });
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
-  // Collapsible sidebars (Blender-style: T = left, N = right).
-  const [leftOpen, setLeftOpen] = useState<boolean>(() => load('leftOpen', true));
-  const [rightOpen, setRightOpen] = useState<boolean>(() => load('rightOpen', true));
-  useEffect(() => store('leftOpen', leftOpen), [leftOpen]);
-  // Sidebar widths: dragged at their inner edges; only a width the user dragged is remembered, so a
-  // better default still reaches everyone else. A double-click goes back to the default. The chat's
-  // default fits the whole composer bar on one row.
-  const narrow = window.innerWidth <= 1100;
-  const DEFAULT_W = { left: narrow ? 300 : 440, right: narrow ? 280 : 320 };
-  const [userWidths, setUserWidths] = useState<Partial<{ left: number; right: number }>>(() => {
-    const saved = load<Partial<{ left: number; right: number }> | null>('sidebarWidthsUser', null);
-    if (saved) return saved;
-    // Earlier versions saved every width, defaults (360/320) included: keep only widths that were dragged.
-    const old = load<Partial<{ left: number; right: number }>>('sidebarWidths', {});
-    return { ...(old.left && old.left !== 360 ? { left: old.left } : {}), ...(old.right && old.right !== 320 ? { right: old.right } : {}) };
-  });
-  useEffect(() => store('sidebarWidthsUser', userWidths), [userWidths]);
-  const widths = { ...DEFAULT_W, ...userWidths };
-  const workspace = useRef<HTMLElement>(null);
-  const resize = (side: 'left' | 'right') => (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const box = workspace.current!.getBoundingClientRect();
-    const onMove = (ev: PointerEvent) => setUserWidths((u) => {
-      // Each sidebar 240–700 px, and the 3D view keeps at least 320 px.
-      const w = { ...DEFAULT_W, ...u };
-      const other = side === 'left' ? (rightOpen ? w.right : 0) : (leftOpen ? w.left : 0);
-      const want = side === 'left' ? ev.clientX - box.left : box.right - ev.clientX;
-      return { ...u, [side]: Math.round(Math.max(240, Math.min(700, box.width - other - 320, want))) };
-    });
-    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); document.body.classList.remove('resizing'); };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    document.body.classList.add('resizing');
-  };
-  useEffect(() => store('rightOpen', rightOpen), [rightOpen]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target;
-      if ((t instanceof Element && t.closest('input, textarea, select, [contenteditable]')) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === 't' || e.key === 'T') setLeftOpen((o) => !o);
-      if (e.key === 'n' || e.key === 'N') setRightOpen((o) => !o);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const { leftOpen, setLeftOpen, rightOpen, setRightOpen, setUserWidths, widths, workspace, resize } = useSidebars();
   // Photos dropped anywhere go to the chat; the browser must never open a dropped file in place of
   // Jig (that would also stop a running generation).
   useEffect(() => {
@@ -192,69 +110,10 @@ export default function App() {
   }, []);
   const [exporting, setExporting] = useState(false);
   const [quality, setQuality] = useState<Quality>(() => load('quality', 'normal'));
-  // Model, effort and web search per design, in memory only: every new design (and every reload)
-  // starts with Opus, High effort and web search on.
-  // Hidden parts are saved with the design (they stay hidden after a reload or a new version).
-  const hiddenParts = useMemo<string[]>(() => {
-    try {
-      const a = JSON.parse(String(design.values[HIDDEN_KEY] ?? '[]'));
-      return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
-    } catch { return []; }
-  }, [design.values]);
-  const setHiddenParts = (list: string[]) => setDesign((d) => {
-    const values = { ...d.values };
-    if (list.length) values[HIDDEN_KEY] = JSON.stringify([...new Set(list)]); else delete values[HIDDEN_KEY];
-    return { ...d, values };
-  });
-  const toggleHidden = (n: string) => setHiddenParts(hiddenParts.includes(n) ? hiddenParts.filter((x) => x !== n) : [...hiddenParts, n]);
-  // Which parts each parameter changes, measured while parts are hidden (to grey out the
-  // parameters of hidden parts); kept for the code and values it was measured with.
-  const [paramOwners, setParamOwners] = useState<{ key: string; owners: Record<string, string[]> } | null>(null);
-  const ownersKey = JSON.stringify([design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))]);
-  useEffect(() => {
-    if (!hiddenParts.length || !design.code || paramOwners?.key === ownersKey) return;
-    let stale = false;
-    // After the preview has settled, so the measuring builds don't hold it up.
-    const t = setTimeout(() => {
-      geo.owners(design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))).then((owners) => {
-        if (!stale && owners) setParamOwners({ key: ownersKey, owners });
-      });
-    }, 600);
-    return () => { stale = true; clearTimeout(t); };
-  }, [hiddenParts.length > 0, ownersKey]);
+  const { hiddenParts, setHiddenParts, toggleHidden, paramOwners, ownersKey } = useHiddenParts({ design, setDesign, geo });
   // The part selected in the Object tab, highlighted in the view.
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
-  const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
-  // The starting model and effort come from the server's settings (JIG_MODEL, JIG_EFFORT).
-  const [chatDefaults, setChatDefaults] = useState<ChatOptions>(DEFAULT_CHAT);
-  // What kind of design it is (line art, LayerTone…), from its code: shown by its name.
-  const kind = useMemo(() => designKind(design.code, design.values),
-    [design.code, design.values[LAYERTONE_IMAGES_KEY], design.values[MESHES_KEY], design.values[DRAWINGS_KEY]]);
-  // The picture mode each design was last used with, kept for this browser (read once: this tab's
-  // changes are in chatOpts); a design without one starts in its kind's mode.
-  const [chatModes] = useState(loadChatModes);
-  const chatStart: ChatOptions = { ...chatDefaults, ...(chatModes[design.id] ?? { imageMode: kindImageMode(kind) }) };
-  const chat = chatOpts[design.id] ?? chatStart;
-  const setChat = (patch: Partial<ChatOptions>) => {
-    if ('imageMode' in patch || 'figureColor' in patch || 'lineArtStyle' in patch) storeChatMode(design.id, { ...chat, ...patch });
-    setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatStart), ...patch } }));
-  };
-  // Chat switches kept for this browser: "Wait for my OK" (3D figure mode: you approve each concept
-  // picture; off, it is built after a countdown) and "Send my view" (follow-ups bring Jig your view).
-  const [waitForOk, setWaitForOk] = useState<boolean>(() => load('waitForOk', true));
-  useEffect(() => store('waitForOk', waitForOk), [waitForOk]);
-  const waitForOkRef = useRef(waitForOk);
-  waitForOkRef.current = waitForOk;
-  const [sendView, setSendView] = useState<boolean>(() => load('sendView', true));
-  useEffect(() => store('sendView', sendView), [sendView]);
-  // "Ask first": Jig asks the few questions it can't answer itself before it builds (all modes).
-  const [askFirst, setAskFirst] = useState<boolean>(() => load('askFirst', true));
-  useEffect(() => store('askFirst', askFirst), [askFirst]);
-  const [sounds, setSounds] = useState<boolean>(() => load('sounds', true));
-  useEffect(() => store('sounds', sounds), [sounds]);
-  const soundsRef = useRef(sounds);
-  soundsRef.current = sounds;
-  useEffect(() => unlockSounds(), []);
+  const { chatDefaults, setChatDefaults, kind, chat, setChat, waitForOk, setWaitForOk, waitForOkRef, sendView, setSendView, askFirst, setAskFirst, sounds, setSounds, soundsRef } = useChatOptions(design);
   // The countdown under a reply that ended with new concept pictures ("Wait for my OK" off).
   const [autoBuild, setAutoBuild] = useState<AutoBuild | null>(null);
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
@@ -278,7 +137,6 @@ export default function App() {
   const [validation, setValidation] = useState<ValidationState | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
   const [validating, setValidating] = useState(false);
-  type Notice = { text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean };
   const [notice, setNotice] = useState<Notice | null>(null);
   const switchNotice = useRef<Notice | null>(null);
   // In-memory copies of designs that are generating, or not saved yet, while another design is open.
@@ -315,105 +173,9 @@ export default function App() {
   useEffect(() => { if (picking) repaint.stop(); }, [picking, repaint.stop]);
   useEffect(() => repaint.stop(), [design.id, repaint.stop]);
 
-  // Small screens (useLayoutMode): a phone shows one panel at a time (`tab`), the split layout the
-  // 3D view beside the chat or the side panel (`pane`, the last of those two picked). Remembered
-  // in this browser.
-  const layout = useLayoutMode();
-  const [shownPanel, setShownPanel] = useState<{ tab: LayoutTab; pane: Exclude<LayoutTab, '3d'> }>(() => {
-    const saved = load<{ tab?: unknown; pane?: unknown }>('layoutTab', {});
-    const pane = saved.pane === 'panel' ? 'panel' : 'chat';
-    return { tab: saved.tab === '3d' || saved.tab === 'panel' || saved.tab === 'chat' ? saved.tab : pane, pane };
-  });
-  useEffect(() => store('layoutTab', shownPanel), [shownPanel]);
-  const showPanel = (tab: LayoutTab) => setShownPanel((s) => ({ tab, pane: tab === '3d' ? s.pane : tab }));
-  const shownTab: LayoutTab | null = layout === 'phone' ? shownPanel.tab : layout === 'split' ? shownPanel.pane : null;
-  // A new version from a reply marks the phone's 3D tab until it is shown (no switch: the reply is
-  // still being read).
-  const [newModel, setNewModel] = useState(false);
-  const seenVersions = useRef({ id: design.id, n: design.versions.length });
-  useEffect(() => {
-    const seen = seenVersions.current;
-    if (seen.id !== design.id) setNewModel(false);
-    else if (design.versions.length > seen.n && design.versions.at(-1)?.source === 'ai') setNewModel(true);
-    seenVersions.current = { id: design.id, n: design.versions.length };
-  }, [design.id, design.versions.length]);
-  useEffect(() => { if (layout !== 'phone' || shownPanel.tab === '3d') setNewModel(false); }, [layout, shownPanel.tab, newModel]);
-  // Picking a surface for a text or drawing happens in the 3D view: a phone shows it while picking,
-  // then goes back to the panel.
-  const pickedFrom = useRef<LayoutTab | null>(null);
-  useEffect(() => {
-    if (layout !== 'phone') return;
-    if (picking && shownPanel.tab !== '3d') { pickedFrom.current = shownPanel.tab; showPanel('3d'); }
-    if (!picking && pickedFrom.current) { showPanel(pickedFrom.current); pickedFrom.current = null; }
-  }, [picking]);
+  const { layout, shownPanel, showPanel, shownTab, newModel } = useLayoutPanels({ design, picking });
 
-  const textFeatures = useMemo(() => parseTextFeatures(design.values[TEXT_KEY]), [design.values]);
-  const setTextFeatures = (list: TextFeature[]) => setDesign((d) => {
-    const values = { ...d.values };
-    if (list.length) values[TEXT_KEY] = JSON.stringify(list); else delete values[TEXT_KEY];
-    return { ...d, values, updatedAt: Date.now() };
-  });
-  const svgFeatures = useMemo(() => parseSvgFeatures(design.values[SVG_KEY]), [design.values]);
-  const setSvgFeatures = (list: SvgFeature[]) => setDesign((d) => {
-    const values = { ...d.values };
-    if (list.length) values[SVG_KEY] = JSON.stringify(list); else delete values[SVG_KEY];
-    return { ...d, values, updatedAt: Date.now() };
-  });
-  // LayerTone: the filament setup (a setting, like the sliders) and the pictures (like attached drawings).
-  // Changed LayerTone filaments show in the 3D view at once, on the layers the shown model was built
-  // with, until the rebuild (whose heights can shift a little with the new filaments) replaces it.
-  const recolor = useMemo(() => {
-    const part = findLayerTonePart(result ?? lastGood);
-    const want = parseLayerToneSetup(design.values[LAYERTONE_KEY]).filaments;
-    if (!part || !want || want.length !== part.layerColors.length) return null;
-    if (want.every((f, i) => f.color.toLowerCase() === part.layerColors[i].color.toLowerCase() && f.td === part.layerColors[i].td)) return null;
-    return { part: part.name, layers: part.layerColors.map((l, i) => ({ ...l, color: want[i].color, td: want[i].td, name: want[i].name, brand: want[i].brand })) };
-  }, [result, lastGood, design.values[LAYERTONE_KEY]]);
-
-  // A filament picked (or reset) in the Object tab shows at once, in the 3D view and the swatch,
-  // until the rebuild that brings it arrives: the part's colour as it should be now.
-  const partColorsNow = useMemo(() => parsePartColors(design.values[PART_COLORS_KEY]), [design.values[PART_COLORS_KEY]]);
-  const previewColors = useMemo(() => {
-    const parts = (result ?? lastGood)?.parts ?? [];
-    const out: Record<string, string> = {};
-    for (const part of parts) {
-      if (part.paint || part.layerColors || part.lithophane) continue;
-      const want = partColorsNow[part.name]?.color ?? part.scriptColor ?? part.color;
-      if (want.toLowerCase() !== part.color.toLowerCase()) out[part.name] = want;
-    }
-    return Object.keys(out).length ? out : null;
-  }, [result, lastGood, partColorsNow]);
-  const setLayerTone = (setup: LayerToneSetup | null) => setDesign((d) => {
-    const values = { ...d.values };
-    if (setup) values[LAYERTONE_KEY] = JSON.stringify(setup); else delete values[LAYERTONE_KEY];
-    return { ...d, values, updatedAt: Date.now() };
-  });
-  // Line art hand edits (the Edit drawing brush): a setting like the LayerTone setup, saved with versions.
-  const setLineArtEdits = (update: (edits: LineArtEdits) => LineArtEdits) => setDesign((d) => {
-    const before = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
-    const after = update(before);
-    if (after === before) return d;
-    const values = { ...d.values };
-    if (Object.keys(after).length) values[LINEART_EDITS_KEY] = JSON.stringify(after); else delete values[LINEART_EDITS_KEY];
-    // The piece's first colour goes in its top layers (fewer filament changes), unless the user chose a depth.
-    const coloured = (e: LineArtEdits) => Object.values(e).some((x) => x.strokes.some((st) => st.filament));
-    if (values[LINEART_DEPTH_KEY] == null && !coloured(before) && coloured(after)) values[LINEART_DEPTH_KEY] = 'auto';
-    return { ...d, values, updatedAt: Date.now() };
-  });
-  // A filament picked for a part (Object tab), or back to the script's colour. Lines of a line art
-  // in another filament (Edit drawing's colours) change filament where they were drawn and painted.
-  const setPartColor = (part: string, filament: PartFilament | null) => {
-    const painted = (result ?? lastGood)?.parts.find((p) => p.name === part)?.lineArt?.paintedIn;
-    if (painted) setLineArtEdits((e) => recolourEdits(e, painted, filament));
-    else setPickedColor(part, filament);
-  };
-  const setPickedColor = (part: string, filament: PartFilament | null) => setDesign((d) => {
-    const { [part]: _old, ...rest } = parsePartColors(d.values[PART_COLORS_KEY]);
-    const all = filament ? { ...rest, [part]: filament } : rest;
-    const values = { ...d.values };
-    if (Object.keys(all).length) values[PART_COLORS_KEY] = JSON.stringify(all); else delete values[PART_COLORS_KEY];
-    return { ...d, values, updatedAt: Date.now() };
-  });
+  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
   const [editingLineArt, setEditingLineArt] = useState(false);
   useEffect(() => setEditingLineArt(false), [design.id]);
 
@@ -542,250 +304,16 @@ export default function App() {
   }, [design.versions, design.currentVersion]);
 
   /**
-   * Follows Jig's reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
-   * with one under way): its events update that design, even if another one is open by now.
+   * Everything needed to rebuild the model as the user has set it: the sliders as they are now
+   * (not as last evaluated – a slow preview may still be running), uniform scale and text-tool text.
    */
-  const followReply = async (designId: string, asstId: string, stream: (onEvent: (ev: AgentEvent, seen: number) => void, signal: AbortSignal) => Promise<ReplyEnd>) => {
-    // Updates always go to the design this generation belongs to, even if another one is open by now.
-    const update = (fn: (d: Design) => Design) => updateDesign(designId, fn);
-    const patchAsst = (fn: (m: ChatMessage) => ChatMessage) =>
-      update((d) => ({ ...d, messages: d.messages.map((m) => (m.id === asstId ? fn(m) : m)) }));
-    const abort = new AbortController();
-    setRunning((r) => ({ ...r, [designId]: abort }));
-    tell({ type: 'running', id: designId, on: true });
-    let finished = false;
-    // Messages queued meanwhile go out only after a reply that ended normally.
-    let completed = false;
-    // Meshy started a model in this reply: the credits changed.
-    let usedMeshy = false;
-    // Concept pictures drawn in this reply, and whether it failed (for the countdown).
-    const drawn: DrawnConcept[] = [];
-    let failed = false;
-    // Jig asked questions in this reply (they wait for an answer).
-    let asked = false;
-    let end: ReplyEnd | undefined;
-    try {
-      end = await stream((ev, count) => {
-        if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
-        else if (ev.type === 'lineArtEditsBaked') update((d) => {
-          // A partial edit drew the hand edits into the drawing: they're part of it now (their colours stay, on it).
-          const { [ev.name]: _baked, ...others } = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
-          const rest = ev.kept ? { ...others, [ev.name]: ev.kept } : others;
-          const values = { ...d.values };
-          if (Object.keys(rest).length) values[LINEART_EDITS_KEY] = JSON.stringify(rest); else delete values[LINEART_EDITS_KEY];
-          return { ...d, values };
-        });
-        else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
-        else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
-        else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
-        else if (ev.type === 'concept') {
-          drawn.push({ name: ev.name, color: !!ev.entry.color });
-          update((d) => ({ ...d, values: { ...d.values, [CONCEPTS_KEY]: withConcept(d.values[CONCEPTS_KEY], ev.name, ev.entry) } }));
-        }
-        else if (ev.type === 'layerToneSetup') update((d) => {
-          const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
-          return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
-        });
-        else if (ev.type === 'step') {
-          // Meshy started a task (credits spent, even if it fails later).
-          if (ev.step.text.startsWith('Meshy task ')) usedMeshy = true;
-          patchAsst((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step], activity: addStep(m.activity ?? [], ev.step) }));
-        }
-        else if (ev.type === 'questions') { asked = true; patchAsst((m) => ({ ...m, questions: ev.questions })); }
-        else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
-        else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
-        else if (ev.type === 'model') {
-          update((d) => {
-            const values = keepAppValues(d.values);
-            // A page Claude opened in an earlier generation of this design counts as opened.
-            const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
-            const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources }];
-            const vi = versions.length - 1;
-            return {
-              ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
-              messages: d.messages.map((m) => (m.id === asstId ? { ...m, versionIndex: vi } : m)),
-            };
-          });
-        } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
-        else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
-        // How far this copy of the reply has got, so a page opened later can catch up with it.
-        patchAsst((m) => ({ ...m, run: ev.type === 'run' ? { id: ev.runId, seen: count } : m.run && { ...m.run, seen: count } }));
-      }, abort.signal);
-      // Another page (or tab) follows the reply now and owns the design: its saves win over this note.
-      if (end === 'moved') return void patchAsst((m) => ({ ...m, live: undefined, error: 'Jig carries on with this reply in another window – reload to see it here.' }));
-      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
-    } catch (e) {
-      if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
-      else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
-    } finally {
-      if (end !== 'moved') patchAsst((m) => ({ ...m, live: undefined, pending: undefined, run: undefined }));
-      // Stopped or failed: messages queued for after this reply wait for the user ("Send now").
-      if (!completed) setQueues((s) => (s[designId]?.items.length ? { ...s, [designId]: { ...s[designId], paused: true } } : s));
-      setRunning((r) => { const next = { ...r }; delete next[designId]; return next; });
-      if (currentId.current !== designId) setUnseen((u) => (u.includes(designId) ? u : [...u, designId]));
-      tell({ type: 'running', id: designId, on: false });
-      if (usedMeshy && meshy) refreshMeshyCredits();
-      // "Wait for my OK" off: new concept pictures on the design open here are built after a countdown.
-      const next = autoBuildAfter({ designId, messageId: asstId, concepts: drawn, completed, error: failed, openDesignId: currentId.current,
-        waitForOk: waitForOkRef.current, queued: !!queuesRef.current[designId]?.items.length, now: Date.now() });
-      if (next) setAutoBuild(next);
-      // A chime: Jig needs you (questions, concept pictures to approve, an error) or the reply is done.
-      // Nothing when the user stopped it, or another window carries on with it.
-      if (soundsRef.current && !abort.signal.aborted && (completed || failed)) playCue(failed || asked || drawn.length ? 'attention' : 'done');
-      // A design that finished in the background is persisted, then dropped from memory (by
-      // onSaved; a failed save keeps it, so "Retry" still has the changes).
-      setTimeout(() => {
-        const bg = background.current.get(designId);
-        if (bg && currentId.current !== designId) {
-          cancelPending(designId);
-          saveNow(bg).catch(() => {});
-        }
-      }, 0);
-    }
-  };
+  // The runtime resolves values against the script it actually runs (defaults for anything new),
+  // so they are passed as they are, not resolved against a preview that may be of older code.
+  const fullValues = (): ParamValues => ({ ...design.values });
 
-  /** `approval`: the approval of concept pictures (the countdown or Build now), sent without the user's view. */
-  const onSend = async (text: string, images: string[], attached: SvgDrawing[] = [], scad: ScadFile[] = [], meshUploads: MeshUpload[] = [], { approval = false } = {}) => {
-    const now = Date.now();
-    // Any message answers the concept pictures: no countdown any more.
-    setAutoBuild(null);
-    // Attached mesh files join the design's meshes (H.mesh), each under a name of its own.
-    const meshes = parseMeshes(design.values[MESHES_KEY]);
-    const meshNames = meshUploads.map((u) => {
-      const same = Object.entries(meshes).find(([, m]) => m.file === u.entry.file)?.[0];
-      const name = same ?? freeMeshName(u.name, meshes);
-      meshes[name] = u.entry;
-      return name;
-    });
-    const files = [...scad.map((f) => f.name), ...meshUploads.map((u) => u.entry.original ?? u.name)];
-    const userMsg: ChatMessage = { id: uid(), role: 'user', text, images, ...(files.length ? { files } : {}), createdAt: now };
-    // Saved as it grows, marked pending until it ends (a reply still pending on load was interrupted).
-    const asst: ChatMessage = { id: uid(), role: 'assistant', text: '', steps: [], createdAt: now, pending: true };
-    const designId = design.id;
-    // For follow-ups, capture exactly what the user is looking at before the chat changes anything
-    // (unless "Send my view" is off, or this only approves concept pictures).
-    const current = followUpContext(sendView && !approval);
-    // Attached SVG drawings are kept with the design, so scripts can use them (H.svg) everywhere.
-    const drawings = withDrawings(parseDrawings(design.values[DRAWINGS_KEY]), attached);
-    const sentValues: ParamValues = {
-      ...design.values,
-      ...(attached.length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
-      ...(meshNames.length ? { [MESHES_KEY]: JSON.stringify(meshes) } : {}),
-    };
-    setDesign((d) => ({
-      ...d, messages: [...d.messages, userMsg, asst], updatedAt: now,
-      values: {
-        ...d.values,
-        ...(attached.length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
-        ...(meshNames.length ? { [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), ...Object.fromEntries(meshNames.map((n) => [n, meshes[n]])) }) } : {}),
-      },
-    }));
-    await followReply(designId, asst.id, (onEvent, signal) => generate({
-      designId: design.id,
-      prompt: text,
-      images: images.map(dataUrlToImage),
-      code: design.code || undefined,
-      values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
-      textNote: [describeText(textFeatures), describeSvg(svgFeatures)].filter(Boolean).join('; ') || undefined,
-      ...current,
-      // The render Claude gets of the current model already has the newly attached meshes.
-      ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
-      sessionId: design.sessionId,
-      model: chat.model,
-      effort: chat.effort,
-      webSearch: chat.webSearch,
-      // (An approval of concept pictures just goes ahead.)
-      askFirst: askFirst && !approval,
-      imageMode: chat.imageMode,
-      ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
-      ...(chat.imageMode === 'lineart' ? { lineArtStyle: chat.lineArtStyle ?? DEFAULT_LINE_ART_STYLE } : {}),
-      artwork: chat.imageMode === 'artwork',
-      drawings: Object.keys(drawings).length ? drawings : undefined,
-      // The design's pictures, meshes and LayerTone setup, so Claude has them even before a first version exists.
-      pictures: pictureValues(sentValues),
-      meshes: meshNames.length ? meshNames : undefined,
-      scad: scad.length ? scad : undefined,
-      // In case the session can't be continued: what was said, for a fresh one.
-      // (A reply that asked questions brings them along.)
-      history: design.messages.slice(-12).flatMap((m) => {
-        const t = [m.text.trim(), m.questions ? `Asked: ${m.questions.map((q) => q.question).join(' ')}` : ''].filter(Boolean).join('\n');
-        return t ? [{ role: m.role, text: t.slice(0, 1500) }] : [];
-      }),
-    }, onEvent, signal));
-  };
-
-  // "Ask first": the answers chosen on a question card go out as the user's message (with the
-  // current toggles, as any other), and the card keeps them to show read-only.
-  const onAnswer = (messageId: string, answers: string[][]) => {
-    const m = design.messages.find((x) => x.id === messageId);
-    if (!m?.questions) return;
-    setDesign((d) => ({ ...d, messages: d.messages.map((x) => (x.id === messageId ? { ...x, answers } : x)) }));
-    void onSend(answerText(m.questions, answers), []);
-  };
-
-  // ---- messages sent while Claude works: queued per design, sent together once the reply is done
-  const [queues, setQueues] = useState<Record<string, { items: QueuedMessage[]; paused: boolean }>>({});
-  const queue = queues[design.id];
-  const queuesRef = useRef(queues);
-  queuesRef.current = queues;
-  // While Claude works, a message goes into the running reply (Claude reads it at its next step);
-  // files Claude can only take with a new request, or a reply that has just ended, queue it instead.
-  const steerOrQueue = async (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => {
-    if (drawings.length || scad.length || meshes.length || !(await steer(design.id, text, images.map(dataUrlToImage)))) enqueue(text, images, drawings, scad, meshes);
-  };
-  const enqueue = (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[] = []) =>
-    setQueues((s) => ({ ...s, [design.id]: { items: [...(s[design.id]?.items ?? []), { text, images, drawings, scad, meshes }], paused: false } }));
-  const removeQueued = (i: number) => setQueues((s) => {
-    const items = (s[design.id]?.items ?? []).filter((_, j) => j !== i);
-    const next = { ...s };
-    if (items.length) next[design.id] = { ...s[design.id], items }; else delete next[design.id];
-    return next;
-  });
-  const sendQueued = () => {
-    const q = queues[design.id];
-    if (!q?.items.length) return;
-    setQueues((s) => { const next = { ...s }; delete next[design.id]; return next; });
-    void onSend(q.items.map((m) => m.text).filter(Boolean).join('\n\n'), q.items.flatMap((m) => m.images).slice(0, 8), q.items.flatMap((m) => m.drawings), q.items.flatMap((m) => m.scad).slice(0, MAX_SCAD_FILES), q.items.flatMap((m) => m.meshes));
-  };
-  // The countdown ends (or Build now): the approval goes out as the user's message, only on the
-  // design it was for, still open here and idle, with that reply still the last message.
-  const buildConcepts = useRef(() => {});
-  buildConcepts.current = () => {
-    const a = autoBuild;
-    setAutoBuild(null);
-    if (!a || a.designId !== design.id || design.messages.at(-1)?.id !== a.messageId || running[design.id] || remoteRunning[design.id] != null || claudeProblem) return;
-    void onSend(approvalText(a.concepts), [], [], [], [], { approval: true });
-  };
-  useEffect(() => {
-    if (!autoBuild) return;
-    const t = setTimeout(() => buildConcepts.current(), Math.max(0, autoBuild.until - Date.now()));
-    return () => clearTimeout(t);
-  }, [autoBuild]);
-  // Opening another design, or turning "Wait for my OK" back on, ends the countdown.
-  useEffect(() => { setAutoBuild((a) => (a && a.designId !== design.id ? null : a)); }, [design.id]);
-  useEffect(() => { if (waitForOk) setAutoBuild(null); }, [waitForOk]);
-  // When the open design's reply is done (and its new model is on screen), the queue goes out.
-  useEffect(() => {
-    if (queue?.items.length && !queue.paused && !running[design.id] && remoteRunning[design.id] == null && !busy) sendQueued();
-  }, [queue, running, remoteRunning, busy, design.id]);
-
-  // A reply the server is still working on when its design is opened (the page was reloaded, or
-  // another device started it): catch up with it, unless another tab here follows it already.
-  const resumeLast = useRef(() => {});
-  resumeLast.current = () => {
-    const m = design.messages.at(-1);
-    const run = m?.pending && m.run;
-    if (!m || !run || running[design.id] || remoteRunning[design.id] != null) return;
-    void followReply(design.id, m.id, (onEvent, signal) => resumeReply(design.id, run, onEvent, signal));
-  };
-  const lastRun = design.messages.at(-1)?.run?.id;
-  useEffect(() => {
-    if (!lastRun) return;
-    // Other tabs first say whether they follow it (they answer "hello" at once).
-    const t = setTimeout(() => resumeLast.current(), 1500);
-    return () => clearTimeout(t);
-  }, [design.id, lastRun]);
+  const { onSend, onAnswer, queue, steerOrQueue, enqueue, removeQueued, sendQueued, buildConcepts } = useReplies({ design, setDesign, updateDesign, running, setRunning, remoteRunning, setUnseen,
+    currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, sendView, askFirst, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
+    autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues });
 
   const restore = (vi: number) => {
     const v = design.versions[vi];
@@ -805,36 +333,7 @@ export default function App() {
     });
   };
 
-  // ---- print settings (AI suggestions in the script, user overrides in $print) ----
-  const aiPrint: PrintProfile = (result ?? lastGood)?.print ?? {};
-  const userPrint = useMemo(() => parseProfile(design.values[PRINT_KEY]), [design.values]);
-  const setUserPrint = (p: PrintProfile) => setDesign((d) => {
-    const values = { ...d.values };
-    if (Object.keys(p).length) values[PRINT_KEY] = JSON.stringify(p); else delete values[PRINT_KEY];
-    return { ...d, values, updatedAt: Date.now() };
-  });
-  // "Print in one colour" (per design): one filament for the 3MF, the slice and the 3D view.
-  const oneColour = parseOneColour(design.values[ONE_COLOUR_KEY]);
-  const setOneColour = (choice: null | 'main' | string) => setDesign((d) => {
-    const values = { ...d.values };
-    if (choice) values[ONE_COLOUR_KEY] = choice === 'main' ? true : choice; else delete values[ONE_COLOUR_KEY];
-    return { ...d, values, updatedAt: Date.now() };
-  });
-  const partNames = (result ?? lastGood)?.parts.map((p) => p.name) ?? [];
-  // Number of print settings (as shown in the Print tab) that differ from the profile on any part.
-  const printChanges = useMemo(() => {
-    const changed = new Set<string>();
-    for (const name of partNames.length ? partNames : [undefined]) {
-      const eff = effectiveSettings(aiPrint, userPrint, name, printBase);
-      for (const k of Object.keys(printBase) as (keyof typeof printBase)[]) if (eff[k] !== printBase[k]) changed.add(k);
-    }
-    return changed.size;
-  }, [aiPrint, userPrint, printBase, partNames.join('\u0000')]);
-  /** Which parts will print with supports / an explicit brim (validation takes these into account). */
-  const printHints = () => ({
-    supportParts: partNames.filter((n) => effectiveSettings(aiPrint, userPrint, n, printBase).supports !== 'off'),
-    brimParts: partNames.filter((n) => typeof effectiveSettings(aiPrint, userPrint, n, printBase).brim === 'number'),
-  });
+  const { aiPrint, userPrint, setUserPrint, oneColour, setOneColour, printChanges, printHints } = usePrintSettings({ design, setDesign, result, lastGood, printBase });
 
   // ---- assembly animation ----
   const shown = result ?? lastGood;
@@ -850,31 +349,7 @@ export default function App() {
       return { ...d, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };
-  // The layout parameter (print / assembled / exploded). A line art split into pieces whose script
-  // has none keeps its layout in a design value (LINEART_LAYOUT_KEY) that H.lineart reads.
-  const shownLineArt = lineArtPart(shown);
-  const splitArt = !!shownLineArt?.lineArt.split;
-  // The editor draws on the whole piece: a split one put back together.
-  const editorPart = useMemo(() => (editingLineArt ? assembledLineArt(shown) : undefined), [editingLineArt, shown]);
-  // The line art as Jig made it, without the hand edits: the editor shows it where edits are cleared.
-  const lineArtOriginal = useCallback(async () => {
-    const { [LINEART_EDITS_KEY]: _edits, ...values } = design.values;
-    return assembledLineArt((await geo.evaluate(design.code, values, quality)).result ?? null);
-  }, [design.code, design.values, quality]);
-  const scriptLayoutKey = shown ? Object.entries(shown.params).find(([, d]) => d.type === 'select' && d.options.some((o) => o.value === 'assembled'))?.[0] : undefined;
-  const layoutKey = scriptLayoutKey ?? (splitArt ? LINEART_LAYOUT_KEY : undefined);
-  // Re-fit the camera when a new script version arrives, and when the model shown is laid out
-  // another way (Print spreads a split piece's pieces wide, Exploded pulls them apart; a line art
-  // split or put back in one piece): read from the model itself, so the camera fits the model
-  // built with the new layout, not the one before it. Not on other changes (a slider).
-  const shownLayout = shownLineArt ? shownLineArt.lineArt.split?.layout ?? (splitArt ? 'split' : 'whole') : scriptLayoutKey ? String(shown?.values[scriptLayoutKey] ?? '') : '';
-  const fitKey = `${design.id}:${design.currentVersion}:${design.code.length}:${shownLayout}`;
-  const canAssemble = !!layoutKey && !!shown?.assembly.length;
-  // The layout option that lays the parts out for printing ('print', or the first that isn't a view).
-  const layoutDef: ParamDef | undefined = scriptLayoutKey ? shown?.params[scriptLayoutKey] : layoutKey ? LINEART_LAYOUT_PARAM : undefined;
-  const printLayout = layoutDef?.type === 'select'
-    ? (layoutDef.options.find((o) => o.value === 'print') ?? layoutDef.options.find((o) => o.value !== 'assembled' && o.value !== 'exploded'))?.value
-    : undefined;
+  const { shownLineArt, splitArt, editorPart, lineArtOriginal, layoutKey, fitKey, canAssemble, layoutDef, printLayout } = useModelLayout({ design, shown, editingLineArt, quality, geo });
 
   // ---- cost: slice the exported parts in Bambu Studio (the print layout, not an assembled view)
   const cost = useCost(geo, {
@@ -921,79 +396,8 @@ export default function App() {
 
   const layoutValue = layoutKey ? String(design.values[layoutKey] ?? shown?.values[layoutKey] ?? layoutDef?.value ?? '') : undefined;
 
-  const onValidate = async () => {
-    if (!design.code || !shown) return;
-    setValidating(true);
-    try {
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: hiddenParts, ...printHints() } });
-      if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
-      setValidation({ report: o.report, label: 'Validation' });
-      setValidationOpen(true);
-      setNotice(null);
-    } finally {
-      setValidating(false);
-    }
-  };
-
-  const startAssembly = async () => {
-    if (!layoutKey || !shown) return;
-    setPlaybackLoading(true);
-    try {
-      const base: ParamValues = fullValues();
-      const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality, { display: true });
-      if (!a.result || !a.result.assembly.length) return;
-      const def = layoutDef;
-      const hasExploded = def?.type === 'select' && def.options.some((o) => o.value === 'exploded');
-      const e = hasExploded ? (await geo.evaluate(design.code, { ...base, [layoutKey]: 'exploded' }, quality)).result : undefined;
-      const center = (b: { min: number[]; max: number[] }) => [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
-      const size = a.result.bbox ? Math.max(...[0, 1, 2].map((k) => a.result!.bbox!.max[k] - a.result!.bbox!.min[k])) : 50;
-      const steps: PlaybackStep[] = a.result.assembly.map((st) => ({
-        label: st.label,
-        parts: st.parts.map((name) => {
-          let from = st.from;
-          if (!from) {
-            const pa = a.result!.parts.find((p) => p.name === name);
-            const pe = e?.parts.find((p) => p.name === name);
-            if (pa && pe) {
-              const ca = center(pa.bbox), ce = center(pe.bbox);
-              from = [ce[0] - ca[0], ce[1] - ca[1], ce[2] - ca[2]];
-            }
-            if (!from || Math.hypot(...from) < 1e-3) from = [0, 0, size * 0.6];
-          }
-          return { name, from, rotate: st.rotate };
-        }),
-      }));
-      setPlayback({ result: a.result, steps });
-    } finally {
-      setPlaybackLoading(false);
-    }
-  };
-
-  /** What Claude needs to see the model exactly as the user does (follow-ups only); `view`: with the screenshot and the four-view render. */
-  const followUpContext = (view: boolean): Pick<GenerateRequest, 'currentView' | 'renderValues' | 'scale' | 'versionNote'> => {
-    if (!design.code || !(result ?? lastGood)) return {};
-    let currentView: { mediaType: string; data: string } | undefined;
-    try {
-      const shot = view ? snapshotRef.current?.() : null;
-      if (shot) currentView = dataUrlToImage(shot);
-    } catch { /* screenshot is optional */ }
-    const renderValues: ParamValues = fullValues();
-    const scale = Number(design.values[SCALE_KEY] ?? 1);
-    const latest = design.versions.length - 1;
-    const cur = design.versions[design.currentVersion];
-    const versionNote = design.currentVersion >= 0 && design.currentVersion < latest
-      ? `The user restored version ${design.currentVersion + 1} of ${latest + 1} ("${cur.summary}"). The current script is that version, not your latest one – work from it.`
-      : cur?.source === 'manual' ? 'The user edited the script by hand after your last version – keep their edits.' : undefined;
-    return withView({ currentView, renderValues, scale: scale !== 1 ? scale : undefined, versionNote }, view);
-  };
-
-  /**
-   * Everything needed to rebuild the model as the user has set it: the sliders as they are now
-   * (not as last evaluated – a slow preview may still be running), uniform scale and text-tool text.
-   */
-  // The runtime resolves values against the script it actually runs (defaults for anything new),
-  // so they are passed as they are, not resolved against a preview that may be of older code.
-  const fullValues = (): ParamValues => ({ ...design.values });
+  const { onValidate, startAssembly } = modelChecks({ design, shown, geo, quality, fullValues, hiddenParts, printHints, layoutKey, layoutDef, layoutValue,
+    setValidating, setValidation, setValidationOpen, setNotice, setPlayback, setPlaybackLoading });
 
   const onEditDimension = async (target: DimTarget, goal: number): Promise<SolveResult | null> => {
     if (!design.code || !(result ?? lastGood)) return null;
@@ -1013,116 +417,8 @@ export default function App() {
 
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
-  const onExport = async (format: ExportFormat, partName?: string) => {
-    if (!design.code) return;
-    setExporting(true);
-    setExportError(null);
-    try {
-      // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
-      // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
-      // or may be from other settings, and the file would not be what the user expects.
-      const choice = { exclude: hiddenParts, only: partName };
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
-      if (!o.result) {
-        setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
-        return;
-      }
-      const r = o.result;
-      const parts = exportedParts(r, choice);
-      if (!parts.length) {
-        setNotice({ text: partName ? `Not exported: the model has no part "${partName}" any more.` : 'Not exported: every part is hidden in the viewer.', level: 'warning', details: false });
-        return;
-      }
-      const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
-      const file = `${name}.${format}`;
-      const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
-        oneColour: oneColour ? oneColourFilament(parts, oneColour).colour : null,
-        print: threeMf.print && bambu ? { ai: r.print, user: userPrint } : null,
-        // The template's profile becomes the baseline shown in the Print tab.
-        onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
-      });
-      download(blob, file); // always export – problems are reported, not blocking
-      if (o.report) {
-        const report = o.report;
-        const sum = summarize(report.issues);
-        setValidation({ report, label: `Exported ${file}` });
-        setValidationOpen(false);
-        setNotice(sum.level === 'ok'
-          ? { text: `Exported ${file} · checked, no problems found`, level: 'ok', details: true }
-          : { text: `Exported ${file} · ${sum.text} found`, level: sum.level === 'error' ? 'error' : 'warning', details: true });
-      } else {
-        setNotice({ text: `Exported ${file} · could not validate`, level: 'warning', details: false });
-      }
-    } catch (e) {
-      setExportError((e as Error).message);
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  // Everything about the design in one folder or zip (lib/projectExport.ts).
-  const onExportProject = async () => {
-    if (!design.code) return;
-    // The folder picker first: the browser only shows it right after the click.
-    let target: ProjectTarget;
-    try {
-      target = await chooseTarget();
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') setExportError(`Project not exported: ${(e as Error).message}`);
-      return;
-    }
-    setExporting(true);
-    setExportError(null);
-    setExportStage('model');
-    try {
-      // Built and validated at high resolution, like any export.
-      const choice = { exclude: hiddenParts };
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
-      if (!o.result) {
-        setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
-        return;
-      }
-      const r = o.result;
-      const parts = exportedParts(r, choice);
-      if (!parts.length) {
-        setNotice({ text: 'Not exported: every part is hidden in the viewer.', level: 'warning', details: false });
-        return;
-      }
-      // design.jig.json is the design as the server stores it (what Import designs… reads): the
-      // latest changes are saved first. Should that fail, this tab's copy is written instead.
-      setExportStage('design');
-      if (isUnsaved(design.id)) await saveNow(design).catch(() => {});
-      const stored = await api.getDesign(design.id).catch(() => null);
-      const designJson = JSON.stringify(stored ?? design, (k, v) => (k === 'activity' ? undefined : v));
-      const sum = o.report ? summarize(o.report.issues) : null;
-      const title = r.meta.name || design.name;
-      const out = await exportProject({
-        design, designJson, result: r, parts, title, base: slug(title),
-        print: { ai: r.print, user: userPrint, base: printBase }, bambu: !!bambu,
-        oneColour: oneColour ? oneColourFilament(parts, oneColour) : null,
-        blender: blender && !blender.problem ? { ok: true } : { ok: false, why: blender?.problem ?? null },
-        check: sum ? sum.text : 'could not validate',
-        onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
-      }, target, setExportStage, download);
-      const where = target.kind === 'folder' ? `the folder "${out.name}"` : `${out.name}.zip`;
-      if (o.report) {
-        setValidation({ report: o.report, label: `Exported ${where}` });
-        setValidationOpen(false);
-      }
-      if (out.problems.length) {
-        setNotice({ text: `Exported ${where}, without ${out.problems.length === 1 ? 'one file' : `${out.problems.length} files`} (see its README): ${out.problems[0].replace(/`/g, '')}`, level: 'warning', details: !!o.report });
-      } else {
-        setNotice(!sum || sum.level !== 'ok'
-          ? { text: `Exported ${where} · ${sum ? `${sum.text} found` : 'could not validate'}`, level: sum?.level === 'error' ? 'error' : 'warning', details: !!o.report }
-          : { text: `Exported ${where} · checked, no problems found`, level: 'ok', details: true });
-      }
-    } catch (e) {
-      setExportError(`Project not exported: ${(e as Error).message}`);
-    } finally {
-      setExporting(false);
-      setExportStage(null);
-    }
-  };
+  const { onExport, onExportProject } = designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
+    setExporting, setExportError, setExportStage, setNotice, setValidation, setValidationOpen, isUnsaved, saveNow });
 
   const openDesign = async (id: string) => {
     if (id === design.id) return;
@@ -1213,103 +509,8 @@ export default function App() {
     if (!busy(design.id)) createNew();
   };
 
-  const deletingHere = useRef(new Set<string>());
-  const deleteDesign = async (id: string) => {
-    if (!confirm('Delete this design permanently?')) return;
-    deletingHere.current.add(id);
-    const saving = stopSaving(id);
-    try {
-      // The server refuses to delete a design Claude is working on: stop it and wait until it has.
-      running[id]?.abort();
-      for (let tries = 0; ; tries++) {
-        try {
-          await api.deleteDesign(id);
-          break;
-        } catch (e) {
-          if (!(e instanceof HttpError && e.status === 409 && running[id] && tries < 40)) throw e;
-          await new Promise((r) => setTimeout(r, 250));
-        }
-      }
-    } catch (e) {
-      saving.undo();
-      // The latest copy: a generation stopped for the delete may have changed it since the click.
-      const copy = background.current.get(id) ?? (designRef.current.id === id ? designRef.current : null);
-      if (copy) saveSoon(copy);
-      deletingHere.current.delete(id);
-      setNotice({ text: `Could not delete the design: ${(e as Error).message}`, level: 'error', details: false });
-      return;
-    }
-    tell({ type: 'deleted', id });
-    forgetDesign(id);
-  };
-
-  /**
-   * Delete several designs after one question that names them. Designs Jig is working on (in any
-   * tab) are left alone and named; each delete is the single delete's route, so one that fails
-   * leaves the others deleted and is reported.
-   */
-  const deleteDesigns = async (ids: string[]) => {
-    const busy = (id: string) => !!running[id] || remoteRunning[id] != null;
-    const plan = deletePlan(designs.filter((d) => ids.includes(d.id)), busy);
-    if (!plan.question) {
-      if (plan.busy.length) setNotice({ text: `Nothing deleted: Jig is working on ${someNames(plan.busy.map((d) => d.name), 3)}. Stop it first.`, level: 'warning', details: false });
-      return;
-    }
-    if (!confirm(plan.question)) return;
-    const failed: string[] = [];
-    let done = 0;
-    for (const d of plan.remove) {
-      deletingHere.current.add(d.id);
-      const saving = stopSaving(d.id);
-      try {
-        await api.deleteDesign(d.id);
-      } catch (e) {
-        saving.undo();
-        const copy = background.current.get(d.id) ?? (designRef.current.id === d.id ? designRef.current : null);
-        if (copy) saveSoon(copy);
-        deletingHere.current.delete(d.id);
-        failed.push(`"${d.name}" (${(e as Error).message})`);
-        continue;
-      }
-      tell({ type: 'deleted', id: d.id });
-      forgetDesign(d.id, false);
-      done++;
-    }
-    refreshList();
-    const skipped = plan.busy.length ? ` Left alone, Jig is working on ${someNames(plan.busy.map((x) => x.name), 3)}.` : '';
-    setNotice(failed.length
-      ? { text: `Deleted ${done} of ${plan.remove.length} designs. Not deleted: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}.${skipped}`, level: 'error', details: false }
-      : { text: `Deleted ${done === 1 ? 'the design' : `${done} designs`}.${skipped}`, level: skipped ? 'warning' : 'ok', details: false });
-  };
-
-  // Stars and tags change the list at once; the refreshed list follows. A new design's tags are
-  // kept here until it is saved (only a saved design can be tagged), then sent.
-  const [newTags, setNewTags] = useState<Record<string, string[]>>({});
-  const patchList = (ids: string[], fn: (d: DesignSummary) => DesignSummary) => setDesigns((l) => l.map((d) => (ids.includes(d.id) ? fn(d) : d)));
-  const listFailed = (what: string) => (e: Error) => setNotice({ text: `Could not ${what}: ${e.message}`, level: 'error', details: false });
-  const starDesigns = (ids: string[], on: boolean) => {
-    patchList(ids, (d) => ({ ...d, starred: on || undefined }));
-    void Promise.all(ids.map((id) => api.starDesign(id, on))).catch(listFailed(on ? 'star them all' : 'unstar them all')).finally(refreshList);
-  };
-  const setDesignTags = (id: string, raw: string[]) => {
-    const tags = cleanTags(raw);
-    if (!designs.some((d) => d.id === id)) return setNewTags((t) => ({ ...t, [id]: tags }));
-    patchList([id], (d) => ({ ...d, tags: tags.length ? tags : undefined }));
-    api.tagDesign(id, tags).catch(listFailed('change the tags')).finally(refreshList);
-  };
-  const tagDesigns = (ids: string[], tag: string, on: boolean) => {
-    patchList(ids, (d) => { const tags = withTag(d.tags, tag, on); return { ...d, tags: tags.length ? tags : undefined }; });
-    api.tagDesigns(ids, tag, on).catch(listFailed(on ? `tag them "${tag}"` : `take "${tag}" away`)).finally(refreshList);
-  };
-  // A new design shows up in the list after its first save: its tags go to the server then.
-  useEffect(() => {
-    const ready = Object.keys(newTags).filter((id) => designs.some((d) => d.id === id));
-    if (!ready.length) return;
-    setNewTags((t) => Object.fromEntries(Object.entries(t).filter(([id]) => !ready.includes(id))));
-    patchList(ready, (d) => ({ ...d, tags: newTags[d.id].length ? newTags[d.id] : undefined }));
-    for (const id of ready) api.tagDesign(id, newTags[id]).catch(() => {}).finally(refreshList);
-  }, [designs]);
-  const designTags = newTags[design.id] ?? designs.find((d) => d.id === design.id)?.tags ?? [];
+  const { deletingHere, deleteDesign, deleteDesigns, setNewTags, starDesigns, setDesignTags, tagDesigns, designTags } = useDesignList({ design, designs, setDesigns, running, remoteRunning,
+    stopSaving, saveSoon, background, designRef, setNotice, forgetDesign, refreshList });
 
   /** Drop a deleted design from memory and the tabs; the open one is replaced by a new design. */
   function forgetDesign(id: string, refresh = true) {
@@ -1595,55 +796,4 @@ export default function App() {
       )}
     </div>
   );
-}
-
-/** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */
-function keepAppValues(values: ParamValues): ParamValues {
-  return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
-}
-
-/** The layouts of a line art split into pieces, when its script has no layout parameter (LINEART_LAYOUT_KEY). */
-const LINEART_LAYOUT_PARAM: ParamDef = { type: 'select', label: 'Layout', value: 'print', options: LINEART_LAYOUTS.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) };
-
-/** The design's pictures, meshes, concept pictures, LayerTone setup and line-art hand edits and split, for the server (undefined when there are none). */
-function pictureValues(values: ParamValues): ParamValues | undefined {
-  const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY, LINEART_SPLIT_KEY, LINEART_SIZE_KEY, LINEART_JOIN_KEY, LINEART_ENDS_KEY, LINEART_DEPTH_KEY, LINEART_LAYOUT_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
-  return Object.keys(out).length ? out : undefined;
-}
-
-/** The design with a mesh added (or replaced) under MESHES_KEY. */
-function withMesh(d: Design, name: string, entry: MeshEntry): Design {
-  return { ...d, values: { ...d.values, [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), [name]: entry }) } };
-}
-
-function withLayerToneImage(d: Design, name: string, image: LayerToneImage): Design {
-  return { ...d, values: { ...d.values, [LAYERTONE_IMAGES_KEY]: JSON.stringify({ ...parseLayerToneImages(d.values[LAYERTONE_IMAGES_KEY]), [name]: image }) } };
-}
-
-/** A message written while Claude was working, sent after its reply. */
-interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[]; scad: ScadFile[]; meshes: MeshUpload[] }
-
-/** `known` plus newly attached drawings; a different drawing with a name in use gets "-2", "-3"… */
-function withDrawings(known: Record<string, SvgDrawing>, attached: SvgDrawing[]): Record<string, SvgDrawing> {
-  const out = { ...known };
-  for (const d of attached) {
-    let name = d.name, n = 2;
-    while (out[name] && JSON.stringify(out[name].shapes) !== JSON.stringify(d.shapes)) name = d.name.replace(/(\.svg)?$/i, `-${n++}$1`);
-    out[name] = { ...d, name };
-  }
-  // The newest ones are kept when there are too many.
-  return Object.fromEntries(Object.entries(out).slice(-MAX_DRAWINGS));
-}
-
-function describeSvg(features: SvgFeature[]): string | undefined {
-  const on = features.filter((f) => f.enabled);
-  if (!on.length) return undefined;
-  return on.map((f) => `SVG drawing "${f.drawing.name}" ${f.mode === 'emboss' ? 'raised' : 'engraved'} ${f.depth} mm, ${f.size} × ${(f.size * f.drawing.aspect).toFixed(1)} mm (height × width), on the ${f.face === 'pick' ? 'picked surface' : f.face} of part "${f.part ?? 'first part'}"${f.curve === 'wrap' ? ', wrapped' : ''}`).join('; ');
-}
-
-function describeText(features: TextFeature[]): string | undefined {
-  const on = features.filter((f) => f.enabled && f.text.trim());
-  if (!on.length) return undefined;
-  return on.map((f) => `"${f.text.replace(/\n/g, ' / ')}" ${f.mode === 'emboss' ? 'raised' : 'engraved'} ${f.depth} mm, ${f.size} mm letters, on the ${f.face === 'pick' ? 'picked surface' : f.face} of part "${f.part ?? 'first part'}"${f.curve !== 'none' ? `, ${f.curve}` : ''}`).join('; ');
 }

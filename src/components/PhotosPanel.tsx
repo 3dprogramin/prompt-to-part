@@ -1,179 +1,28 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EvalResult, ProductPhoto, Vec3 } from '../../shared/types';
-import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, MAX_NOTES_CHARS, PHOTO_ASPECTS, PHOTO_SCENES, SCENE_VARIANTS, SHOP_SHOT_LABELS, SHOP_SHOTS, sceneById, sceneKind, shopPlan, subScenes, suggestScene, variantName, writtenPlace, type PhotoAspect, type PhotoRequest, type ScaleRef, type SceneIdea, type SceneVariant, type ShopShot, type TrueScale } from '../../shared/photos';
+import { BACKLIT_SCENE, CUSTOM_SCENE, IDEA_SCENE, PHOTO_ASPECTS, PHOTO_SCENES, sceneById, shopPlan, subScenes, suggestScene, writtenPlace, type PhotoAspect, type PhotoRequest, type ScaleRef, type SceneVariant, type ShopShot, type TrueScale } from '../../shared/photos';
 import type { PhotoView } from '../viewer/Viewer';
 import { mainAxis } from '../../shared/sizes';
-import { api } from '../lib/api';
-import { dataUrlToImage, download, slug, uid } from '../lib/files';
+import { dataUrlToImage, download, slug } from '../lib/files';
 import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
 import { foldText } from '../../shared/tags';
 import { Icon } from './Icon';
 import { useEscape } from './useEscape';
+import { ASPECT_HINT, ASPECT_RATIO, lookOf, mmText, photoLabel, SHOP_ORDER, sceneLabel, shopShot, STUDIO_SHOTS, UPDATED, writeScene } from './photos/photoHelpers';
+import type { PhotoJob, SizeGroup } from './photos/usePhotoJobs';
+import { useTicker } from './photos/useTicker';
+import { BigPhoto } from './photos/BigPhoto';
+import { ScenePicker } from './photos/ScenePicker';
+import { PhotoGallery } from './photos/PhotoGallery';
 
-/** A photo being made (or waiting its turn, or that failed), per design. */
-export interface PhotoJob {
-  id: string; designId: string; scene: string; startedAt: number; error?: string; change?: string;
-  /** A shop set's photo: its shot, its set and how many photos the set has. */
-  shop?: ShopShot; set?: string; setSize?: number;
-  /** Waiting for an earlier photo of its set to finish. */
-  waiting?: boolean;
-  /** What was asked for, to try again after a failure. */
-  request: PhotoRequest;
-  /** A set of photos for every sale size rather than a shop set. */
-  sizes?: boolean;
-  /** Another size's photo made from this one (its job id), which failed: it waits for that one. */
-  after?: string;
-  /** The camera of its render (stored with the photo). */
-  camera?: string;
-  /** The design's shape it is made of (stored with the photo). */
-  shape?: string;
-}
-
-/** Photos for every sale size from one scene: the first (made first, unless it exists) and the other sizes made from it. */
-export interface SizeGroup {
-  base: { url: string } | { request: PhotoRequest };
-  /** Their `from.photo` is filled in once the first photo is made. */
-  variants: PhotoRequest[];
-  camera?: string;
-}
-
-/** How many of a shop set's photos are made at the same time. */
-const SHOP_PARALLEL = 2;
-
-/** Photo requests in flight: they finish into their design even when another one is open by then. */
-export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => void) {
-  const [jobs, setJobs] = useState<PhotoJob[]>([]);
-  const done = useRef(onDone);
-  done.current = onDone;
-  const patch = (id: string, change: Partial<PhotoJob>) => setJobs((j) => j.map((x) => (x.id === id ? { ...x, ...change } : x)));
-  const newJob = (designId: string, r: PhotoRequest, set?: { id: string; size: number }, more: Partial<PhotoJob> = {}): PhotoJob =>
-    ({ id: uid(), designId, scene: r.scene, startedAt: Date.now(), change: r.change, request: r, ...(r.shop ? { shop: r.shop } : {}), ...(set ? { set: set.id, setSize: set.size } : {}), ...more });
-  // Settles either way: the photo goes into its design (its URL is returned), or the job shows the error.
-  const run = (job: PhotoJob): Promise<string | null> => {
-    const r = job.request;
-    return api.photo(job.designId, r).then((out) => {
-      setJobs((j) => j.filter((x) => x.id !== job.id));
-      done.current(job.designId, {
-        url: out.photo, render: out.render, scene: r.scene, notes: r.notes, ...lookOf(r),
-        ...(r.from && r.resize ? { sizeOf: r.from.photo, ...(r.change ? { change: r.change } : {}) } : r.from ? { editOf: r.from.photo, change: r.change } : {}),
-        ...(r.shop ? { shop: r.shop } : {}), ...(r.scaleRef ? { scaleRef: r.scaleRef } : {}), ...(r.saleSize ? { saleSize: r.saleSize } : {}), dims: r.product.size,
-        ...(job.camera ? { camera: job.camera } : {}), ...(job.shape ? { shape: job.shape } : {}),
-        aspect: r.aspect, prompt: out.prompt, model: out.model, cost: out.cost, createdAt: Date.now(),
-      });
-      return out.photo;
-    }, (e: Error) => { patch(job.id, { error: e.message }); return null; });
-  };
-  const start = (designId: string, r: PhotoRequest, more?: Partial<PhotoJob>) => {
-    const job = newJob(designId, r, undefined, more);
-    setJobs((j) => [...j, job]);
-    void run(job);
-  };
-  // A shop set: its photos in order, a few at a time, each landing in the design as it is made (a
-  // failed one doesn't stop the others).
-  const startSet = (designId: string, rs: PhotoRequest[], more?: Partial<PhotoJob>[]) => {
-    const set = { id: uid(), size: rs.length };
-    const queue = rs.map((r, i) => ({ ...newJob(designId, r, set, more?.[i]), waiting: true }));
-    setJobs((j) => [...j, ...queue]);
-    let next = 0;
-    const pump = () => {
-      const job = queue[next++];
-      if (!job) return;
-      const startedAt = Date.now();
-      patch(job.id, { waiting: false, startedAt });
-      void run({ ...job, startedAt }).then(pump);
-    };
-    for (let i = 0; i < SHOP_PARALLEL; i++) pump();
-  };
-  // Photos for every sale size: in each group the first photo, then the other sizes made from it in
-  // its scene, a few at a time; a size whose first photo failed waits for that one to be tried again.
-  const startSizes = (designId: string, groups: SizeGroup[], more: Partial<PhotoJob> = {}) => {
-    const set = { id: uid(), size: groups.reduce((n, g) => n + g.variants.length + ('request' in g.base ? 1 : 0), 0) };
-    const all: PhotoJob[] = [], ready: PhotoJob[] = [];
-    const then = new Map<string, (url: string | null) => void>();
-    let active = 0;
-    const pump = () => {
-      while (active < SHOP_PARALLEL && ready.length) {
-        const job = ready.shift()!;
-        active++;
-        const startedAt = Date.now();
-        patch(job.id, { waiting: false, startedAt });
-        void run({ ...job, startedAt }).then((url) => { active--; then.get(job.id)?.(url); pump(); });
-      }
-    };
-    for (const g of groups) {
-      const variants = g.variants.map((r) => ({ ...newJob(designId, r, set, { ...more, camera: g.camera, sizes: true }), waiting: true }));
-      const release = (url: string | null, baseId?: string) => {
-        for (const v of variants) {
-          if (!url) { patch(v.id, { waiting: false, error: 'Its first photo failed: try that one again', after: baseId }); continue; }
-          const job = { ...v, request: { ...v.request, from: { ...v.request.from, photo: url } } };
-          patch(v.id, { request: job.request });
-          ready.push(job);
-        }
-      };
-      if ('url' in g.base) { all.push(...variants); release(g.base.url); continue; }
-      const first = { ...newJob(designId, g.base.request, set, { ...more, camera: g.camera, sizes: true }), waiting: true };
-      all.push(first, ...variants);
-      ready.push(first);
-      then.set(first.id, (url) => release(url, first.id));
-    }
-    setJobs((j) => [...j, ...all]);
-    pump();
-  };
-  // A failed photo, asked for again (a size waiting for its first photo: that one); the sizes that
-  // waited for it go on once it is made.
-  const retry = (id: string) => {
-    const job = jobs.find((x) => x.id === id);
-    if (!job?.error) return;
-    if (job.request.resize && !job.request.from?.photo) { if (job.after && jobs.some((x) => x.id === job.after)) retry(job.after); return; }
-    const again = { ...job, error: undefined, waiting: false, startedAt: Date.now() };
-    patch(id, { error: undefined, startedAt: again.startedAt });
-    void run(again).then((url) => {
-      if (!url) return;
-      for (const w of jobs.filter((x) => x.after === id && x.error)) {
-        const next = { ...w, error: undefined, after: undefined, startedAt: Date.now(), request: { ...w.request, from: { ...w.request.from, photo: url } } };
-        patch(w.id, next);
-        void run(next);
-      }
-    });
-  };
-  const dismiss = (id: string) => setJobs((j) => j.filter((x) => x.id !== id));
-  return { jobs, start, startSet, startSizes, retry, dismiss };
-}
-
-const ASPECT_RATIO: Record<PhotoAspect, number> = { '1:1': 1, '4:5': 4 / 5, '16:9': 16 / 9 };
-const ASPECT_HINT: Record<PhotoAspect, string> = { '1:1': 'Square', '4:5': 'Portrait, for shop listings', '16:9': 'Wide, for banners' };
-const sceneLabel = (id: string) => sceneById(id)?.label ?? 'Your idea';
-const shopShot = (shot?: string) => (SHOP_SHOTS as readonly string[]).includes(shot ?? '') ? shot as ShopShot : undefined;
-/** A photo's (or request's) sub-scene, as a request or a photo keeps it: sub-scene 1 is left out; an idea's scene as written. */
-const lookOf = (x: { scene: string; variant?: SceneVariant; sceneText?: string }): Pick<PhotoRequest, 'variant' | 'sceneText'> =>
-  x.scene === IDEA_SCENE ? (x.sceneText ? { sceneText: x.sceneText } : {})
-  : x.variant && x.variant !== 1 && SCENE_VARIANTS.includes(x.variant) ? { variant: x.variant, ...(x.variant === 'random' && x.sceneText ? { sceneText: x.sceneText } : {}) } : {};
-/** A photo's sub-scene in words: "Sub-scene 2: Scandinavian, warm white", the random scene written for it, or the idea's. */
-const lookTitle = (ph: { scene: string; variant?: SceneVariant; sceneText?: string }) => {
-  if (ph.scene === IDEA_SCENE) return ph.sceneText ? `Written out by Jig: ${ph.sceneText}` : 'Your idea as you wrote it (Jig couldn\'t write it out)';
-  if (ph.scene === CUSTOM_SCENE) return 'Your idea as you wrote it (Improve your idea was off)';
-  const v = lookOf(ph).variant;
-  return !v ? undefined : v === 'random' ? `Random setting: ${ph.sceneText ?? `one the image model invented (${sceneKind(ph.scene)})`}` : `Sub-scene ${v}: ${variantName(ph.scene, v)}`;
-};
-/** A random sub-scene's setting or the idea written out, by Claude; none (the image model invents it, or gets the idea as written) when Jig can't reach Claude. */
-const writeScene = (scene: string, size?: Vec3, idea?: SceneIdea) => api.photoScene(scene, size, idea).catch(() => undefined);
-/** A photo's name: its scene, or for a shop set's photo its shot; and the sale size it shows. */
-const photoLabel = (scene: string, shop?: string, size?: string) => { const s = shopShot(shop); return (s ? `Shop · ${SHOP_SHOT_LABELS[s]}` : sceneLabel(scene)) + (size ? ` · ${size}` : ''); };
-/** The shop shots that are the same for every sale size (the shape is the same; the size doesn't show). */
-const STUDIO_SHOTS: readonly string[] = ['main', 'angle', 'top', 'detail'];
-/** The design was changed since a photo was made from it: what a refresh asks for. */
-const UPDATED = 'The design was updated since the earlier photo: show the product exactly as in the new render';
-const mmText = (v: number) => (v >= 100 ? Math.round(v) : +v.toFixed(1)).toString();
+export { usePhotoJobs, type PhotoJob, type SizeGroup } from './photos/usePhotoJobs';
 
 /** A sale size as the photos panel knows it. */
 export interface SaleSizeInfo { id: string; label: string; mm: number; axis: number; dims?: Vec3 }
 /** A size's own render (or the design's, for null) for a photo, and the product's size in it. */
 export type SizeShot = (sizeId: string | null, view: PhotoView, aspect: number, scale?: TrueScale) => Promise<{ shot: string; dims: Vec3 } | { error: string }>;
-/** A shop photo's place in the set, for its file name (the order a listing shows them in). */
-const SHOP_ORDER: Record<ShopShot, number> = { main: 1, angle: 2, top: 3, detail: 3, lifestyle: 4, size: 5 };
-const money = (usd: number | null) => (usd == null ? 'cost unknown' : `$${usd.toFixed(usd < 0.1 ? 3 : 2)}`);
 
 interface Props {
   open: boolean;
@@ -646,54 +495,8 @@ export function PhotosPanel(p: Props) {
       </div>
       {!p.imageModel && <div className="bad-note small" role="note">Product photos need an image model: set OPENROUTER_API_KEY in .env and restart Jig.</div>}
 
-      <div className="ph-label" id={`${id}-scene`}>Scene</div>
-      {allScenes && (
-        <div className="menu-search ph-scene-search">
-          <Icon name="search" size={13} />
-          <input autoFocus type="search" placeholder="Search scenes, e.g. wall, christmas, marble" aria-label="Search scenes" value={sceneQuery}
-            onChange={(e) => setSceneQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && q && shownScenes[0]) pickScene(shownScenes[0].id); }} />
-          {sceneQuery && <button className="icon-btn" title="Clear the search" aria-label="Clear the search" onClick={() => setSceneQuery('')}><Icon name="x" size={12} /></button>}
-        </div>
-      )}
-      <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
-        {[...shownScenes, { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe the scene yourself: Jig writes a few words out in detail, or (Improve your idea off) it goes to the image model as you write it' }].map((s) => (
-          <button key={s.id} role="radio" aria-checked={s.id === IDEA_SCENE ? own : choice.scene === s.id} className={(s.id === IDEA_SCENE ? own : choice.scene === s.id) ? 'on' : ''} onClick={() => pickScene(s.id)}
-            title={'hint' in s ? s.hint : s.id === suggested ? `${s.label}: suggested for this design` : s.label}>
-            <Icon name={s.icon} size={18} />
-            <span>{s.label}</span>
-            {s.id === suggested && <i className="ph-suggested" aria-label="suggested">★</i>}
-          </button>
-        ))}
-      </div>
-      {allScenes && q && !shownScenes.length && <div className="dim small">No scene matches "{sceneQuery.trim()}": Your idea… makes any scene you describe.</div>}
-      <button className="ph-more" onClick={() => { setAllScenes(!allScenes); setSceneQuery(''); }}>
-        {allScenes ? 'Fewer scenes' : `More scenes (${PHOTO_SCENES.length - shownScenes.length} more)`}
-      </button>
-      {preset && (
-        <div className="ph-row">
-          <span className="ph-label" id={`${id}-look`}>Variant</span>
-          <div className="seg ph-variants" role="radiogroup" aria-labelledby={`${id}-look`}>
-            {SCENE_VARIANTS.map((v) => (
-              <button key={v} role="radio" aria-checked={choice.variant === v} className={choice.variant === v ? 'on' : ''} onClick={() => setChoice({ variant: v })}
-                aria-label={v === 'random' ? 'Random' : `${v}: ${variantName(preset.id, v)}`}
-                title={v === 'random' ? `Random: a fresh ${preset.label.toLowerCase()} setting, new for each photo` : `${v}: ${variantName(preset.id, v)}${v === 1 ? ' (the scene as it was)' : ''}`}>
-                {v === 'random' ? <Icon name="dice" size={13} /> : v}
-              </button>
-            ))}
-          </div>
-          <span className="dim small ph-variant-name">{variantName(preset.id, choice.variant)}</span>
-        </div>
-      )}
-      <textarea className="text-param ph-notes" rows={own ? 3 : 2} maxLength={MAX_NOTES_CHARS} value={choice.notes} onChange={(e) => setChoice({ notes: e.target.value })}
-        aria-label={own ? 'Your idea for the scene' : 'Extra details (optional)'}
-        placeholder={custom ? 'Describe the scene, e.g. "on a bedside table next to a book, warm evening lamp light"' : idea ? 'A few words, e.g. "cosy cabin, snowy evening"' : 'Extra details (optional), e.g. "autumn leaves around it", "evening light"'} />
-      {own && (
-        <label className="switch ph-improve" title="On: Jig writes your few words out into a detailed scene (shown on the photo). Off: the image model gets your text exactly as you wrote it.">
-          <input type="checkbox" checked={improve} onChange={(e) => setImprove(e.target.checked)} />
-          <span className="track" />
-          <span className="switch-label">Improve your idea</span>
-        </label>
-      )}
+      <ScenePicker id={id} allScenes={allScenes} setAllScenes={setAllScenes} sceneQuery={sceneQuery} setSceneQuery={setSceneQuery} q={q} shownScenes={shownScenes} pickScene={pickScene}
+        choice={choice} setChoice={setChoice} suggested={suggested} preset={preset} own={own} idea={idea} custom={custom} improve={improve} setImprove={setImprove} />
 
       <div className="ph-row">
         <span className="ph-label" id={`${id}-aspect`}>Format</span>
@@ -767,41 +570,8 @@ export function PhotosPanel(p: Props) {
           ))}
         </div>
       )}
-      <div className={`ph-gallery ${picking ? 'picking' : ''}`}>
-        {jobs.map((j) => (
-          <div key={j.id} className={`ph-tile pending ${j.error ? 'failed' : ''}`} role={j.error ? 'alert' : 'status'}>
-            {j.error
-              ? <><Icon name="alert" size={16} /><span className="small">{nameOf({ ...j, saleSize: j.request.saleSize })}: {j.error}</span>
-                <span className="ph-job-actions">
-                  {p.imageModel && <button className="link" onClick={() => p.onRetry(j.id)}>Try again</button>}
-                  <button className="link" onClick={() => p.onDismiss(j.id)}>Dismiss</button>
-                </span></>
-              : <><span className="spinner" /><span className="small" title={j.change ?? (j.shop ? sceneLabel(j.scene) : undefined)}>{nameOf({ ...j, saleSize: j.request.saleSize })}{j.change && !j.request.resize ? ' · changed' : ''}</span>
-                <span className="dim small mono">{j.waiting ? 'waiting' : `${Math.max(0, Math.round((elapsed - j.startedAt) / 1000))} s`}</span></>}
-          </div>
-        ))}
-        {photos.map((ph, i) => {
-          const old = outdated(ph);
-          return (
-            <div key={ph.url + ph.createdAt} className={`ph-tile ${old ? 'outdated' : ''} ${picking && picked.has(ph.url) ? 'picked' : ''}`}>
-              <button className="ph-thumb" onClick={(e) => (picking ? pickPhoto(ph.url, e.shiftKey) : openBig(ph))}
-                aria-label={picking ? `Pick the ${nameOf(ph)} photo` : `${nameOf(ph)} photo, enlarge`} aria-pressed={picking ? picked.has(ph.url) : undefined}>
-                <img src={ph.url} alt="" loading="lazy" />
-                {picking && <span className={`ph-pick ${picked.has(ph.url) ? 'on' : ''}`} aria-hidden="true"><Icon name="check" size={12} /></span>}
-              </button>
-              {old && <button className="ph-outdated" onClick={() => void refresh(ph)} disabled={!p.imageModel} title={`Out of date: ${old}. Click to make it again in the same scene (the old photo stays).`}><Icon name="restore" size={11} /> {old.startsWith('made for an') ? 'Design changed' : old.split(',')[0].replace('made', 'Made')}</button>}
-              <div className="ph-tile-bar">
-                {sizeName(ph.saleSize) && <b className="ph-size" title={`Size ${sizeName(ph.saleSize)}`}>{sizeName(ph.saleSize)}</b>}
-                <span className="small" title={[ph.change ?? ph.notes ?? (ph.shop ? sceneLabel(ph.scene) : undefined), lookTitle(ph)].filter(Boolean).join('\n') || undefined}>
-                  {photoLabel(ph.scene, ph.shop)}{lookOf(ph).variant ? ` · ${lookOf(ph).variant}` : ''}{ph.editOf ? ' · changed' : ''}
-                </span>
-                <button className="icon-btn" onClick={() => void save(ph, photos.length - i)} title="Download" aria-label={`Download the ${nameOf(ph)} photo`}><Icon name="download" size={13} /></button>
-                <DeleteButton label={`${nameOf(ph)} photo`} onDelete={() => p.onDelete(ph.url)} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <PhotoGallery jobs={jobs} photos={photos} picking={picking} picked={picked} pickPhoto={pickPhoto} openBig={openBig} outdated={outdated} refresh={refresh}
+        sizeName={sizeName} nameOf={nameOf} save={save} elapsed={elapsed} p={p} />
 
       {/* On the page itself: the panel's backdrop blur would make it the box a fixed overlay fills. */}
       {big && createPortal(
@@ -827,116 +597,4 @@ export function PhotosPanel(p: Props) {
       )}
     </div>
   );
-}
-
-/** The enlarged photo with what it was made from: scene, model, cost, the render and the prompt. */
-function BigPhoto({ photo, label, onSave, onDelete, onClose, onSwipe, onRedo, sizes }: {
-  photo: ProductPhoto; label: string; onSave: () => void; onDelete: () => void; onClose: () => void; onSwipe?: (by: number) => void; onRedo?: (change: string, fromView: boolean) => void;
-  /** Sale sizes: why it is out of date and a refresh; the photo in every other size; a size's photo made again from its first one. */
-  sizes?: { outdated: string | null; onRefresh: () => void; onEverySize?: () => void; onRemake?: () => void; firstLabel?: string };
-}) {
-  const [render, setRender] = useState(false);
-  // The photo's size in pixels, once it has loaded (a shop photo is 2K).
-  const [pixels, setPixels] = useState<string | null>(null);
-  // Redo with a change: what to change, this photo as the scene, and the product from its render or from the 3D view's angle.
-  const [change, setChange] = useState('');
-  const [fromView, setFromView] = useState(false);
-  // A sideways swipe on a touch screen goes to the next (left) or previous (right) photo.
-  const swipe = useRef<{ x: number; y: number } | null>(null);
-  return (
-    <div className="ph-big" onClick={(e) => e.stopPropagation()} onKeyDown={trapFocus}
-      onTouchStart={(e) => { const t = e.touches[0]; swipe.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; }}
-      onTouchEnd={(e) => {
-        const from = swipe.current, t = e.changedTouches[0];
-        swipe.current = null;
-        if (!from || !onSwipe) return;
-        const dx = t.clientX - from.x, dy = t.clientY - from.y;
-        if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
-      }}>
-      <img src={render && photo.render ? photo.render : photo.url} alt={render ? 'The render it was made from' : `Product photo: ${label}`}
-        onLoad={(e) => { if (!render) setPixels(`${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight}`); }} />
-      <div className="ph-big-side">
-        <div className="ph-big-head">
-          <b>{label}</b>
-          <button className="icon-btn" autoFocus onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)"><Icon name="x" size={14} /></button>
-        </div>
-        {photo.change ? <div className="small">Changed: {photo.change}</div> : photo.notes && <div className="small">{photo.notes}</div>}
-        {photo.shop && <div className="dim small">Shop set · {sceneLabel(photo.scene)}</div>}
-        {lookTitle(photo) && <div className="dim small">{lookTitle(photo)}</div>}
-        <div className="dim small">{photo.aspect}{pixels ? ` (${pixels})` : ''} · {photo.model} · {money(photo.cost)} · {new Date(photo.createdAt).toLocaleString()}</div>
-        <div className="ph-big-actions">
-          <button className="btn small-btn" onClick={onSave}><Icon name="download" size={13} /> Download</button>
-          {photo.render && <button className="btn small-btn" aria-pressed={render} onClick={() => setRender(!render)}><Icon name="cube" size={13} /> {render ? 'Show the photo' : 'Show the render'}</button>}
-          <DeleteButton label="photo" onDelete={onDelete} text />
-        </div>
-        {sizes?.outdated && (
-          <div className="ph-outdated-note small" role="note">
-            <Icon name="alert" size={12} /> Out of date: {sizes.outdated}.{' '}
-            <button className="btn primary small-btn" onClick={sizes.onRefresh} title="A new photo in the same scene from a new render (the old one stays)"><Icon name="restore" size={12} /> Make it again</button>
-          </div>
-        )}
-        {photo.sizeOf && <div className="dim small">Made from the {sizes?.firstLabel ?? 'first'} photo, in its scene{photo.dims ? `, at ${photo.dims.map(mmText).join(' × ')} mm` : ''}.</div>}
-        {(sizes?.onEverySize || sizes?.onRemake) && (
-          <div className="ph-big-actions">
-            {sizes.onEverySize && <button className="btn small-btn" onClick={sizes.onEverySize} title="The same scene with the product in each other sale size (each from its own render)"><Icon name="ruler" size={13} /> Make it in every size</button>}
-            {sizes.onRemake && <button className="btn small-btn" onClick={sizes.onRemake} title="Another try from the same first photo and render"><Icon name="restore" size={13} /> Make again from the {sizes.firstLabel ?? 'first'} photo</button>}
-          </div>
-        )}
-        {onRedo && (
-          <div className="ph-redo">
-            <textarea className="text-param" rows={3} maxLength={MAX_NOTES_CHARS} value={change} onChange={(e) => setChange(e.target.value)} aria-label="What to change in this photo"
-              placeholder={'What to change, e.g. "lay it flat on the table", "warmer evening light", "add a plant behind it"'}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && change.trim()) onRedo(change.trim(), fromView); }} />
-            <label className="ph-redo-view small" title="To change how the product sits or is seen: turn the 3D view to that angle first (Esc closes this photo), then redo">
-              <input type="checkbox" checked={fromView} onChange={(e) => setFromView(e.target.checked)} /> Product at the 3D view's current angle
-            </label>
-            <button className="btn primary small-btn" disabled={!change.trim()} onClick={() => onRedo(change.trim(), fromView)} title={`Make this photo again with the change (Ctrl+Enter): the same setting, the product as in the render; about $${photo.shop ? '0.10' : '0.07'}`}>
-              <Icon name="camera" size={13} /> Redo with this change
-            </button>
-          </div>
-        )}
-        <details className="ph-prompt">
-          <summary>Prompt</summary>
-          <pre>{photo.prompt}</pre>
-        </details>
-      </div>
-    </div>
-  );
-}
-
-/** Delete, confirmed by a second click within a few seconds. */
-function DeleteButton({ label, onDelete, text }: { label: string; onDelete: () => void; text?: boolean }) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 3000);
-    return () => clearTimeout(t);
-  }, [armed]);
-  const click = () => (armed ? onDelete() : setArmed(true));
-  if (text) return <button className={`btn small-btn ${armed ? 'danger' : ''}`} onClick={click}><Icon name="trash" size={13} /> {armed ? 'Click again to delete' : 'Delete'}</button>;
-  return (
-    <button className={`icon-btn ${armed ? 'ph-armed' : ''}`} onClick={click} title={armed ? 'Click again to delete' : 'Delete'} aria-label={armed ? `Click again to delete the ${label}` : `Delete the ${label}`}>
-      <Icon name={armed ? 'check' : 'trash'} size={13} />
-    </button>
-  );
-}
-
-/** Date.now(), updated every half second while `on`. */
-function useTicker(on: boolean) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!on) return;
-    const t = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(t);
-  }, [on]);
-  return now;
-}
-
-/** Keeps Tab and Shift+Tab inside the enlarged photo. */
-function trapFocus(e: React.KeyboardEvent<HTMLElement>) {
-  if (e.key !== 'Tab') return;
-  const items = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), summary')];
-  const first = items[0], last = items[items.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
 }
