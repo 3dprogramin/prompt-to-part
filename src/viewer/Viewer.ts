@@ -5,7 +5,7 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
 import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
-import { scaleRefLayout, type PhotoCamera, type TrueScale } from '../../shared/photos';
+import { scaleRefLayout, type TrueScale } from '../../shared/photos';
 import { buildGrid, buildPlate, updatePlate } from './stage';
 import { disposeScaleRef, scaleRefModel } from './scaleRef';
 import { plateBounds } from '../../shared/printer';
@@ -14,79 +14,16 @@ import { boxDimensions } from '../lib/dimensions';
 import { linearColors, paintedGeometry, usableColors } from '../geometry/vertexColors';
 import { sliverFree } from '../geometry/sliverFree';
 import { vertexColors, type LayerColor } from '../../shared/layertone';
+import { JOIN_COLOR, LOOSE_COLOR, NEUTRAL, SELECTED_GLOW, VIEW_DIRS } from './constants';
+import { framingDistance, lightParts, photoBackground } from './photo';
+import type { Measurement, PhotoView, PlaybackStep, RepaintView, ViewerOptions, ViewName } from './types';
+
+export type { Measurement, PhotoView, PlaybackStep, RepaintView, ViewerOptions, ViewName } from './types';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
-
-export type ViewName = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
-
-export interface ViewerOptions {
-  showBBox: boolean;
-  showAnnotations: boolean;
-  showEdges: boolean;
-  ortho: boolean;
-  section: { enabled: boolean; axis: 'x' | 'y' | 'z'; position: number; flip: boolean };
-  hiddenParts: string[];
-  measure: boolean;
-  /** Click on the model to place text. */
-  pickText?: boolean;
-  /** false = show every part in one neutral colour. */
-  colors?: boolean;
-  /** The design prints in one colour ("Print in one colour"): every part in this filament colour, without per-part or per-triangle colours. */
-  oneColour?: string | null;
-  /** The part selected in the Object tab: highlighted. */
-  selectedPart?: string | null;
-  /** Line art: where Jig joined loose ends to another line, and the ends it left loose (LineArtInfo.joins, .loose). */
-  showJoins?: boolean;
-}
-
-/** Repainting a coloured mesh by hand (the Object tab's Repaint): what a click or a drag on the model does. */
-export interface RepaintView {
-  /** The coloured mesh (PaintSource.meshes). */
-  mesh: string;
-  /** patch: a click picks the patch under it; brush: a left drag on the model paints. */
-  mode: 'patch' | 'brush';
-  /** Brush radius, mm. */
-  radius: number;
-  /** The brush's filament colour (#rrggbb), shown while it paints. */
-  color: string;
-  /** The stored mesh's triangles picked (1 each), highlighted. */
-  selected: Uint8Array | null;
-}
-
-const SELECTED_GLOW = new THREE.Color('#e0a43c').multiplyScalar(0.35);
-
-const NEUTRAL = new THREE.Color('#b9bcc2');
-/** Line art's joins of loose ends (apart from the seams' blue), and the loose ends left (a warning). */
-const JOIN_COLOR = 0xff4fd8;
-const LOOSE_COLOR = 0xffb020;
-
-export interface Measurement { a: Vec3; b: Vec3 }
-
-/**
- * How a product-photo render is framed: the viewer's camera, a 3/4 product angle, a flat print
- * face-on (from above), a close-up (of a flat print's face, else at the 3/4 angle), the front, or
- * from high above (PhotoCamera).
- */
-export type PhotoView = 'current' | PhotoCamera;
-
-/** Assembly animation step with per-part start offsets resolved. */
-export interface PlaybackStep {
-  label: string;
-  parts: { name: string; from: Vec3; rotate?: { axis: Vec3; degrees: number; center?: Vec3 } }[];
-}
-
-const VIEW_DIRS: Record<ViewName, [number, number, number]> = {
-  iso: [1, -1.15, 0.85],
-  front: [0, -1, 0],
-  back: [0, 1, 0],
-  left: [-1, 0, 0],
-  right: [1, 0, 0],
-  top: [0, -1e-4, 1],
-  bottom: [0, -1e-4, -1],
-};
 
 export class Viewer {
   private renderer: THREE.WebGLRenderer;
@@ -1247,32 +1184,3 @@ export class Viewer {
     return this.photoRig;
   }
 }
-
-/** Camera distance along `dir` at which every corner of `box` is inside `fill` of the frame. */
-function framingDistance(box: THREE.Box3, center: THREE.Vector3, dir: THREE.Vector3, cam: THREE.PerspectiveCamera, fill: number): number {
-  const tanV = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * fill, tanH = tanV * cam.aspect;
-  const right = new THREE.Vector3().crossVectors(cam.up, dir).normalize();
-  if (right.lengthSq() < 0.5) right.set(1, 0, 0);
-  const up = new THREE.Vector3().crossVectors(dir, right).normalize();
-  let d = 1;
-  for (let i = 0; i < 8; i++) {
-    const p = new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(center);
-    // Depth of the corner from a camera at distance D is D - p·dir.
-    d = Math.max(d, p.dot(dir) + Math.abs(p.dot(right)) / tanH, p.dot(dir) + Math.abs(p.dot(up)) / tanV);
-  }
-  return d;
-}
-
-/** The parts are light on the whole (by area). */
-function lightParts(parts: EvalResult['parts']): boolean {
-  let sum = 0, weight = 0;
-  for (const p of parts) {
-    const c = new THREE.Color(p.vertexColors || p.paint ? '#808080' : p.color);
-    sum += (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * p.surfaceArea;
-    weight += p.surfaceArea;
-  }
-  return weight > 0 && sum / weight > 0.45;
-}
-
-/** A plain grey that the parts stand out from: mid grey behind light models, light grey otherwise. */
-const photoBackground = (parts: EvalResult['parts']) => new THREE.Color(lightParts(parts) ? '#8a8d93' : '#dcdde0');
