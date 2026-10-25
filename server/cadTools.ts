@@ -1,4 +1,5 @@
-// The CAD tools Claude calls during a generation: evaluate, render and submit model.js.
+// The CAD tools Claude calls during a generation: evaluate, render and submit model.js. The
+// tools for pictures, line art, Meshy models and Ask first are in tools/.
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
@@ -6,23 +7,16 @@ import { z } from 'zod';
 import { geometry, formatReport } from './geometry';
 import { formatScadReport, runScad } from './openscad';
 import { scadFileName } from '../shared/scad';
-import { ASPECTS, conceptPrompt, decodeImage, generateArtwork, imageModel, lineArtEditPrompt, lineArtPrompt, paintPrompt, picturePrompt, requestImage, traceLineArt } from './artwork';
-import { encode as encodePng } from 'fast-png';
-import { colourStrokes, drawingFingerprint, drawingPicture, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtStyle } from '../shared/lineart';
-import { checkSwaps, cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, toLayerToneImage, type LayerToneSetup } from '../shared/layertone';
-
-/** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
-interface AiImages { references: string[]; signal?: AbortSignal }
-import { DRAWINGS_KEY, MAX_DRAWINGS, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../shared/svgFeatures';
-import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../shared/meshes';
-import { forgetBalance, generateMeshyModel, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, type MeshyClient } from './meshy';
-import { readMyFilaments } from './myFilaments';
-import { filamentLabel, matchFilaments, MAX_MESH_COLORS } from '../shared/meshColors';
-import { describeImport, meshDir, storeConceptPicture, storeMesh } from './meshes';
+import { requestImage } from './artwork';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
-import { checkQuestions, MAX_OPTION_CHARS, MAX_OPTIONS, MAX_QUESTION_CHARS, MAX_QUESTIONS, MAX_WHY_CHARS, MIN_OPTIONS } from '../shared/questions';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
+import type { AiImages, LineArtOptions, MeshyOptions, ToolContext } from './tools/context';
+import { layerToneTools } from './tools/layerTone';
+import { artworkTools, pictureTools } from './tools/pictures';
+import { lineArtTools } from './tools/lineArt';
+import { meshyTools } from './tools/meshy';
+import { questionTools } from './tools/questions';
 
 const sourcesSchema = z.array(z.object({
   dimension: z.string().max(120).describe('What the value is, e.g. "PCB size", "Mounting holes", "USB-C port centre"'),
@@ -51,9 +45,9 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
 export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: {
   artwork?: AiImages; pictures?: AiImages; layerTone?: boolean; lithophane?: boolean;
   /** 3D models from Meshy (generate_3d), stored with this design; `concepts`: the image model can draw concept pictures for them. */
-  meshy?: AiImages & { client: MeshyClient; designId: string; concepts?: boolean; color?: boolean };
+  meshy?: MeshyOptions;
   /** Line art: the menu's style (generate_line_art's default) and whether the image model can draw (`pictures`); `references` are the attached images, traced or drawn from. */
-  lineArt?: AiImages & { style: LineArtStyle; pictures: boolean };
+  lineArt?: LineArtOptions;
   /** The image model (replaceable in tests). */
   image?: typeof requestImage;
   /** "Ask first" is on: ask_questions is there. */
@@ -61,8 +55,6 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
 } = {}) {
   const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst } = extra;
   const drawImage = extra.image ?? requestImage;
-  // What generate_picture's pictures are for.
-  const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.layertone', what: 'a LayerTone filament painting (H.layertone)' };
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
   // meshyCalls: generate_3d calls since the user's last message (each may cost credits);
@@ -73,25 +65,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   const readModel = async () => {
     try { return await readFile(file, 'utf8'); } catch { return null; }
   };
-  // A traced line-art drawing: kept for every check and render from now on, and by the app with the design.
-  const storeLineArt = (name: string, traced: { drawing: SvgDrawing; points: number }) => {
-    if (traced.points > MAX_SVG_POINTS) throw new Error(`The drawing is too detailed to keep (${traced.points.toLocaleString('en')} points, at most ${MAX_SVG_POINTS.toLocaleString('en')}): ask for a simpler drawing with fewer, bolder lines.`);
-    const drawings = parseDrawings(base[DRAWINGS_KEY]);
-    if (!drawings[name] && Object.keys(drawings).length >= MAX_DRAWINGS) throw new Error(`This design already has ${MAX_DRAWINGS} drawings (${Object.keys(drawings).join(', ')}): reuse one of the names to replace it.`);
-    base[DRAWINGS_KEY] = JSON.stringify({ ...drawings, [name]: traced.drawing });
-    emit({ type: 'drawing', name, drawing: traced.drawing });
-  };
-  // Where a drawing sits in the current model (its scale, for drawing hand edits at their width), if the model uses it.
-  const lineArtFrame = async (name: string) => {
-    const code = await readModel();
-    if (!code) return null;
-    try {
-      const r = await geometry.evaluate(code, v(), 'draft');
-      const la = r.ok ? r.parts.find((p) => p.lineArt?.frames.some((f) => f.name === name))?.lineArt : undefined;
-      const f = la?.frames.find((x) => x.name === name);
-      return f && la ? { k: f.k, k0: f.k0 ?? f.k, lineWidth: la.lineWidth } : null;
-    } catch { return null; }
-  };
+  const ctx: ToolContext = { base, emit, state, drawImage, readModel, v };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
   // Code of model.js at the last successful render: submit requires the current file to have been looked at.
   let renderedCode: string | null = null;
@@ -140,385 +114,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-      ...(layerTone ? [tool('set_layertone', 'Change the LayerTone setup – the same one the user edits in the LayerTone panel (Print tab), which wins over the script\'s own filaments and swaps: the filaments bottom → top (order, colours, TDs) and the layers where each filament after the first starts. Omitted fields stay as they are; reset clears the setup so the script\'s choices apply again. Applies at once (no submit_model needed); to change filaments after the first version use this, not the script. Check the result with render_model (the report lists the stack used).', {
-        filaments: z.array(z.object({
-          name: z.string().max(120).describe('e.g. "PLA Basic Black"'),
-          brand: z.string().max(60).optional().describe('e.g. "Bambu Lab", "eSUN"'),
-          color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('#rrggbb'),
-          td: z.number().min(0.05).max(20).describe('Transmission distance, mm'),
-        })).min(1).max(MAX_LAYERTONE_FILAMENTS).optional().describe('All filaments, bottom (printed first) → top'),
-        swaps: z.union([z.array(z.number().int().min(1)).max(MAX_LAYERTONE_FILAMENTS - 1), z.literal('auto')]).optional()
-          .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts – one ascending number per filament after the first; "auto" lets Jig choose'),
-        reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
-      }, async (a) => {
-        const now = parseLayerToneSetup(base[LAYERTONE_KEY]);
-        let setup: LayerToneSetup = a.reset ? {} : { ...now };
-        if (a.filaments) setup.filaments = cleanFilaments(a.filaments);
-        if (a.swaps === 'auto') delete setup.swaps;
-        else if (a.swaps) setup.swaps = a.swaps;
-        // New filaments without new swaps: the old swaps no longer fit, so they go automatic.
-        else if (a.filaments && setup.swaps && setup.swaps.length !== setup.filaments!.length - 1) delete setup.swaps;
-        const count = setup.filaments?.length;
-        // Swaps only mean something against a known filament list (the script's may change without notice).
-        if (setup.swaps && count == null) {
-          return { content: [{ type: 'text', text: 'Pass the full filament list (bottom → top) together with the swaps.' }], isError: true };
-        }
-        if (setup.swaps && count != null && !checkSwaps(setup.swaps, count)) {
-          return { content: [{ type: 'text', text: `swaps must be ${count - 1} ascending whole layer numbers, each ≥ 1 (one per filament after the first).` }], isError: true };
-        }
-        if (!setup.filaments) delete setup.filaments;
-        if (!Object.keys(setup).length) setup = {};
-        if (Object.keys(setup).length) base[LAYERTONE_KEY] = JSON.stringify(setup); else delete base[LAYERTONE_KEY];
-        emit({ type: 'layerToneSetup', setup: Object.keys(setup).length ? setup : null });
-        const text = !Object.keys(setup).length ? 'The LayerTone setup is cleared: the script\'s filaments and automatic swaps apply.'
-          : `LayerTone setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}.`;
-        emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
-        return { content: [{ type: 'text', text: `${text} The user sees it in the LayerTone panel. Call render_model to check the print.` }] };
-      })] : []),
-      ...(pictures ? [tool('generate_picture', `Have an image model (${imageModel()}) make a picture for ${use.what}: realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
-        name: z.string().regex(/^[\w-]{1,40}$/).describe(`Name to use with ${use.helper}, e.g. "portrait"`),
-        subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),
-        aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
-        style: z.string().max(400).optional().describe('The look, when not a realistic photo-like picture (e.g. "oil painting", "charcoal drawing")'),
-        use_attached_photos: z.boolean().optional().describe('Work from the photos the user attached to this message'),
-      }, async (a) => {
-        if (a.use_attached_photos && !pictures.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
-        emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
-        try {
-          const references = a.use_attached_photos ? pictures.references : undefined;
-          const prompt = picturePrompt({ subject: a.subject, style: a.style, references, use: lithophane ? 'lithophane' : 'layertone' });
-          const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
-          const raster = decodeImage(Buffer.from(image.data, 'base64'));
-          const picture = toLayerToneImage(a.name, raster.width, raster.height, raster.data);
-          base[LAYERTONE_IMAGES_KEY] = JSON.stringify({ ...parseLayerToneImages(base[LAYERTONE_IMAGES_KEY]), [a.name]: picture });
-          emit({ type: 'layerToneImage', name: a.name, image: picture });
-          emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
-            text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for ${use.helper} as ${picture.width}×${picture.height} pixels.`,
-          } });
-          return {
-            content: [
-              { type: 'image', data: image.data, mimeType: image.mediaType },
-              { type: 'text', text: `Picture "${a.name}" is ready for ${use.helper}("${a.name}", { width, … }) (${picture.width}×${picture.height} pixels, ${(picture.width / picture.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
-            ],
-          };
-        } catch (e) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Picture: ${(e as Error).message}` } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      })] : []),
-      ...(artwork ? [tool('generate_artwork', `Have an image model (${imageModel()}) draw real artwork, traced into an SVG drawing for H.svg: people, characters, animals, portraits, scenes and illustrations on wall art, reliefs, signs, plaques and coasters – anything you can't draw convincingly with geometry. It comes back in flat colours (the filament colours you give, or shades of grey) on no background; each colour is one shape: H.svg(name, { height, colors: [colour] }). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the picture is wrong.`, {
-        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.svg, e.g. "players"'),
-        subject: z.string().min(10).max(2000).describe('What to draw: subject(s), pose, expression, composition and framing – be specific'),
-        colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(2).max(6).optional().describe('Filament colours to draw with (#rrggbb), e.g. the ones the user has; omit for shades of grey'),
-        tones: z.number().int().min(2).max(6).optional().describe('Without colors: how many shades of grey (default 4)'),
-        aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
-        style: z.string().max(400).optional().describe('The look, when it should not be the default realistic posterized print (e.g. "bold cartoon", "minimal line art")'),
-        use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (a person, a pet, a place)'),
-      }, async (a) => {
-        if (a.use_attached_photos && !artwork.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
-        emit({ type: 'step', step: { kind: 'status', text: `Generating artwork "${a.name}" with ${imageModel()}…` } });
-        try {
-          const art = await generateArtwork(a.name, { subject: a.subject, colors: a.colors, tones: a.tones, aspect: a.aspect, style: a.style, references: a.use_attached_photos ? artwork.references : undefined }, artwork.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
-          // From now on every check and render can use it, and the app keeps it with the design.
-          base[DRAWINGS_KEY] = JSON.stringify({ ...parseDrawings(base[DRAWINGS_KEY]), [a.name]: art.drawing });
-          emit({ type: 'drawing', name: a.name, drawing: art.drawing });
-          const tones = art.tones.map((t) => `  - ${t.color}: ${(t.share * 100).toFixed(1)} % of the picture`).join('\n');
-          emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: `data:${art.image.mediaType};base64,${art.image.data}`, detailOpen: true,
-            text: `Artwork "${a.name}" from ${art.model}${art.cost != null ? ` · $${art.cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${art.model}:\n\n${art.prompt}\n\nTraced into ${art.tones.length} colours (${art.points} points):\n${tones}`,
-          } });
-          return {
-            content: [
-              { type: 'image', data: art.image.data, mimeType: art.image.mediaType },
-              { type: 'text', text: `Artwork "${a.name}" is ready: H.svg("${a.name}", { height, colors }), ${art.drawing.aspect.toFixed(3)} times as wide as high. Its white background is removed.\nColours, darkest first (share of the picture without the background):\n${tones}\nEach colour is one shape. Build the relief from them, e.g. a backing plate with each colour raised on it at its own height, or stacked layers; keep each colour as its own part for the AMS (the A1's AMS lite holds 4 filaments). Check the result with render_model; if the picture itself is wrong, call generate_artwork again with a better subject.` },
-            ],
-          };
-        } catch (e) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Artwork: ${(e as Error).message}` } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      })] : []),
-      ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in Jig's house style – bold, simplified black lines on white, like a laser-cut metal sign, that join into one piece, drawn with a line weight and detail for the piece's width – traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
-        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "bike-and-car"; an existing name is replaced'),
-        subject: z.string().min(10).max(2000).describe('What to draw – content only: the subject(s) left to right, their view and pose, and the features that make them recognisable (e.g. "a sport motorbike on the left and a 1967 Ford Mustang fastback on the right, both in side view facing right"). Not how to draw it (line weight, how many lines, a simple face, solid or outlined areas): Jig\'s house style sets that, the same for every design. With edit: the change to make'),
-        style: z.enum(LINE_ART_STYLES).optional().describe(`The piece it is drawn for, which sets the composition (default "${lineArt.style}", the user's menu): ${LINE_ART_STYLES.map((s) => `${s} = ${LINE_ART_STYLE_INFO[s].desc.toLowerCase()}`).join('; ')}`),
-        aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 16:9 for keyholder, sign and stand, else 1:1); 16:9 or 21:9 for a key holder with several subjects side by side, 3:4 or 4:5 for a standing figure'),
-        look: z.string().max(400).optional().describe('A different line style, only when the user asks for one (e.g. "thin elegant single-line drawing", "bold comic outlines")'),
-        use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (their own car, bike, pet or person)'),
-        width: z.number().min(40).max(1000).optional().describe('The piece\'s planned width in mm (default by style, e.g. 240 for a key holder): the line weight and the detail are drawn for it'),
-        line_width: z.number().min(0.4).max(10).optional().describe('The planned lineWidth in mm (default 1)'),
-        edit: z.string().regex(/^[\w-]{1,40}$/).optional().describe('Change part of an existing drawing instead of drawing a new one: its name. The image model gets that drawing as it is now (with the user\'s hand edits) and changes only what `subject` says (e.g. "replace the exhaust with a short angular Akrapovic silencer"), keeping every other line; use it for any change to part of a drawing the user likes'),
-      }, async (a) => {
-        if (a.use_attached_photos && !lineArt.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
-        const style = a.style ?? lineArt.style;
-        const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
-        const drawings = parseDrawings(base[DRAWINGS_KEY]);
-        const old = a.edit ? drawings[a.edit] : undefined;
-        if (a.edit && !old) return { content: [{ type: 'text', text: `There is no drawing "${a.edit}" to edit (drawings: ${Object.keys(drawings).map((n) => `"${n}"`).join(', ') || 'none'}).` }], isError: true };
-        status(old ? `Changing line art "${a.edit}" with ${imageModel()}…` : `Drawing line art "${a.name}" with ${imageModel()}…`);
-        try {
-          const photos = a.use_attached_photos ? lineArt.references : undefined;
-          let prompt: string, references = photos, aspect = a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), lineWidth = a.line_width ?? 1;
-          // A change to part of a drawing: the drawing as it is (hand edits drawn in) goes first.
-          const edits = old ? parseLineArtEdits(base[LINEART_EDITS_KEY])[a.edit!] : undefined;
-          const hand = edits && edits.fp === drawingFingerprint(old!) ? edits.strokes : [];
-          if (old) {
-            const frame = await lineArtFrame(a.edit!);
-            lineWidth = frame?.lineWidth ?? lineWidth;
-            const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, lineWidth, frame?.k0 ?? frame?.k ?? 80);
-            references = [`data:image/png;base64,${Buffer.from(encodePng({ width: pic.width, height: pic.height, data: pic.rgba, channels: 4 })).toString('base64')}`, ...(photos ?? [])];
-            prompt = lineArtEditPrompt({ change: a.subject, references: photos, width: a.width, style });
-            aspect = a.aspect ?? nearestAspect(old.aspect);
-          } else prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look, width: a.width, lineWidth: a.line_width });
-          const { image, model, cost } = await drawImage(prompt, aspect, references, lineArt.signal, status);
-          const traced = traceLineArt(decodeImage(Buffer.from(image.data, 'base64')), a.name);
-          storeLineArt(a.name, traced);
-          // The hand edits are in the new picture now: the drawing they were made on is gone. Their
-          // colours aren't in it: they stay, on the new drawing.
-          if (old && a.name === a.edit && hand.length) {
-            const { [a.name]: _baked, ...rest } = parseLineArtEdits(base[LINEART_EDITS_KEY]);
-            const strokes = colourStrokes(hand, lineWidth);
-            const kept = strokes.length ? { fp: drawingFingerprint(traced.drawing), strokes } : undefined;
-            const all = kept ? { ...rest, [a.name]: kept } : rest;
-            if (Object.keys(all).length) base[LINEART_EDITS_KEY] = JSON.stringify(all); else delete base[LINEART_EDITS_KEY];
-            emit({ type: 'lineArtEditsBaked', name: a.name, ...(kept ? { kept } : {}) });
-          }
-          emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
-            text: `Line art "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${model}:\n\n${prompt}\n\nTraced for H.lineart (${traced.points.toLocaleString('en')} points).`,
-          } });
-          return {
-            content: [
-              { type: 'image', data: image.data, mimeType: image.mediaType },
-              { type: 'text', text: `${lineArtReady(a.name, traced.drawing.aspect, style)} Look at the picture: if it isn't one connected drawing (loose details, a broken outline) or the subject is wrong, call generate_line_art again with a better subject.` },
-            ],
-          };
-        } catch (e) {
-          if (lineArt.signal?.aborted) throw e;
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Line art: ${(e as Error).message}` } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      })] : []),
-      ...(lineArt ? [tool('trace_line_art', 'Trace a picture the user attached that already IS line art (dark lines on a white background: a drawing, a scan, a design from their shop) into a drawing for H.lineart, exactly as it is – no image model, free. Not for a photo of a real subject (that needs generate_line_art with use_attached_photos to be redrawn as line art) or an attached SVG (already a drawing: use H.lineart with it directly).', {
-        name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "woman"; an existing name is replaced'),
-        image: z.number().int().min(1).max(8).describe('Which attached image, 1 = the first the user attached to this message'),
-      }, async (a) => {
-        const url = lineArt.references[a.image - 1];
-        if (!url) return { content: [{ type: 'text', text: lineArt.references.length ? `The user attached ${lineArt.references.length} image${lineArt.references.length > 1 ? 's' : ''} to this message: image must be 1–${lineArt.references.length}.` : 'The user attached no images to this message.' }], isError: true };
-        try {
-          const m = /^data:image\/(png|jpeg);base64,(.+)$/s.exec(url);
-          if (!m) throw new Error(`Attached image ${a.image} isn't a PNG or JPEG picture, the only kinds Jig can trace.`);
-          const traced = traceLineArt(decodeImage(Buffer.from(m[2], 'base64')), a.name);
-          storeLineArt(a.name, traced);
-          emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Traced attached image ${a.image} as line art "${a.name}" (${traced.points.toLocaleString('en')} points)` } });
-          return { content: [{ type: 'text', text: lineArtReady(a.name, traced.drawing.aspect, lineArt.style) }] };
-        } catch (e) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Line art: ${(e as Error).message}` } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      })] : []),
-      ...(meshy?.concepts ? [tool('generate_concept', `Have the image model (${imageModel()}) draw a concept picture of a 3D figure for generate_3d to build from: the subject alone, full body, on white, as a grey clay render (the shape). With color: true (a coloured figure) it then paints that same picture like a painted collectible figurine (the colours), so the user approves the pair. A few cents a picture and ~10–20 s each, no Meshy credits. The user sees it in the chat: end your reply asking them to approve it or say what to change; once they approve, generate_3d({ name, from_concept }) builds exactly this picture (the shape from the grey one, painted from the coloured one).`, {
-        name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name of the picture, e.g. "spiderman" (generate_3d takes it as from_concept); an existing name is replaced'),
-        subject: z.string().min(10).max(2000).describe('The one subject: who or what it is, pose, proportions, clothes, hair, what it wears or holds, style – no base, scenery or props (those are built in the script)'),
-        aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 3:4, for a standing figure)'),
-        color: z.boolean().optional().describe(`Also paint it in colour, for a coloured figure printed in up to ${MAX_MESH_COLORS} filaments (default: ${meshy.color ? 'on – the user turned on Colour' : 'off, grey only – on only when the user asks for a figure in colour'})`),
-        palette: z.array(z.object({
-          color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('The paint colour, #rrggbb, as it looks in plain light (e.g. skin "#d9a383", not its shadow)'),
-          name: z.string().min(2).max(40).describe('e.g. "olive green"'),
-          parts: z.string().min(2).max(200).describe('Every part painted in it, e.g. "both pairs of shorts and the belt"'),
-        })).min(1).max(MAX_MESH_COLORS).optional().describe(`Required with color: the colours to paint it in, at most ${MAX_MESH_COLORS} (one AMS lite slot each), every part of the subject in one of them. Plan it from the subject: give parts that should differ clearly different colours, and parts that can share one the same colour (e.g. a grey shirt with a grey beard) rather than a fifth.`),
-      }, async (a) => {
-        const color = a.color ?? !!meshy.color;
-        if (color && !a.palette?.length) return { content: [{ type: 'text' as const, text: `With color, give palette: at most ${MAX_MESH_COLORS} colours and every part in each, so the picture is painted in colours the AMS lite can print.` }], isError: true };
-        const palette = color ? a.palette?.map((c) => ({ color: c.color.toLowerCase(), name: c.name.trim(), parts: c.parts.trim() })) : undefined;
-        const aspect = a.aspect ?? '3:4';
-        const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
-        const toFile = (image: { data: string; mediaType: string }) => {
-          const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const)[image.mediaType as 'image/png'];
-          if (!ext) throw new Error(`The image model returned a ${image.mediaType} picture, which Meshy can't take`);
-          return { bytes: Buffer.from(image.data, 'base64'), ext };
-        };
-        status(`Drawing concept "${a.name}"${color ? ' (the shape)' : ''} with ${imageModel()}…`);
-        try {
-          // The shape: the same grey clay render with or without colour (image to 3D reads the shape from its shading).
-          const prompt = conceptPrompt(a.subject);
-          const grey = await drawImage(prompt, aspect, undefined, meshy.signal, status);
-          const greyUrl = `data:${grey.image.mediaType};base64,${grey.image.data}`;
-          const image = await storeConceptPicture(meshy.designId, toFile(grey.image));
-          const credits = meshyCredits(color);
-          emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: greyUrl, detailOpen: true,
-            text: `Concept "${a.name}"${color ? ' – shape' : ''} from ${grey.model}${grey.cost != null ? ` · $${grey.cost.toFixed(3)}` : ''}`,
-            detail: `Prompt sent to ${grey.model}:\n\n${prompt}\n\nOnce you approve it, Meshy builds the 3D model ${color ? 'in this shape' : 'from this picture'} (${credits} credits).`,
-          } });
-          // The colours: that picture painted (image to image), Meshy's texture. Without it, Meshy paints the model itself.
-          let painted: { url: string; image: { data: string; mediaType: string } } | undefined;
-          let paintError = '';
-          let plan = '';
-          if (color) {
-            status(`Painting concept "${a.name}" in colour with ${imageModel()}…`);
-            const paint = paintPrompt(a.subject, palette);
-            // The filament each planned colour prints with, shown before any Meshy credits are spent.
-            if (palette) plan = matchFilaments(palette.map((c) => c.color), await readMyFilaments()).map((f, i) => `- ${palette[i].name} (${palette[i].parts}) → ${filamentLabel(f)}`).join('\n');
-            try {
-              const p = await drawImage(paint, aspect, [greyUrl], meshy.signal, status);
-              painted = { url: await storeConceptPicture(meshy.designId, toFile(p.image)), image: p.image };
-              emit({ type: 'step', step: {
-                kind: 'render', ok: true, image: `data:${p.image.mediaType};base64,${p.image.data}`, detailOpen: true,
-                text: `Concept "${a.name}" – colours from ${p.model}${p.cost != null ? ` · $${p.cost.toFixed(3)}` : ''}`,
-                detail: `${plan ? `Prints in:\n${plan}\n\n` : ''}Prompt sent to ${p.model} with the shape picture:\n\n${paint}\n\nOnce you approve the pair, Meshy builds the shape from the grey picture and paints the model from this one (${credits} credits); Jig then reduces its colours to at most ${MAX_MESH_COLORS} filaments.`,
-              } });
-            } catch (e) {
-              if (meshy.signal?.aborted) throw e;
-              paintError = (e as Error).message;
-              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Concept colours: ${paintError} – Meshy will paint the model itself` } });
-            }
-          }
-          const entry = { image, ...(painted ? { painted: painted.url } : {}), subject: a.subject.trim(), createdAt: Date.now(), ...(color ? { color: true } : {}), ...(painted && palette ? { palette } : {}) };
-          base[CONCEPTS_KEY] = withConcept(base[CONCEPTS_KEY], a.name, entry);
-          state.newConcepts.add(a.name);
-          emit({ type: 'concept', name: a.name, entry });
-          const check = painted
-            ? `The first picture is the shape (grey clay), the second the colours (the same picture painted). Check that they show the subject asked for – one subject, whole, on white – and that the painted one matches the grey one (same pose and framing) and keeps to the palette: every part in its planned colour, no colour outside it (another colour would take a filament of its own or print in the wrong one). If not, call generate_concept again – once; if the second is still off, tell the user what differs.${plan ? ` The planned colours print with:\n${plan}\n` : ''} Then end your reply: tell the user this is the concept for their figure, the shape and its colours, and ask them to approve the pair or say what to change.`
-            : `Check that it shows the subject asked for – one subject, whole, grey, on white – and call generate_concept again if not.${paintError ? ` Painting it in colour failed (${paintError}): there is only the grey picture, and Meshy will paint the model with its own texturing – tell the user the colours will come from Meshy.` : ''} Then end your reply: tell the user this is the concept for their figure and ask them to approve it or say what to change.`;
-          return {
-            content: [
-              { type: 'image', data: grey.image.data, mimeType: grey.image.mediaType },
-              ...(painted ? [{ type: 'image' as const, data: painted.image.data, mimeType: painted.image.mediaType }] : []),
-              { type: 'text', text: `Concept picture "${a.name}" is ready; the user sees it in the chat. ${check} Don't call generate_3d now. When the user approves (their next message), call generate_3d({ name, from_concept: "${a.name}" }) (${credits} Meshy credits${color ? ', in colour' : ''}); if they want changes, draw a new concept instead.` },
-            ],
-          };
-        } catch (e) {
-          if (meshy.signal?.aborted) throw e;
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Concept: ${(e as Error).message}` } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        }
-      })] : []),
-      ...(meshy ? [tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept: its grey picture gives the shape, and in colour its painted one the texture), the photo the user attached (from_photo) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${MAX_MESH_COLORS} filaments (the A1's AMS lite) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
-        name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name to use with H.mesh, e.g. "fox"; an existing name is replaced'),
-        prompt: z.string().max(700).optional().describe('The subject: what it is, pose, proportions, clothes, accessories, style – no printing instructions (Jig adds them). Required unless from_photo or from_concept'),
-        from_photo: z.boolean().optional().describe('Build it from the photo the user attached to this message (image to 3D) instead of the description'),
-        from_concept: z.string().regex(/^[\w.-]{1,40}$/).optional().describe('Build it from this concept picture (generate_concept) the user approved (image to 3D): Meshy gets exactly that picture, and in colour paints the model from its coloured version'),
-        color: z.boolean().optional().describe(`A coloured figure (textured, ${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), printed in up to ${MAX_MESH_COLORS} filaments. Default: ${meshy.color ? 'on (the user turned on Colour)' : 'off'}, or as the concept picture was drawn; turn it on only when the user asks for colour`),
-        colors: z.number().int().min(1).max(MAX_MESH_COLORS).optional().describe(`With color: most colours (filaments) the figure gets (default ${MAX_MESH_COLORS}); fewer leave AMS slots for other parts in colours of their own`),
-      }, async (a) => {
-        const refuse = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
-        if (a.from_photo && a.from_concept) return refuse('Use either from_photo or from_concept, not both.');
-        if (a.from_photo && !meshy.references.length) return refuse('The user attached no photo to this message.');
-        const concepts = parseConcepts(base[CONCEPTS_KEY]);
-        const concept = a.from_concept ? concepts[a.from_concept] : undefined;
-        if (a.from_concept && !concept) {
-          const names = Object.keys(concepts);
-          return refuse(`No concept picture named "${a.from_concept}"${names.length ? ` (there are: ${names.map((n) => `"${n}"`).join(', ')})` : ''}.`);
-        }
-        if (a.from_concept && state.newConcepts.has(a.from_concept)) {
-          return refuse(`The user hasn't approved concept "${a.from_concept}" yet: end your reply and ask them to approve it or say what to change. Build it in their next message.`);
-        }
-        if (!a.from_photo && !a.from_concept && !a.prompt?.trim()) return refuse('Describe the subject in prompt (or use from_concept or from_photo).');
-        const max = meshyMaxPerReply();
-        const color = a.color ?? (concept?.color || !!meshy.color);
-        const cost = meshyCredits(color);
-        if (state.meshyCalls >= max) {
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: not making "${a.name}" – at most ${max} model${max === 1 ? '' : 's'} per reply` } });
-          return refuse(`Refused – ${max ? `you have already had Meshy make ${state.meshyCalls} model${state.meshyCalls === 1 ? '' : 's'} in this reply, the most allowed per reply` : 'Meshy models are turned off (JIG_MESHY_MAX_PER_REPLY=0)'}. Stop calling generate_3d: build the rest (bases, scenery, props) in the script, or end your reply and ask the user whether to make "${a.name}" with Meshy – it would cost ${cost} Meshy credits${color ? ' (in colour)' : ''}. Their next message gets a fresh allowance.`);
-        }
-        // The slot is taken now (calls may run side by side) and given back if no task was started.
-        state.meshyCalls++;
-        let started = false;
-        let image: string | undefined;
-        let texture: string | undefined;
-        if (concept) {
-          const dataUri = async (url: string) => {
-            const m = CONCEPT_URL.exec(url)!;
-            const bytes = await readFile(path.join(meshDir(m[1]), m[2]));
-            return `data:image/${m[2].endsWith('.jpg') ? 'jpeg' : m[2].slice(33)};base64,${bytes.toString('base64')}`;
-          };
-          try {
-            // The grey picture is the shape; in colour, the painted one is the texture (Meshy paints it itself without one).
-            image = await dataUri(concept.image);
-            if (color && concept.painted) texture = await dataUri(concept.painted);
-          } catch {
-            state.meshyCalls--;
-            return refuse(`The picture of concept "${a.from_concept}" is missing: draw it again with generate_concept.`);
-          }
-        }
-        const how = concept ? `from concept "${a.from_concept}"` : a.from_photo ? 'from the photo' : 'from the description';
-        emit({ type: 'step', step: { kind: 'status', text: `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
-        let shown = -1;
-        let status = '';
-        const input = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: meshy.references[0] } : { prompt: a.prompt! };
-        try {
-          const r = await generateMeshyModel(meshy.client, input, {
-            signal: meshy.signal,
-            color,
-            onStarted: (id) => { started = true; emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Meshy task ${id}` } }); },
-            onProgress: (t, stage) => {
-              const p = Math.round(t.progress ?? 0);
-              // A coloured model from a description is made in two stages: the shape, then its colours.
-              const what = stage === 'texture' ? 'painting the colours, ' : color && 'prompt' in input ? 'the shape, ' : '';
-              const line = t.status === 'PENDING' ? `Meshy: ${what}waiting in the queue${t.preceding_tasks ? ` (${t.preceding_tasks} ahead)` : ''}…` : `Meshy: ${what}${p} %…`;
-              emit({ type: 'live', text: line });
-              // The steps get the status changes and every quarter; the live line every poll.
-              if (`${stage} ${t.status}` !== status || (t.status === 'IN_PROGRESS' && Math.floor(p / 25) > Math.floor(shown / 25))) {
-                status = `${stage} ${t.status}`;
-                shown = p;
-                if (t.status === 'PENDING' || t.status === 'IN_PROGRESS') emit({ type: 'step', step: { kind: 'status', text: line } });
-              }
-            },
-          });
-          emit({ type: 'live', text: `Meshy: importing and repairing "${a.name}"…` });
-          const imported = color
-            ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? MAX_MESH_COLORS, mine: await readMyFilaments() })
-            : await geometry.importMesh(r.model.bytes, r.model.filename);
-          const entry = await storeMesh(meshy.designId, imported, r.model, { source: 'meshy', prompt: r.prompt, picture: r.picture });
-          if (!entry) throw new Error('The design was deleted');
-          base[MESHES_KEY] = JSON.stringify({ ...parseMeshes(base[MESHES_KEY]), [a.name]: entry });
-          emit({ type: 'mesh', name: a.name, entry });
-          const report = describeImport(a.name, entry, imported.report) + (color && !entry.palette ? '\nMeshy sent it without colours: it prints in one colour (the part\'s).' : '');
-          const picture = r.picture ? `data:image/${r.picture.ext === 'jpg' ? 'jpeg' : r.picture.ext};base64,${Buffer.from(r.picture.bytes).toString('base64')}` : `data:image/png;base64,${imported.png}`;
-          emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: picture, detailOpen: true,
-            text: `${color ? 'Coloured 3D model' : '3D model'} "${a.name}" from Meshy${r.credits ? ` · ${r.credits} credits` : ''}`,
-            detail: `${'prompt' in input ? 'Prompt sent to Meshy (text to 3D)' : `Sent to Meshy (image to 3D${texture ? ': the shape picture, painted from the colours picture' : ''})`}:\n\n${r.prompt}\n\n${report}`,
-          } });
-          return {
-            content: [
-              { type: 'image', data: imported.png, mimeType: 'image/png' },
-              { type: 'text', text: `${report}\nThe picture shows it as stored (ISO, FRONT, RIGHT, TOP; grid ${imported.gridStep} mm). Check that it is the subject asked for and stands upright (rotate it with H.mesh's rotate if not), then build the design around it.` },
-            ],
-          };
-        } catch (e) {
-          if (!started) state.meshyCalls--;
-          if (meshy.signal?.aborted) throw e;
-          emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: ${(e as Error).message}` } });
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
-        } finally {
-          // The credits changed: the next balance asks Meshy.
-          if (started) forgetBalance();
-        }
-      })] : []),
-      ...(askFirst ? [tool('ask_questions', `Ask the user the few questions you can't settle yourself before you build, or (rarely, one or two at most) a decision you reach while building that changes the result drastically (Ask first is on). They see them under your reply as a card: each question with its options as buttons, the one you would pick already selected and marked, and "Other" for their own words; they click and send, and their answers come as their next message. Only for choices left open that change the result a lot (which way a phone is held, with or without a case, what it hangs on, the size or the wall it is for, the words on it, the style); never what you can look up (real product dimensions) or decide yourself (clearances, walls, parameters, print settings). Not for a clear request, a small change, or right after the user answered. At most ${MAX_QUESTIONS}, as few as needed. If nobody answers within a minute your picks are sent, so pick the safe option. Then stop building: end your reply.`, {
-        questions: z.array(z.object({
-          question: z.string().max(MAX_QUESTION_CHARS).describe('Short and plain, e.g. "Which way is the phone held?"'),
-          options: z.array(z.string().max(MAX_OPTION_CHARS)).min(MIN_OPTIONS).max(MAX_OPTIONS).describe(`${MIN_OPTIONS} to ${MAX_OPTIONS} likely answers, a few words each (e.g. "Landscape", "Portrait"); no "Other" (the card has one)`),
-          pick: z.number().int().min(0).max(MAX_OPTIONS - 1).describe('Index (0-based) of the option you would choose: it is preselected'),
-          multi: z.boolean().optional().describe('Several options may be chosen together (e.g. which tools it holds)'),
-          why: z.string().max(MAX_WHY_CHARS).optional().describe('Why you would pick it, a few words (optional)'),
-        })).min(1).max(MAX_QUESTIONS),
-      }, async (a) => {
-        if (state.asked) return { content: [{ type: 'text' as const, text: 'You have already asked your questions in this reply: end your reply now and wait for the answers.' }], isError: true };
-        const checked = checkQuestions(a.questions);
-        if ('error' in checked) return { content: [{ type: 'text' as const, text: `Not shown - ${checked.error} Fix it and call ask_questions again.` }], isError: true };
-        state.asked = true;
-        const n = checked.questions.length;
-        emit({ type: 'questions', questions: checked.questions });
-        emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Asked ${n} question${n > 1 ? 's' : ''}` } });
-        return { content: [{ type: 'text' as const, text: `The user sees your ${n} question${n > 1 ? 's' : ''} as a card with your picks preselected. Stop building now: end your reply with one short line (e.g. "A few quick questions before I build."), without repeating the questions or their options. Their answers (or your picks, if they don't answer within a minute) come as their next message: then carry on with them, without asking again.` }] };
-      })] : []),
+      ...(layerTone ? layerToneTools(ctx) : []),
+      ...(pictures ? pictureTools(ctx, pictures, lithophane) : []),
+      ...(artwork ? artworkTools(ctx, artwork) : []),
+      ...(lineArt ? lineArtTools(ctx, lineArt) : []),
+      ...(meshy ? meshyTools(ctx, meshy) : []),
+      ...(askFirst ? questionTools(ctx) : []),
       tool('render_scad', 'Render an OpenSCAD file the user attached (saved in the workspace scad/ folder) with OpenSCAD itself, at the given Customizer parameter values (defaults for the rest): the same four views as render_model, plus its parameters and part sizes. Use it to compare your model.js with the original.', {
         file: z.string().max(100).describe('The attached file\'s name, e.g. "box.scad"'),
         values: valuesSchema,
@@ -641,18 +242,4 @@ function oneLine(r: { ok: true; bbox: { min: number[]; max: number[] } | null; t
   const size = b ? `${(b.max[0] - b.min[0]).toFixed(1)} × ${(b.max[1] - b.min[1]).toFixed(1)} × ${(b.max[2] - b.min[2]).toFixed(1)} mm` : 'empty';
   const tris = r.parts.reduce((s, p) => s + p.triCount, 0);
   return `${size} · ${r.parts.length} part(s) · ${tris.toLocaleString()} tris · ${Math.round(r.timeMs)} ms`;
-}
-
-/** Line-art styles whose drawing stands on a bar or base: their subjects share one ground line. */
-const BAR_STYLES = new Set<LineArtStyle>(['keyholder', 'sign', 'stand']);
-
-/** What Claude is told when a line-art drawing is stored. */
-/** The image model's picture shape closest to `aspect` (width ÷ height). */
-function nearestAspect(aspect: number): (typeof ASPECTS)[number] {
-  const ratio = (a: string) => { const [w, h] = a.split(':').map(Number); return w / h; };
-  return ASPECTS.reduce((best, a) => (Math.abs(Math.log(ratio(a) / aspect)) < Math.abs(Math.log(ratio(best) / aspect)) ? a : best));
-}
-
-function lineArtReady(name: string, aspect: number, style: LineArtStyle) {
-  return `Line art "${name}" is ready for H.lineart("${name}", { style: '${style}', width, thickness, lineWidth, … }) (${aspect.toFixed(3)} times as wide as high; its white is open). Check the piece with render_model: the report's line-art line says how many bridges Jig had to add and how many specks it dropped.`;
 }

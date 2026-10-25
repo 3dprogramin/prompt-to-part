@@ -1,11 +1,10 @@
-import { lookup } from 'node:dns/promises';
-import { readFileSync } from 'node:fs';
+// A generation: Jig's request to Claude (Claude Code through the Agent SDK) with the CAD tools, and
+// its stream of events for the page. The tool policy, the messages around the request and the
+// activity panel's text are in generation/.
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import net from 'node:net';
 import path from 'node:path';
 import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentEvent, GenerateRequest, ImageData } from '../shared/api';
-import { geometry, formatReport } from './geometry';
+import type { AgentEvent, GenerateRequest } from '../shared/api';
 import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
@@ -18,7 +17,7 @@ import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { isLithophane } from '../shared/lithophane';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
-import { DEFAULT_LINE_ART_STYLE, drawingFingerprint, isLineArt, LINE_ART_STYLE_INFO, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtSize, parseLineArtSplit } from '../shared/lineart';
+import { DEFAULT_LINE_ART_STYLE, isLineArt, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../shared/lineart';
 import { formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -29,32 +28,14 @@ import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/
 import { describeImport, meshDir } from './meshes';
 import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyClient, meshyCredits } from './meshy';
 import { recordRateLimit } from './usage';
+import { MODEL_FILE, toolPolicy } from './generation/toolPolicy';
+import { currentModelContext, IMAGE_TYPES, Inbox, recapOf, steering } from './generation/messages';
+import { describeToolInput, detail, lastSentence, readText, TOOL_LABELS } from './generation/activity';
+import { askFirstNote, lineArtNote } from './generation/notes';
 
-const MODEL_FILE = 'model.js';
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-/** Longest text kept with a step for the activity panel (it is saved with the design). */
-const MAX_DETAIL = 8000;
-const detail = (text: string, max = MAX_DETAIL) => (text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters)` : text);
+export { publicPage, publicUrl, toolPolicy } from './generation/toolPolicy';
+export { currentModelContext, steerGeneration } from './generation/messages';
 
-const TOOL_LABELS: Record<string, string> = {
-  Read: 'Reading a file',
-  Write: 'Writing model.js',
-  Edit: 'Editing model.js',
-  mcp__cad__evaluate_model: 'Evaluating model',
-  mcp__cad__render_model: 'Rendering preview',
-  mcp__cad__render_scad: 'Rendering the OpenSCAD file',
-  mcp__cad__generate_artwork: 'Generating artwork',
-  mcp__cad__generate_picture: 'Generating a picture',
-  mcp__cad__set_layertone: 'Changing the LayerTone filaments',
-  mcp__cad__generate_line_art: 'Drawing line art',
-  mcp__cad__trace_line_art: 'Tracing line art',
-  mcp__cad__generate_concept: 'Drawing a concept picture',
-  mcp__cad__generate_3d: 'Making a 3D model with Meshy',
-  mcp__cad__ask_questions: 'Asking you a few questions',
-  mcp__cad__submit_model: 'Validating & submitting',
-  WebSearch: 'Searching the web',
-  WebFetch: 'Reading a web page',
-};
 const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
 /** The environment for the Claude Code process the Agent SDK starts. */
@@ -79,78 +60,6 @@ export function claudeEnv(): Record<string, string | undefined> {
 
 export function workspaceDir(designId: string) {
   return path.join(DATA_DIR, 'workspaces', designId);
-}
-
-/**
- * What Claude may do in a design's workspace: read and write its model.js, use the CAD tools, and
- * (only with web search on) search and read public web pages. Returns why a call is refused, or
- * null to allow it. `resolve` looks up a host name's addresses (replaceable in tests).
- */
-export function toolPolicy(ws: string, webSearch: boolean, resolve = resolveHost) {
-  const file = path.join(ws, MODEL_FILE);
-  return async (name: string, input: Record<string, unknown>): Promise<string | null> => {
-    if (['Read', 'Write', 'Edit'].includes(name)) {
-      return path.resolve(ws, String(input.file_path ?? '')) === file ? null : `Only ${file} may be accessed.`;
-    }
-    if (name.startsWith('mcp__cad__')) return null;
-    if (webSearch && name === 'WebSearch') return null;
-    // A page Claude reads could tell it to fetch a local address (Jig's own API, a router), so local
-    // and private addresses are never fetched. It could also tell it to put the design into a
-    // public URL; that can't be told apart from a normal fetch, which is why web search can be
-    // turned off per design.
-    if (webSearch && name === 'WebFetch') return await publicPage(input.url, resolve) ? null : 'Only public http(s) web pages can be fetched.';
-    return 'Tool not available in Jig.';
-  };
-}
-
-/** Host name or address of an http(s) URL, or null for anything else. */
-function urlHost(raw: unknown): string | null {
-  let u: URL;
-  try { u = new URL(String(raw)); } catch { return null; }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-  return u.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-}
-
-/** An address on the internet: not this computer, the local network, link-local or multicast. */
-function publicIp(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number);
-    return !(a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
-      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224);
-  }
-  const h = ip.toLowerCase();
-  return net.isIPv6(h) && !(h === '::' || h === '::1' || /^f[cdf]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:') || h.startsWith('64:ff9b:'));
-}
-
-/** http(s) URL on a public host: not this computer, the local network or a private address. */
-export function publicUrl(raw: unknown): boolean {
-  const h = urlHost(raw);
-  if (h === null) return false;
-  if (net.isIP(h)) return publicIp(h);
-  // Single-label names (e.g. "router") and local-only domains resolve on the local network.
-  return h.includes('.') && !/\.(localhost|local|internal|lan|home\.arpa)$/.test(h);
-}
-
-async function resolveHost(host: string): Promise<string[]> {
-  return (await lookup(host, { all: true, verbatim: true })).map((a) => a.address);
-}
-
-/**
- * publicUrl, and the host name resolves only to public addresses: anyone can make a public name
- * (e.g. 127.0.0.1.nip.io) point at this computer or the local network. A name that doesn't resolve
- * is refused too. (A DNS server built to answer differently a moment later could still get past
- * this; WebFetch itself refuses loopback and metadata hosts on cross-host redirects.)
- */
-export async function publicPage(raw: unknown, resolve: (host: string) => Promise<string[]> = resolveHost): Promise<boolean> {
-  if (!publicUrl(raw)) return false;
-  const h = urlHost(raw)!;
-  if (net.isIP(h)) return true;
-  try {
-    const ips = await resolve(h);
-    return ips.length > 0 && ips.every(publicIp);
-  } catch {
-    return false;
-  }
 }
 
 export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEvent) => void, abort: AbortController): Promise<void> {
@@ -252,9 +161,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const parts: string[] = [];
   const isFollowUp = !!req.code?.trim();
   // "Ask first": a few questions before building, only where the answer changes the design (every mode).
-  parts.push(req.askFirst === false
-    ? 'Ask first is off: don\'t ask any questions, before or while building. Choose sensible defaults for anything left open (for something that holds a phone or another fragile device, the safe side: it takes a case and fits loose) and say in your final message which ones you chose.'
-    : 'Ask first is on: before you build, check whether the request leaves open a choice that would change the result a lot and that you can\'t tell from the message, the attached pictures or the design so far (for example which way a phone is held, with or without a case, what it hangs on or stands on, the size or the wall it is for, the words on it, who it is for, the style). If so, build nothing yet: call ask_questions with those questions (as few as needed and at most 5, each short, with its 2 to 5 likely options and the one you would pick), then end your reply with one short line and wait. Don\'t write the questions as text: the user clicks their answers on the card. Ask nothing when the request is clear enough, for a small change to a design you already made, or when the user has just answered your questions (then build with their answers, filling any gap with sensible defaults). Never ask what you can look up (the real dimensions of products) or decide yourself (clearances, wall thickness, parameters, print settings). Something that holds or touches a phone, tablet, camera or another fragile, valuable thing counts as a choice that changes a lot: unless the message settles it, ask whether it is used with a case (and how thick) and how snug it should be. While you build, ask again only if you reach a decision that changes the result drastically and that you can\'t settle yourself (for example the object can\'t fit the bed as asked: split it or make it smaller?): one or two questions at most, and at most twice in a whole design; submit what you have so far if it helps, then call ask_questions and end your reply. If the user doesn\'t answer within a minute your picks are sent, so always pick the safe option. Otherwise don\'t stop to ask: the user wants to give the prompt and get the finished design.');
+  parts.push(askFirstNote(req.askFirst));
 
   // Follow-ups: show Claude exactly what the user is looking at before they describe the change.
   if (isFollowUp) {
@@ -316,32 +223,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Filaments the user picked for parts in the Object tab: they win over the script's colours.
   const picked = Object.entries(parsePartColors(pictureValues[PART_COLORS_KEY]));
   if (picked.length) parts.push(`The user picked the filaments for these parts in the Object tab, which win over the script's colours: ${picked.map(([n, f]) => `"${n}" → ${f.brand ? `${f.brand} ` : ''}${f.name ?? ''} ${f.color}`.replace(/\s+/g, ' ')).join(', ')}. Keep those part names (a renamed part loses its pick); to change one of these colours, tell the user to pick it in the Object tab (or reset it there) rather than editing the script's colour.`);
-  if (lineArt) {
-    const info = LINE_ART_STYLE_INFO[lineArtStyle];
-    const names = Object.keys(drawings);
-    const attached = refs.length ? `The user attached ${refs.length > 1 ? `${refs.length} images (numbered 1–${refs.length} in the order above)` : 'an image (image 1)'}: trace_line_art({ name, image }) traces one that already is line art as it is; a photo of a real subject is redrawn with generate_line_art({ …, use_attached_photos: true })${artworkAvailable() ? '' : ' (not available: Jig has no image model without OPENROUTER_API_KEY)'}.` : '';
-    const none = artworkAvailable()
-      ? 'There is no drawing yet: make one with generate_line_art (or trace an attached line-art picture with trace_line_art).'
-      : 'There is no drawing yet, and Jig has no image model without OPENROUTER_API_KEY: trace an attached line-art picture with trace_line_art, or ask the user to attach an SVG or a picture of line art (dark lines on white).';
-    // The user's brush edits, per drawing (only those made on the drawing as it is now apply).
-    const edits = parseLineArtEdits(pictureValues[LINEART_EDITS_KEY]);
-    const handEdited = (n: string) => { const e = edits[n]; return e && e.fp === drawingFingerprint(drawings[n]) ? `, ${e.strokes.length} hand edit${e.strokes.length > 1 ? 's' : ''} by the user` : ''; };
-    const available = names.length ? `Drawings available to H.lineart: ${names.map((n) => `"${n}" (${drawings[n].aspect.toFixed(2)} times as wide as high${handEdited(n)})`).join(', ')}.` : none;
-    // The user's split choice in the Print tab wins over the script's split option.
-    const split = parseLineArtSplit(pictureValues[LINEART_SPLIT_KEY]);
-    const splitNote = split === undefined ? '' : split === 'off'
-      ? 'The user turned Split into pieces off in the Print tab: it stays one piece whatever the script\'s split option says (they turn it on there; say so if it is bigger than the bed).'
-      : `The user split it into pieces in the Print tab (${split === 'auto' ? 'Auto: the fewest that fit the bed' : Array.isArray(split) ? `a grid of ${split[0]} × ${split[1]}` : `${split} pieces`}), which wins over the script's split option; the renders and reports already use it.`;
-    // The whole piece's size the user typed in the Print tab wins over the script's width and height.
-    const size = parseLineArtSize(pictureValues[LINEART_SIZE_KEY]);
-    const sizeNote = size ? `The user set the whole piece's size in the Print tab (${size.width ? `${size.width} mm wide` : ''}${size.width && size.height ? ', ' : ''}${size.height ? `${size.height} mm high` : ''}${size.width && !size.height ? ', the height following the drawing' : ''}), which wins over the script's width and height: the renders and reports already use it. Keep it; to change the size, ask them to change it there (or set the width and height parameters if they ask you to and they clear it).` : '';
-    // How far loose ends reach to join a line, as the user set it in the Print tab, wins over the script's joinEnds.
-    const ends = parseLineArtEnds(pictureValues[LINEART_ENDS_KEY]);
-    const endsNote = ends === undefined ? '' : ends === 0
-      ? "The user turned Join loose ends off in the Print tab: Jig leaves loose lines as drawn whatever the script's joinEnds says (they glue them down, or turn it on there)."
-      : `The user set Join loose ends to ${ends} mm in the Print tab, which wins over the script's joinEnds; the renders and reports already use it.`;
-    parts.push([`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote, sizeNote, endsNote].filter(Boolean).join(' '));
-  }
+  if (lineArt) parts.push(lineArtNote(lineArtStyle, drawings, refs, pictureValues));
   // Mesh files attached now: a picture of each as imported, and what the import did.
   for (const name of attachedMeshes) {
     const entry = meshes[name];
@@ -624,135 +506,4 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 }
 
 /** A reply that failed because the Claude subscription's usage limit is reached. */
-type UserContent = Exclude<SDKUserMessage['message']['content'], string>[number];
-
-/**
- * A follow-up's view of the model: the user's screenshot (currentView) and a four-view render at
- * their settings (renderValues), each only when the request brings it. Without either ("Send my
- * view" off, an approval of concept pictures, or no model on screen) Claude is told so instead.
- */
-export async function currentModelContext(req: GenerateRequest, emit: (e: AgentEvent) => void, render = (code: string, values: ParamValues) => geometry.render(code, values)): Promise<{ content: UserContent[]; notes: string[] }> {
-  const content: UserContent[] = [];
-  const notes: string[] = [];
-  const view = req.currentView && IMAGE_TYPES.has(req.currentView.mediaType) ? req.currentView : undefined;
-  if (!view && !req.renderValues) {
-    notes.push('No picture of the current model came with this message: render_model shows it if you need to see it.');
-    return { content, notes };
-  }
-  emit({ type: 'live', text: 'Jig is capturing the current model…' });
-  const sent: string[] = [];
-  if (view) {
-    content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
-    content.push({ type: 'image', source: { type: 'base64', media_type: view.mediaType as 'image/jpeg', data: view.data } });
-    sent.push('your current view');
-    emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got your current view', image: `data:${view.mediaType};base64,${view.data}` } });
-  }
-  if (req.renderValues) {
-    try {
-      const r = await render(req.code!, req.renderValues);
-      if (r.ok && r.png) {
-        content.push({ type: 'text', text: `CURRENT MODEL – four-view render at the user's exact current settings (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP; grid ${r.gridStep} mm):` });
-        content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
-        notes.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
-        sent.push('a four-view render with measurements');
-        emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
-      }
-    } catch { /* the request still works without the render */ }
-  }
-  if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got ${sent.join(' and ')} of the current model` } });
-  return { content, notes };
-}
-
 export class UsageLimitError extends Error {}
-
-/** The user's messages for one running reply, handed to Claude Code as it asks for them. */
-class Inbox {
-  private queue: SDKUserMessage[] = [];
-  private wake: (() => void) | null = null;
-  private closed = false;
-  /** Handed to Claude Code, and read by Claude (echoed back). */
-  sent = 0;
-  read = 0;
-  push(m: SDKUserMessage): boolean {
-    if (this.closed) return false;
-    this.queue.push(m);
-    this.wake?.();
-    return true;
-  }
-  /** Sent or waiting messages Claude hasn't read yet. */
-  unanswered() { return this.queue.length > 0 || this.sent > this.read; }
-  close() { this.closed = true; this.wake?.(); }
-  async *drain(): AsyncGenerator<SDKUserMessage> {
-    for (;;) {
-      const next = this.queue.shift();
-      if (next) { this.sent++; yield next; continue; }
-      if (this.closed) return;
-      await new Promise<void>((resolve) => { this.wake = resolve; });
-      this.wake = null;
-    }
-  }
-}
-
-/** Running replies by design, for messages sent while Claude works. */
-const steering = new Map<string, { inbox: Inbox; emit: (e: AgentEvent) => void }>();
-
-/**
- * A message for the reply Claude is working on: it reads it at its next step (after the current
- * tool call or thinking). False when no reply is running (or it has just ended): queue it instead.
- */
-export function steerGeneration(designId: string, text: string, images: ImageData[] = []): boolean {
-  const run = steering.get(designId);
-  if (!run) return false;
-  const pictures = images.filter((img) => IMAGE_TYPES.has(img.mediaType));
-  const ok = run.inbox.push({
-    type: 'user', parent_tool_use_id: null, priority: 'next',
-    message: { role: 'user', content: [
-      { type: 'text', text: `Message from the user while you work${pictures.length ? ' (with pictures)' : ''}:\n${text.trim() || '(see the pictures)'}` },
-      ...pictures.map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mediaType as 'image/jpeg', data: img.data } })),
-    ] },
-  });
-  if (ok) run.emit({ type: 'step', step: { kind: 'user', text: text.trim() || `${pictures.length} picture${pictures.length > 1 ? 's' : ''}`, ...(pictures[0] ? { image: `data:${pictures[0].mediaType};base64,${pictures[0].data}` } : {}) } });
-  return ok;
-}
-
-/** A file's text, or '' if it doesn't exist yet. */
-function readText(f: string): string {
-  try { return readFileSync(f, 'utf8'); } catch { return ''; }
-}
-
-/** The earlier conversation as text for a fresh session (newest messages kept, each shortened). */
-function recapOf(history: GenerateRequest['history']): string | undefined {
-  const lines = (history ?? []).filter((h) => h.text.trim()).slice(-12)
-    .map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.text.replace(/\s+/g, ' ').trim().slice(0, 600)}`);
-  if (!lines.length) return undefined;
-  return `EARLIER CONVERSATION about this design (the previous session couldn't be continued, so here is what was said; model.js holds the current script):\n${lines.join('\n')}`;
-}
-
-function lastSentence(text: string) {
-  const t = text.replace(/\s+/g, ' ').trim();
-  return t.length > 140 ? '…' + t.slice(-140) : t;
-}
-
-function describeToolInput(name: string, input: Record<string, unknown> | undefined): string | null {
-  if (!input) return null;
-  if (name === 'Write' && typeof input.content === 'string') {
-    return `Writing model.js – ${input.content.split('\n').length} lines, ${(input.content.length / 1024).toFixed(1)} KB`;
-  }
-  if (name === 'Edit' && typeof input.old_string === 'string' && typeof input.new_string === 'string') {
-    const a = input.old_string.split('\n').length, b = input.new_string.split('\n').length;
-    return `Editing model.js – replacing ${a} line${a === 1 ? '' : 's'} with ${b}${input.replace_all ? ' (all occurrences)' : ''}`;
-  }
-  if (name === 'Read') return 'Reading model.js';
-  if (name === 'mcp__cad__generate_picture' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
-  if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_concept ? `from concept picture "${String(input.from_concept)}"` : input.from_photo ? 'from the attached photo' : String(input.prompt ?? '').slice(0, 200)}`;
-  if (name === 'mcp__cad__generate_concept' && typeof input.subject === 'string') return `Concept "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
-  if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
-  if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
-  if ((name === 'mcp__cad__evaluate_model' || name === 'mcp__cad__render_model') && input.values && typeof input.values === 'object' && Object.keys(input.values).length) {
-    return `${name.endsWith('render_model') ? 'Rendering' : 'Evaluating'} with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(', ')}`;
-  }
-  if (name === 'mcp__cad__submit_model' && typeof input.summary === 'string') return `Submitting: ${input.summary}`;
-  if (name === 'WebSearch' && typeof input.query === 'string') return `Searching the web: ${input.query}`;
-  if (name === 'WebFetch' && typeof input.url === 'string') return `Reading ${input.url}`;
-  return null;
-}
