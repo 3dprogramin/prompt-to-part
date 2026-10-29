@@ -15,7 +15,7 @@ Every design stays editable: drag the sliders, type an exact size, or ask for a 
 
 ## Quick start
 
-The easiest way to run Jig is Docker Compose: one command builds and starts everything, with nothing else to install. You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (the `docker compose` command; Docker Desktop includes it) and an [Anthropic API key](https://platform.claude.com/settings/keys) (or an [OpenRouter](https://openrouter.ai/settings/keys) key).
+The easiest and safest way to run Jig is Docker Compose: one command builds and starts everything, with nothing else to install, and Jig runs walled off from the rest of your computer (see [Why Docker](#why-docker)). You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (the `docker compose` command; Docker Desktop includes it) and an [Anthropic API key](https://platform.claude.com/settings/keys) (or an [OpenRouter](https://openrouter.ai/settings/keys) key).
 
 ```sh
 git clone https://github.com/3dprogramin/jig.git && cd jig
@@ -35,7 +35,13 @@ Open http://localhost:8787 and describe what you want to print. Your designs liv
 
 `docker compose down -v` also deletes the volumes, and with them every design: back them up first (Designs → Export all designs). More in [Docker](#docker).
 
-Without Docker: Node 22.12+, then `npm install && npm run build && npm start` (see [Run](#run)).
+Without Docker: Node 22.12+, then `npm install && npm run build && npm start` (see [Run](#run)). That's fine for development, but for everyday use prefer Docker.
+
+### Why Docker
+
+Jig runs code an AI wrote and reads web pages it found, and either could be made to misbehave: a web page can carry instructions meant for the AI, and an attached file can be built to attack the program that opens it. Jig has its own walls against this: Claude may only read and write the design's script and fetch public web pages (no shell, no other files), and the scripts it writes run in a locked-down sandbox with no access to your files or the network (see *Sandbox* under [How it works](#how-it-works)).
+
+Without Docker, though, Jig and the programs it starts (Claude Code, Bambu Studio, Blender) run as you, with access to everything your account can reach: your files, SSH keys, browser data and other projects. If anything ever gets past Jig's walls, through a bug in Jig, in one of those programs or a trick nobody has thought of yet, it lands there. In Docker it lands in a container that runs as an unprivileged user, with a read-only file system, no extra privileges and nothing of yours but Jig's own data and the keys in `.env`.
 
 Worth adding to `.env` too:
 - `OPENROUTER_API_KEY` for anything with pictures: line art, LayerTone and lithophanes from a description, AI artwork and product photos.
@@ -77,7 +83,7 @@ npm run mock:meshy   # a stand-in for Meshy's API, for 3D figures without credit
 npm run typecheck
 ```
 
-Or in Docker: see [Docker](#docker).
+Or in Docker, which is safer for everyday use: see [Docker](#docker) and [Why Docker](#why-docker).
 
 Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
 
