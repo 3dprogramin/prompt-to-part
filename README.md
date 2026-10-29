@@ -337,10 +337,10 @@ The *Cost* section of the *Print* tab works out what a print costs, from Bambu S
 
 - **Print time and filament:** the visible parts are built at export resolution, made into the same Bambu Studio project as the 3MF export (your print settings included) and sliced by your installed Bambu Studio (`server/slicer.ts`, with its own data folder in `data/bambu/slicer-data`, so your Bambu Studio settings are untouched). The time is Bambu Studio's estimate; the grams include supports, the prime tower and purge, per filament for multi-colour prints.
 - **When:** only when you press *Slice* (slicing is CPU-heavy, so opening the Print tab never starts one). A change to the parameters, hidden parts, print settings or *Print in one colour* marks the numbers as out of date; *Slice again* updates them. The current stage (building the model, preparing the project, slicing) is shown with the time since the calculation started, in the tab and in the viewer's status bar. Small models slice in a second or two; the first project needs the Bambu Studio template, which takes longer.
-- **Filament cost:** grams × your price per 1 kg roll (RON).
+- **Filament cost:** grams × your price per 1 kg roll, in the currency set by `JIG_CURRENCY` (US dollars by default).
 - **Electricity:** your printer's average power while printing × the print time × your price per kWh. Measure it for the real figure (a plug-in meter: the kWh a print used ÷ its hours × 1000); the A1's 1300 W rating is its peak while the bed heats, not an average.
-- **Defaults:** until you enter your own, the prices are 140 RON per 1 kg roll, 1.45 RON per kWh and 200 W (an upper estimate for the A1, which usually averages 100–150 W).
-- **Selling price:** *Ask Jig* sends the costs, print time, size, parts and what the item is to Claude (Sonnet, one reply, no tools), which suggests a price, a range and its reasoning. It is shown as Jig's suggestion, not a calculation.
+- **Defaults:** until you enter your own, typical prices for a 1 kg PLA roll and a kWh in US dollars ($20, $0.17), euros (€20, €0.25), pounds (£18, £0.25) or lei (140, 1.45); in another currency the Cost tab asks for them. The printer's power starts at 200 W (an upper estimate for the A1, which usually averages 100 to 150 W).
+- **Selling price:** *Ask Jig* sends the costs, print time, size, parts and what the item is to Claude (Sonnet, one reply, no tools), which suggests a price, a range and its reasoning. It is shown as Jig's suggestion, not a calculation. The price is in `JIG_CURRENCY`, and `JIG_COUNTRY` (e.g. `Romania`) tells Claude where you sell, so it prices for that market.
 
 Your prices are kept in `data/cost.json`.
 
@@ -372,6 +372,8 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `ANTHROPIC_API_KEY` | | Your Anthropic API key: Claude straight from Anthropic (generations, price suggestions) |
 | `JIG_MODEL` | `opus` | The model the chat starts with: `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
 | `JIG_EFFORT` | `high` | The reasoning effort the chat starts with (`low` … `max`) |
+| `JIG_CURRENCY` | `USD` | The currency of the Cost tab and the price suggestion: any ISO 4217 code (`EUR`, `GBP`, `RON`…) |
+| `JIG_COUNTRY` | none | Where you sell, so the price suggestion fits that market (e.g. `Romania`) |
 | `JIG_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | The OpenRouter image model for AI artwork and product photos |
 | `MESHY_API_KEY` | | Turns on 3D figures (Meshy) |
 | `JIG_MESHY_MAX_PER_REPLY` | `2` | Most Meshy models (`generate_3d`) Jig may make in one reply |

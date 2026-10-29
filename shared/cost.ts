@@ -4,8 +4,25 @@
 import type { ParamValues } from './types';
 import type { PrintProfile } from './print';
 
-/** Costs are in Romanian lei. */
-export const CURRENCY = 'RON';
+/** Costs are in US dollars unless the server says otherwise (JIG_CURRENCY). */
+export const DEFAULT_CURRENCY = 'USD';
+
+/** An ISO 4217 currency code (USD, EUR, RON…), upper-cased, or null when it isn't one. */
+export function parseCurrency(raw: string | undefined): string | null {
+  const c = raw?.trim().toUpperCase();
+  if (!c || !/^[A-Z]{3}$/.test(c)) return null;
+  try {
+    new Intl.NumberFormat('en', { style: 'currency', currency: c });
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+// The page's currency: set once from the server's capabilities (setCurrency); the server passes its own.
+let pageCurrency = DEFAULT_CURRENCY;
+export const currency = () => pageCurrency;
+export function setCurrency(c: string | undefined) { pageCurrency = parseCurrency(c) ?? DEFAULT_CURRENCY; }
 
 /** What Bambu Studio reports for a sliced plate. */
 export interface SliceStats {
@@ -37,8 +54,18 @@ export interface CostSettings {
   averageWatts?: number;
 }
 
-/** The user's own prices and printer, used until other values are saved (RON). */
-export const DEFAULT_COST_SETTINGS: CostSettings = { filamentPerKg: 140, electricityPerKwh: 1.45, averageWatts: 200 };
+/** Typical prices of a 1 kg PLA roll and a kWh in a few currencies; in others the Cost tab asks for them. */
+const TYPICAL_PRICES: Record<string, CostSettings> = {
+  USD: { filamentPerKg: 20, electricityPerKwh: 0.17 },
+  EUR: { filamentPerKg: 20, electricityPerKwh: 0.25 },
+  GBP: { filamentPerKg: 18, electricityPerKwh: 0.25 },
+  RON: { filamentPerKg: 140, electricityPerKwh: 1.45 },
+};
+
+/** What the Cost tab starts from until the user saves their own prices and printer: typical prices in `c`, and 200 W. */
+export function defaultCostSettings(c: string): CostSettings {
+  return { ...TYPICAL_PRICES[c], averageWatts: 200 };
+}
 
 export interface CostBreakdown {
   /** null: no filament price set. */
@@ -69,7 +96,8 @@ export function cleanCostSettings(raw: unknown): CostSettings {
   return out;
 }
 
-export const money = (v: number) => `${v.toFixed(2)} ${CURRENCY}`;
+/** "$12.50", "€12.50", "RON 12.50" */
+export const money = (v: number, c = pageCurrency) => new Intl.NumberFormat('en', { style: 'currency', currency: c }).format(v);
 
 /** "3 h 53 min" */
 export function duration(seconds: number): string {

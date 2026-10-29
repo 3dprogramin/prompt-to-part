@@ -28,6 +28,7 @@ import { useRepaint } from './hooks/useRepaint';
 import { STAGE_TEXT, useCost } from './hooks/useCost';
 import { useSizes, visibleSize } from './hooks/useSizes';
 import { sizeText } from '../shared/sizes';
+import { setCurrency } from '../shared/cost';
 import { load, store } from './lib/storage';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import type { TrueScale } from '../shared/photos';
@@ -155,7 +156,7 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanCostSettings, costOf, duration } from '../shared/cost';
+import { cleanCostSettings, costOf, defaultCostSettings, duration, money, parseCurrency } from '../shared/cost';
 import { parseSliceInfo } from '../server/slicer';
 import { parseSuggestion } from '../server/pricing';
 
@@ -35,9 +35,28 @@ test("Bambu Studio's slice info: time, total and per-filament grams", () => {
   assert.throws(() => parseSliceInfo('<config/>'), /no print time/);
 });
 
-test("Claude's price answer is read and checked", () => {
-  assert.deepEqual(parseSuggestion('Here: {"price": 45, "low": 35, "high": 60, "reasoning": "Small, quick print."}'),
-    { price: 45, low: 35, high: 60, reasoning: 'Small, quick print.', currency: 'RON' });
+test("Claude's price answer is read and checked, in JIG_CURRENCY", () => {
+  const before = process.env.JIG_CURRENCY;
+  process.env.JIG_CURRENCY = 'eur';
+  try {
+    assert.deepEqual(parseSuggestion('Here: {"price": 45, "low": 35, "high": 60, "reasoning": "Small, quick print."}'),
+      { price: 45, low: 35, high: 60, reasoning: 'Small, quick print.', currency: 'EUR' });
+  } finally {
+    if (before === undefined) delete process.env.JIG_CURRENCY; else process.env.JIG_CURRENCY = before;
+  }
   assert.throws(() => parseSuggestion('About 40 lei.'), /did not answer/);
   assert.throws(() => parseSuggestion('{"price": "a lot"}'), /did not answer/);
+});
+
+test('the currency: any ISO code from JIG_CURRENCY, typical starting prices in a few', () => {
+  assert.equal(parseCurrency(' ron '), 'RON');
+  assert.equal(parseCurrency('US'), null);
+  assert.equal(parseCurrency(undefined), null);
+  assert.equal(money(12.5, 'USD'), '$12.50');
+  assert.equal(money(12.5, 'EUR'), '€12.50');
+  assert.equal(money(12.5, 'RON'), 'RON\u00a012.50'); // (a non-breaking space, so it never wraps)
+  assert.deepEqual(defaultCostSettings('USD'), { filamentPerKg: 20, electricityPerKwh: 0.17, averageWatts: 200 });
+  assert.deepEqual(defaultCostSettings('RON'), { filamentPerKg: 140, electricityPerKwh: 1.45, averageWatts: 200 });
+  // Elsewhere the Cost tab asks for the prices.
+  assert.deepEqual(defaultCostSettings('JPY'), { averageWatts: 200 });
 });

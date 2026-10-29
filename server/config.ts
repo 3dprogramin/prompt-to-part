@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_CURRENCY, parseCurrency } from '../shared/cost';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Secrets such as ELEVENLABS_API_KEY can live in .env next to package.json (git ignores it);
@@ -60,6 +61,11 @@ export function claudeKeyRefused(status?: number): string {
   if (process.env.ANTHROPIC_AUTH_TOKEN) return `${process.env.ANTHROPIC_BASE_URL || 'The API'} refused the token in ANTHROPIC_AUTH_TOKEN${code}. Check it, then restart Jig.`;
   return `Anthropic refused the key in ANTHROPIC_API_KEY${code}: it may be wrong or revoked. Check it at platform.claude.com, then restart Jig.`;
 }
+
+/** The currency costs and price suggestions are in (JIG_CURRENCY, e.g. USD, EUR, RON; US dollars by default). */
+export const jigCurrency = () => parseCurrency(process.env.JIG_CURRENCY) ?? DEFAULT_CURRENCY;
+/** Where the maker sells, for the price suggestion (JIG_COUNTRY, e.g. Romania), or '' for no country. */
+export const jigCountry = () => (process.env.JIG_COUNTRY ?? '').trim().slice(0, 60);
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** The chat's starting model (JIG_MODEL: opus, sonnet, haiku or a full model ID such as claude-opus-5-5). */

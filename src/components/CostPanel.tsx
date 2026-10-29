@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { costOf, CURRENCY, duration, money, type CostSettings } from '../../shared/cost';
+import { costOf, currency, duration, money, type CostSettings } from '../../shared/cost';
 import type { PriceSuggestion } from '../../shared/api';
 import { api } from '../lib/api';
 import { STAGE_TEXT, type CostResult, type CostStage } from '../hooks/useCost';
@@ -33,8 +33,8 @@ export function CostPanel(p: Props) {
       <section>
         <h4>Your prices</h4>
         <div className="cost-inputs">
-          <PriceInput label={`Filament (${CURRENCY} per 1 kg roll)`} value={p.settings.filamentPerKg} onCommit={(v) => p.onSettings({ ...p.settings, filamentPerKg: v })} />
-          <PriceInput label={`Electricity (${CURRENCY} per kWh)`} value={p.settings.electricityPerKwh} onCommit={(v) => p.onSettings({ ...p.settings, electricityPerKwh: v })} />
+          <PriceInput label={`Filament (${currency()} per 1 kg roll)`} value={p.settings.filamentPerKg} onCommit={(v) => p.onSettings({ ...p.settings, filamentPerKg: v })} />
+          <PriceInput label={`Electricity (${currency()} per kWh)`} value={p.settings.electricityPerKwh} onCommit={(v) => p.onSettings({ ...p.settings, electricityPerKwh: v })} />
           <PriceInput label="Printer's average power while printing (W, measured)" value={p.settings.averageWatts} onCommit={(v) => p.onSettings({ ...p.settings, averageWatts: v })} />
         </div>
         <p className="dim small">

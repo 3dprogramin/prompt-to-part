@@ -134,6 +134,8 @@ export interface Capabilities {
   /** The chat's starting model and effort (JIG_MODEL, JIG_EFFORT). */
   model: string;
   effort: string;
+  /** The currency costs are in (JIG_CURRENCY). */
+  currency: string;
 }
 
 /** GET /api/connection: what Jig runs Claude on, and whether that service answers. */

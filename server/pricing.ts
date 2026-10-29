@@ -1,12 +1,12 @@
 // A selling price suggested by Claude for a printed design, from what it costs to print and what it is.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
-import { claudeAuthProblem } from './config';
+import { claudeAuthProblem, jigCountry, jigCurrency } from './config';
 import { recordRateLimit } from './usage';
-import { CURRENCY, duration, money } from '../shared/cost';
+import { duration, money } from '../shared/cost';
 import type { PriceRequest, PriceSuggestion } from '../shared/api';
 
-const PROMPT = `You suggest a retail price for a 3D-printed item that a hobbyist maker in Romania sells (for example on Etsy, OLX or at a local market). Prices are in ${CURRENCY}.
+const prompt = (currency: string, country: string) => `You suggest a retail price for a 3D-printed item that a hobbyist maker${country ? ` in ${country}` : ''} sells (for example online or at a local market). Prices are in ${currency}.
 Take into account: the material and electricity cost given (the electricity cost may be unknown), the print time (machine time and the printer's wear), the maker's time to remove supports, post-process and package it, failed prints, the design's usefulness and complexity, and what similar printed items typically sell for. Do not invent costs that were given as unknown; reason about them instead.
 Answer with ONLY a JSON object, no other text:
 {"price": <suggested price, number>, "low": <reasonable lowest price>, "high": <reasonable highest price>, "reasoning": "<2–4 short sentences: what drives the price>"}`;
@@ -19,8 +19,8 @@ function describe(r: PriceRequest): string {
     `Parts: ${r.parts}${r.colours > 1 ? `, ${r.colours} filament colours (AMS)` : ''}`,
     `Material: PLA, ${r.grams.toFixed(1)} g (Bambu Studio slice, supports and purge included)`,
     `Print time: ${duration(r.seconds)} on a Bambu Lab A1 (Bambu Studio estimate)`,
-    `Filament cost: ${r.filamentCost != null ? money(r.filamentCost) : 'unknown (no filament price set)'}`,
-    `Electricity cost: ${r.electricityCost != null ? money(r.electricityCost) : 'unknown (the printer\'s power hasn\'t been measured)'}`,
+    `Filament cost: ${r.filamentCost != null ? money(r.filamentCost, jigCurrency()) : 'unknown (no filament price set)'}`,
+    `Electricity cost: ${r.electricityCost != null ? money(r.electricityCost, jigCurrency()) : 'unknown (the printer\'s power hasn\'t been measured)'}`,
   ];
   return lines.filter(Boolean).join('\n');
 }
@@ -32,7 +32,7 @@ export function parseSuggestion(text: string): PriceSuggestion {
   const o = JSON.parse(m[0]) as Record<string, unknown>;
   const price = Number(o.price), low = Number(o.low ?? o.price), high = Number(o.high ?? o.price);
   if (![price, low, high].every((n) => Number.isFinite(n) && n >= 0)) throw new Error('Jig did not answer with a price');
-  return { price, low: Math.min(low, price), high: Math.max(high, price), reasoning: String(o.reasoning ?? '').slice(0, 1000), currency: CURRENCY };
+  return { price, low: Math.min(low, price), high: Math.max(high, price), reasoning: String(o.reasoning ?? '').slice(0, 1000), currency: jigCurrency() };
 }
 
 export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
@@ -45,7 +45,7 @@ export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
     for await (const msg of query({
       prompt: `${describe(r)}\n\nSuggest the selling price.`,
       options: {
-        systemPrompt: PROMPT,
+        systemPrompt: prompt(jigCurrency(), jigCountry()),
         model: 'sonnet',
         tools: [],
         maxTurns: 1,

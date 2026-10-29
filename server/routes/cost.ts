@@ -3,10 +3,10 @@ import express from 'express';
 import path from 'node:path';
 import { mkdir, readFile } from 'node:fs/promises';
 import type { PriceRequest } from '../../shared/api';
-import { claudeAuthProblem, DATA_DIR } from '../config';
+import { claudeAuthProblem, DATA_DIR, jigCurrency } from '../config';
 import { sliceProject } from '../slicer';
 import { suggestPrice } from '../pricing';
-import { cleanCostSettings, DEFAULT_COST_SETTINGS } from '../../shared/cost';
+import { cleanCostSettings, defaultCostSettings } from '../../shared/cost';
 import { writeAtomically, type RouteContext } from './store';
 
 export function registerCostRoutes(app: express.Express, { json }: RouteContext, { suggest }: { suggest: typeof suggestPrice }) {
@@ -14,7 +14,7 @@ export function registerCostRoutes(app: express.Express, { json }: RouteContext,
   const COST_SETTINGS = path.join(DATA_DIR, 'cost.json');
   app.get('/api/cost/settings', async (_req, res) => {
     // Nothing saved yet (a new install or data volume): the defaults.
-    res.json(cleanCostSettings(await readFile(COST_SETTINGS, 'utf8').then((t) => JSON.parse(t), () => DEFAULT_COST_SETTINGS)));
+    res.json(cleanCostSettings(await readFile(COST_SETTINGS, 'utf8').then((t) => JSON.parse(t), () => defaultCostSettings(jigCurrency()))));
   });
   app.put('/api/cost/settings', json('10kb'), async (req, res) => {
     const s = cleanCostSettings(req.body);
