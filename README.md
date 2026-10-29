@@ -1,10 +1,67 @@
 # Jig
 
-AI-powered parametric CAD for 3D printing. Describe an object (and/or attach photos, SVG drawings, OpenSCAD files or 3D models). Jig writes a parametric model with sliders and dimension callouts, checks it, looks at renders of it, and stress-tests the sliders' extremes. You tweak it live, add text or logos, check that it prints, see what it costs to print, and export STL, a Bambu Studio project or a Blender file.
+**From an idea to a ready 3D print.** Describe what you want to 3D print, in plain words and with photos if you have them. Jig designs a parametric model with sliders and real dimensions, checks that it prints, slices it, tells you what it costs to print and exports a ready-to-print Bambu Studio project or an STL.
 
 ![Jig: the chat with the reply and its sources on the left, a desk stand in an exploded view with its dimensions, the parts list and the sliders on the right](docs/screenshot.png)
 
-Jig runs Claude through the Claude Agent SDK, with an OpenRouter key (`OPENROUTER_API_KEY`, which also powers AI artwork) or an Anthropic API key (`ANTHROPIC_API_KEY`). See [Claude account or API key](#claude-account-or-api-key).
+## What it makes
+
+- **Parts that fit real things:** phone and tablet stands, clips, mounts, hooks, boxes, organisers. Jig looks up the product's dimensions on the web, adds the clearances a print needs and tells you where every number came from.
+- **Pictures you can print:** line art wall pieces and key holders, LayerTone (filament painting) pictures and lithophane night lights, from a photo or just a description.
+- **Plaques, signs and figures:** reliefs drawn by an image model, raised text and logos, and sculpted figures made with [Meshy](https://www.meshy.ai).
+- **Ready to print:** a Bambu Studio project with the right print settings, print time, grams and cost from your own Bambu Studio, and photos of how the print will look before it exists.
+
+Every design stays editable: drag the sliders, type an exact size, or ask for a change in the chat.
+
+## Quick start
+
+The easiest way to run Jig is Docker Compose: one command builds and starts everything, with nothing else to install. You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (the `docker compose` command; Docker Desktop includes it) and an [Anthropic API key](https://platform.claude.com/settings/keys) (or an [OpenRouter](https://openrouter.ai/settings/keys) key).
+
+```sh
+git clone https://github.com/3dprogramin/jig.git && cd jig
+cp .env.sample .env           # uncomment ANTHROPIC_API_KEY and paste your key
+docker compose up -d --build  # builds the image (a few minutes the first time) and starts Jig
+```
+
+Open http://localhost:8787 and describe what you want to print. Your designs live in a Docker volume, so they survive restarts and updates.
+
+| | |
+|---|---|
+| Stop Jig | `docker compose down` |
+| Start it again | `docker compose up -d` |
+| Update to the latest version | `git pull && docker compose up -d --build` |
+| See what it is doing | `docker compose logs -f jig` |
+| Use another port | `JIG_PORT=8000` in `.env`, then `docker compose up -d` |
+
+`docker compose down -v` also deletes the volumes, and with them every design: back them up first (Designs → Export all designs). More in [Docker](#docker).
+
+Without Docker: Node 22.12+, then `npm install && npm run build && npm start` (see [Run](#run)).
+
+Worth adding to `.env` too:
+- `OPENROUTER_API_KEY` for anything with pictures: line art, LayerTone and lithophanes from a description, AI artwork and product photos.
+- `JIG_WITH_BAMBU=1` to build Bambu Studio into the image, for slicing, cost and 3MF print settings.
+- `MESHY_API_KEY` for sculpted 3D figures.
+
+Jig has no login: anyone who can reach it can use your keys, so Docker publishes it on this computer only. Keep it that way.
+
+## What it costs
+
+Jig itself is free. You pay the AI services you use, with your own keys, and each reply shows what its Claude part cost. One design of each kind, with Claude Opus 5.5 at high effort (Jig's default):
+
+| Design | Time | Claude | Pictures and figures |
+|---|---|---|---|
+| A 90 mm coaster with a rim | 22 s | $0.15 | |
+| A change to it ("make the rim 2 mm") | 26 s | $0.10 | |
+| A cable clip for a 6 mm cable, one screw | 1 min 17 s | $0.30 | |
+| A 60 × 40 × 30 mm box with a sliding lid | 1 min 40 s | $0.37 | |
+| A stand for a named phone (looks up its size on the web) | 4 min 47 s | $0.87 | |
+| A line art key holder with a car | 42 s | $0.21 | 1 picture, $0.07 |
+| A LayerTone picture of a fox | 51 s | $0.23 | 1 picture, $0.07 |
+| A lithophane night light with a foot | 1 min 5 s | $0.22 | 2 pictures, $0.14 |
+| A round wall plaque with a wolf (AI artwork) | 1 min 25 s | $0.31 | 1 picture, $0.07 |
+| A fox figurine on a name base (Meshy) | 2 min 8 s | $0.39 | 25 Meshy credits |
+
+So most designs cost $0.15 to $0.40, and one that has to fit a real product, with web research, closer to $0.90. Claude Sonnet 5.5 (the model menu under the chat) costs about half: $0.07 for the coaster, $0.40 for the phone stand. Pictures are drawn by an image model on OpenRouter; a Meshy figure is 25 credits, 35 in colour.
 
 ## Run
 
