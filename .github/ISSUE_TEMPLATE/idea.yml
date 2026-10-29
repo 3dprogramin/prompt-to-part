@@ -1,0 +1,15 @@
+name: Idea
+description: Something Jig could do, or do better
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Jig to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What would you make with it?
+      description: The object or print you have in mind helps more than a feature name.

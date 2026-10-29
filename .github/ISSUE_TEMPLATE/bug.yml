@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in Jig doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: What you asked Jig for
+      description: The prompt, and any photo, SVG or model you attached (if you can share it). For a generation, the reply's steps help too (click the step line, or *activity*).
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshots
+      description: Drag images here.
+  - type: input
+    id: version
+    attributes:
+      label: Jig version
+      description: Shown next to the logo, e.g. v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: run
+    attributes:
+      label: How you run Jig
+      options: [Docker Compose, npm start, npm run dev]
+    validations:
+      required: true
+  - type: dropdown
+    id: claude
+    attributes:
+      label: How Jig runs Claude
+      options: [Anthropic API key, OpenRouter key, Claude subscription, Another provider]
+  - type: input
+    id: system
+    attributes:
+      label: Operating system
+      placeholder: e.g. Ubuntu 26.04, macOS 26, Windows 11
+  - type: markdown
+    attributes:
+      value: Never paste API keys, tokens or your `.env`. Security problems go by email, see SECURITY.md.
