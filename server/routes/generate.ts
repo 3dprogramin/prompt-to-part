@@ -2,9 +2,9 @@
 // it runs, and stopping it.
 import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { runGeneration, steerGeneration, UsageLimitError } from '../agent';
+import { KeyRefusedError, runGeneration, steerGeneration, UsageLimitError } from '../agent';
 import type { AgentEvent, GenerateRequest, ImageData } from '../../shared/api';
-import { authMode, claudeAuthProblem, defaultModel, EFFORTS } from '../config';
+import { authMode, claudeAuthProblem, claudeKeyRefused, defaultModel, EFFORTS } from '../config';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../../shared/scad';
 import { isLineArtStyle, LINE_ART_STYLES } from '../../shared/lineart';
 import { MAX_MESHES, MESH_NAME } from '../../shared/meshes';
@@ -67,6 +67,7 @@ function generateProblem(b: GenerateRequest): string | null {
   if (b.effort != null && !EFFORTS.includes(b.effort)) return `effort must be one of ${EFFORTS.join(', ')}`;
   if (b.code != null && typeof b.code !== 'string') return 'bad code';
   if (b.sessionId != null && !/^[\w-]{1,100}$/.test(b.sessionId)) return 'bad sessionId';
+  if (b.sessionCostUsd != null && !(typeof b.sessionCostUsd === 'number' && Number.isFinite(b.sessionCostUsd) && b.sessionCostUsd >= 0)) return 'bad sessionCostUsd';
   for (const v of [b.values, b.renderValues, b.pictures]) if (v != null && (typeof v !== 'object' || Array.isArray(v))) return 'bad values';
   if (b.drawings != null && (typeof b.drawings !== 'object' || Array.isArray(b.drawings))) return 'bad drawings';
   if (b.meshes != null && (!Array.isArray(b.meshes) || b.meshes.length > MAX_MESHES || !b.meshes.every((n) => typeof n === 'string' && MESH_NAME.test(n)))) return 'bad meshes';
@@ -82,8 +83,9 @@ const USAGE_LIMIT = /rate.?limit|429|usage limit|hit your limit/i;
 
 function friendlyError(msg: string, limited: boolean) {
   if (limited) return `${authMode() === 'subscription' ? 'Your Claude subscription\'s usage limit is reached' : 'Claude usage limit reached for now'}. (${msg})`;
-  if (/auth|login|credential|401|oauth/i.test(msg)) {
-    if (authMode() === 'subscription' && process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed – the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart Jig. (${msg})`;
+  if (/auth|login|credential|401|oauth|invalid api key/i.test(msg)) {
+    if (authMode() === 'api-key') return `${claudeKeyRefused()} (${msg})`;
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed – the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart Jig. (${msg})`;
     return `Claude authentication failed – run \`claude\` in a terminal and log in (/login) with your subscription. (${msg})`;
   }
   return msg;
@@ -142,7 +144,7 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
         const msg = (e as Error).message ?? String(e);
         console.error('[generate]', msg);
         const limited = e instanceof UsageLimitError || USAGE_LIMIT.test(msg);
-        send({ type: 'error', message: friendlyError(msg, limited), ...(limited && { resetsAt: limitResetsAt() }) });
+        send({ type: 'error', message: e instanceof KeyRefusedError ? msg : friendlyError(msg, limited), ...(limited && { resetsAt: limitResetsAt() }) });
       }
     } finally {
       // Every reply's events end with how it ended, so a page catching up later knows.

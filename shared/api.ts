@@ -23,6 +23,8 @@ export interface GenerateRequest {
   code?: string;
   values?: ParamValues;
   sessionId?: string;
+  /** The design's sessionCostUsd: what the session had cost before this reply (API keys only). */
+  sessionCostUsd?: number;
   /** 'opus' | 'sonnet' | 'haiku' */
   model?: string;
   /** 'low' | 'medium' | 'high' | 'xhigh' | 'max' */
@@ -77,7 +79,7 @@ export type AgentEvent =
   | { type: 'session'; sessionId: string }
   | { type: 'step'; step: AgentStep }
   | { type: 'model'; code: string; summary: string; sources: DimensionSource[] }
-  | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string }
+  | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string; costUsd?: number; sessionCostUsd?: number }
   /** resetsAt: when the reached usage limit lifts (ms), if known; the page adds it in local time. */
   | { type: 'error'; message: string; resetsAt?: number }
   /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */

@@ -225,6 +225,8 @@ export interface ChatMessage {
   error?: string;
   createdAt: number;
   durationMs?: number;
+  /** API keys only: what the reply cost in Claude API usage (USD, Claude Code's estimate; pictures and Meshy not included). */
+  costUsd?: number;
   /** Transient live status while generating (not meaningful once done) */
   live?: string;
   /**
@@ -264,6 +266,8 @@ export interface Design {
   createdAt: number;
   updatedAt: number;
   sessionId?: string;
+  /** API keys only: Claude Code's running cost estimate (USD) for sessionId, so each reply's own cost can be worked out. */
+  sessionCostUsd?: number;
   messages: ChatMessage[];
   versions: DesignVersion[];
   currentVersion: number;

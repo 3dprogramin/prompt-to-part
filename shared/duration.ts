@@ -6,3 +6,8 @@ export function formatDuration(ms: number): string {
   if (m) return `${m} min ${s} s`;
   return `${s} s`;
 }
+
+/** An API cost for people: "$0.30", "$1.24", "<$0.01". */
+export function formatCost(usd: number): string {
+  return usd < 0.005 ? '<$0.01' : `$${usd.toFixed(2)}`;
+}

@@ -8,7 +8,7 @@ import type { AgentEvent, GenerateRequest } from '../shared/api';
 import { cadTools } from './cadTools';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
-import { authMode, claudeAuthProblem, claudeViaOpenRouter, DATA_DIR } from './config';
+import { authMode, claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
@@ -18,7 +18,7 @@ import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneI
 import { isLithophane } from '../shared/lithophane';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
 import { DEFAULT_LINE_ART_STYLE, isLineArt, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../shared/lineart';
-import { formatDuration } from '../shared/duration';
+import { formatCost, formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
 import { readMyFilaments } from './myFilaments';
@@ -291,6 +291,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const sentText = [recap, ...content.flatMap((c) => (c.type === 'text' ? [c.text] : []))].filter(Boolean).join('\n\n');
     emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
     let finalText = '';
+    // API keys: Claude Code's cost estimate is a running total for the session, and a continued
+    // session starts from what it had cost before, so the reply's own cost is the difference (unknown
+    // when the design doesn't know the earlier total, e.g. a session from before Jig kept it).
+    const costBase = resume ? req.sessionCostUsd : 0;
     const q = query({
       prompt: messages(),
       options: {
@@ -452,6 +456,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         }
         pushLive('Jig is reading the results…');
       } else if (msg.type === 'system' && msg.subtype === 'api_retry') {
+        // A refused key won't start working on a retry: stop at once and say which key to check
+        // (Claude Code would otherwise retry it for minutes).
+        if (authMode() === 'api-key' && (msg.error_status === 401 || msg.error_status === 403)) {
+          q.close();
+          throw new KeyRefusedError(claudeKeyRefused(msg.error_status));
+        }
         const why = msg.error_status ? `HTTP ${msg.error_status}` : 'connection problem';
         emit({ type: 'step', step: { kind: 'status', ok: false, text: `Claude API ${why} – retrying in ${Math.round(msg.retry_delay_ms / 1000)} s (attempt ${msg.attempt}/${msg.max_retries})` } });
         pushLive(`Waiting to retry the Claude API (${why})…`);
@@ -468,7 +478,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
-        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${formatDuration(msg.duration_ms)} · ${msg.num_turns} turns` } });
+        const sessionCostUsd = authMode() === 'api-key' ? msg.total_cost_usd : undefined;
+        // (A total below the earlier one means Claude Code started this session's count from zero.)
+        const costUsd = sessionCostUsd === undefined || costBase === undefined ? undefined : sessionCostUsd >= costBase ? sessionCostUsd - costBase : sessionCostUsd;
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${formatDuration(msg.duration_ms)} · ${msg.num_turns} turns${costUsd !== undefined ? ` · ${formatCost(costUsd)}` : ''}` } });
         // A message the user sent as the turn ended starts another turn: the reply goes on until
         // Claude has read and answered everything.
         if (!msg.is_error && inbox.unanswered()) {
@@ -478,7 +491,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         inbox.close();
         // An API error ends the turn with is_error; the SDK then throws, and the catch below
         // either retries or reports it, so the reply isn't marked finished here.
-        if (!msg.is_error) emit({ type: 'done', durationMs: Date.now() - t0, turns: msg.num_turns, submitted: state.submitted, text: finalText });
+        if (!msg.is_error) emit({ type: 'done', durationMs: Date.now() - t0, turns: msg.num_turns, submitted: state.submitted, text: finalText, costUsd, sessionCostUsd });
       }
     }
   };
@@ -491,7 +504,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // The session may be gone, or the API refuses its history (e.g. a session started on a Claude
     // subscription, continued through another provider): retry once in a fresh session, with a
     // recap of the conversation so Claude knows what came before.
-    if (req.sessionId && !gotOutput && !limitHit && /session|conversation|invalid .*request/i.test(msg)) {
+    if (req.sessionId && !gotOutput && !limitHit && !(e instanceof KeyRefusedError) && /session|conversation|invalid .*request/i.test(msg)) {
       emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
       try {
         await run(undefined, recapOf(req.history));
@@ -507,3 +520,6 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 
 /** A reply that failed because the Claude subscription's usage limit is reached. */
 export class UsageLimitError extends Error {}
+
+/** A reply that failed because the Claude API refused Jig's API key or token (the message says which). */
+export class KeyRefusedError extends Error {}

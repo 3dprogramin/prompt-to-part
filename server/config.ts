@@ -53,6 +53,14 @@ export function claudeAuthProblem(): string | null {
   return 'Jig has no Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude account or API key" in the README.';
 }
 
+/** What to tell the user when the Claude API refuses Jig's API key or token (HTTP 401 or 403). */
+export function claudeKeyRefused(status?: number): string {
+  const code = status ? ` (HTTP ${status})` : '';
+  if (claudeViaOpenRouter()) return `OpenRouter refused the key in OPENROUTER_API_KEY${code}: it may be wrong, revoked or out of credit. Check it, then restart Jig.`;
+  if (process.env.ANTHROPIC_AUTH_TOKEN) return `${process.env.ANTHROPIC_BASE_URL || 'The API'} refused the token in ANTHROPIC_AUTH_TOKEN${code}. Check it, then restart Jig.`;
+  return `Anthropic refused the key in ANTHROPIC_API_KEY${code}: it may be wrong or revoked. Check it at platform.claude.com, then restart Jig.`;
+}
+
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** The chat's starting model (JIG_MODEL: opus, sonnet, haiku or a full model ID such as claude-opus-5-5). */
 export const defaultModel = () => process.env.JIG_MODEL?.trim() || 'opus';

@@ -2,7 +2,7 @@
 // renders, assembly pictures and the version it made.
 import { useEffect, useRef, useState } from 'react';
 import type { AgentStep, ChatMessage, DesignVersion } from '../../../shared/types';
-import { formatDuration } from '../../../shared/duration';
+import { formatCost, formatDuration } from '../../../shared/duration';
 import { meshFormat } from '../../../shared/meshFormats';
 import { SOURCE_KINDS, sourcesSummary, weakestKind, type DimensionSource } from '../../../shared/sources';
 import { activityOf, INTERRUPTED, thinkingSince, wasInterrupted } from '../../lib/activity';
@@ -65,7 +65,7 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
   // The full step log is open while Claude works; afterwards it folds into one line.
   const showSteps = live || open;
   const interrupted = wasInterrupted(m, live);
-  const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${formatDuration(m.durationMs)}` : ''}`;
+  const headline = live ? 'Working' : `${steps.length} steps${m.durationMs ? ` · ${formatDuration(m.durationMs)}` : ''}${m.costUsd !== undefined ? ` · ${formatCost(m.costUsd)}` : ''}`;
   return (
     <div className="msg assistant">
       <div className="msg-head">

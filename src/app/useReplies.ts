@@ -79,7 +79,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
     let end: ReplyEnd | undefined;
     try {
       end = await stream((ev, count) => {
-        if (ev.type === 'session') update((d) => ({ ...d, sessionId: ev.sessionId }));
+        if (ev.type === 'session') update((d) => (d.sessionId === ev.sessionId ? d : { ...d, sessionId: ev.sessionId, sessionCostUsd: undefined }));
         else if (ev.type === 'lineArtEditsBaked') update((d) => {
           // A partial edit drew the hand edits into the drawing: they're part of it now (their colours stay, on it).
           const { [ev.name]: _baked, ...others } = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
@@ -120,7 +120,11 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
               messages: d.messages.map((m) => (m.id === asstId ? { ...m, versionIndex: vi } : m)),
             };
           });
-        } else if (ev.type === 'done') { finished = true; completed = true; patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs })); }
+        } else if (ev.type === 'done') {
+          finished = true; completed = true;
+          patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs, ...(ev.costUsd !== undefined && { costUsd: ev.costUsd }) }));
+          if (ev.sessionCostUsd !== undefined) update((d) => ({ ...d, sessionCostUsd: ev.sessionCostUsd }));
+        }
         else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
         // How far this copy of the reply has got, so a page opened later can catch up with it.
         patchAsst((m) => ({ ...m, run: ev.type === 'run' ? { id: ev.runId, seen: count } : m.run && { ...m.run, seen: count } }));
@@ -205,6 +209,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
       // The render Claude gets of the current model already has the newly attached meshes.
       ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
       sessionId: design.sessionId,
+      sessionCostUsd: design.sessionId ? design.sessionCostUsd : undefined,
       model: chat.model,
       effort: chat.effort,
       webSearch: chat.webSearch,
