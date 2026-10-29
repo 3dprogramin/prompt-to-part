@@ -336,6 +336,10 @@ With an API key, each reply's header shows what it cost after its time (*12 step
 
 The chip in the top bar shows what Jig runs Claude on (*Claude subscription*, *OpenRouter API*, *Anthropic API* or *Custom API*) with a green dot when that service answers and a red one when it doesn't (hover for why). For OpenRouter it also shows the credit left. On a subscription it shows how much of the plan's limits is used (the most-used window; hover for the 5-hour and 7-day windows and when each resets, in local time): amber from 80 %, red with *limit reached until 18:40* while a limit is reached, and a reply refused at the limit says when it resets. Replies report the usage as they run; in between, Jig asks Claude Code for its `/usage` data (at most every 5 minutes; it starts Claude Code for about a second without sending a prompt). A token from `claude setup-token` may not be allowed to read that data, and the chip then shows what the last reply reported. It checks on load, every 5 minutes and when a reply ends, and clicking it checks again; no check spends model usage.
 
+## Contributing
+
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for how to run Jig for development, what a pull request needs and the terms contributions are accepted on.
+
 ## License
 
 Copyright (C) 2026 3dprogramin.
