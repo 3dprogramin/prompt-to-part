@@ -1,6 +1,6 @@
 # Jig
 
-**From an idea to a ready 3D print.** Describe what you want to 3D print, in plain words and with photos if you have them. Jig designs a parametric model with sliders and real dimensions, checks that it prints, slices it, tells you what it costs to print and exports a ready-to-print Bambu Studio project or an STL.
+**Describe it. Print it.** Tell Jig what you want to 3D print, in plain words and with photos if you have them. Jig designs a parametric model with sliders and real dimensions, checks that it prints, slices it, tells you what it costs to print and exports a ready-to-print Bambu Studio project or an STL.
 
 ![Jig in 40 seconds: asked for a desk stand for a Galaxy S25 Ultra with a cable slot, Jig looks up the phone's size, builds a parametric stand and shows what the reply cost ($0.58); dragging the sliders changes the model live, and slicing in Bambu Studio gives the print time, grams and cost ($1.43)](docs/demo.gif)
 
