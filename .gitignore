@@ -4,6 +4,8 @@ dist-litho/
 data/
 *.log
 .env
+.env*
+!.env.sample
 .DS_Store
 *.tsbuildinfo
 
