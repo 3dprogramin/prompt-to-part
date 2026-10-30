@@ -9,6 +9,7 @@
 - **Parts that fit real things:** phone and tablet stands, clips, mounts, hooks, boxes, organisers. Jig looks up the product's dimensions on the web, adds the clearances a print needs and tells you where every number came from.
 - **Pictures you can print:** line art wall pieces and key holders, LayerTone (filament painting) pictures and lithophane night lights, from a photo or just a description.
 - **Plaques, signs and figures:** reliefs drawn by an image model, raised text and logos, and sculpted figures made with [Meshy](https://www.meshy.ai).
+- **Checked before you print:** while it designs, Jig renders its model, looks at it and tries the sliders at their limits, and doesn't hand it over until those builds pass (or it explains why one can't). On every export it checks the mesh for holes, floating pieces, overhangs that need supports and walls too thin to print (see [Print settings and validation](#print-settings-and-validation)).
 - **Ready to print:** a Bambu Studio project with the right print settings, print time, grams and cost from your own Bambu Studio, and photos of how the print will look before it exists.
 
 Every design stays editable: drag the sliders, type an exact size, or ask for a change in the chat.
@@ -330,6 +331,8 @@ Choose *3D figure* in the picture menu. Jig then has Meshy make the subject with
   - overlapping parts
 
   Supports and brim from the print settings are taken into account.
+
+  These are Jig's own checks, run in the browser on the exported mesh (`src/geometry/validate.ts`); no slicer is involved, so they take a moment rather than a slice. They are rules of thumb: an overhang is a face tilted down more than 45°, and a wall thinner than two nozzle widths (0.8 mm on the A1's 0.4 mm nozzle) is a warning, thinner than one an error. Bambu Studio knows more, such as bridges between two supports and your exact line widths, so it can still disagree on a borderline part; for the final word, open the 3MF in Bambu Studio and look at its preview.
 
 ## Cost
 
