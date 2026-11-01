@@ -1,5 +1,6 @@
 import type { Design, DesignSummary, Vec3 } from '../../shared/types';
-import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, MeshyBalance, PriceRequest, PriceSuggestion } from '../../shared/api';
+import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, MeshyBalance, PriceRequest, PriceSuggestion, PrinterInfo } from '../../shared/api';
+import type { PrinterSetup } from '../../shared/printer';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
@@ -106,6 +107,9 @@ export const api = {
   meshyBalance: () => getJson<MeshyBalance>('/api/meshy/balance'),
   /** The Bambu Studio project template (built from the user's Bambu Studio the first time: minutes). */
   bambuTemplate: () => getJson<BambuTemplate>('/api/bambu/template', { method: 'POST' }),
+  /** The chosen printer and every printer to pick from (Bambu Studio's and the user's own presets). */
+  printer: () => getJson<PrinterInfo>('/api/printer'),
+  setPrinter: (s: PrinterSetup) => getJson<PrinterInfo>('/api/printer', { method: 'PUT', body: JSON.stringify(s) }),
   costSettings: () => getJson<CostSettings>('/api/cost/settings'),
   saveCostSettings: (s: CostSettings) => getJson<CostSettings>('/api/cost/settings', { method: 'PUT', body: JSON.stringify(s) }),
   /** The user's own LayerTone filaments (data/filaments.json). */

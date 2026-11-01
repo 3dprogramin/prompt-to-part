@@ -7,6 +7,7 @@ import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
 import type { LayerToneImage, LayerToneSetup } from './layertone';
 import type { PrintSettings } from './print';
+import type { ActivePrinter, Printer } from './printer';
 import type { ConceptEntry, MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
 import type { UsageWindow } from './usage';
@@ -184,6 +185,16 @@ export interface DesignFiles {
 }
 
 /** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */
+/** GET /api/printer: the chosen printer, every printer to pick from, whether to ask (first start). */
+export interface PrinterInfo {
+  printer: ActivePrinter;
+  printers: Printer[];
+  /** Nothing saved yet on a new install: the app asks which printer it is. */
+  firstStart: boolean;
+  /** The saved printer isn't in Bambu Studio any more: the A1 is used until another is picked. */
+  missing: boolean;
+}
+
 export interface BambuTemplate {
   version: string;
   /** project_settings.config for one filament */

@@ -20,6 +20,8 @@ import { registerFilamentRoutes } from './routes/filaments';
 import { registerBackupRoutes } from './routes/backup';
 import { registerExportRoutes } from './routes/exports';
 import { registerGenerateRoutes } from './routes/generate';
+import { registerPrinterRoutes } from './routes/printer';
+import { loadPrinterSetting } from './printerSetting';
 
 export { endGenerations } from './routes/generate';
 
@@ -105,6 +107,9 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   registerMeshRoutes(app, ctx);
   registerSystemRoutes(app, { connection });
   registerCostRoutes(app, ctx, { suggest });
+  registerPrinterRoutes(app, ctx);
+  // The saved printer becomes the server's current one (the AI's instructions, validation, templates).
+  void loadPrinterSetting().catch((e) => console.error('Could not read the printer setting:', e));
   registerFilamentRoutes(app, ctx, { lookup });
   registerBackupRoutes(app, ctx);
   registerExportRoutes(app, ctx);

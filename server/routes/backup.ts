@@ -15,7 +15,7 @@ import { MAX_ZIP_BYTES, openZip, writeZip, ZipError, zipSizeBound, type ZipEntry
 import { DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
-const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'starred.json': 'starred designs', 'tags.json': 'design tags' };
+const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'printer.json': 'printer', 'starred.json': 'starred designs', 'tags.json': 'design tags' };
 const MAX_BACKUP_ENTRIES = 100_000;
 const BACKUP_LIMITS = { settings: 1024 * 1024, design: 80 * 1024 * 1024, image: 25 * 1024 * 1024, mesh: 2 * MAX_MESH_BYTES };
 
