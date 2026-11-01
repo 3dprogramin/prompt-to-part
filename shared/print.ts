@@ -1,5 +1,5 @@
-// Print settings (PLA on the Bambu Lab A1, 0.20 mm Standard as the baseline, read from the user's
-// Bambu Studio when its template has been built).
+// Print settings (PLA on the chosen printer, its default process preset as the baseline, read from
+// the user's Bambu Studio when its template has been built).
 // Only values that differ from the baseline are written to an exported Bambu project.
 
 import { layerHeights, printer, type Printer } from './printer';

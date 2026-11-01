@@ -184,7 +184,7 @@ export interface DesignFiles {
   meshes: string[];
 }
 
-/** POST /api/bambu/template: the A1 + PLA project settings from the user's Bambu Studio. */
+/** POST /api/bambu/template: the chosen printer's + PLA project settings from the user's Bambu Studio. */
 /** GET /api/printer: the chosen printer, every printer to pick from, whether to ask (first start). */
 export interface PrinterInfo {
   printer: ActivePrinter;

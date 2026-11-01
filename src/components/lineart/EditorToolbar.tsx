@@ -129,7 +129,7 @@ export function EditorToolbar({ tool, setTool, filament, setFilament, coloured, 
       <span className="la-ed-status small" aria-live="polite" title={busy ? undefined : `${status}${showSwaps ? ` · ${swaps.text}` : ''}`}>
         {busy ? <><span className="spinner" /> updating…</> : status}
         {showSwaps && (
-          <span className="la-ed-swaps" title={`Colours ${depthLabel(swaps.depth).toLowerCase()}, as built: an estimate for the A1 (the Print tab's Colours set how deep they go and compare; the Cost tab's slice is exact)`}>· {swaps.text}</span>
+          <span className="la-ed-swaps" title={`Colours ${depthLabel(swaps.depth).toLowerCase()}, as built: an estimate (measured on an A1; the Print tab's Colours set how deep they go and compare; the Cost tab's slice is exact)`}>· {swaps.text}</span>
         )}
       </span>
       <button className="btn" onClick={cancel} title="Close without the changes made now">Cancel</button>

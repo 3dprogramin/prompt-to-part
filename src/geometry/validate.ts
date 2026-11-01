@@ -1,7 +1,7 @@
 // Printability / mesh validation, run in the geometry worker on the exact mesh being exported.
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { fitProblem, plateBounds, printer } from '../../shared/printer';
+import { fitProblem, isBedSlinger, plateBounds, printer } from '../../shared/printer';
 import { overlapVolume } from '../../shared/runtime';
 import type { EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import { exportedParts } from './parts';
@@ -33,8 +33,10 @@ export interface ValidationReport {
 }
 
 const OVERHANG_NZ = -Math.SQRT1_2; // normal pointing down more than 45° from vertical
-const MIN_WALL_WARN = 2 * printer().nozzle; // two perimeters
-const MIN_WALL_ERROR = printer().nozzle; // one extrusion line
+/** Two perimeters of the chosen nozzle. */
+const minWallWarn = () => 2 * printer().nozzle;
+/** One extrusion line. */
+const minWallError = () => printer().nozzle;
 const BED_EPS = 0.05;
 
 interface PartAnalysis {
@@ -161,7 +163,7 @@ function analysePart(part: PartMesh, rand: () => number): PartAnalysis {
       if (hit.face.normal.x * nx + hit.face.normal.y * ny + hit.face.normal.z * nz > -0.5) continue;
       const d = hit.distance + 1e-3;
       if (minWall == null || d < minWall) minWall = d;
-      if (d < MIN_WALL_WARN) { thinSamples++; thinPoints.push(px, py, pz); }
+      if (d < minWallWarn()) { thinSamples++; thinPoints.push(px, py, pz); }
     }
     thinArea = (thinSamples / samples) * area;
     bvh.geometry.dispose();
@@ -260,7 +262,7 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
           if (brim) add('info', `${label}Small contact with the plate`, `Only ${f1(a.bedContact)} mm² touches the plate – covered by the brim in the print settings.`, name);
           else add('warning', `${label}Small contact with the plate`, `Only ${f1(a.bedContact)} mm² touches the plate – use a brim so it does not detach.`, name);
         }
-        if (h > 40 && h / Math.max(1e-6, Math.min(w, d)) > 3.5) {
+        if (isBedSlinger() && h > 40 && h / Math.max(1e-6, Math.min(w, d)) > 3.5) {
           if (brim) add('info', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the brim in the print settings helps keep it steady.`, name);
           else add('warning', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the ${printer().name}'s moving bed can make it wobble. Use a brim, slow down, or print it lying down.`, name);
         }
@@ -281,10 +283,10 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
     else if (a.overhangArea > 1) add('info', `${label}Small overhangs`, `${f1(a.overhangArea)} mm² faces down steeper than 45° – usually prints fine as bridges.`, name);
 
     // thin walls
-    if (a.minWall != null && a.minWall < MIN_WALL_ERROR && a.thinArea > 0.5) {
-      add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a ${printer().nozzle} mm nozzle cannot print below ~${MIN_WALL_ERROR} mm). About ${f1(a.thinArea)} mm² is affected.`, name);
-    } else if (a.minWall != null && a.minWall < MIN_WALL_WARN && a.thinArea > 1) {
-      add('warning', `${label}Thin walls`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm – thinner than two perimeters (${MIN_WALL_WARN} mm), so it will be weak. About ${f1(a.thinArea)} mm² is affected.`, name);
+    if (a.minWall != null && a.minWall < minWallError() && a.thinArea > 0.5) {
+      add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a ${printer().nozzle} mm nozzle cannot print below ~${minWallError()} mm). About ${f1(a.thinArea)} mm² is affected.`, name);
+    } else if (a.minWall != null && a.minWall < minWallWarn() && a.thinArea > 1) {
+      add('warning', `${label}Thin walls`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm – thinner than two perimeters (${minWallWarn()} mm), so it will be weak. About ${f1(a.thinArea)} mm² is affected.`, name);
     }
 
     for (const t of a.overhangTris) {

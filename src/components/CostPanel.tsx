@@ -38,7 +38,7 @@ export function CostPanel(p: Props) {
           <PriceInput label="Printer's average power while printing (W, measured)" value={p.settings.averageWatts} onCommit={(v) => p.onSettings({ ...p.settings, averageWatts: v })} />
         </div>
         <p className="dim small">
-          Measure the power once with a plug-in meter: the kWh a print used ÷ its hours × 1000. The A1's 1300 W rating is its peak while
+          Measure the power once with a plug-in meter: the kWh a print used ÷ its hours × 1000. A printer's rated power (the A1's 1300 W) is its peak while
           the bed heats, so it isn't used: without a measurement, electricity is left out rather than guessed.
         </p>
       </section>

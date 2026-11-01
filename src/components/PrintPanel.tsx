@@ -4,7 +4,7 @@ import {
   bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SEAMS, SETTING_LABELS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
-import { layerHeights, printer } from '../../shared/printer';
+import { layerHeights, printer, profileName, shortName } from '../../shared/printer';
 import type { PartMesh } from '../../shared/types';
 import { oneColourFilament, printFilaments } from '../lib/bambu3mf';
 import { Icon } from './Icon';
@@ -65,7 +65,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
   return (
     <div className="print-panel">
       <div className="pp-profile">
-        <b>Bambu Lab A1 · PLA · 0.20 mm Standard</b>
+        <b>{printer().name} · PLA · {profileName()}</b>
         <span className="dim small">Only changes from this profile go into the 3MF (tick “Print settings” when exporting).{!bambu && ' Needs Bambu Studio installed.'}</span>
       </div>
 
@@ -109,16 +109,16 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
       <details className="pp-summary pp-fold" open={writtenOpen} onToggle={(e) => setWrittenOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary>
           <h4>Written to the 3MF</h4>
-          <span className="dim small">{changes.length === 0 ? ' · nothing, the A1 profile as is' : ` · changes for ${changes.length} part${changes.length > 1 ? 's' : ''}`}</span>
+          <span className="dim small">{changes.length === 0 ? ` · nothing, the ${shortName()} profile as is` : ` · changes for ${changes.length} part${changes.length > 1 ? 's' : ''}`}</span>
         </summary>
         {changes.length === 0
-          ? <div className="dim small">Nothing – the standard A1 profile is used as is.</div>
+          ? <div className="dim small">Nothing – the standard {shortName()} profile is used as is.</div>
           : <ul>{changes.map((c) => (
             <li key={c.name}><b>{c.name}</b>: {Object.entries(c.keys).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(', ')}</li>
           ))}</ul>}
       </details>
       <div className="pp-actions">
-        <button className="btn ghost" disabled={!Object.keys(user).length} onClick={() => onChange({})}><Icon name="restore" size={14} /> {aiHasAny ? 'Back to AI settings' : 'Back to A1 defaults'}</button>
+        <button className="btn ghost" disabled={!Object.keys(user).length} onClick={() => onChange({})}><Icon name="restore" size={14} /> {aiHasAny ? 'Back to AI settings' : `Back to ${shortName()} defaults`}</button>
       </div>
     </div>
   );

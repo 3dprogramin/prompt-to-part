@@ -106,6 +106,17 @@ export function layerHeights(nozzle: number): number[] {
   return LAYERS[near];
 }
 
+/** The name without "Bambu Lab " for tight labels: "A1", "A1 (0.2 nozzle)", or a user preset's own name. */
+export function shortName(p: Printer = current): string {
+  return p.name.replace(/^Bambu Lab /, '');
+}
+
+/** The process preset as people say it: "0.20 mm Standard" for "0.20mm Standard @BBL A1". */
+export function profileName(p: Printer = current): string {
+  const m = /^(\d+(?:\.\d+)?)mm (.+?)(?: @.*)?$/.exec(p.presets?.process ?? '');
+  return m ? `${m[1]} mm ${m[2]}` : p.presets?.process ?? 'default profile';
+}
+
 /** The largest a split piece may be (mm): the bed's shorter side less a margin (the A1: 250). */
 export function maxPiece(p: Printer = current): number {
   return Math.min(p.bed[0], p.bed[1]) - 6;

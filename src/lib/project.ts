@@ -1,5 +1,6 @@
 // "Export project…": what goes into a design's project folder and its README (projectExport.ts
 // makes and writes the files). Pure, so it is tested without a browser.
+import { printer, profileName } from '../../shared/printer';
 import type { ParamDef, ParamValues, Vec3 } from '../../shared/types';
 import { describeSetting, effectiveSettings, SETTING_LABELS, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { SOURCE_KINDS, type DimensionSource } from '../../shared/sources';
@@ -149,10 +150,10 @@ export function projectReadme(i: ReadmeInfo): string {
 
   out.push('## Print settings', '');
   if (i.print.length) {
-    out.push('Bambu Lab A1, PLA, 0.20 mm Standard, with these changes:', '', '| Setting | Value | Default |', '| --- | --- | --- |');
+    out.push(`${printer().name}, PLA, ${profileName()}, with these changes:`, '', '| Setting | Value | Default |', '| --- | --- | --- |');
     for (const r of i.print) out.push(`| ${cell(r.part ? `${r.part}: ${r.label}` : r.label)} | ${cell(r.value)} | ${cell(r.was)} |`);
   } else {
-    out.push('Bambu Lab A1, PLA, 0.20 mm Standard, no changes.');
+    out.push(`${printer().name}, PLA, ${profileName()}, no changes.`);
   }
   if (i.oneColour) out.push('', `Printed in one colour: everything in one filament (${i.oneColour.name ? `${i.oneColour.name}, ` : ''}${i.oneColour.colour}).`);
   out.push('');

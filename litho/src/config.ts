@@ -74,7 +74,7 @@ export const DEFAULT_CONFIG: LithoConfig = {
   photoMaxSide: 2400,
 };
 
-/** The A1's build volume bounds what can be printed in one piece (standing up). */
+/** A Bambu Lab A1's build volume bounds what can be printed in one piece (standing up); the shop widget has no Jig printer setting. */
 const MAX_SIDE_MM = 250;
 
 const num = (v: unknown, def: number, lo: number, hi: number) => {

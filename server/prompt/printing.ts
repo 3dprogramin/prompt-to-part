@@ -1,5 +1,5 @@
 // The system prompt's print settings and 3D-printing design rules, for the user's printer and profile.
-import { printer } from '../../shared/printer';
+import { isBedSlinger, layerHeights, printer } from '../../shared/printer';
 import { describeSetting, SETTING_LABELS, type PrintSettings } from '../../shared/print';
 
 /** "layer 0.20 mm, 2 walls, …" for the baseline profile. */
@@ -9,27 +9,33 @@ function describeBase(b: Required<PrintSettings>): string {
 }
 
 export function printingRules(printBase: Required<PrintSettings>): string {
+  // Finer and coarser layers than the baseline, from the nozzle's range (0.4: 0.12–0.16 and 0.24–0.28).
+  const hs = layerHeights(printer().nozzle), at = hs.findIndex((h) => h >= printBase.layerHeight - 1e-6);
+  const span = (a: number[]) => a.length ? (a.length > 1 ? `${a[0].toFixed(2)}–${a[a.length - 1].toFixed(2)}` : a[0].toFixed(2)) : 'none';
+  const fine = span(hs.slice(Math.max(0, at - 2), Math.max(0, at)).slice(-2)), coarse = span(hs.slice(at + 1, at + 3));
   return `# Print settings (optional, return them from build())
-The user prints in PLA on the ${printer().name} with the "${printer().presets!.process}" profile from their Bambu Studio: ${describeBase(printBase)}. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
+The user prints in PLA on the ${printer().name} with the "${printer().presets?.process ?? 'default'}" profile from their Bambu Studio: ${describeBase(printBase)}. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
 \`\`\`js
 print: {
   infill: 30, infillPattern: 'gyroid',            // model-wide
   parts: { 'Lead screw': { walls: 4, infill: 100 }, 'Cradle': { supports: 'tree', brim: 5 } },
 }
 \`\`\`
-- Keys: layerHeight (mm, model-wide only: 0.08/0.12/0.16/0.20/0.24/0.28), firstLayerHeight (mm, model-wide only; H.layertone sets 0.16), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm), ironing ('off' | 'top' | 'topmost' | 'solid'), seam ('aligned' | 'nearest' | 'back' | 'random'), supportsOnPlate (true | false; per object), wallOrder ('inner-outer' | 'outer-inner' | 'inner-outer-inner'), fuzzySkin ('none' | 'external' | 'all').
+- Keys: layerHeight (mm, model-wide only: ${layerHeights(printer().nozzle).map((h) => h.toFixed(2)).join('/')}), firstLayerHeight (mm, model-wide only; H.layertone sets 0.16), walls, topLayers, bottomLayers, infill (%), infillPattern ('grid', 'gyroid', 'cubic', 'adaptivecubic', 'honeycomb', '3dhoneycomb', 'triangles', 'crosshatch', 'lightning', 'zig-zag', 'line', 'concentric'), supports ('off' | 'normal' | 'tree'), brim ('auto' | 'none' | width in mm), ironing ('off' | 'top' | 'topmost' | 'solid'), seam ('aligned' | 'nearest' | 'back' | 'random'), supportsOnPlate (true | false; per object), wallOrder ('inner-outer' | 'outer-inner' | 'inner-outer-inner'), fuzzySkin ('none' | 'external' | 'all').
 - ironing 'top' (or 'topmost' for only the very top) on parts with large flat top faces that are seen or touched (lids, plaques, signs, nameplates); it is slow and does nothing for curved tops.
 - seam 'back' to hide the seam on the back of visible round parts (figurines, vases, knobs); keep 'aligned' on functional parts; avoid 'random' where surfaces must fit.
 - supportsOnPlate true when supports are needed but must not stand on the model itself (they would scar a visible or mating surface, or fill a thread or a hole).
 - wallOrder 'outer-inner' when outside dimensions must be exact (press fits, snap fits, parts that slide into something); keep the default where overhangs matter more.
 - fuzzySkin 'external' for grip surfaces (handles, knobs, tool grips) only: it adds about 0.3 mm, so never on mating or sliding surfaces; prefer a separate part or no fuzzy skin when only some faces should be rough.
-- Keep layerHeight at 0.20 unless there is a clear reason (fine detail on small figurines → 0.12–0.16, big chunky functional parts → 0.24–0.28) and say why.
+- Keep layerHeight at ${printBase.layerHeight.toFixed(2)} unless there is a clear reason (fine detail on small figurines → ${fine}, big chunky functional parts → ${coarse}) and say why.
 - Typical reasons: load-bearing / thin functional parts (screws, pins, hooks, clips) → 3–4 walls and 40–100 % infill; overhangs that cannot be designed away → supports 'tree' on that part; tall/narrow or small-footprint parts → a 5–8 mm brim; decorative parts → leave the defaults.
 - Do not return print settings just to restate the defaults. The user can turn them off when exporting.
 
 # 3D-printing design rules
 - Every part (in 'print' layout, all parts together) must fit the ${printer().name} build volume: ${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm. Keep slider max values within it too. If the object is genuinely larger, split it into parts with alignment pins/dovetails and say so.
-- The ${printer().name} is a bed-slinger (the bed moves in Y): tall, thin parts wobble – prefer a stable print orientation (or lying down) with a flat contact area; do not add a base just for adhesion (the user adds a brim in the slicer).
+${isBedSlinger()
+    ? `- The ${printer().name} is a bed-slinger (the bed moves in Y): tall, thin parts wobble – prefer a stable print orientation (or lying down) with a flat contact area; do not add a base just for adhesion (the user adds a brim in the slicer).`
+    : `- The ${printer().name} is a CoreXY printer (the bed only moves in Z): tall, thin parts stay steadier than on a printer whose bed moves, but still give them a flat contact area; do not add a base just for adhesion (the user adds a brim in the slicer).`}
 - Minimum wall ≈ 1.2 mm (prefer 1.6–3 mm for strength); minimum feature ≈ 0.8 mm; minimum hole ≈ 2 mm.
 - Clearances: sliding fit 0.3–0.4 mm, snug/press fit 0.1–0.2 mm, threads 0.3 mm (H.thread default). Make clearance a parameter when parts mate.
 - Avoid overhangs > 45° and unsupported bridges > 20 mm where possible; prefer chamfers (45°) over fillets on downward-facing edges; a flat bottom face is essential.

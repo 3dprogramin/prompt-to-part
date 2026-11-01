@@ -1,4 +1,5 @@
 // The system prompt's section for LayerTone mode (H.layertone), with the filament library to pick from.
+import { maxPiece, printer } from '../../shared/printer';
 import { FILAMENT_LIBRARY } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
 
@@ -20,9 +21,9 @@ export function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = [
   return `LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
 - Call this feature LayerTone in your replies (that is its name in Jig; never use another product's name for it).
 - Build it with H.layertone(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
-    const params = { width: { label: 'Picture width', value: 250, min: 40, max: 250, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
+    const params = { width: { label: 'Picture width', value: ${maxPiece()}, min: 40, max: ${maxPiece()}, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
     function build(p) { return { name: 'Picture', ...H.layertone('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
-- Size: unless the user asks for another, make it as big as the A1's bed allows: 250 × 250 mm. The picture's longer side is 250 mm – landscape or square: width 250; portrait: width = 250 × (picture width ÷ picture height), so its height is 250 – and with a frame, take 2 × the frame off (the frame adds to the outside). Give the width slider that same maximum.
+- Size: unless the user asks for another, make it as big as the ${printer().name}'s bed allows: ${maxPiece()} × ${maxPiece()} mm. The picture's longer side is ${maxPiece()} mm – landscape or square: width ${maxPiece()}; portrait: width = ${maxPiece()} × (picture width ÷ picture height), so its height is ${maxPiece()} – and with a frame, take 2 × the frame off (the frame adds to the outside). Give the width slider that same maximum.
 - The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
 - Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
   - The printer is a Bambu Lab A1 with an AMS lite, so up to 4 filaments always work with no manual work: treat 4 as your normal budget and use as many as the picture benefits from – 2 for a classic black-and-white print, 3–4 when the picture has colour or needs more tonal range.

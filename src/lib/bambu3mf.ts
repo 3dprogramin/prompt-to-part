@@ -1,4 +1,4 @@
-// Bambu Studio project 3MF: A1 + PLA template from the user's Bambu Studio, per-object print-setting
+// Bambu Studio project 3MF: the chosen printer's + PLA template from the user's Bambu Studio, per-object print-setting
 // overrides, one filament per colour, the filament changes of LayerTone parts, and the colour
 // painting of coloured meshes (each triangle's filament, as Bambu Studio's own painting tool stores
 // it). Structure verified by loading and slicing with Bambu Studio 2.8.
@@ -345,7 +345,7 @@ export function toBambuProject(
 
   if (multi) Object.assign(files, filamentChangeFiles(parts, groups, plan, globalSettings.layerHeight, String(tpl.settings.machine_pause_gcode ?? 'M400 U1')));
 
-  // Project settings: the user's A1 + PLA + 0.20 Standard, with one filament per colour.
+  // Project settings: the user's printer + PLA + its default process, with one filament per colour.
   const settings: Record<string, unknown> = structuredClone(tpl.settings);
   for (const k of tpl.perFilament) {
     const v = settings[k];

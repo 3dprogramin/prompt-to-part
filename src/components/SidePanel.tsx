@@ -31,7 +31,7 @@ import type { FontEntry, PrinterInfo } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
-import { printer, fitProblem, type PrinterSetup } from '../../shared/printer';
+import { printer, fitProblem, profileName, shortName, type PrinterSetup } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
@@ -285,8 +285,8 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
           <label className={`check ${bambu ? '' : 'off'}`}>
             <input type="checkbox" disabled={!bambu} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
             <span><b>Print settings</b><small>{!bambu ? 'Needs Bambu Studio installed on this computer.'
-              : printChanges ? `A1 · PLA · 0.20 Standard with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
-                : 'A1 · PLA · 0.20 Standard profile, no changes.'}</small></span>
+              : printChanges ? `${shortName()} · PLA · ${profileName().replace(' mm', '')} with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
+                : `${shortName()} · PLA · ${profileName().replace(' mm', '')} profile, no changes.`}</small></span>
           </label>
           <button className="btn primary wide" onClick={() => { setOpen(false); setMain('3mf'); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
         </div>

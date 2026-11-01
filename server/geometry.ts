@@ -229,7 +229,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   }
   const { parts: partPrint, ...globalPrint } = r.print;
   if (Object.keys(globalPrint).length || partPrint) {
-    lines.push(`Print settings (differences from ${printer().presets!.process}, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
+    lines.push(`Print settings (differences from ${printer().presets?.process ?? 'the default profile'}, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
   }
   const warn = modelWarnings(r);
   const tris = r.parts.reduce((s, p) => s + p.triCount, 0);

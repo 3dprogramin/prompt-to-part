@@ -166,7 +166,7 @@ export interface EvalResult {
   meta: ModelMeta;
   /** Assembly sequence returned by the script (may be empty). */
   assembly: AssemblyStep[];
-  /** Print settings suggested by the script (only what differs from the A1 0.20 mm Standard profile). */
+  /** Print settings suggested by the script (only what differs from the printer's profile). */
   print: PrintProfile;
   params: Record<string, ParamDef>;
   values: ParamValues;

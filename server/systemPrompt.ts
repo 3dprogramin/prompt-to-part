@@ -1,4 +1,4 @@
-import { printer } from '../shared/printer';
+import { isBedSlinger, printer } from '../shared/printer';
 import type { LayerToneFilament } from '../shared/layertone';
 import { A1_DEFAULTS, type PrintSettings } from '../shared/print';
 import { SCRIPT_RULES } from './prompt/scriptRules';
@@ -12,7 +12,7 @@ import { lineArtSection } from './prompt/lineArt';
 import { meshPrompt } from './prompt/meshes';
 
 export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, layerTone?: { pictures: boolean; mine?: LayerToneFilament[] }, lithophane?: { pictures: boolean }, meshes?: { figure: boolean; meshy: boolean; concepts?: boolean; color?: boolean }, lineArt?: { pictures: boolean }): string {
-  return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${printer().name} (FDM bed-slinger, ${printer().nozzle} mm nozzle, PLA/PETG, build volume ${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
+  return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${printer().name} (FDM ${isBedSlinger() ? 'bed-slinger' : 'CoreXY'}, ${printer().nozzle} mm nozzle, PLA/PETG, build volume ${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
 1. Understand the request. If reference images are attached, study them: identify the object, its functional features, proportions and likely real-world size. Use known references (e.g. wine cork ≈ 24 mm Ø, standard bottle neck 18.5 mm inner Ø, M3 screw, AA battery 14.5 × 50.5 mm, credit card 85.6 × 54 mm, hand/finger sizes) to estimate dimensions. If the user gave dimensions, those are authoritative. If the user names a known object, character or animal (e.g. "Scooby-Doo"), recall what it looks like and list its signature features before modelling.

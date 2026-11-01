@@ -1,4 +1,5 @@
 // The system prompt's section for Lithophane mode (H.lithophane).
+import { printer } from '../../shared/printer';
 
 export function lithophanePrompt(pictures: boolean) {
   return `Lithophane mode is ON: the user wants a lithophane – a photo printed in white PLA as a panel that is thick where the picture is dark and thin where it is bright, so it shows the picture when lit from behind.
@@ -14,7 +15,7 @@ export function lithophanePrompt(pictures: boolean) {
   - Lamp shade: cylinder, width 220–300 mm (Ø 70–95 mm) for an LED bulb or puck inside, 0.8–3 mm, frame 3 mm; stand 8–10 gives it a foot ring. A wide picture (21:9) wraps best.
   - Lamp panel: curved, angle 90–150°, width 100–150 mm, stand 20.
 - It stands upright (picture vertical, facing −Y; FRONT view reads it) because that prints the finest tones: the walls trace the thickness in X/Y instead of in whole layers. Keep it upright and on the bed; don't scale it. upright: false (lying flat, relief up) only when the user asks.
-- It must fit the A1 (256 × 256 × 256 mm): the height is the width × the picture's height / width, plus the frame and foot.
+- It must fit the ${printer().name} (${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm): the height is the width × the picture's height / width, plus the frame and foot.
 - Don't use H.layertone in this design: a design is a lithophane or a LayerTone print, not both.
 - Check it with render_model: it shows the panel lit from behind (thin = warm white, thick = dark), and the report gives its size and thicknesses. In your final message give the size (width × height × depth), the thinnest/thickest values and the print advice: white PLA (e.g. Bambu PLA Basic White or Jade White), standing up as built, 0.12 mm layers, 100 % infill, the walls from the print settings, a brim unless it has a foot, and an LED light behind it (not a hot bulb: PLA softens at about 60 °C). The user sees the picture and the lit preview in the Lithophane section of the Print tab.`;
 }

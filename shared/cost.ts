@@ -49,7 +49,7 @@ export interface CostSettings {
   electricityPerKwh?: number;
   /**
    * The printer's average power while printing, measured (e.g. with a plug-in meter: kWh used by a
-   * print ÷ its hours × 1000). The A1's 1300 W rating is its peak while the bed heats, not an average.
+   * print ÷ its hours × 1000). A printer's rated power (the A1's 1300 W) is its peak while the bed heats, not an average.
    */
   averageWatts?: number;
 }

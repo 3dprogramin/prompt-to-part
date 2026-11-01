@@ -78,7 +78,7 @@ export function colourBands(p: LineArtPaint, c: LineArtPaint['colours'][number],
 }
 
 /**
- * What filament changes cost on the A1 (AMS lite), measured with Bambu Studio 2.8's slicer on line
+ * What filament changes cost, measured on an A1 (AMS lite) with Bambu Studio 2.8's slicer on line
  * art in Bambu PLA Basic from Jig's 3MF (2 and 4 mm thick, 3 to 15 changes, a line or the frame
  * coloured; within about 10 % of the slice): each change (cutting, loading, the flush into the prime
  * tower), each layer of the prime tower (built from the bed up to the last change, a change or not),

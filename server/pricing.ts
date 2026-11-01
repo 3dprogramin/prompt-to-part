@@ -1,4 +1,5 @@
 // A selling price suggested by Claude for a printed design, from what it costs to print and what it is.
+import { printer } from '../shared/printer';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
 import { claudeAuthProblem, jigCountry, jigCurrency } from './config';
@@ -18,7 +19,7 @@ function describe(r: PriceRequest): string {
     `Size: ${r.size}`,
     `Parts: ${r.parts}${r.colours > 1 ? `, ${r.colours} filament colours (AMS)` : ''}`,
     `Material: PLA, ${r.grams.toFixed(1)} g (Bambu Studio slice, supports and purge included)`,
-    `Print time: ${duration(r.seconds)} on a Bambu Lab A1 (Bambu Studio estimate)`,
+    `Print time: ${duration(r.seconds)} on the ${printer().name} (Bambu Studio estimate)`,
     `Filament cost: ${r.filamentCost != null ? money(r.filamentCost, jigCurrency()) : 'unknown (no filament price set)'}`,
     `Electricity cost: ${r.electricityCost != null ? money(r.electricityCost, jigCurrency()) : 'unknown (the printer\'s power hasn\'t been measured)'}`,
   ];

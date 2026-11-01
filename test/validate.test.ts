@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import { validateResult, exportedParts } from '../src/geometry/validate';
+import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
 
 const check = (code: string, opts = {}) => validateResult(evaluateScript(code, {}, 'normal'), opts).issues.map((i) => i.title);
 
@@ -40,4 +41,19 @@ test('supports in the print settings turn the overhang warning into info', () =>
   const code = 'function build() { return [{ name: "T", shape: Manifold.union([Manifold.cube([10, 10, 30]), Manifold.cube([40, 10, 5]).translate([0, 0, 25])]) }]; }';
   const r = validateResult(evaluateScript(code, {}, 'normal'), { supportParts: ['T'] });
   assert.ok(r.issues.some((i) => i.title.includes('supports enabled') && i.severity === 'info'));
+});
+
+test('wall limits follow the nozzle', () => {
+  setPrinter({ ...DEFAULT_PRINTER, nozzle: 0.2 });
+  try {
+    const t = check('function build() { return Manifold.cube([20, 20, 0.3]); }');
+    assert.ok(!t.includes('Walls too thin to print') && t.includes('Thin walls'), t.join(', '));
+  } finally { setPrinter(DEFAULT_PRINTER); }
+});
+
+test('the wobble warning is for bed-slingers only', () => {
+  const tall = 'function build() { return Manifold.cube([8, 8, 100]); }';
+  assert.ok(check(tall).includes('Tall and narrow'));
+  setPrinter({ ...DEFAULT_PRINTER, structure: 'corexy', name: 'Bambu Lab P1S' });
+  try { assert.ok(!check(tall).includes('Tall and narrow')); } finally { setPrinter(DEFAULT_PRINTER); }
 });

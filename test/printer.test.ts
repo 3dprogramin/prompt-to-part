@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bedShift, clampFilaments, DEFAULT_PRINTER, fitProblem, layerHeights, maxPiece, printer, printerName, setPrinter } from '../shared/printer';
+import { bedShift, clampFilaments, DEFAULT_PRINTER, fitProblem, layerHeights, maxPiece, printer, printerName, profileName, setPrinter, shortName } from '../shared/printer';
 import { A1_DEFAULTS, cleanSettings, printDefaultsFor } from '../shared/print';
 
 test('printerName shows the nozzle only when it is not 0.4', () => {
@@ -49,4 +49,14 @@ test('printDefaultsFor: the A1 0.4 baseline, layer heights from the nozzle until
   assert.deepEqual([fine.layerHeight, fine.firstLayerHeight], [0.1, 0.1]);
   const coarse = printDefaultsFor({ ...DEFAULT_PRINTER, nozzle: 0.8 });
   assert.deepEqual([coarse.layerHeight, coarse.firstLayerHeight], [0.4, 0.4]);
+});
+
+test('shortName and profileName keep the A1 labels and follow other printers', () => {
+  assert.equal(shortName(DEFAULT_PRINTER), 'A1');
+  assert.equal(profileName(DEFAULT_PRINTER), '0.20 mm Standard');
+  const fine = { ...DEFAULT_PRINTER, name: 'Bambu Lab A1 (0.2 nozzle)', presets: { machine: 'x', process: '0.10mm Standard @BBL A1 0.2 nozzle', filament: 'y' } };
+  assert.equal(shortName(fine), 'A1 (0.2 nozzle)');
+  assert.equal(profileName(fine), '0.10 mm Standard');
+  assert.equal(shortName({ ...DEFAULT_PRINTER, name: 'My A1' }), 'My A1');
+  assert.equal(profileName({ ...DEFAULT_PRINTER, presets: null }), 'default profile');
 });

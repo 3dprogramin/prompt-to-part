@@ -113,7 +113,7 @@ function ColourDepthRow({ paints, base, values, onValue }: { paints: LineArtPain
       ))}
       <span className="lineart-why">{depthLabel(depth)}: {formatColourCost(now)}.</span>
       <span className="lineart-why">{depthLabel(other)}: {formatColourCost(alt)}.</span>
-      <span className="lineart-why note">Estimates for the A1; the Cost tab's slice is exact.</span>
+      <span className="lineart-why note">Estimates{printer().model === 'Bambu Lab A1' ? ' for the A1' : ' (measured on an A1)'}; the Cost tab's slice is exact.</span>
     </div>
   );
 }
