@@ -135,6 +135,9 @@ test('a first start asks for the printer; the Print tab changes it, and the plat
     const fits = (name: string, yes: string) => page.locator('table.kv tr', { hasText: `Fits ${name}` }).filter({ hasText: yes }).waitFor();
     await page.getByRole('tab', { name: /Code/ }).click();
     await fits('Bambu Lab A1 mini', 'No');
+    // The on-demand check says it's too big; a printer switch takes its report away (it was for the old printer).
+    await page.getByRole('button', { name: 'Validate' }).click();
+    await page.getByText('Too big for the Bambu Lab A1 mini').first().waitFor();
     await page.getByRole('tab', { name: /Print/ }).click();
     await page.locator('.pp-printer', { hasText: 'Bambu Lab A1 mini' }).waitFor();
     await page.locator('.pp-printer').getByRole('button', { name: 'Change' }).click();
@@ -147,6 +150,7 @@ test('a first start asks for the printer; the Print tab changes it, and the plat
     await page.locator('.plate-label', { hasText: 'Bambu Lab A1 · 256 × 256 mm plate' }).waitFor();
     await page.locator('.pp-printer', { hasText: 'loads 8 filaments at once' }).waitFor();
     await page.screenshot({ path: path.join(shots, '0-print-tab-printer.png') });
+    assert.equal(await page.getByText('Too big for the Bambu Lab A1 mini').count(), 0, 'the old printer\'s check report is gone');
     await page.getByRole('tab', { name: /Code/ }).click();
     await fits('Bambu Lab A1', 'Yes');
   } finally {
@@ -916,13 +920,14 @@ test('a part\'s filament: its swatch opens the picker at the panel\'s width, a p
   assert.notEqual(colour, was);
   await option.click();
   await picker.waitFor({ state: 'detached' });
-  assert.equal(await background(), colour);
+  // Buttons ease their background (0.15 s): wait for the swatch to settle.
+  await until(async () => (await background()) === colour, `the swatch shows the pick (${await background()})`, 2000);
   // The 3D view follows, and the pick is saved with the design.
   await until(async () => !before.equals(await view.screenshot()), 'the part is recoloured in the view');
   await until(async () => !!JSON.parse((await getDesign(pid)).values?.$partColors ?? '{}').Lid?.color, 'the pick is saved with the design');
   await page.screenshot({ path: path.join(shots, '17-part-recoloured.png') });
   await page.getByRole('button', { name: 'Reset the filament of Lid' }).click();
-  assert.equal(await background(), was);
+  await until(async () => (await background()) === was, `the swatch is back to the part's colour (${await background()})`, 2000);
   await until(async () => !(await getDesign(pid)).values?.$partColors, 'the reset is saved with the design');
 });
 

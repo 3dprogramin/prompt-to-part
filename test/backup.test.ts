@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -198,4 +198,17 @@ test('design tags go into a backup and come back for designs that have none here
   assert.ok(out.settings.includes('design tags'));
   const tags = await tagsOf();
   assert.deepEqual([tags[ID3], tags[ID4]], [['Ornamente'], ['Temp', 'Ornamente']]);
+});
+
+test('a backup restores the printer choice where none is saved, and the server follows it', async () => {
+  const file = path.join(dataDir, 'printer.json');
+  rmSync(file, { force: true });
+  // A damaged one is left out.
+  await importZip(zipSync({ 'printer.json': strToU8(JSON.stringify({ filaments: [] })) }));
+  assert.equal(existsSync(file), false);
+  const r = await (await importZip(zipSync({ 'printer.json': strToU8(JSON.stringify({ printerId: 'Bambu Lab P1S 0.4 nozzle', filaments: 40 })) }))).json();
+  assert.ok(r.settings.includes('printer'), JSON.stringify(r));
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { printerId: 'Bambu Lab P1S 0.4 nozzle', filaments: 16 });
+  const info = await (await fetch(`${A}/api/printer`)).json();
+  assert.equal(info.printer.name, 'Bambu Lab P1S');
 });

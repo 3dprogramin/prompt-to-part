@@ -301,3 +301,16 @@ test('H.lineart split follows the chosen printer: an A1 mini bed splits a 220 mm
     for (const p of r.parts) assert.ok(p.bbox.max[0] - p.bbox.min[0] <= maxPiece() && p.bbox.max[1] - p.bbox.min[1] <= maxPiece(), `${p.name} fits the A1 mini`);
   } finally { setPrinter(DEFAULT_PRINTER); }
 });
+
+test('H.lineart split: a smaller bed with the same grid cuts new seams (the cache follows the bed)', async () => {
+  const opts = "style: 'keyholder', width: 330, split: [2, 1], layout: 'assembled'";
+  const big = { ...DEFAULT_PRINTER, bed: [350, 320] as [number, number], height: 325 };
+  const mini = { ...DEFAULT_PRINTER, bed: [180, 180] as [number, number], height: 180 };
+  try {
+    setPrinter(big);
+    await withFonts(() => run(opts), loadFontBuffers);
+    setPrinter(mini);
+    const r = await withFonts(() => run(opts), loadFontBuffers);
+    for (const p of r.parts) assert.ok(p.bbox.max[0] - p.bbox.min[0] <= maxPiece() + 0.5, `${p.name}: ${(p.bbox.max[0] - p.bbox.min[0]).toFixed(1)} mm fits the 174 mm limit`);
+  } finally { setPrinter(DEFAULT_PRINTER); }
+});

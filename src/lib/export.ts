@@ -1,3 +1,4 @@
+import { bambuProjectSupported } from '../../shared/printer';
 import { zipSync, strToU8 } from 'fflate';
 import { buildProject } from './projects';
 import type { Box3, DimensionAnnotation, EvalResult, PartMesh, Vec3 } from '../../shared/types';
@@ -107,11 +108,13 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
     // So does a coloured mesh's painting (Bambu Studio's paint_color). In one colour there are neither.
     const layerTone = !threeMf.oneColour && parts.some((p) => p.layerColors?.length || p.paint);
-    if (!threeMf.print && !layerTone) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
-    const tpl = threeMf.print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
+    // A printer Jig can't make the Bambu project for (two nozzles): a plain 3MF, without print settings.
+    const print = bambuProjectSupported() ? threeMf.print : null;
+    if (!print && !layerTone) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
+    const tpl = print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
     if (!tpl) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
     threeMf.onTemplate?.(tpl);
-    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { oneColour: threeMf.oneColour, print: threeMf.print ?? { ai: result.print, user: {} } } });
+    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { oneColour: threeMf.oneColour, print: print ?? { ai: result.print, user: {} } } });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
   return toBinaryStl(parts, title);

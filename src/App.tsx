@@ -405,6 +405,8 @@ export default function App() {
     setNotice(switchNotice.current);
     switchNotice.current = null;
   }, [design.id, design.code, design.values]);
+  // So does another printer: the check report was for the old one's bed and nozzle.
+  useEffect(() => { setValidation(null); setValidationOpen(false); }, [printerInfo?.printer.id]);
 
   // A clean result fades away by itself; problems stay until dismissed.
   useEffect(() => {

@@ -61,7 +61,8 @@ export async function scanPrinters(systemDir: string, userDirs: string[]): Promi
       try {
         const raw = await readPreset([userDir], 'machine', file);
         const id = typeof raw?.data.name === 'string' && raw.data.name ? raw.data.name : file;
-        if (!raw || raw.data.type !== 'machine' || typeof raw.data.inherits !== 'string' || ids.has(id)) continue;
+        // Bambu Studio saves a user preset without `type` (its machine/ folder says what it is).
+        if (!raw || (raw.data.type !== undefined && raw.data.type !== 'machine') || typeof raw.data.inherits !== 'string' || ids.has(id)) continue;
         const parent = await systemAncestor(dirs, systemDir, raw.data.inherits);
         if (!parent || typeof parent.name !== 'string' || !parent.name.startsWith('Bambu Lab ')) continue;
         const p = toPrinter(await resolvePreset(dirs, 'machine', file), id, true);

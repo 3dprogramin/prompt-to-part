@@ -31,7 +31,7 @@ import type { FontEntry, PrinterInfo } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
-import { printer, fitProblem, profileName, shortName, type PrinterSetup } from '../../shared/printer';
+import { bambuProjectSupported, printer, fitProblem, profileName, shortName, type PrinterSetup } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
@@ -253,7 +253,8 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
   const [main, setMainState] = useState<MainExport>(lastExport);
   const setMain = (m: MainExport) => { lastExport = m; setMainState(m); };
   const pick = (f: ExportFormat) => { setOpen(false); setMain(f === 'blend' ? 'blend' : 'stl'); onExport(f); };
-  const printOn = threeMf.print && !!bambu;
+  const project = !!bambu && bambuProjectSupported();
+  const printOn = threeMf.print && project;
   // Blender gone since it was picked: STL.
   const now: MainExport = main === 'blend' && (!blender || blender.problem) ? 'stl' : main;
   const run = () => (now === '3mf' ? onExport3mf() : now === 'project' ? onExportProject() : onExport(now));
@@ -282,9 +283,10 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
             <input type="checkbox" checked={!oneColour} onChange={(e) => onOneColour(!e.target.checked)} />
             <span><b>Colours (AMS)</b><small>One filament per part colour{painted ? '; a coloured figure comes painted with its filaments' : ''}. Off = everything in one filament (“Print in one colour” in the Print tab, saved with the design).</small></span>
           </label>
-          <label className={`check ${bambu ? '' : 'off'}`}>
-            <input type="checkbox" disabled={!bambu} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
+          <label className={`check ${project ? '' : 'off'}`}>
+            <input type="checkbox" disabled={!project} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
             <span><b>Print settings</b><small>{!bambu ? 'Needs Bambu Studio installed on this computer.'
+              : !project ? `Not yet for the ${shortName()} (two nozzles): a plain 3MF.`
               : printChanges ? `${shortName()} · PLA · ${profileName().replace(' mm', '')} with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
                 : `${shortName()} · PLA · ${profileName().replace(' mm', '')} profile, no changes.`}</small></span>
           </label>

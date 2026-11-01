@@ -1,6 +1,7 @@
 // What a print costs: filament from Bambu Studio's slice (the grams it will extrude, purge and prime
 // tower included) and, only when the user has measured their printer, electricity.
 
+import { DEFAULT_PRINTER } from './printer';
 import type { ParamValues } from './types';
 import type { PrintProfile } from './print';
 
@@ -38,7 +39,8 @@ export interface SliceStats {
  * "Print in one colour"): a result with another key is out of date.
  */
 export function costKey(code: string, values: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string, printerId: string): string {
-  return JSON.stringify([code, values, hiddenParts, userPrint, oneColour, printerId]);
+  // The A1 0.4 (Jig's printer before it could be chosen) keeps the old key, so slices saved then stay valid.
+  return JSON.stringify(printerId === DEFAULT_PRINTER.id ? [code, values, hiddenParts, userPrint, oneColour] : [code, values, hiddenParts, userPrint, oneColour, printerId]);
 }
 
 /** The user's prices, and their printer's measured average power. Unset values are left out of the cost. */

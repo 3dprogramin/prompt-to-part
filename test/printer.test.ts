@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bedShift, clampFilaments, DEFAULT_PRINTER, fitProblem, layerHeights, maxPiece, printer, printerName, profileName, setPrinter, shortName } from '../shared/printer';
+import { bedShift, clampFilaments, DEFAULT_PRINTER, fitProblem, layerHeights, maxPiece, printer, printerName, profileName, setPrinter, shortName, bambuProjectSupported } from '../shared/printer';
 import { A1_DEFAULTS, cleanSettings, printDefaultsFor } from '../shared/print';
 
 test('printerName shows the nozzle only when it is not 0.4', () => {
@@ -59,4 +59,10 @@ test('shortName and profileName keep the A1 labels and follow other printers', (
   assert.equal(profileName(fine), '0.10 mm Standard');
   assert.equal(shortName({ ...DEFAULT_PRINTER, name: 'My A1' }), 'My A1');
   assert.equal(profileName({ ...DEFAULT_PRINTER, presets: null }), 'default profile');
+});
+
+test('the Bambu Studio project: one-nozzle printers with presets only', () => {
+  assert.equal(bambuProjectSupported(DEFAULT_PRINTER), true);
+  assert.equal(bambuProjectSupported({ ...DEFAULT_PRINTER, extruders: 2 }), false);
+  assert.equal(bambuProjectSupported({ ...DEFAULT_PRINTER, presets: null }), false);
 });

@@ -1,4 +1,6 @@
 // Backups: every design and the user's settings as one zip, and restoring one (or a zipped project).
+import { clampFilaments } from '../../shared/printer';
+import { loadPrinterSetting } from '../printerSetting';
 import express from 'express';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -196,6 +198,15 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
         try {
           const v = JSON.parse(Buffer.from(await entry.read()).toString('utf8')) as { filaments?: unknown };
           if (entry.name === 'filaments.json' && myFilamentsProblem(v?.filaments)) continue;
+          if (entry.name === 'printer.json') {
+            const { printerId } = v as { printerId?: unknown };
+            if (typeof printerId !== 'string' || !printerId) continue;
+            await writeAtomically(file, JSON.stringify({ printerId, filaments: clampFilaments(v.filaments) }));
+            // The server's current printer follows the restored choice.
+            await loadPrinterSetting();
+            out.settings.push(BACKUP_SETTINGS[entry.name]);
+            continue;
+          }
           await writeAtomically(file, JSON.stringify(entry.name === 'cost.json' ? cleanCostSettings(v)
             : entry.name === 'starred.json' ? { ids: cleanStarred((v as { ids?: unknown }).ids) } : { filaments: cleanMyFilaments(v.filaments) }));
           out.settings.push(BACKUP_SETTINGS[entry.name]);

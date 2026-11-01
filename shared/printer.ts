@@ -111,6 +111,11 @@ export function loadsAtOnce(p: ActivePrinter = current): string {
   return `the ${p.name} loads ${p.filaments} filament${p.filaments === 1 ? '' : 's'} at once`;
 }
 
+/** Jig can make the printer's Bambu Studio project (its presets known, one nozzle; Bambu Studio fails on two). */
+export function bambuProjectSupported(p: Printer = current): boolean {
+  return !!p.presets && p.extruders === 1;
+}
+
 /** The name without "Bambu Lab " for tight labels: "A1", "A1 (0.2 nozzle)", or a user preset's own name. */
 export function shortName(p: Printer = current): string {
   return p.name.replace(/^Bambu Lab /, '');

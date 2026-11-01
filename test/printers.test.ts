@@ -8,7 +8,7 @@ const USER = [path.join(FIX, 'user', 'default')];
 
 test('scanPrinters lists BBL nozzle presets and BBL-based user presets', async () => {
   const list = await scanPrinters(FIX, USER);
-  assert.deepEqual(list.map((p) => p.name), ['Bambu Lab A1 (0.2 nozzle)', 'Bambu Lab A1', 'Bambu Lab H2D', 'Bambu Lab P1S', 'My A1']);
+  assert.deepEqual(list.map((p) => p.name), ['Bambu Lab A1 (0.2 nozzle)', 'Bambu Lab A1', 'Bambu Lab H2D', 'Bambu Lab P1S', 'My A1', 'Saved A1']);
   const a1 = list.find((p) => p.id === 'Bambu Lab A1 0.4 nozzle')!;
   assert.deepEqual({ bed: a1.bed, origin: a1.origin, height: a1.height, structure: a1.structure, nozzle: a1.nozzle, custom: a1.custom, presets: a1.presets },
     { bed: [256, 256], origin: [0, 0], height: 256, structure: 'bedslinger', nozzle: 0.4, custom: false, presets: { machine: 'Bambu Lab A1 0.4 nozzle', process: '0.20mm Standard @BBL A1', filament: 'Bambu PLA Basic @BBL A1' } });
@@ -33,4 +33,11 @@ test('a user preset whose parent is missing, or not a Bambu printer, is skipped,
 
 test('scanPrinters with a missing user dir still lists the built-in presets', async () => {
   assert.equal((await scanPrinters(FIX, ['/nonexistent'])).length, 4);
+});
+
+test('a preset as Bambu Studio saves it (no type or instantiation) is listed', async () => {
+  const saved = (await scanPrinters(FIX, USER)).find((p) => p.name === 'Saved A1');
+  assert.ok(saved, 'listed');
+  assert.equal(saved.height, 240);
+  assert.equal(saved.custom, true);
 });

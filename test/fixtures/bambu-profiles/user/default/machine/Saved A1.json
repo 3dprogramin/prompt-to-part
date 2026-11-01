@@ -1,0 +1,9 @@
+{
+    "from": "User",
+    "inherits": "Bambu Lab A1 0.4 nozzle",
+    "is_custom_defined": "0",
+    "name": "Saved A1",
+    "printable_height": "240",
+    "printer_settings_id": "Saved A1",
+    "version": "2.8.0.0"
+}

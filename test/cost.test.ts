@@ -64,3 +64,7 @@ test('the currency: any ISO code from JIG_CURRENCY, typical starting prices in a
 test('costKey changes with the printer', () => {
   assert.notEqual(costKey('c', {}, [], {}, null, 'Bambu Lab A1 0.4 nozzle'), costKey('c', {}, [], {}, null, 'Bambu Lab P1S 0.4 nozzle'));
 });
+
+test('costKey for the A1 0.4 is the key from before printers could be chosen (saved sale-size slices stay valid)', () => {
+  assert.equal(costKey('c', { a: 1 }, ['x'], {}, null, 'Bambu Lab A1 0.4 nozzle'), JSON.stringify(['c', { a: 1 }, ['x'], {}, null]));
+});
