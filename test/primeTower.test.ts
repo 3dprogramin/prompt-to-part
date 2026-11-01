@@ -5,7 +5,8 @@ import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { toBambuProject } from '../src/lib/bambu3mf';
 import { DATA_DIR } from '../server/config';
-import { findBambuBinary } from '../server/bambu';
+import { findBambuBinary, templateFile } from '../server/bambu';
+import { DEFAULT_PRINTER } from '../shared/printer';
 import { slicedProject } from '../server/slicer';
 import type { BambuTemplate } from '../shared/api';
 import type { PartMesh } from '../shared/types';
@@ -52,8 +53,9 @@ test('prime tower: beside the model, clear of it, also when the model is big', a
   assert.deepEqual(settingsOf(await project(plaque(160, 218, ['#ffffff']))).wipe_tower_x, ['15']);
 });
 
-const TEMPLATE = path.join(DATA_DIR, 'bambu', 'template.json');
-const canSlice = !!(await findBambuBinary()) && existsSync(TEMPLATE);
+// The A1 0.4's template (data/bambu/template.json before printers could be chosen).
+const TEMPLATE = [templateFile(DEFAULT_PRINTER), path.join(DATA_DIR, 'bambu', 'template.json')].find((f) => existsSync(f)) ?? '';
+const canSlice = !!(await findBambuBinary()) && !!TEMPLATE;
 
 test('Bambu Studio slices a big two-colour plaque with its prime tower', { skip: !canSlice && 'needs Bambu Studio and its Jig template' }, async () => {
   const realTpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;

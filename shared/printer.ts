@@ -23,6 +23,8 @@ export interface Printer {
   origin: [number, number];
   height: number;
   structure: Structure;
+  /** Nozzles (2 on the H2D, H2D Pro, H2C and X2D): Jig's Bambu Studio project supports one so far. */
+  extruders: number;
   /** Bambu Studio presets the project template is built from; null for a built-in fallback entry. */
   presets: { machine: string; process: string; filament: string } | null;
   /** One of the user's own presets saved in Bambu Studio. */
@@ -49,8 +51,8 @@ export function printerName(model: string, nozzle: number): string {
   return nozzle === 0.4 ? model : `${model} (${nozzle} nozzle)`;
 }
 
-const builtin = (model: string, bed: [number, number], height: number, structure: Structure): Printer => ({
-  id: `${model} 0.4 nozzle`, name: printerName(model, 0.4), model, nozzle: 0.4, bed, origin: [0, 0], height, structure, presets: null, custom: false,
+const builtin = (model: string, bed: [number, number], height: number, structure: Structure, extruders = 1): Printer => ({
+  id: `${model} 0.4 nozzle`, name: printerName(model, 0.4), model, nozzle: 0.4, bed, origin: [0, 0], height, structure, extruders, presets: null, custom: false,
 });
 
 /** Used when Bambu Studio isn't installed (no project template or slicing then). Values from Bambu Studio 2.8's presets. */
@@ -59,7 +61,7 @@ export const BUILTIN_PRINTERS: Printer[] = [
   builtin('Bambu Lab A1 mini', [180, 180], 180, 'bedslinger'),
   builtin('Bambu Lab P1S', [256, 256], 250, 'corexy'),
   builtin('Bambu Lab X1 Carbon', [256, 256], 250, 'corexy'),
-  builtin('Bambu Lab H2D', [350, 320], 325, 'corexy'),
+  builtin('Bambu Lab H2D', [350, 320], 325, 'corexy', 2),
 ];
 
 /** Bambu Lab A1, 0.4 nozzle, 0.20 mm Standard, Bambu PLA Basic, 4 filaments (one AMS lite): the printer until one is picked. */

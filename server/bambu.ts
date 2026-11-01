@@ -1,21 +1,55 @@
-// Bambu Studio integration: builds the A1 + PLA + 0.20 mm Standard project template from the
-// user's own Bambu Studio install (nothing from Bambu is bundled), cached in data/bambu.
+// Bambu Studio integration: builds the project template for the chosen printer (its machine preset
+// with its default process and PLA filament presets) from the user's own Bambu Studio install
+// (nothing from Bambu is bundled), cached per printer in data/bambu/templates.
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { unzipSync, strFromU8 } from 'fflate';
 import { DATA_DIR } from './config';
-import { printer } from '../shared/printer';
+import { DEFAULT_PRINTER, printer, type Printer } from '../shared/printer';
 import type { BambuTemplate } from '../shared/api';
 import { defaultsFromTemplate, type PrintSettings } from '../shared/print';
 import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
-const CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
-const PRESETS = printer().presets!;
+/** The one template of Jig before printers could be chosen: the A1 0.4's. */
+const LEGACY_CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
+
+/** Where a printer's template is cached: data/bambu/templates/<preset name as a slug>.json. */
+export function templateFile(p: Printer): string {
+  return path.join(DATA_DIR, 'bambu', 'templates', `${p.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}.json`);
+}
+
+async function readCached(p: Printer): Promise<BambuTemplate | null> {
+  const file = templateFile(p);
+  if (!existsSync(file) && p.id === DEFAULT_PRINTER.id && existsSync(LEGACY_CACHE)) {
+    await mkdir(path.dirname(file), { recursive: true });
+    await rename(LEGACY_CACHE, file);
+  }
+  return readFile(file, 'utf8').then((t) => JSON.parse(t) as BambuTemplate, () => null);
+}
+
+/** Bambu Studio's settings folder for this platform (where it keeps the user's presets). */
+function bambuConfigDir(): string {
+  if (process.platform === 'win32') return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'BambuStudio');
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'BambuStudio');
+  return path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'BambuStudio');
+}
+
+/**
+ * The user's preset folders: each folder in Bambu Studio's `user` folder (one per account, and
+ * "default") that has a machine/ folder. BAMBU_STUDIO_USER_DIR points at that `user` folder
+ * (in Docker: the mounted one). Read only.
+ */
+export async function bambuUserDirs(): Promise<string[]> {
+  const root = process.env.BAMBU_STUDIO_USER_DIR?.trim() || path.join(bambuConfigDir(), 'user');
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  return entries.filter((e) => e.isDirectory() && existsSync(path.join(root, e.name, 'machine'))).map((e) => path.join(root, e.name)).sort();
+}
 
 export async function findBambuBinary(): Promise<string | null> {
   return findExecutable([
@@ -126,57 +160,71 @@ async function projectSettings(bin: string, work: string, filaments: number): Pr
 }
 
 /**
- * The baseline print settings of the template already built from the user's Bambu Studio, or null
- * if there is none yet (building one runs Bambu Studio for minutes, so it is never started here).
+ * The baseline print settings of the printer's template if it has been built, or null (building
+ * one runs Bambu Studio for minutes, so it is never started here).
  */
-export async function cachedPrintDefaults(): Promise<Required<PrintSettings> | null> {
-  try {
-    return defaultsFromTemplate((JSON.parse(await readFile(CACHE, 'utf8')) as BambuTemplate).settings);
-  } catch {
-    return null;
-  }
+export async function cachedPrintDefaults(p: Printer = printer()): Promise<Required<PrintSettings> | null> {
+  const tpl = await readCached(p).catch(() => null);
+  return tpl ? defaultsFromTemplate(tpl.settings) : null;
 }
 
-let pending: Promise<BambuTemplate> | null = null;
+/** The printer's three presets, resolved (the user's own presets first, then Bambu's). */
+async function printerPresets(p: Printer): Promise<{ kind: string; name: string; preset: Record<string, unknown> }[]> {
+  if (!p.presets) throw new Error(`Pick a Bambu Studio printer: ${p.name} has no Bambu Studio presets`);
+  const dirs = [...(p.custom ? await bambuUserDirs() : []), await systemProfilesDir()];
+  return Promise.all(Object.entries(p.presets).map(async ([kind, name]) => ({ kind, name, preset: await resolvePreset(dirs, kind, name) })));
+}
 
-export async function bambuTemplate(): Promise<BambuTemplate> {
-  if (existsSync(CACHE)) {
-    const cached = JSON.parse(await readFile(CACHE, 'utf8')) as BambuTemplate;
-    if (cached.version === (await bambuVersion())) return cached;
+const presetHash = (presets: { preset: Record<string, unknown> }[]) => createHash('sha256').update(JSON.stringify(presets.map((x) => x.preset))).digest('hex').slice(0, 16);
+
+const pending = new Map<string, Promise<BambuTemplate>>();
+
+/** The printer's project template: cached, or built now (minutes) when there is none, or Bambu Studio or the presets changed. */
+export async function bambuTemplate(p: Printer = printer()): Promise<BambuTemplate> {
+  // Bambu Studio 2.8's command line fails to slice Jig's projects on two-nozzle printers.
+  if (p.extruders > 1) throw new Error(`The Bambu Studio project isn't supported for the ${p.name} yet (two nozzles): export a plain 3MF and set it up in Bambu Studio`);
+  const presets = await printerPresets(p);
+  const version = (await bambuVersion()) ?? 'unknown', hash = presetHash(presets);
+  const cached = await readCached(p);
+  // Templates from before printers could be chosen have no hash: the version alone decides.
+  if (cached && cached.version === version && (cached.presetHash ?? hash) === hash) return cached;
+  let job = pending.get(p.id);
+  if (!job) {
+    job = (async () => {
+      const bin = await findBambuBinary();
+      if (!bin) throw new Error('Bambu Studio was not found on this computer');
+      const work = await mkdtemp(path.join(os.tmpdir(), 'jig-bambu-'));
+      try {
+        for (const { kind, name, preset } of presets) {
+          const out = { ...preset };
+          delete out.inherits;
+          out.from = 'system';
+          out.name = name;
+          await writeFile(path.join(work, `${kind}.json`), JSON.stringify(out));
+        }
+        await writeFile(path.join(work, 'cube.stl'), cubeStl());
+        const one = await projectSettings(bin, work, 1);
+        const three = await projectSettings(bin, work, 3);
+        const perFilament: string[] = [], perFilamentPlus2: string[] = [];
+        for (const [k, v] of Object.entries(one)) {
+          const t = three[k];
+          if (!Array.isArray(v) || !Array.isArray(t)) continue;
+          if (v.length === 1 && t.length === 3) perFilament.push(k);
+          else if (t.length === v.length + 2) perFilamentPlus2.push(k);
+        }
+        // filament_map / filament_self_index are written inconsistently by the CLI - always per filament.
+        for (const k of ['filament_map', 'filament_self_index', 'filament_colour']) if (!perFilament.includes(k) && k in one) perFilament.push(k);
+        const tpl: BambuTemplate = { version, presetHash: hash, settings: one, perFilament, perFilamentPlus2 };
+        const file = templateFile(p);
+        await mkdir(path.dirname(file), { recursive: true });
+        await writeFile(file, JSON.stringify(tpl));
+        return tpl;
+      } finally {
+        await rm(work, { recursive: true, force: true });
+        pending.delete(p.id);
+      }
+    })();
+    pending.set(p.id, job);
   }
-  pending ??= (async () => {
-    const bin = await findBambuBinary();
-    if (!bin) throw new Error('Bambu Studio was not found on this computer');
-    const work = await mkdtemp(path.join(os.tmpdir(), 'jig-bambu-'));
-    try {
-      const dir = await profilesDir(bin, work);
-      for (const [kind, name] of Object.entries(PRESETS)) {
-        const p = await resolvePreset([dir], kind, name);
-        delete p.inherits;
-        p.from = 'system';
-        p.name = name;
-        await writeFile(path.join(work, `${kind}.json`), JSON.stringify(p));
-      }
-      await writeFile(path.join(work, 'cube.stl'), cubeStl());
-      const one = await projectSettings(bin, work, 1);
-      const three = await projectSettings(bin, work, 3);
-      const perFilament: string[] = [], perFilamentPlus2: string[] = [];
-      for (const [k, v] of Object.entries(one)) {
-        const t = three[k];
-        if (!Array.isArray(v) || !Array.isArray(t)) continue;
-        if (v.length === 1 && t.length === 3) perFilament.push(k);
-        else if (t.length === v.length + 2) perFilamentPlus2.push(k);
-      }
-      // filament_map / filament_self_index are written inconsistently by the CLI – always per filament.
-      for (const k of ['filament_map', 'filament_self_index', 'filament_colour']) if (!perFilament.includes(k) && k in one) perFilament.push(k);
-      const tpl: BambuTemplate = { version: (await bambuVersion()) ?? 'unknown', settings: one, perFilament, perFilamentPlus2 };
-      await mkdir(path.dirname(CACHE), { recursive: true });
-      await writeFile(CACHE, JSON.stringify(tpl));
-      return tpl;
-    } finally {
-      await rm(work, { recursive: true, force: true });
-      pending = null;
-    }
-  })();
-  return pending;
+  return job;
 }

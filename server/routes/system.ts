@@ -4,6 +4,7 @@ import type { Capabilities, SpeechToken } from '../../shared/api';
 import { claudeAuthProblem, defaultEffort, defaultModel, jigCurrency } from '../config';
 import { blenderInfo } from '../blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from '../bambu';
+import { printerLoaded } from '../printerSetting';
 import { artworkAvailable, imageModel } from '../artwork';
 import { cachedBalance, meshyAvailable, meshyClient } from '../meshy';
 import { checkConnection } from '../connection';
@@ -23,6 +24,7 @@ function speechLanguages(): Pick<SpeechToken, 'language' | 'secondaryLanguages'>
 
 export function registerSystemRoutes(app: express.Express, { connection }: { connection: typeof checkConnection }) {
   app.get('/api/capabilities', async (_req, res) => {
+    await printerLoaded().catch(() => undefined);
     const blender = await blenderInfo();
     res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: jigCurrency() } satisfies Capabilities);
   });

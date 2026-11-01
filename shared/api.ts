@@ -197,6 +197,8 @@ export interface PrinterInfo {
 
 export interface BambuTemplate {
   version: string;
+  /** Of the printer's resolved presets: a preset changed in Bambu Studio means a new template. */
+  presetHash?: string;
   /** project_settings.config for one filament */
   settings: Record<string, unknown>;
   /** keys holding one value per filament */

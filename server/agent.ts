@@ -21,6 +21,7 @@ import { DEFAULT_LINE_ART_STYLE, isLineArt, LINEART_DEPTH_KEY, LINEART_EDITS_KEY
 import { formatCost, formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
+import { printerLoaded } from './printerSetting';
 import { readMyFilaments } from './myFilaments';
 import { A1_DEFAULTS } from '../shared/print';
 import type { ParamValues } from '../shared/types';
@@ -154,7 +155,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
     askFirst: req.askFirst !== false,
   });
-  // The print baseline Claude is told about: the user's Bambu Studio profile, as the 3MF export uses.
+  // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
+  await printerLoaded().catch(() => undefined);
   const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];

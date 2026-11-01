@@ -1,12 +1,10 @@
 // The printers the user can pick: every Bambu Lab printer and nozzle in their Bambu Studio, plus the
 // printer presets they saved in Bambu Studio themselves (when based on a Bambu Lab printer). Read
 // only: nothing in Bambu Studio's folders is ever written.
-import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { BUILTIN_PRINTERS, printerName, type Printer } from '../shared/printer';
-import { bambuVersion, readPreset, resolvePreset, systemProfilesDir } from './bambu';
+import { bambuUserDirs, bambuVersion, readPreset, resolvePreset, systemProfilesDir } from './bambu';
 
 const first = (v: unknown): unknown => (Array.isArray(v) ? v[0] : v);
 
@@ -21,6 +19,7 @@ function toPrinter(r: Record<string, unknown>, id: string, custom: boolean): Pri
     id, name: custom ? id : printerName(model, nozzle), model, nozzle,
     bed: [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)], origin: [Math.min(...xs), Math.min(...ys)], height,
     structure: r.printer_structure === 'i3' ? 'bedslinger' : 'corexy',
+    extruders: Array.isArray(r.nozzle_diameter) ? Math.max(1, r.nozzle_diameter.length) : 1,
     presets: typeof process === 'string' && typeof filament === 'string' ? { machine: id, process, filament } : null,
     custom,
   };
@@ -74,24 +73,6 @@ export async function scanPrinters(systemDir: string, userDirs: string[]): Promi
   }
   mine.sort((a, b) => a.name.localeCompare(b.name));
   return [...builtIn, ...mine];
-}
-
-/** Bambu Studio's settings folder for this platform (where it keeps the user's presets). */
-function bambuConfigDir(): string {
-  if (process.platform === 'win32') return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'BambuStudio');
-  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'BambuStudio');
-  return path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'BambuStudio');
-}
-
-/**
- * The user's preset folders: each folder in Bambu Studio's `user` folder (one per account, and
- * "default") that has a machine/ folder. BAMBU_STUDIO_USER_DIR points at that `user` folder
- * (in Docker: the mounted one).
- */
-export async function bambuUserDirs(): Promise<string[]> {
-  const root = process.env.BAMBU_STUDIO_USER_DIR?.trim() || path.join(bambuConfigDir(), 'user');
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-  return entries.filter((e) => e.isDirectory() && existsSync(path.join(root, e.name, 'machine'))).map((e) => path.join(root, e.name)).sort();
 }
 
 let cached: { version: string | null; list: Promise<Printer[]> } | null = null;
