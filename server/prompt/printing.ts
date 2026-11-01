@@ -9,9 +9,9 @@ function describeBase(b: Required<PrintSettings>): string {
 }
 
 export function printingRules(printBase: Required<PrintSettings>): string {
-  // Finer and coarser layers than the baseline, from the nozzle's range (0.4: 0.12–0.16 and 0.24–0.28).
+  // Finer and coarser layers than the baseline, from the nozzle's range (0.4: 0.12-0.16 and 0.24-0.28).
   const hs = layerHeights(printer().nozzle), at = hs.findIndex((h) => h >= printBase.layerHeight - 1e-6);
-  const span = (a: number[]) => a.length ? (a.length > 1 ? `${a[0].toFixed(2)}–${a[a.length - 1].toFixed(2)}` : a[0].toFixed(2)) : 'none';
+  const span = (a: number[]) => a.length ? (a.length > 1 ? `${a[0].toFixed(2)}-${a[a.length - 1].toFixed(2)}` : a[0].toFixed(2)) : 'none';
   const fine = span(hs.slice(Math.max(0, at - 2), Math.max(0, at)).slice(-2)), coarse = span(hs.slice(at + 1, at + 3));
   return `# Print settings (optional, return them from build())
 The user prints in PLA on the ${printer().name} with the "${printer().presets?.process ?? 'default'}" profile from their Bambu Studio: ${describeBase(printBase)}. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:

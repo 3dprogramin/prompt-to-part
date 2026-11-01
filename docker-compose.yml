@@ -25,6 +25,8 @@ services:
       JIG_HOST: 0.0.0.0
       JIG_DATA: /data
       CLAUDE_CONFIG_DIR: /home/node/.claude
+      # With the Bambu Studio user folder mounted below: your own printer presets in the printer list.
+      # BAMBU_STUDIO_USER_DIR: /bambu-user
     ports:
       - "${JIG_BIND:-127.0.0.1}:${JIG_PORT:-8787}:${JIG_PORT:-8787}"
     volumes:
@@ -36,6 +38,9 @@ services:
       - cache:/app/node_modules/.cache
       # Your own fonts, listed next to the bundled ones:
       # - /usr/share/fonts:/usr/local/share/fonts/host:ro
+      # Your own printer presets saved in Bambu Studio (read only; set BAMBU_STUDIO_USER_DIR above).
+      # Linux: ~/.config/BambuStudio/user, macOS: ~/Library/Application Support/BambuStudio/user
+      # - ~/.config/BambuStudio/user:/bambu-user:ro
     read_only: true
     # Everything else is read-only; scratch space and the rest of the home folder live in memory.
     tmpfs:

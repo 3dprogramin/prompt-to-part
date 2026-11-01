@@ -1,6 +1,6 @@
 # Printer choice (Bambu Lab printers)
 
-Date: 2026-11-01. Status: draft for review.
+Date: 2026-11-01. Status: implemented on branch printer-choice.
 
 ## Why
 
@@ -170,9 +170,10 @@ own A1 (for example a 0.2 nozzle for fine detail).
   Studio version, not per request), and which of `resources/profiles` vs. the config folder's
   `system/BBL` wins when both exist.
 - First-start UI and the Print tab control's look, following Jig's existing UI.
-- Dual-nozzle printers (H2D, H2D Pro, H2C, X2D?): the template build and filament mapping may differ
-  (`filament_map`, two extruders). Verify they build and slice with the existing code; if one doesn't,
-  list it but mark it as not yet supported for the 3MF project, rather than blocking the feature.
+- Dual-nozzle printers (H2D, H2D Pro, H2C, X2D): checked with Bambu Studio 02.08.04.57. Their templates
+  build, but slicing Jig's project fails even in one colour, so they are listed and marked as not yet
+  supported for the Bambu Studio project (plain 3MF, no print settings or cost). Every single-nozzle
+  printer tried (A1, A1 0.2, A1 mini, A2L, P1S, P2S, X1C, H2S) slices in two colours.
 - Non-rectangular or offset `printable_area` (if any printer has one): use its bounding box for the
   fit check and plate, its origin for bed centring.
 - Tests: follow the light-test rule (small models, few browser tests).
