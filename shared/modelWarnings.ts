@@ -24,7 +24,7 @@ export function designFilaments(parts: Evaluated['parts']): PaintFilament[] {
 export function modelWarnings(r: Evaluated): string[] {
   const out = [...r.warnings];
   // Each plate's parts must fit (a split model has a plate per piece).
-  const fit = plateBounds(r.parts, r.bbox).map(fitProblem).find(Boolean);
+  const fit = plateBounds(r.parts, r.bbox).map((b) => fitProblem(b)).find(Boolean);
   if (fit) out.push(fit);
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) out.push(`Model does not rest on the build plate: min Z = ${r.bbox.min[2].toFixed(2)} mm (should be 0)`);
   // A coloured figure prints in the AMS lite's 4 filaments, together with the design's other parts.

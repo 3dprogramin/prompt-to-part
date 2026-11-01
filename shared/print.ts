@@ -2,6 +2,8 @@
 // Bambu Studio when its template has been built).
 // Only values that differ from the baseline are written to an exported Bambu project.
 
+import { layerHeights, printer } from './printer';
+
 export type Supports = 'off' | 'normal' | 'tree';
 /** 'auto' and 'none' map to Bambu's brim types; a number is an outer brim of that width in mm. */
 export type Brim = 'auto' | 'none' | number;
@@ -72,8 +74,6 @@ export const A1_DEFAULTS: Required<PrintSettings> = {
   ironing: 'off', seam: 'aligned', supportsOnPlate: false, wallOrder: 'inner-outer', fuzzySkin: 'none',
 };
 
-export const LAYER_HEIGHTS = [0.08, 0.12, 0.16, 0.2, 0.24, 0.28];
-
 /** Bambu Studio infill pattern ids (all verified to slice) and display names. */
 export const INFILL_PATTERNS: { id: string; label: string }[] = [
   { id: 'grid', label: 'Grid' },
@@ -107,7 +107,8 @@ const clampInt = (v: unknown, lo: number, hi: number) => { const n = num(v); ret
 export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const out: PrintSettings = {};
-  const nearest = (h: number) => LAYER_HEIGHTS.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+  const heights = layerHeights(printer().nozzle);
+  const nearest = (h: number) => heights.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
   const lh = num(o.layerHeight), flh = num(o.firstLayerHeight);
   if (allowLayer && lh != null) out.layerHeight = nearest(lh);
   if (allowLayer && flh != null) out.firstLayerHeight = nearest(flh);

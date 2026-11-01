@@ -1,7 +1,7 @@
 import { modelWarnings } from '../shared/modelWarnings';
 import { filamentLabel, type MeshColor } from '../shared/meshColors';
 import type { LayerToneFilament } from '../shared/layertone';
-import { PRINTER } from '../shared/printer';
+import { printer } from '../shared/printer';
 import { LINE_ART_STYLE_INFO, type LineArtInfo } from '../shared/lineart';
 import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -229,7 +229,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   }
   const { parts: partPrint, ...globalPrint } = r.print;
   if (Object.keys(globalPrint).length || partPrint) {
-    lines.push(`Print settings (differences from ${PRINTER.bambu.process}, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
+    lines.push(`Print settings (differences from ${printer().presets!.process}, PLA): ${JSON.stringify(globalPrint)}${partPrint ? ` · per part: ${JSON.stringify(partPrint)}` : ''}`);
   }
   const warn = modelWarnings(r);
   const tris = r.parts.reduce((s, p) => s + p.triCount, 0);
@@ -257,7 +257,7 @@ export function lineArtLine(a: LineArtInfo): string {
 
 /** A split line art: the grid, each piece (size, what Jig fixed on it alone, dovetails, its name), the seams and joints. */
 function splitLines(sp: NonNullable<LineArtInfo['split']>, g: (n: number) => string): string {
-  const bed = PRINTER.bed[0];
+  const bed = printer().bed[0];
   const pieces = sp.pieces.map((p) => {
     const fixed = [p.bridges ? `${p.bridges} bridge${p.bridges > 1 ? 's' : ''} (longest ${g(p.longestBridge)} mm)` : '', p.dropped ? `${p.dropped} speck${p.dropped > 1 ? 's' : ''} dropped` : '', p.endsJoined ? `${p.endsJoined} loose line${p.endsJoined > 1 ? 's' : ''} joined` : '', p.endsFree ? `${p.endsFree} still loose` : ''].filter(Boolean).join(', ');
     return `\n      ${p.label}: ${g(p.size[0])} × ${g(p.size[1])} mm${p.size[0] > bed || p.size[1] > bed ? ` – BIGGER THAN THE ${bed} mm BED` : ''}${fixed ? `; ${fixed}` : ''}${p.joints ? `; ${p.joints} dovetail${p.joints > 1 ? 's' : ''}` : ''}; ${p.labelSize ? `name engraved on the back (${g(p.labelSize)} mm)` : 'no room for its name on the back'}`;

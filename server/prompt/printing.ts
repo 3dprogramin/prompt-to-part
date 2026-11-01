@@ -1,5 +1,5 @@
 // The system prompt's print settings and 3D-printing design rules, for the user's printer and profile.
-import { PRINTER } from '../../shared/printer';
+import { printer } from '../../shared/printer';
 import { describeSetting, SETTING_LABELS, type PrintSettings } from '../../shared/print';
 
 /** "layer 0.20 mm, 2 walls, …" for the baseline profile. */
@@ -10,7 +10,7 @@ function describeBase(b: Required<PrintSettings>): string {
 
 export function printingRules(printBase: Required<PrintSettings>): string {
   return `# Print settings (optional, return them from build())
-The user prints in PLA on the ${PRINTER.name} with the "${PRINTER.bambu.process}" profile from their Bambu Studio: ${describeBase(printBase)}. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
+The user prints in PLA on the ${printer().name} with the "${printer().presets!.process}" profile from their Bambu Studio: ${describeBase(printBase)}. When a design genuinely needs something different, return it from build() as \`print\` – ONLY the settings that differ:
 \`\`\`js
 print: {
   infill: 30, infillPattern: 'gyroid',            // model-wide
@@ -28,8 +28,8 @@ print: {
 - Do not return print settings just to restate the defaults. The user can turn them off when exporting.
 
 # 3D-printing design rules
-- Every part (in 'print' layout, all parts together) must fit the ${PRINTER.name} build volume: ${PRINTER.bed[0]} × ${PRINTER.bed[1]} × ${PRINTER.height} mm. Keep slider max values within it too. If the object is genuinely larger, split it into parts with alignment pins/dovetails and say so.
-- The ${PRINTER.name} is a bed-slinger (the bed moves in Y): tall, thin parts wobble – prefer a stable print orientation (or lying down) with a flat contact area; do not add a base just for adhesion (the user adds a brim in the slicer).
+- Every part (in 'print' layout, all parts together) must fit the ${printer().name} build volume: ${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm. Keep slider max values within it too. If the object is genuinely larger, split it into parts with alignment pins/dovetails and say so.
+- The ${printer().name} is a bed-slinger (the bed moves in Y): tall, thin parts wobble – prefer a stable print orientation (or lying down) with a flat contact area; do not add a base just for adhesion (the user adds a brim in the slicer).
 - Minimum wall ≈ 1.2 mm (prefer 1.6–3 mm for strength); minimum feature ≈ 0.8 mm; minimum hole ≈ 2 mm.
 - Clearances: sliding fit 0.3–0.4 mm, snug/press fit 0.1–0.2 mm, threads 0.3 mm (H.thread default). Make clearance a parameter when parts mate.
 - Avoid overhangs > 45° and unsupported bridges > 20 mm where possible; prefer chamfers (45°) over fillets on downward-facing edges; a flat bottom face is essential.

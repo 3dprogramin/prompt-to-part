@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { A1_DEFAULTS, bambuOverrides, cleanProfile, cleanSettings, defaultsFromTemplate, effectiveSettings, parseProfile } from '../shared/print';
-import { bedShift, fitProblem, PRINTER } from '../shared/printer';
+import { bedShift, fitProblem, printer } from '../shared/printer';
 
 test('cleanSettings: clamps, rounds and maps values', () => {
   assert.deepEqual(cleanSettings({ walls: 3.6, infill: 150, infillPattern: 'Gyroid', supports: true, brim: 50, layerHeight: 0.22 }),
@@ -34,9 +34,9 @@ test('bambuOverrides lists only what differs', () => {
   assert.equal(s.support_type, 'normal(auto)');
 });
 
-test('fitProblem and bedShift follow PRINTER', () => {
-  const [w, d] = PRINTER.bed;
-  assert.equal(fitProblem({ min: [0, 0, 0], max: [w, d, PRINTER.height] }), null);
+test('fitProblem and bedShift follow the printer', () => {
+  const [w, d] = printer().bed;
+  assert.equal(fitProblem({ min: [0, 0, 0], max: [w, d, printer().height] }), null);
   assert.match(fitProblem({ min: [0, 0, 0], max: [w + 0.5, 10, 10] })!, /X/);
   assert.deepEqual(bedShift([{ min: [-10, -10, 2], max: [10, 10, 12] }]), [w / 2, d / 2, -2]);
 });

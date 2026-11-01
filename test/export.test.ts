@@ -4,7 +4,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import { toBinaryStl } from '../src/lib/files';
 import { to3mf } from '../src/lib/export';
 import { toBambuProject } from '../src/lib/bambu3mf';
-import { PRINTER } from '../shared/printer';
+import { printer } from '../shared/printer';
 import type { PartMesh } from '../shared/types';
 
 function cube(name: string, x0: number, s: number, color: string): PartMesh {
@@ -26,7 +26,7 @@ test('3MF: one escaped object per part, centred on the bed', async () => {
   assert.equal((model.match(/<object /g) ?? []).length, 2);
   assert.match(model, /name="A &amp; &lt;B&gt;"/);
   const xs = [...model.matchAll(/<vertex x="([^"]+)"/g)].map((m) => Number(m[1]));
-  assert.equal((Math.min(...xs) + Math.max(...xs)) / 2, PRINTER.bed[0] / 2);
+  assert.equal((Math.min(...xs) + Math.max(...xs)) / 2, printer().bed[0] / 2);
   // In one colour: that colour for every part.
   const one = strFromU8((await unzip(to3mf([cube('A', 0, 10, '#ff0000'), cube('C', 10, 10, '#00ff00')], 't', '#336699')))['3D/3dmodel.model']);
   assert.match(one, /<m:colorgroup id="1"><m:color color="#336699FF"\/><\/m:colorgroup>/);

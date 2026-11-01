@@ -31,7 +31,7 @@ import type { FontEntry } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
-import { PRINTER, fitProblem } from '../../shared/printer';
+import { printer, fitProblem } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
@@ -575,7 +575,7 @@ function InfoTab({ result, sources }: { result: EvalResult; sources?: DimensionS
             <tr><th>Volume</th><td className="mono">{vol.toFixed(2)} cm³</td></tr>
             <tr><th>Mass, solid PLA</th><td className="mono">{(vol * PLA_DENSITY).toFixed(1)} g</td></tr>
             <tr><th>Surface area</th><td className="mono">{area.toFixed(1)} cm²</td></tr>
-            <tr><th>Fits {PRINTER.name}</th><td className={fit ? 'bad-text' : 'good-text'}>{fit ? 'No' : 'Yes'}</td></tr>
+            <tr><th>Fits {printer().name}</th><td className={fit ? 'bad-text' : 'good-text'}>{fit ? 'No' : 'Yes'}</td></tr>
             <tr><th>Triangles</th><td className="mono">{tris.toLocaleString()}</td></tr>
           </tbody>
         </table>

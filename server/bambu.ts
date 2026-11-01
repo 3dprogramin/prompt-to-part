@@ -8,14 +8,14 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { unzipSync, strFromU8 } from 'fflate';
 import { DATA_DIR } from './config';
-import { PRINTER } from '../shared/printer';
+import { printer } from '../shared/printer';
 import type { BambuTemplate } from '../shared/api';
 import { defaultsFromTemplate, type PrintSettings } from '../shared/print';
 import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
 const CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
-const PRESETS = PRINTER.bambu;
+const PRESETS = printer().presets!;
 
 export async function findBambuBinary(): Promise<string | null> {
   return findExecutable([

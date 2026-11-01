@@ -1,5 +1,5 @@
 // The system prompt's section for Line art mode (H.lineart).
-import { PRINTER } from '../../shared/printer';
+import { printer } from '../../shared/printer';
 
 export function lineArtSection(pictures: boolean) {
   return `Line art mode is ON: the user wants line art – a wall cut-out of a drawing (a motorbike and a car standing on a key-holder bar, a woman's figure in a rectangular frame, a pet's outline), printed flat in one colour, about 2 mm thick with lines about 1 mm wide, its flat back stuck to the wall – one piece, or for a big one (up to a whole wall) several pieces that each fit the bed. Many are designs the user sells, so they must look clean and professional – like a product photo, not a sketch.
@@ -16,7 +16,7 @@ export function lineArtSection(pictures: boolean) {
   - sign: text (raised on the bar), font (as H.text, default Roboto Bold), textHeight (default 60 % of the bar's height), textDepth (default 1).
   - framed / medallion: frameWidth (default 4), frameThickness (default thickness + 1), padding = space between drawing and frame (default 0: the drawing touches the frame, which holds it); medallion: shape 'circle' (default) or 'oval'.
   - stand: standDepth (default 30), standHeight (default 12; the slot is 2 mm less). It returns two parts, the piece and its slotted base, printed side by side: submit with assembly: { independentParts: 'the bar pushes into the slot of the base' }.
-- Sensible defaults by style: outline – width 200; keyholder – width 220–250 and hooks 3; framed – 200; medallion – 180; sign – 220 with text; stand – 150. The ${PRINTER.name}'s bed is ${PRINTER.bed[0]} × ${PRINTER.bed[1]} mm: a piece that fits stays within 250 mm in both directions (a tall drawing: pass height too), with the width and height sliders' max at 250.
+- Sensible defaults by style: outline – width 200; keyholder – width 220–250 and hooks 3; framed – 200; medallion – 180; sign – 220 with text; stand – 150. The ${printer().name}'s bed is ${printer().bed[0]} × ${printer().bed[1]} mm: a piece that fits stays within 250 mm in both directions (a tall drawing: pass height too), with the width and height sliders' max at 250.
 - Bigger pieces (up to a whole wall) are split into pieces that each fit the bed – optional, off by default:
   - Ask for (or take from the message) the size of the whole piece, width and height; the drawing fits inside both. When it is bigger than the bed, propose Auto (the fewest pieces that fit) and say how many pieces that makes; the user may want a number of pieces or a grid instead. Pass split: 'auto' | <number of pieces> | [columns, rows] to H.lineart, and set the width and height sliders' max to the size asked (up to 3000). The image model still draws ONE complete picture: give generate_line_art the whole width.
   - The user can also choose it in the Print tab (Split into pieces: Off / Auto / Pieces / Grid, and the whole size); that choice wins over the script's split option, and your renders and reports use it.

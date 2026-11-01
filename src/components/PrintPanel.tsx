@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { load, store } from '../lib/storage';
 import {
-  bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, LAYER_HEIGHTS, SEAMS, SETTING_LABELS, WALL_ORDERS,
+  bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SEAMS, SETTING_LABELS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
+import { layerHeights, printer } from '../../shared/printer';
 import type { PartMesh } from '../../shared/types';
 import { oneColourFilament, printFilaments } from '../lib/bambu3mf';
 import { Icon } from './Icon';
@@ -126,7 +127,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
 function Control({ k, label, value, onChange }: { k: Key; label: string; value: PrintSettings[Key]; onChange: (v: PrintSettings[Key]) => void }) {
   switch (k) {
     case 'layerHeight': case 'firstLayerHeight':
-      return <select aria-label={label} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{LAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{h === 0.2 ? ' (standard)' : ''}</option>)}</select>;
+      return <select aria-label={label} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{layerHeights(printer().nozzle).map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{Math.abs(h - printer().nozzle / 2) < 1e-6 ? ' (standard)' : ''}</option>)}</select>;
     case 'walls': case 'topLayers': case 'bottomLayers':
       return <Stepper label={label} value={Number(value)} min={k === 'walls' ? 1 : 0} max={k === 'walls' ? 10 : 30} onChange={onChange} />;
     case 'infill':

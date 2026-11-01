@@ -1,7 +1,7 @@
 // Printability / mesh validation, run in the geometry worker on the exact mesh being exported.
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { fitProblem, plateBounds, PRINTER } from '../../shared/printer';
+import { fitProblem, plateBounds, printer } from '../../shared/printer';
 import { overlapVolume } from '../../shared/runtime';
 import type { EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import { exportedParts } from './parts';
@@ -33,8 +33,8 @@ export interface ValidationReport {
 }
 
 const OVERHANG_NZ = -Math.SQRT1_2; // normal pointing down more than 45° from vertical
-const MIN_WALL_WARN = 2 * PRINTER.nozzle; // two perimeters
-const MIN_WALL_ERROR = PRINTER.nozzle; // one extrusion line
+const MIN_WALL_WARN = 2 * printer().nozzle; // two perimeters
+const MIN_WALL_ERROR = printer().nozzle; // one extrusion line
 const BED_EPS = 0.05;
 
 interface PartAnalysis {
@@ -222,7 +222,7 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
   // Parts with plates of their own (the pieces of a split model) must each fit theirs.
   for (const b of plateBounds(result.parts, result.bbox)) {
     const fit = fitProblem(b);
-    if (fit) add('error', `Too big for the ${PRINTER.name}`, fit);
+    if (fit) add('error', `Too big for the ${printer().name}`, fit);
   }
 
   const analyses = result.parts.map((p) => analysePart(p, rand));
@@ -262,7 +262,7 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
         }
         if (h > 40 && h / Math.max(1e-6, Math.min(w, d)) > 3.5) {
           if (brim) add('info', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the brim in the print settings helps keep it steady.`, name);
-          else add('warning', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the ${PRINTER.name}'s moving bed can make it wobble. Use a brim, slow down, or print it lying down.`, name);
+          else add('warning', `${label}Tall and narrow`, `${f1(h)} mm tall on a ${f1(Math.min(w, d))} mm base – the ${printer().name}'s moving bed can make it wobble. Use a brim, slow down, or print it lying down.`, name);
         }
       }
       const floating = solids.filter((p) => p.minZ > minZ + BED_EPS);
@@ -282,7 +282,7 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
 
     // thin walls
     if (a.minWall != null && a.minWall < MIN_WALL_ERROR && a.thinArea > 0.5) {
-      add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a ${PRINTER.nozzle} mm nozzle cannot print below ~${MIN_WALL_ERROR} mm). About ${f1(a.thinArea)} mm² is affected.`, name);
+      add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a ${printer().nozzle} mm nozzle cannot print below ~${MIN_WALL_ERROR} mm). About ${f1(a.thinArea)} mm² is affected.`, name);
     } else if (a.minWall != null && a.minWall < MIN_WALL_WARN && a.thinArea > 1) {
       add('warning', `${label}Thin walls`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm – thinner than two perimeters (${MIN_WALL_WARN} mm), so it will be weak. About ${f1(a.thinArea)} mm² is affected.`, name);
     }

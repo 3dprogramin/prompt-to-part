@@ -4,7 +4,7 @@
 // it). Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
 import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
-import { bedShift, PRINTER } from '../../shared/printer';
+import { bedShift, printer } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import { CONTENT_TYPES, esc, num } from './threeMf';
@@ -84,7 +84,7 @@ function objectSettings(main: Required<PrintSettings>, all: Required<PrintSettin
 /** The bed's width and depth (mm) from the template's printable area. */
 function bedSize(tpl: BambuTemplate): [number, number] {
   const area = ((tpl.settings.printable_area as string[] | undefined) ?? []).map((p) => p.split('x').map(Number)).filter((p) => p.every(Number.isFinite));
-  return area.length ? [Math.max(...area.map((p) => p[0])), Math.max(...area.map((p) => p[1]))] : [PRINTER.bed[0], PRINTER.bed[1]];
+  return area.length ? [Math.max(...area.map((p) => p[0])), Math.max(...area.map((p) => p[1]))] : [printer().bed[0], printer().bed[1]];
 }
 
 /**

@@ -4,7 +4,7 @@
 // piece (a plaque, a sign) is scaled only across its face, so its thickness and reliefs stay as
 // designed. Each size's geometry is built for real (resolveSize), never estimated.
 import { FACE_SCALE_KEY, SCALE_KEY } from './params';
-import { PRINTER } from './printer';
+import { printer } from './printer';
 import type { SliceStats } from './cost';
 import type { DimTarget, EvalResult, NumberParam, ParamValues, SolveResult, Vec3 } from './types';
 
@@ -200,7 +200,7 @@ export function niceMm(v: number): number {
  * axis grows in proportion; a flat piece's thickness stays).
  */
 export function printableMax(s: Vec3, axis: SizeAxis): number {
-  const room = [PRINTER.bed[0], PRINTER.bed[1], PRINTER.height];
+  const room = [printer().bed[0], printer().bed[1], printer().height];
   // Turned on the bed, the longer side can use the longer room (the bed is square, so no matter).
   return Math.min(...scaledAxes(s).map((k) => (s[axis] * room[k]) / Math.max(s[k], 1e-6)));
 }

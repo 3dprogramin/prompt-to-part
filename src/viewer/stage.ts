@@ -1,6 +1,6 @@
 // The scene's ground: mm grid, axes and the printer's build plate.
 import * as THREE from 'three';
-import { PRINTER, fitProblem } from '../../shared/printer';
+import { printer, fitProblem } from '../../shared/printer';
 import type { Box3 } from '../../shared/types';
 import { label, niceStep } from './overlay';
 
@@ -32,7 +32,7 @@ export function buildGrid(group: THREE.Group, size: number): number {
 
 /** The printer's plate, its outline and the (dashed) build volume. */
 export function buildPlate(group: THREE.Group) {
-  const [w, d] = PRINTER.bed, h = PRINTER.height;
+  const [w, d] = printer().bed, h = printer().height;
   const rect = (z: number) => [[-w / 2, -d / 2, z], [w / 2, -d / 2, z], [w / 2, d / 2, z], [-w / 2, d / 2, z]].map((p) => new THREE.Vector3(...(p as [number, number, number])));
   const loop = (pts: THREE.Vector3[]) => [...pts, pts[0]];
   const plate = new THREE.Line(new THREE.BufferGeometry().setFromPoints(loop(rect(0))), new THREE.LineBasicMaterial({ color: 0xe0a43c, transparent: true, opacity: 0.55 }));
@@ -45,7 +45,7 @@ export function buildPlate(group: THREE.Group) {
   const volume = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0xe0a43c, dashSize: 4, gapSize: 4, transparent: true, opacity: 0.35 }));
   volume.computeLineDistances();
   volume.name = 'volume';
-  const tag = label(`${PRINTER.name} · ${w} × ${d} mm plate`, 'plate-label');
+  const tag = label(`${printer().name} · ${w} × ${d} mm plate`, 'plate-label');
   tag.position.set(-w / 2, -d / 2, 0);
   group.add(plate, fill, volume, tag);
 }
@@ -54,7 +54,7 @@ export function buildPlate(group: THREE.Group) {
 export function updatePlate(group: THREE.Group, b: Box3 | null | undefined) {
   const vol = group.getObjectByName('volume');
   if (!vol) return;
-  const big = !!b && (b.max[0] - b.min[0] > PRINTER.bed[0] * 0.6 || b.max[1] - b.min[1] > PRINTER.bed[1] * 0.6 || b.max[2] - b.min[2] > PRINTER.height * 0.6);
+  const big = !!b && (b.max[0] - b.min[0] > printer().bed[0] * 0.6 || b.max[1] - b.min[1] > printer().bed[1] * 0.6 || b.max[2] - b.min[2] > printer().height * 0.6);
   vol.visible = big || !!fitProblem(b ?? null);
   const color = fitProblem(b ?? null) ? 0xe5675f : 0xe0a43c;
   for (const o of group.children) {

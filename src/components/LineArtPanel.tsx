@@ -9,7 +9,7 @@ import { colourFamilies } from '../../shared/filaments';
 import { staleEdits, withoutColours, withoutDrawings } from '../lib/lineArtEdit';
 import { AMS_SLOTS } from '../lib/bambu3mf';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
-import { PRINTER } from '../../shared/printer';
+import { printer } from '../../shared/printer';
 import { Icon } from './Icon';
 import { SCALE_KEY } from '../../shared/params';
 import { load, store } from '../lib/storage';
@@ -202,8 +202,8 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
     setTyped([nw, nh]);
     onValue(LINEART_SIZE_KEY, formatLineArtSize(lock ? { width: nw / scale } : { width: nw / scale, height: nh / scale }));
   };
-  const bed = PRINTER.bed[0];
-  const over = (p: { size: [number, number] }) => p.size[0] > PRINTER.bed[0] || p.size[1] > PRINTER.bed[1];
+  const bed = printer().bed[0];
+  const over = (p: { size: [number, number] }) => p.size[0] > printer().bed[0] || p.size[1] > printer().bed[1];
   const tooBig = sp ? sp.pieces.filter(over) : [];
   const crossings = sp ? sp.seams.reduce((n, m) => n + m.crossings, 0) : 0;
   const unnamed = sp ? sp.pieces.filter((p) => !p.labelSize) : [];
@@ -276,7 +276,7 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
           {userSize && <button className="icon-btn" title="Back to the size Jig chose" aria-label="Back to the size Jig chose" onClick={() => onValue(LINEART_SIZE_KEY, '')}><Icon name="restore" size={12} /></button>}
         </span>
       </div>
-      {!sp && mode === 'off' && (w > bed || h > PRINTER.bed[1]) && (
+      {!sp && mode === 'off' && (w > bed || h > printer().bed[1]) && (
         <div className="lineart-edit-row small warn"><span><Icon name="alert" size={12} /> Bigger than the {bed} mm bed: Auto splits it into pieces that fit</span></div>
       )}
       {!sp && mode !== 'off' && <div className="dim small">It fits the bed in one piece.</div>}
@@ -434,9 +434,9 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
   // Each coloured piece's colours and how deep they go (split: each piece's own).
   const paints = result.parts.flatMap((p) => (p.lineArt?.paint && !p.lineArt.paintedIn ? [p.lineArt.paint] : []));
   const [w, h] = la.size;
-  const bed = PRINTER.name.replace(/^Bambu Lab /, '');
+  const bed = printer().name.replace(/^Bambu Lab /, '');
   // Split, each piece must fit the bed (the pieces list says which don't).
-  const tooBig = !la.split && (w > PRINTER.bed[0] || h > PRINTER.bed[1]);
+  const tooBig = !la.split && (w > printer().bed[0] || h > printer().bed[1]);
   const loose = la.bridges > MANY_BRIDGES || la.longestBridge > LONG_BRIDGE;
   // Lines closer together than the print keeps apart merge into blotches.
   const blotchy = la.closed > Math.max(3, la.openings * BLOTCHY_SHARE);
@@ -480,7 +480,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
         <dt>Size</dt>
         <dd className={tooBig ? 'warn' : ''}>
           <span className="mono">{w.toFixed(0)} × {h.toFixed(0)} mm</span>
-          {tooBig && <span className="lineart-why"><Icon name="alert" size={12} /> bigger than the {bed}'s bed ({PRINTER.bed[0]} mm): split it into pieces below</span>}
+          {tooBig && <span className="lineart-why"><Icon name="alert" size={12} /> bigger than the {bed}'s bed ({printer().bed[0]} mm): split it into pieces below</span>}
           {la.split && <> in <b>{la.split.pieces.length} pieces</b></>}
         </dd>
         <dt>Thickness</dt><dd className="mono">{mm(la.thickness)}</dd>
