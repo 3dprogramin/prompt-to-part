@@ -40,3 +40,16 @@ test('markdown links: rendered in bold and list items, opening in a new tab', ()
   assert.match(html('**[Bold link](https://a.com)**'), /<strong><a href="https:\/\/a.com"[^>]*>Bold link<\/a><\/strong>/);
   assert.doesNotMatch(html('[x](javascript:alert(1))'), /<a /);
 });
+
+test('markdown tables: header, alignment and body; pipes without a |---| row stay text', () => {
+  const out = html('Options:\n\n| Clearance | Slot | Lean |\n|---|:--:|---:|\n| 1 mm | 6.9 mm | **2°** |\n| 2 mm | 8.9 mm |\n\nDone.');
+  assert.match(out, /<p>Options:<\/p><div class="md-table"><table><thead><tr><th>Clearance<\/th><th style="text-align:center">Slot<\/th><th style="text-align:right">Lean<\/th><\/tr><\/thead>/);
+  assert.match(out, /<td style="text-align:right"><strong>2°<\/strong><\/td>/);
+  // A short row is padded to the header's width.
+  assert.match(out, /<td>2 mm<\/td><td style="text-align:center">8.9 mm<\/td><td style="text-align:right"><\/td><\/tr><\/tbody><\/table><\/div><p>Done.<\/p>/);
+  assert.equal(html('| not | a table |'), '<div class="md"><p>| not | a table |</p></div>');
+});
+
+test('markdown headings become headings, without their # marks', () => {
+  assert.equal(html('## What I would do\nSet it to 2 mm.'), '<div class="md"><h4>What I would do</h4><p>Set it to 2 mm.</p></div>');
+});

@@ -2,24 +2,66 @@ import { Fragment, type ReactNode } from 'react';
 
 interface Item { text: string; ordered: boolean; num: number; depth: number }
 
-/** Minimal markdown: paragraphs, bullet and numbered lists (nested by indentation), **bold**, `code`, links. */
+/**
+ * Minimal markdown: paragraphs, # headings, bullet and numbered lists (nested by indentation),
+ * | tables |, **bold**, `code`, links.
+ */
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   let items: Item[] = [];
   let para: string[] = [];
+  let rows: string[] = [];
   const flushPara = () => { if (para.length) { blocks.push(<p key={blocks.length}>{inline(para.join('\n'))}</p>); para = []; } };
   const flushList = () => { if (items.length) { blocks.push(<Fragment key={blocks.length}>{renderList(items)}</Fragment>); items = []; } };
+  const flushTable = () => {
+    if (!rows.length) return;
+    const table = parseTable(rows);
+    // Pipes that aren't a table (no |---| row under the first) stay as the text they were.
+    if (table) blocks.push(<Fragment key={blocks.length}>{renderTable(table)}</Fragment>);
+    else blocks.push(<p key={blocks.length}>{inline(rows.join('\n'))}</p>);
+    rows = [];
+  };
   for (const line of text.split('\n')) {
+    if (/^\s*\|.*\|\s*$/.test(line)) { flushPara(); flushList(); rows.push(line); continue; }
+    flushTable();
     const m = /^(\s*)(?:([-*•])|(\d+)[.)])\s+(.*)$/.exec(line);
+    const h = /^#{1,6}\s+(.*)$/.exec(line);
     if (m) {
       flushPara();
       items.push({ text: m[4], ordered: !!m[3], num: m[3] ? Number(m[3]) : 0, depth: Math.floor(m[1].replace(/\t/g, '  ').length / 2) });
     } else if (!line.trim()) { flushPara(); flushList(); }
-    else { flushList(); para.push(line.replace(/^#+\s*/, '')); }
+    else if (h) { flushPara(); flushList(); blocks.push(<h4 key={blocks.length}>{inline(h[1].replace(/\s+#+\s*$/, ''))}</h4>); }
+    else { flushList(); para.push(line); }
   }
+  flushTable();
   flushPara();
   flushList();
   return <div className="md">{blocks}</div>;
+}
+
+export interface Table { head: string[]; align: ('left' | 'right' | 'center' | undefined)[]; body: string[][] }
+
+/** A GitHub-style table: a header row, a |---|:--:|---:| row, then the body rows. Null if it isn't one. */
+export function parseTable(lines: string[]): Table | null {
+  const cells = (line: string) => line.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
+  if (lines.length < 2) return null;
+  const sep = cells(lines[1]);
+  if (!sep.every((c) => /^:?-{1,}:?$/.test(c))) return null;
+  const head = cells(lines[0]);
+  const align = sep.map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : undefined));
+  const body = lines.slice(2).map((l) => { const r = cells(l); return head.map((_, i) => r[i] ?? ''); });
+  return { head, align, body };
+}
+
+function renderTable(t: Table): ReactNode {
+  return (
+    <div className="md-table">
+      <table>
+        <thead><tr>{t.head.map((c, i) => <th key={i} style={{ textAlign: t.align[i] }}>{inline(c)}</th>)}</tr></thead>
+        <tbody>{t.body.map((r, k) => <tr key={k}>{r.map((c, i) => <td key={i} style={{ textAlign: t.align[i] }}>{inline(c)}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
 }
 
 /** Turn a flat list of items with depths into nested <ul>/<ol>. */
