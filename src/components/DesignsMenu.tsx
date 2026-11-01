@@ -5,6 +5,7 @@ import { builtinTag, hasTag, MAX_TAGS, withTag } from '../../shared/tags';
 import { DESIGN_SORTS, liveFilter, shownDesigns, tagCounts, tagState, type DesignFilter, type DesignSort } from '../lib/designList';
 import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
+import { whenFull, whenShort } from '../lib/when';
 import { Icon } from './Icon';
 import { TagChips, TagEditor } from './Tags';
 
@@ -94,7 +95,7 @@ export function DesignsMenu(p: Props) {
           onClick={(e) => pick(d.id, e.shiftKey)} />
         <button className="menu-open" onClick={() => p.onOpen(d.id)}>
           <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} /></span>
-          <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} />{new Date(sort === 'created' ? d.createdAt : d.updatedAt).toLocaleString()} · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
+          <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} /><time title={`${sort === 'created' ? 'Created' : 'Last changed'} ${whenFull(sort === 'created' ? d.createdAt : d.updatedAt)}`}>{whenShort(sort === 'created' ? d.createdAt : d.updatedAt)}</time> · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
         </button>
         <button className={`icon-btn menu-star ${d.starred ? 'on' : ''}`} title={d.starred ? 'Unstar' : 'Star: mark it as important'}
           aria-label={`${d.starred ? 'Unstar' : 'Star'} ${d.name}`} aria-pressed={!!d.starred} onClick={() => p.onStar([d.id], !d.starred)}><Icon name="star" size={14} /></button>

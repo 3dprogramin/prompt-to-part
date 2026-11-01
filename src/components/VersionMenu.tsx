@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { DesignVersion } from '../../shared/types';
 import { usePopover } from './usePopover';
+import { whenFull, whenShort } from '../lib/when';
 import { Icon } from './Icon';
 
 interface Props {
@@ -31,7 +32,7 @@ export function VersionMenu({ versions, current, onRestore, onFork }: Props) {
                   <span className="version-summary">{v.summary}</span>
                 </span>
                 <span className="dim small">
-                  {new Date(v.createdAt).toLocaleString()} · {v.source === 'manual' ? 'your code edit' : v.source === 'settings' ? 'your saved settings' : 'Jig'}{i === current ? ' · shown now' : ''}
+                  <time title={whenFull(v.createdAt)}>{whenShort(v.createdAt)}</time> · {v.source === 'manual' ? 'your code edit' : v.source === 'settings' ? 'your saved settings' : 'Jig'}{i === current ? ' · shown now' : ''}
                 </span>
               </button>
               <button className="icon-btn" title={`New design from v${i + 1} (a fresh chat; this design stays as it is)`} aria-label={`New design from version ${i + 1}`} onClick={() => { setOpen(false); onFork(i); }}>
