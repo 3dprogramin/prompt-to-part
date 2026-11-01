@@ -1,5 +1,5 @@
 // The system prompt's section for LayerTone mode (H.layertone), with the filament library to pick from.
-import { maxPiece, printer } from '../../shared/printer';
+import { loadsAtOnce, maxPiece, printer } from '../../shared/printer';
 import { FILAMENT_LIBRARY } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
 
@@ -18,6 +18,8 @@ const FILAMENT_LINES = (() => {
 const myFilamentLines = (mine: LayerToneFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
 
 export function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = []) {
+  const loads = printer().filaments;
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   return `LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
 - Call this feature LayerTone in your replies (that is its name in Jig; never use another product's name for it).
 - Build it with H.layertone(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
@@ -26,8 +28,10 @@ export function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = [
 - Size: unless the user asks for another, make it as big as the ${printer().name}'s bed allows: ${maxPiece()} × ${maxPiece()} mm. The picture's longer side is ${maxPiece()} mm – landscape or square: width ${maxPiece()}; portrait: width = ${maxPiece()} × (picture width ÷ picture height), so its height is ${maxPiece()} – and with a frame, take 2 × the frame off (the frame adds to the outside). Give the width slider that same maximum.
 - The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
 - Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
-  - The printer is a Bambu Lab A1 with an AMS lite, so up to 4 filaments always work with no manual work: treat 4 as your normal budget and use as many as the picture benefits from – 2 for a classic black-and-white print, 3–4 when the picture has colour or needs more tonal range.
-  - More than 4 only when really needed: each extra filament means a pause and a manual spool swap. If you go above 4, say so in your final message and why.
+${loads > 1
+    ? `  - ${cap(loadsAtOnce())} (AMS), so up to ${loads} filaments always work with no manual work: treat ${Math.min(loads, 4)} as your normal budget and use as many as the picture benefits from – 2 for a classic black-and-white print${loads >= 3 ? `, ${loads === 3 ? '3' : '3–4'} when the picture has colour or needs more tonal range` : ''}.
+  - More than ${loads} only when really needed: each extra filament means a pause and a manual spool swap. If you go above ${loads}, say so in your final message and why.`
+    : `  - The user's printer has no AMS: every filament after the first is a pause and a manual spool swap. Use 2 for a classic black-and-white print, more only when the picture really needs it, and say in your final message how many swaps it takes.`}
   - Black at the bottom and white on top is the most common choice, not a rule: pick colours that suit the subject (skin tones, sky, a brown or grey mid-tone, a team colour…), dark at the bottom to light at the top unless the picture calls for something else.
   - Prefer filaments from Jig's library below (their TDs are known); colours marked * have an estimated TD – mention those. Use the library's exact name, brand, colour and TD.
   - First version: pass them to H.layertone({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_layertone, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.

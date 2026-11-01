@@ -106,6 +106,11 @@ export function layerHeights(nozzle: number): number[] {
   return LAYERS[near];
 }
 
+/** "the Bambu Lab A1 loads 4 filaments at once" (its AMS): for the AI's instructions and the warnings. */
+export function loadsAtOnce(p: ActivePrinter = current): string {
+  return `the ${p.name} loads ${p.filaments} filament${p.filaments === 1 ? '' : 's'} at once`;
+}
+
 /** The name without "Bambu Lab " for tight labels: "A1", "A1 (0.2 nozzle)", or a user preset's own name. */
 export function shortName(p: Printer = current): string {
   return p.name.replace(/^Bambu Lab /, '');

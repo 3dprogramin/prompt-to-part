@@ -1,5 +1,6 @@
 // The CAD tools that have the image model make a picture: one for H.layertone or H.lithophane
 // (generate_picture), or artwork traced into a drawing for H.svg (generate_artwork).
+import { loadsAtOnce } from '../../shared/printer';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from '../artwork';
@@ -76,7 +77,7 @@ export function artworkTools({ base, emit }: ToolContext, artwork: AiImages) {
         return {
           content: [
             { type: 'image', data: art.image.data, mimeType: art.image.mediaType },
-            { type: 'text', text: `Artwork "${a.name}" is ready: H.svg("${a.name}", { height, colors }), ${art.drawing.aspect.toFixed(3)} times as wide as high. Its white background is removed.\nColours, darkest first (share of the picture without the background):\n${tones}\nEach colour is one shape. Build the relief from them, e.g. a backing plate with each colour raised on it at its own height, or stacked layers; keep each colour as its own part for the AMS (the A1's AMS lite holds 4 filaments). Check the result with render_model; if the picture itself is wrong, call generate_artwork again with a better subject.` },
+            { type: 'text', text: `Artwork "${a.name}" is ready: H.svg("${a.name}", { height, colors }), ${art.drawing.aspect.toFixed(3)} times as wide as high. Its white background is removed.\nColours, darkest first (share of the picture without the background):\n${tones}\nEach colour is one shape. Build the relief from them, e.g. a backing plate with each colour raised on it at its own height, or stacked layers; keep each colour as its own part for the AMS (${loadsAtOnce()}). Check the result with render_model; if the picture itself is wrong, call generate_artwork again with a better subject.` },
           ],
         };
       } catch (e) {

@@ -5,7 +5,7 @@ import { SCRIPT_RULES } from './prompt/scriptRules';
 import { printingRules } from './prompt/printing';
 import { GEOMETRY_API } from './prompt/geometryApi';
 import { WEB_OFF, WEB_ON } from './prompt/webSearch';
-import { ARTWORK_ON } from './prompt/artwork';
+import { artworkOn } from './prompt/artwork';
 import { layerTonePrompt } from './prompt/layerTone';
 import { lithophanePrompt } from './prompt/lithophane';
 import { lineArtSection } from './prompt/lineArt';
@@ -39,7 +39,7 @@ export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, pri
 
 # Dimensions of real products
 ${webSearch ? WEB_ON : WEB_OFF}
-${artwork ? ARTWORK_ON : ''}
+${artwork ? artworkOn() : ''}
 ${layerTone ? layerTonePrompt(layerTone.pictures, layerTone.mine) : ''}
 ${lithophane ? lithophanePrompt(lithophane.pictures) : ''}
 ${lineArt ? lineArtSection(lineArt.pictures) : ''}

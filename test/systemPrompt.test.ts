@@ -40,3 +40,13 @@ test('a smaller bed: sizes in every mode follow it', () => {
   assert.doesNotMatch(p, /\b25[06]\b/, 'no A1 bed size left');
   assert.match(p, /174 × 174 mm/, 'LayerTone default size');
 });
+
+test('the filament count replaces the A1 AMS lite in every mode', () => {
+  const p = withPrinter({ ...P1S, filaments: 8 }, () => all());
+  assert.doesNotMatch(p, /AMS lite/);
+  assert.match(p, /Bambu Lab P1S loads 8 filaments at once/);
+  assert.doesNotMatch(p, /\bA1\b(?! poster)(?!, A2)(?! top left)(?! \(Red\))(?!\))/, 'no other A1 mention');
+  const none = withPrinter({ ...P1S, filaments: 1 }, () => all());
+  assert.match(none, /no AMS/);
+  assert.match(all(), /Bambu Lab A1 loads 4 filaments at once/);
+});

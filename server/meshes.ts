@@ -7,7 +7,8 @@ import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/p
 import path from 'node:path';
 import { DATA_DIR } from './config';
 import { MESH_URL, type MeshEntry } from '../shared/meshes';
-import { filamentLabel, MAX_MESH_COLORS } from '../shared/meshColors';
+import { filamentLabel } from '../shared/meshColors';
+import { printer } from '../shared/printer';
 import { meshFormat } from '../shared/meshFormats';
 import type { ImportReport } from '../shared/meshRepair';
 import type { ImportedMesh } from './geometry';
@@ -97,7 +98,7 @@ export function describeImport(name: string, entry: MeshEntry, report?: ImportRe
   if (report) lines.push(`Imported from ${report.inputTriangles.toLocaleString('en')} triangles in ${(report.timeMs / 1000).toFixed(1)} s; volume ${(report.volume / 1000).toFixed(1)} cm³, ${report.components} solid piece(s).`);
   lines.push(entry.repairs?.length ? `Import repairs: ${entry.repairs.join('; ')}.` : 'It needed no repairs.');
   if (entry.palette?.length) {
-    lines.push(`In colour: its texture reduced to ${entry.palette.length} colour${entry.palette.length > 1 ? 's' : ''}, each printed with a filament (the user can change them in the Object tab): ${entry.palette.map((c) => `${c.color} → ${filamentLabel(c.filament)} ${c.filament.color} (${Math.round(c.share * 100)} %)`).join('; ')}. H.mesh keeps these colours on its triangles through unions, cuts and trims; geometry you add has its part's colour – give it one of these filament colours (e.g. ${entry.palette.map((c) => c.filament.color).slice(0, 2).join(' or ')}) to stay within the AMS lite's ${MAX_MESH_COLORS} filaments.`);
+    lines.push(`In colour: its texture reduced to ${entry.palette.length} colour${entry.palette.length > 1 ? 's' : ''}, each printed with a filament (the user can change them in the Object tab): ${entry.palette.map((c) => `${c.color} → ${filamentLabel(c.filament)} ${c.filament.color} (${Math.round(c.share * 100)} %)`).join('; ')}. H.mesh keeps these colours on its triangles through unions, cuts and trims; geometry you add has its part's colour – give it one of these filament colours (e.g. ${entry.palette.map((c) => c.filament.color).slice(0, 2).join(' or ')}) to stay within the ${printer().filaments} filaments the ${printer().name} loads at once.`);
   }
   lines.push(`Use it with H.mesh("${name}", { height }) (or width, depth, size, scale; rotate: [x, y, z] degrees).`);
   return lines.join('\n');

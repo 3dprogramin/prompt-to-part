@@ -1,5 +1,6 @@
 // The CAD tools for AI 3D figures: a concept picture to approve first (generate_concept) and the
 // model Meshy makes (generate_3d), stored with the design for H.mesh.
+import { loadsAtOnce } from '../../shared/printer';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
@@ -9,7 +10,7 @@ import { ASPECTS, conceptPrompt, imageModel, paintPrompt } from '../artwork';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../../shared/meshes';
 import { forgetBalance, generateMeshyModel, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply } from '../meshy';
 import { readMyFilaments } from '../myFilaments';
-import { filamentLabel, matchFilaments, MAX_MESH_COLORS } from '../../shared/meshColors';
+import { filamentLabel, matchFilaments, MAX_MESH_COLORS, meshColorBudget } from '../../shared/meshColors';
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from '../meshes';
 import type { MeshyOptions, ToolContext } from './context';
 
@@ -25,10 +26,10 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('The paint colour, #rrggbb, as it looks in plain light (e.g. skin "#d9a383", not its shadow)'),
         name: z.string().min(2).max(40).describe('e.g. "olive green"'),
         parts: z.string().min(2).max(200).describe('Every part painted in it, e.g. "both pairs of shorts and the belt"'),
-      })).min(1).max(MAX_MESH_COLORS).optional().describe(`Required with color: the colours to paint it in, at most ${MAX_MESH_COLORS} (one AMS lite slot each), every part of the subject in one of them. Plan it from the subject: give parts that should differ clearly different colours, and parts that can share one the same colour (e.g. a grey shirt with a grey beard) rather than a fifth.`),
+      })).min(1).max(MAX_MESH_COLORS).optional().describe(`Required with color: the colours to paint it in, at most ${meshColorBudget()} (one AMS slot each: ${loadsAtOnce()}), every part of the subject in one of them. Plan it from the subject: give parts that should differ clearly different colours, and parts that can share one the same colour (e.g. a grey shirt with a grey beard) rather than a fifth.`),
     }, async (a) => {
       const color = a.color ?? !!meshy.color;
-      if (color && !a.palette?.length) return { content: [{ type: 'text' as const, text: `With color, give palette: at most ${MAX_MESH_COLORS} colours and every part in each, so the picture is painted in colours the AMS lite can print.` }], isError: true };
+      if (color && !a.palette?.length) return { content: [{ type: 'text' as const, text: `With color, give palette: at most ${MAX_MESH_COLORS} colours and every part in each, so the picture is painted in colours the AMS can print.` }], isError: true };
       const palette = color ? a.palette?.map((c) => ({ color: c.color.toLowerCase(), name: c.name.trim(), parts: c.parts.trim() })) : undefined;
       const aspect = a.aspect ?? '3:4';
       const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
@@ -93,13 +94,13 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
       }
     })] : []),
-    tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept: its grey picture gives the shape, and in colour its painted one the texture), the photo the user attached (from_photo) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${MAX_MESH_COLORS} filaments (the A1's AMS lite) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
+    tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept: its grey picture gives the shape, and in colour its painted one the texture), the photo the user attached (from_photo) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${meshColorBudget()} filaments (${loadsAtOnce()}) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
       name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name to use with H.mesh, e.g. "fox"; an existing name is replaced'),
       prompt: z.string().max(700).optional().describe('The subject: what it is, pose, proportions, clothes, accessories, style – no printing instructions (Jig adds them). Required unless from_photo or from_concept'),
       from_photo: z.boolean().optional().describe('Build it from the photo the user attached to this message (image to 3D) instead of the description'),
       from_concept: z.string().regex(/^[\w.-]{1,40}$/).optional().describe('Build it from this concept picture (generate_concept) the user approved (image to 3D): Meshy gets exactly that picture, and in colour paints the model from its coloured version'),
       color: z.boolean().optional().describe(`A coloured figure (textured, ${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), printed in up to ${MAX_MESH_COLORS} filaments. Default: ${meshy.color ? 'on (the user turned on Colour)' : 'off'}, or as the concept picture was drawn; turn it on only when the user asks for colour`),
-      colors: z.number().int().min(1).max(MAX_MESH_COLORS).optional().describe(`With color: most colours (filaments) the figure gets (default ${MAX_MESH_COLORS}); fewer leave AMS slots for other parts in colours of their own`),
+      colors: z.number().int().min(1).max(MAX_MESH_COLORS).optional().describe(`With color: most colours (filaments) the figure gets (default ${meshColorBudget()}); fewer leave AMS slots for other parts in colours of their own`),
     }, async (a) => {
       const refuse = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
       if (a.from_photo && a.from_concept) return refuse('Use either from_photo or from_concept, not both.');
@@ -167,7 +168,7 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         });
         emit({ type: 'live', text: `Meshy: importing and repairing "${a.name}"…` });
         const imported = color
-          ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? MAX_MESH_COLORS, mine: await readMyFilaments() })
+          ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? meshColorBudget(), mine: await readMyFilaments() })
           : await geometry.importMesh(r.model.bytes, r.model.filename);
         const entry = await storeMesh(meshy.designId, imported, r.model, { source: 'meshy', prompt: r.prompt, picture: r.picture });
         if (!entry) throw new Error('The design was deleted');

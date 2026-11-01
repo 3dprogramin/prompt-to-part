@@ -1,6 +1,7 @@
+import { printer, shortName } from '../../shared/printer';
 import { useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
-import { checkSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerTop, MAX_LAYERTONE_FILAMENTS, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
+import { checkSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerTop, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
 import { estimatedTd } from '../../shared/filaments';
 import { layerToneImageToDataUrl, loadLayerToneImage, rgbaToDataUrl } from '../lib/layerToneImage';
 import { FilamentPicker } from './FilamentPicker';
@@ -8,9 +9,6 @@ import { Icon } from './Icon';
 import { NumBox } from './NumBox';
 import { useEscape } from './useEscape';
 import { useReleaseSlider } from './useReleaseSlider';
-
-/** Filaments the A1's AMS lite holds; more need changing by hand during the print. */
-const AMS_SLOTS = 4;
 
 /** A LayerTone part: its stack, and (from the runtime) the picture and options it was built with. */
 type LayerTonePartMesh = PartMesh & { layerColors: LayerColor[] };
@@ -92,9 +90,9 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
       <div className="layertone-stats small" role="status">
         <span className="mono">{grid.total} layers</span> · <span className="mono">{grid.top.toFixed(2)} mm</span> · {changes} filament change{changes === 1 ? '' : 's'}
       </div>
-      {filaments.length > AMS_SLOTS && (
+      {filaments.length > printer().filaments && (
         <div className="layertone-warn small" role="alert">
-          <Icon name="alert" size={13} /> {filaments.length} filaments: the AMS lite holds {AMS_SLOTS}, so the print stops for you to load the others by hand.
+          <Icon name="alert" size={13} /> {filaments.length} filaments: the {shortName()} loads {printer().filaments} at once, so the print stops for you to load the others by hand.
         </div>
       )}
 
@@ -138,9 +136,9 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
         ))}
       </ol>
       <div className="layertone-add-wrap">
-        <button className="btn ghost wide" disabled={filaments.length >= MAX_LAYERTONE_FILAMENTS} onClick={(e) => openPicker('add', e.currentTarget)} aria-haspopup="dialog" aria-expanded={picking === 'add'}
-          title={filaments.length >= MAX_LAYERTONE_FILAMENTS ? `At most ${MAX_LAYERTONE_FILAMENTS} filaments` : undefined}><Icon name="plus" size={14} /> Add filament</button>
-        {picking === 'add' && filaments.length < MAX_LAYERTONE_FILAMENTS && <FilamentPicker trigger={trigger} onPick={picked} onClose={() => setPicking(null)} />}
+        <button className="btn ghost wide" disabled={filaments.length >= maxLayerToneFilaments()} onClick={(e) => openPicker('add', e.currentTarget)} aria-haspopup="dialog" aria-expanded={picking === 'add'}
+          title={filaments.length >= maxLayerToneFilaments() ? `At most ${maxLayerToneFilaments()} filaments` : undefined}><Icon name="plus" size={14} /> Add filament</button>
+        {picking === 'add' && filaments.length < maxLayerToneFilaments() && <FilamentPicker trigger={trigger} onPick={picked} onClose={() => setPicking(null)} />}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 // The composer's picture mode chip (3D model, AI artwork, LayerTone, Lithophane, Line art, 3D
 // figure) and the ▾ menus beside it: the 3D figure's options and the line art's style.
+import { meshColorBudget } from '../../../shared/meshColors';
 import { useEffect } from 'react';
 import type { GenerateRequest, MeshyBalance } from '../../../shared/api';
 import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits } from '../../../shared/meshes';
@@ -43,13 +44,13 @@ export function FigureMenu({ color, onColor, waitForOk, onWaitForOk, credits }: 
           <div role="menu" aria-label="3D figure options">
             <button role="menuitemcheckbox" aria-checked={color} className={color ? 'on' : ''} onClick={() => onColor(!color)}
               title={color
-                ? `Colour (4 filaments) is on: Jig draws the concept in grey (the shape) and then paints it (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to 4 filaments with the AMS lite – you pick them in the Object tab. Click for one colour.`
-                : `Colour (4 filaments): make the figure in colour, printed in up to 4 filaments with the AMS lite (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}>
+                ? `Colour (${meshColorBudget()} filaments) is on: Jig draws the concept in grey (the shape) and then paints it (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to ${meshColorBudget()} filaments with the AMS – you pick them in the Object tab. Click for one colour.`
+                : `Colour (${meshColorBudget()} filaments): make the figure in colour, printed in up to ${meshColorBudget()} filaments with the AMS (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}>
               <span className="mode-check" aria-hidden>{color && <Icon name="check" size={13} />}</span>
               <span className="mode-icon" aria-hidden><span className={`figure-color-dots ${color ? 'on' : ''}`}><i /><i /><i /><i /></span></span>
-              <span><b>Colour (4 filaments)</b><span>{color
-                ? `Painted by Meshy, printed in up to 4 filaments with the AMS lite · ${MESHY_CREDITS_PER_COLOR_MODEL} credits a model.`
-                : `In colour, printed in up to 4 filaments with the AMS lite · ${MESHY_CREDITS_PER_COLOR_MODEL} credits a model instead of ${MESHY_CREDITS_PER_MODEL}.`}</span></span>
+              <span><b>Colour ({meshColorBudget()} filaments)</b><span>{color
+                ? `Painted by Meshy, printed in up to ${meshColorBudget()} filaments with the AMS · ${MESHY_CREDITS_PER_COLOR_MODEL} credits a model.`
+                : `In colour, printed in up to ${meshColorBudget()} filaments with the AMS · ${MESHY_CREDITS_PER_COLOR_MODEL} credits a model instead of ${MESHY_CREDITS_PER_MODEL}.`}</span></span>
             </button>
             {waitForOk != null && (
               <button role="menuitemcheckbox" aria-checked={waitForOk} className={waitForOk ? 'on' : ''} onClick={() => onWaitForOk(!waitForOk)}

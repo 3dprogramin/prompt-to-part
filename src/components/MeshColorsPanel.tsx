@@ -1,3 +1,4 @@
+import { printer } from '../../shared/printer';
 import { useEffect, useRef, useState } from 'react';
 import type { EvalResult } from '../../shared/types';
 import { decodeMesh, type MeshEntry } from '../../shared/meshes';
@@ -61,8 +62,8 @@ export function MeshColorsPanel({ result, meshes, onPalette, repaint, onRepaintS
   return (
     <div className="mesh-colors">
       {painted && (
-        <p className={`small ${all.length > MAX_MESH_COLORS ? 'warn' : 'dim'}`}>
-          {all.length} of {MAX_MESH_COLORS} AMS slots{all.length > MAX_MESH_COLORS ? ` – too many: give other parts one of the figure's colours, or the figure fewer colours` : ''}
+        <p className={`small ${all.length > printer().filaments ? 'warn' : 'dim'}`}>
+          {all.length} of {printer().filaments} AMS slots{all.length > printer().filaments ? ` – too many to load at once (the rest are swapped by hand): give other parts one of the figure's colours, or the figure fewer colours` : ''}
         </p>
       )}
       {coloured.map(([name, entry]) => (

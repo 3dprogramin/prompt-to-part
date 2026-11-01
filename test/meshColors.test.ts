@@ -1,4 +1,5 @@
 import './wasm';
+import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -6,7 +7,7 @@ import path from 'node:path';
 import { evaluateScript, importMeshFile } from '../shared/runtime';
 import { parseMeshFile } from '../shared/meshFormats';
 import { decodeTexture } from '../shared/imageDecode';
-import { applyRepaint, cleanSlots, clusterColors, colorDistance, colorSlots, decodeTris, encodeTris, matchFilaments, MAX_REPAINTS, meshPalette, meshSlots, rgbHex, slotPatch, triangleAreas, triangleNeighbours } from '../shared/meshColors';
+import { applyRepaint, cleanPalette, cleanSlots, clusterColors, colorDistance, colorSlots, decodeTris, encodeTris, matchFilaments, MAX_REPAINTS, meshColorBudget, meshPalette, meshSlots, rgbHex, slotPatch, triangleAreas, triangleNeighbours } from '../shared/meshColors';
 import { transferColors as transferColorsForTest } from '../shared/meshRepair';
 import { decodeMesh, encodeMesh, MESHES_KEY, parseMeshes, registerMesh } from '../shared/meshes';
 import { modelWarnings } from '../shared/modelWarnings';
@@ -203,7 +204,12 @@ test('the colours follow the triangles through a script: cut, moved, joined with
   // The other part has no coloured mesh: one colour.
   assert.equal(r.parts[1].paint, undefined);
   // Five filaments in the design: Jig and the user are told.
-  assert.ok(modelWarnings(r).some((w) => /needs 6 filaments.*AMS lite holds 4/.test(w)), modelWarnings(r).join('\n'));
+  assert.ok(modelWarnings(r).some((w) => /needs 6 filaments.*Bambu Lab A1 loads 4 at once/.test(w)), modelWarnings(r).join('\n'));
+  // Two AMS (8 slots): no warning; no AMS: each extra filament is swapped by hand.
+  setPrinter({ ...DEFAULT_PRINTER, filaments: 8 });
+  try { assert.ok(!modelWarnings(r).some((w) => /needs 6 filaments/.test(w))); } finally { setPrinter(DEFAULT_PRINTER); }
+  setPrinter({ ...DEFAULT_PRINTER, filaments: 1 });
+  try { assert.ok(modelWarnings(r).some((w) => /needs 6 filaments.*loads 1 at once.*by hand/.test(w))); } finally { setPrinter(DEFAULT_PRINTER); }
   // A base in one of the figure's filament colours shares its filament.
   const black = run('#000000').parts[0].paint!;
   assert.equal(black.filaments.length, 4);
@@ -293,4 +299,16 @@ test('a repaint follows its triangles through a script, and each painted triangl
   };
   assert.equal(legColour(part), 'PLA Basic Red');
   assert.equal(legColour(run()), 'PLA Basic Blue');
+});
+
+test('the mesh colour budget is min(filaments, 4), and a saved palette is never trimmed by a lower count', () => {
+  for (const [n, want] of [[1, 1], [4, 4], [16, 4]] as const) {
+    setPrinter({ ...DEFAULT_PRINTER, filaments: n });
+    assert.equal(meshColorBudget(), want);
+  }
+  setPrinter({ ...DEFAULT_PRINTER, filaments: 2 });
+  try {
+    const four = ['#000000', '#ffffff', '#ff0000', '#0000ff'].map((color) => ({ color, share: 0.25, filament: { name: 'PLA', color } }));
+    assert.equal(cleanPalette(four)?.length, 4);
+  } finally { setPrinter(DEFAULT_PRINTER); }
 });

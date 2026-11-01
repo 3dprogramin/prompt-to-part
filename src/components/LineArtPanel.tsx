@@ -7,9 +7,9 @@ import { DEFAULT_JOIN_ENDS, LINEART_ENDS_KEY, parseLineArtEnds } from '../../sha
 import { colourBands, colourSwaps, LINEART_DEPTH_KEY, MAX_COLOUR_LAYERS, parseLineArtDepth, type ColourDepth, type LineArtPaint } from '../../shared/lineart';
 import { colourFamilies } from '../../shared/filaments';
 import { staleEdits, withoutColours, withoutDrawings } from '../lib/lineArtEdit';
-import { AMS_SLOTS } from '../lib/bambu3mf';
+import { amsSlots } from '../lib/bambu3mf';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
-import { maxPiece, printer } from '../../shared/printer';
+import { maxPiece, printer, shortName } from '../../shared/printer';
 import { Icon } from './Icon';
 import { SCALE_KEY } from '../../shared/params';
 import { load, store } from '../lib/storage';
@@ -508,12 +508,12 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
         {colours.length > 0 && (
           <>
             <dt>Colours</dt>
-            <dd className={colours.length + 1 > AMS_SLOTS ? 'warn' : ''}>
+            <dd className={colours.length + 1 > amsSlots() ? 'warn' : ''}>
               <span className="lineart-colours">
                 {colours.map((f) => <span key={`${f.color}${f.name ?? ''}`} className="lineart-colour" title={f.brand ? `${f.brand} ${f.name ?? f.color}` : f.name ?? f.color}><span className="swatch" style={{ background: f.color }} />{f.name ?? f.color}</span>)}
               </span>
               <button className="link" onClick={() => onEdits((e) => withoutColours(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)))} title="Every line back in the piece's own filament">Remove colours</button>
-              {colours.length + 1 > AMS_SLOTS && <span className="lineart-why"><Icon name="alert" size={12} /> {colours.length + 1} filaments with the piece's own: the AMS lite holds {AMS_SLOTS}</span>}
+              {colours.length + 1 > amsSlots() && <span className="lineart-why"><Icon name="alert" size={12} /> {colours.length + 1} filaments with the piece's own: the {shortName()} loads {amsSlots()} at once, the rest are swapped by hand</span>}
               {paints.length > 0 && <ColourDepthRow paints={paints} base={part.color} values={values} onValue={onValue} />}
             </dd>
           </>

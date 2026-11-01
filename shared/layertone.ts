@@ -7,6 +7,7 @@
 // CONTRACT (LayerTone). The types and signatures here are shared by the engine (this file,
 // shared/helpers.ts H.layertone, shared/runtime.ts), the viewer, the side panel, the 3MF export
 // and the server.
+import { printer } from './printer';
 import type { Quality } from './types';
 
 /** Values key: the pictures for H.layertone, as JSON Record<name, LayerToneImage>. */
@@ -14,8 +15,13 @@ export const LAYERTONE_IMAGES_KEY = '$images';
 /** Values key: the user's LayerTone setup (filaments, swaps), as JSON LayerToneSetup. Edited in the side panel. */
 export const LAYERTONE_KEY = '$layertone';
 
-/** Most filaments in one LayerTone print (4 load in the A1's AMS lite; more need manual swaps). */
+/** Most filaments in one LayerTone print, at least (beyond what the AMS loads, manual swaps). */
 export const MAX_LAYERTONE_FILAMENTS = 8;
+
+/** Most filaments in one LayerTone print: 8, or what the printer loads at once if that is more. */
+export function maxLayerToneFilaments(): number {
+  return Math.max(MAX_LAYERTONE_FILAMENTS, printer().filaments);
+}
 /** Longest side of a stored picture, pixels. */
 export const MAX_LAYERTONE_IMAGE_SIDE = 800;
 
@@ -261,11 +267,11 @@ export function parseLayerToneImages(raw: unknown): Record<string, LayerToneImag
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
-/** Filaments from a script or saved JSON, checked (at most MAX_LAYERTONE_FILAMENTS), or undefined if none are usable. */
+/** Filaments from a script or saved JSON, checked (at most maxLayerToneFilaments()), or undefined if none are usable. */
 export function cleanFilaments(raw: unknown): LayerToneFilament[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: LayerToneFilament[] = [];
-  for (const f of raw.slice(0, MAX_LAYERTONE_FILAMENTS)) {
+  for (const f of raw.slice(0, maxLayerToneFilaments())) {
     if (!f || typeof f !== 'object' || typeof f.color !== 'string' || !HEX.test(f.color)) continue;
     const td = Number(f.td);
     if (!(td > 0) || !Number.isFinite(td)) continue;
@@ -293,7 +299,7 @@ export function parseLayerToneSetup(raw: unknown): LayerToneSetup {
   const out: LayerToneSetup = {};
   const filaments = cleanFilaments(s.filaments);
   if (filaments) out.filaments = filaments;
-  if (Array.isArray(s.swaps) && s.swaps.length <= MAX_LAYERTONE_FILAMENTS && s.swaps.every((n) => Number.isFinite(n))) out.swaps = s.swaps.map((n) => Math.round(n as number));
+  if (Array.isArray(s.swaps) && s.swaps.length <= maxLayerToneFilaments() && s.swaps.every((n) => Number.isFinite(n))) out.swaps = s.swaps.map((n) => Math.round(n as number));
   return out;
 }
 
@@ -361,7 +367,7 @@ export function layerToneLayers(image: LayerToneImage, o: LayerToneOptions, setu
 export function cleanLayerColors(raw: unknown, scale = 1): LayerColor[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: LayerColor[] = [];
-  for (const l of raw.slice(0, MAX_LAYERTONE_FILAMENTS)) {
+  for (const l of raw.slice(0, maxLayerToneFilaments())) {
     if (!l || typeof l !== 'object') continue;
     const z = Number(l.z), td = Number(l.td), layer = Number(l.layer);
     if (!(z >= 0) || !Number.isFinite(z) || !(td > 0) || !Number.isFinite(td) || !Number.isInteger(layer) || layer < 0 || typeof l.color !== 'string' || !HEX.test(l.color)) continue;

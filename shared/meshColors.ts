@@ -5,11 +5,17 @@
 // nearest colour, cleaned up over the surface: lone triangles and specks too small to print go to
 // the colour around them. The stored mesh keeps its triangles' colours (shared/meshes.ts); the
 // design's mesh entry keeps the palette and the filaments, which the user can change.
+import { printer } from './printer';
 import { FILAMENT_LIBRARY } from './filaments';
 import type { LayerToneFilament } from './layertone';
 
-/** Filaments a coloured figure prints with at most: the A1's AMS lite holds 4. */
+/** Filaments a coloured figure prints with at most (one AMS or AMS lite), whatever the printer loads. */
 export const MAX_MESH_COLORS = 4;
+
+/** Colours a figure gets by default: what the printer loads at once, at most MAX_MESH_COLORS. */
+export function meshColorBudget(): number {
+  return Math.min(printer().filaments, MAX_MESH_COLORS);
+}
 
 /** A filament a part's triangles print with (the 3MF's paint), as the filament picker gives it. */
 export interface PaintFilament {

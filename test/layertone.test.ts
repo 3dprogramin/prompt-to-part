@@ -3,9 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import {
-  autoSwaps, DEFAULT_FILAMENTS, fromBase64, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, hexToRgb, layerToneLuma, luma, MAX_LAYERTONE_IMAGE_SIDE,
+  autoSwaps, cleanFilaments, DEFAULT_FILAMENTS, fromBase64, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, hexToRgb, layerToneLuma, luma, MAX_LAYERTONE_IMAGE_SIDE,
   resolveLayerToneOptions, simulateColor, simulateImage, toBase64, toLayerToneImage, type LayerToneFilament, type LayerColor,
 } from '../shared/layertone';
+import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
 
 /** RGBA pixels from a function of (x, y) → grey level. */
 function picture(w: number, h: number, grey: (x: number, y: number) => number, alpha = 255): Uint8Array {
@@ -176,4 +177,11 @@ test('simulateImage: the picture as printed, frame included', () => {
   // invert: dark areas high.
   const inv = simulateImage(gradient, layers, { width: 100, invert: true });
   assert.ok(inv.rgba[(60 * 200 + 5) * 4] > inv.rgba[(60 * 200 + 195) * 4]);
+});
+
+test('LayerTone takes up to max(8, filaments the printer loads) filaments', () => {
+  const twelve = Array.from({ length: 12 }, (_, i) => ({ name: `F${i}`, color: `#${(i * 20).toString(16).padStart(2, '0').repeat(3)}`, td: 1 }));
+  assert.equal(cleanFilaments(twelve)?.length, 8);
+  setPrinter({ ...DEFAULT_PRINTER, filaments: 12 });
+  try { assert.equal(cleanFilaments(twelve)?.length, 12); } finally { setPrinter(DEFAULT_PRINTER); }
 });

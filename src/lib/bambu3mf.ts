@@ -125,8 +125,8 @@ function clusters(parts: PartMesh[]): number[][] {
 const FALLBACK_COLOUR = '#C9A26B';
 const hex = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c.toUpperCase() : FALLBACK_COLOUR);
 
-/** Filament slots in the A1's AMS lite. */
-export const AMS_SLOTS = 4;
+/** Filament slots: what the printer loads at once (4 in one AMS or AMS lite). */
+export const amsSlots = () => printer().filaments;
 
 /** Where a LayerTone part changes to another filament. */
 export interface FilamentChange {
@@ -163,7 +163,7 @@ export interface FilamentPlan {
  * height z starts with the layer whose bottom is nearest to z: z rather than LayerColor.layer, as z
  * follows the part (scaled with $scale, like the relief and the viewer's colours) and the layer
  * index only fits the heights the part was made with. At the part's own layer heights the two
- * agree. Filaments beyond the AMS's four reuse the slot of one that is done, with a pause before
+ * agree. Filaments beyond the AMS's slots reuse the slot of one that is done, with a pause before
  * they start.
  */
 export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; firstLayerHeight: number }): FilamentPlan {
@@ -217,9 +217,9 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
   let problem: string | undefined;
   for (const f of filaments.map((_, i) => i + 1).filter((f) => span[f - 1]).sort((a, b) => span[a - 1]![0] - span[b - 1]![0] || a - b)) {
     const start = span[f - 1]![0];
-    if (holder.length < AMS_SLOTS) { holder.push(f); ams[f - 1] = holder.length; continue; }
+    if (holder.length < amsSlots()) { holder.push(f); ams[f - 1] = holder.length; continue; }
     const free = holder.map((g, s) => ({ g, s })).filter(({ g }) => span[g - 1]![1] < start).sort((a, b) => span[a.g - 1]![1] - span[b.g - 1]![1])[0];
-    if (!free) { problem ??= `More than ${AMS_SLOTS} filaments are needed at the same height (layer ${start + 1}): they can't all be in the AMS`; continue; }
+    if (!free) { problem ??= `More than ${amsSlots()} filaments are needed at the same height (layer ${start + 1}): they can't all be in the AMS`; continue; }
     holder[free.s] = f;
     ams[f - 1] = free.s + 1;
     for (const list of changes) for (const c of list) if (c.filament === f && c.layer === start) c.pause = { slot: free.s + 1, replaces: free.g };

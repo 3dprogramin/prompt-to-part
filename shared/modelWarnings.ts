@@ -1,8 +1,8 @@
 // Warnings about an evaluated model that both the user (Model tab) and Claude (evaluate_model
 // report) see, so the two are always told the same thing.
-import { fitProblem, plateBounds } from './printer';
+import { fitProblem, plateBounds, printer } from './printer';
 import type { Box3 } from './types';
-import { filamentLabel, MAX_MESH_COLORS, type PaintFilament } from './meshColors';
+import { filamentLabel, type PaintFilament } from './meshColors';
 
 interface Evaluated {
   bbox: Box3 | null;
@@ -27,11 +27,12 @@ export function modelWarnings(r: Evaluated): string[] {
   const fit = plateBounds(r.parts, r.bbox).map((b) => fitProblem(b)).find(Boolean);
   if (fit) out.push(fit);
   if (r.bbox && Math.abs(r.bbox.min[2]) > 0.01) out.push(`Model does not rest on the build plate: min Z = ${r.bbox.min[2].toFixed(2)} mm (should be 0)`);
-  // A coloured figure prints in the AMS lite's 4 filaments, together with the design's other parts.
+  // A coloured figure prints in the filaments the printer loads at once, together with the design's other parts.
   if (r.parts.some((p) => p.paint || p.lineArt?.paintedIn)) {
     const all = designFilaments(r.parts);
     const what = r.parts.some((p) => p.paint) ? "give the other parts one of the figure's filament colours, or give the figure fewer colours" : 'colour the lines in fewer filaments (Edit drawing)';
-    if (all.length > MAX_MESH_COLORS) out.push(`The design needs ${all.length} filaments (${all.map(filamentLabel).join(', ')}), but the AMS lite holds ${MAX_MESH_COLORS}: ${what}`);
+    const loads = printer().filaments;
+    if (all.length > loads) out.push(`The design needs ${all.length} filaments (${all.map(filamentLabel).join(', ')}), but the ${printer().name} loads ${loads} at once: the rest are swapped by hand during the print. To avoid that, ${what}`);
   }
   for (const p of r.parts) {
     // Line art in several filaments: its colours are parts of their own, one piece with the rest.

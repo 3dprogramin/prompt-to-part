@@ -1,7 +1,7 @@
 // The CAD tool for the LayerTone setup (set_layertone): the filaments and their swap layers.
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { checkSwaps, cleanFilaments, LAYERTONE_KEY, MAX_LAYERTONE_FILAMENTS, parseLayerToneSetup, type LayerToneSetup } from '../../shared/layertone';
+import { checkSwaps, cleanFilaments, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneSetup, type LayerToneSetup } from '../../shared/layertone';
 import type { ToolContext } from './context';
 
 /** set_layertone, for a LayerTone design. */
@@ -13,8 +13,8 @@ export function layerToneTools({ base, emit }: ToolContext) {
         brand: z.string().max(60).optional().describe('e.g. "Bambu Lab", "eSUN"'),
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe('#rrggbb'),
         td: z.number().min(0.05).max(20).describe('Transmission distance, mm'),
-      })).min(1).max(MAX_LAYERTONE_FILAMENTS).optional().describe('All filaments, bottom (printed first) → top'),
-      swaps: z.union([z.array(z.number().int().min(1)).max(MAX_LAYERTONE_FILAMENTS - 1), z.literal('auto')]).optional()
+      })).min(1).max(maxLayerToneFilaments()).optional().describe('All filaments, bottom (printed first) → top'),
+      swaps: z.union([z.array(z.number().int().min(1)).max(maxLayerToneFilaments() - 1), z.literal('auto')]).optional()
         .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts – one ascending number per filament after the first; "auto" lets Jig choose'),
       reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
     }, async (a) => {
