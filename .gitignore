@@ -12,3 +12,4 @@ data/
 # Agents' git worktrees
 .claude/worktrees/
 .tmp
+.superpowers/
