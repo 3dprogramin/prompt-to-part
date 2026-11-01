@@ -4,7 +4,12 @@ import {
   bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SEAMS, SETTING_LABELS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
-import { layerHeights, printer, profileName, shortName } from '../../shared/printer';
+import { layerHeights, printer, profileName, shortName, type PrinterSetup } from '../../shared/printer';
+import type { PrinterInfo } from '../../shared/api';
+import { PrinterDialog } from './PrinterPicker';
+
+/** "loads 4 filaments at once", or "no AMS". */
+const loadsLabel = (n: number) => (n === 1 ? 'no AMS' : `loads ${n} filaments at once`);
 import type { PartMesh } from '../../shared/types';
 import { oneColourFilament, printFilaments } from '../lib/bambu3mf';
 import { Icon } from './Icon';
@@ -21,6 +26,9 @@ interface Props {
   base: Required<PrintSettings>;
   onChange: (user: PrintProfile) => void;
   bambu: string | null;
+  /** The chosen printer and the ones to pick from (null until loaded). */
+  printerInfo: PrinterInfo | null;
+  onPrinter: (s: PrinterSetup) => Promise<void>;
 }
 
 /** Who decided the value shown for this key in this scope. */
@@ -34,7 +42,8 @@ function source(ai: PrintProfile, user: PrintProfile, key: Key, part: string | n
 /** More parts than this and the part choice folds away. */
 const MANY_PARTS = 6;
 
-export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
+export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo, onPrinter }: Props) {
+  const [choosing, setChoosing] = useState(false);
   const [scopeOpen, setScopeOpen] = useState<boolean>(() => load('printScopeOpen', false));
   useEffect(() => store('printScopeOpen', scopeOpen), [scopeOpen]);
   const [writtenOpen, setWrittenOpen] = useState<boolean>(() => load('printWrittenOpen', false));
@@ -64,8 +73,15 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu }: Props) {
 
   return (
     <div className="print-panel">
+      <div className="pp-printer">
+        <span><b>{printer().name}</b><span className="dim small"> · {loadsLabel(printer().filaments)}</span></span>
+        <button className="btn ghost small" disabled={!printerInfo} onClick={() => setChoosing(true)}>Change</button>
+      </div>
+      {printerInfo?.missing && <div className="small warn-note" role="alert">Your saved printer wasn't found in Bambu Studio; using the Bambu Lab A1 until you pick another.</div>}
+      {printer().extruders > 1 && <div className="dim small">Two nozzles: Jig can't make its Bambu Studio project yet, so print settings stay out of the export.</div>}
+      {choosing && printerInfo && <PrinterDialog info={printerInfo} onCancel={() => setChoosing(false)} onSave={async (s) => { await onPrinter(s); setChoosing(false); }} />}
       <div className="pp-profile">
-        <b>{printer().name} · PLA · {profileName()}</b>
+        <b>PLA · {profileName()}</b>
         <span className="dim small">Only changes from this profile go into the 3MF (tick “Print settings” when exporting).{!bambu && ' Needs Bambu Studio installed.'}</span>
       </div>
 

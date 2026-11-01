@@ -200,7 +200,7 @@ export function SidePanel(p: Props) {
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
           {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onEdit={p.onEditLineArt} onValue={p.onValue} onShowJoins={p.onShowJoins} />)}
           {section('print', 'Print settings', () => (shown
-            ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} />
+            ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} printerInfo={p.printerInfo} onPrinter={p.onPrinter} />
             : noModel('Print settings appear once a model is generated.')))}
           {section('cost', 'Cost', () => (shown
             ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}

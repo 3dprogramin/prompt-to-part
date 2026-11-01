@@ -27,6 +27,8 @@ process.env.NODE_ENV = 'production';
 // The stand-in for Claude needs no credentials, but the API checks them first.
 process.env.JIG_AUTH = 'subscription';
 delete process.env.JIG_DOCKER;
+// No presets of this computer's Bambu Studio user in the printer list.
+process.env.BAMBU_STUDIO_USER_DIR = path.join(dataDir, 'no-bambu-user');
 const shots = process.env.JIG_UI_SHOTS ?? path.join(os.tmpdir(), 'jig-ui-shots');
 mkdirSync(shots, { recursive: true });
 
@@ -107,6 +109,56 @@ const version = JSON.parse(readFileSync(new URL('../../package.json', import.met
 const id = 'ui-smoke-00000001';
 const code = 'function build() { return Manifold.cube([20, 20, 20]); }';
 
+// First, while the data folder is new (no designs yet: a first start).
+test('a first start asks for the printer; the Print tab changes it, and the plate and checks follow', TEST, async () => {
+  const page = await newPage();
+  try {
+    await page.goto(`${A}/`);
+    const dialog = page.getByRole('dialog', { name: 'Which printer do you have?' });
+    await dialog.waitFor();
+    await page.screenshot({ path: path.join(shots, '0-first-start.png') });
+    await dialog.getByLabel('Printer', { exact: true }).selectOption('Bambu Lab A1 mini');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    const info = await (await fetch(`${A}/api/printer`)).json();
+    assert.equal(info.printer.name, 'Bambu Lab A1 mini');
+    assert.equal(info.firstStart, false);
+
+    // A 200 mm cube doesn't fit the A1 mini's 180 mm plate; switched to the A1 it does.
+    const big = 'function build() { return Manifold.cube([200, 20, 20]); }';
+    const pid = 'ui-smoke-printer-1';
+    const saved = await putDesign({ id: pid, name: 'Printer bar', createdAt: 1, updatedAt: 1000, code: big, messages: [], values: {}, currentVersion: 0, versions: [{ code: big, summary: 'A bar', createdAt: 1000, source: 'manual' }] });
+    assert.equal(saved.status, 200, await saved.text());
+    await page.goto(`${A}/?design=${pid}`);
+    await built(page);
+    await page.locator('.plate-label', { hasText: 'Bambu Lab A1 mini · 180 × 180 mm plate' }).waitFor();
+    const fits = (name: string, yes: string) => page.locator('table.kv tr', { hasText: `Fits ${name}` }).filter({ hasText: yes }).waitFor();
+    await page.getByRole('tab', { name: /Code/ }).click();
+    await fits('Bambu Lab A1 mini', 'No');
+    await page.getByRole('tab', { name: /Print/ }).click();
+    await page.locator('.pp-printer', { hasText: 'Bambu Lab A1 mini' }).waitFor();
+    await page.locator('.pp-printer').getByRole('button', { name: 'Change' }).click();
+    const change = page.getByRole('dialog', { name: 'Printer' });
+    await change.getByLabel('Printer', { exact: true }).selectOption('Bambu Lab A1');
+    await change.getByLabel('Filaments it loads at once').selectOption('8');
+    await page.screenshot({ path: path.join(shots, '0-change-printer.png') });
+    await change.getByRole('button', { name: 'Save' }).click();
+    await change.waitFor({ state: 'detached' });
+    await page.locator('.plate-label', { hasText: 'Bambu Lab A1 · 256 × 256 mm plate' }).waitFor();
+    await page.locator('.pp-printer', { hasText: 'loads 8 filaments at once' }).waitFor();
+    await page.screenshot({ path: path.join(shots, '0-print-tab-printer.png') });
+    await page.getByRole('tab', { name: /Code/ }).click();
+    await fits('Bambu Lab A1', 'Yes');
+  } finally {
+    await page.close();
+    // Gone without a trace (the API's delete would also write tags.json, which the backup test counts).
+    rmSync(path.join(dataDir, 'designs', 'ui-smoke-printer-1.json'), { force: true });
+    rmSync(path.join(dataDir, 'designs', 'ui-smoke-printer-1'), { recursive: true, force: true });
+    // The rest of the tests run with the A1 0.4 and 4 filaments.
+    await fetch(`${A}/api/printer`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
+  }
+});
+
 test('the app opens a design: top bar, 3D view, Print tab without an automatic slice', TEST, async () => {
   const saved = await fetch(`${A}/api/designs/${id}`, {
     method: 'PUT',
@@ -181,7 +233,8 @@ test('the Designs menu exports every design as a zip and imports one', TEST, asy
   const [download] = await Promise.all([page.waitForEvent('download'), menu.getByText('Export all designs').click()]);
   assert.match(download.suggestedFilename(), /^jig-designs-\d{4}-\d\d-\d\d\.zip$/);
   const exported = unzipSync(new Uint8Array(readFileSync((await download.path())!)));
-  assert.deepEqual(Object.keys(exported), [`designs/${id}.json`]);
+  // The printer choice is a setting the backup keeps (the first-start test saved one).
+  assert.deepEqual(Object.keys(exported), ['printer.json', `designs/${id}.json`]);
 
   const other = 'ui-smoke-00000002';
   const copy = { ...JSON.parse(strFromU8(exported[`designs/${id}.json`])), id: other, name: 'Imported cube' };

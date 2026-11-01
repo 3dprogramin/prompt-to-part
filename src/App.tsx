@@ -18,6 +18,7 @@ import type { DesignTab } from './components/DesignTabs';
 import { TopBar } from './components/TopBar';
 import { LayoutTabs } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
+import { PrinterDialog } from './components/PrinterPicker';
 import { LineArtEditor } from './components/LineArtEditor';
 import { PhotosPanel, usePhotoJobs, type SizeShot } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
@@ -806,6 +807,7 @@ export default function App() {
           original={lineArtOriginal}
         />
       )}
+      {printerInfo?.firstStart && <PrinterDialog info={printerInfo} onSave={onPrinter} />}
       {pendingRestore != null && (
         <RestoreDialog
           target={pendingRestore}
