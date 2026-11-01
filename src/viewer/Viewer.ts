@@ -627,6 +627,8 @@ export class Viewer {
 
   private buildGrid(size: number) { this.gridGroup.userData.step = buildGrid(this.gridGroup, size); }
   private buildPlate() { buildPlate(this.plateGroup); }
+  /** The printer changed: draw its plate and build volume. */
+  refreshPlate() { clearGroup(this.plateGroup); this.buildPlate(); this.updatePlate(); }
   // A split model's pieces each go on a plate of their own: the biggest plate's parts must fit.
   private updatePlate() { updatePlate(this.plateGroup, this.result ? plateBounds(this.result.parts, this.result.bbox)[0] : null); }
 

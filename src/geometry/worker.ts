@@ -8,6 +8,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { evaluateScript, formatScriptError, initRuntime, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../../shared/runtime';
 import { solveDimension } from '../../shared/solver';
 import { probeParamOwners } from '../../shared/paramOwners';
+import { setPrinter, type ActivePrinter } from '../../shared/printer';
 import { withFonts } from '../../shared/text';
 import { decodeMesh, withMeshes, type MeshData } from '../../shared/meshes';
 import { validateResult, type ValidateOptions } from './validate';
@@ -90,13 +91,15 @@ function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transfer
   return { display, transfer };
 }
 
-type Req =
+/** Every job carries the chosen printer (its bed decides how line art splits, what fits). */
+type Req = { printer?: ActivePrinter } & (
   | { id: number; kind: 'eval'; code: string; values: ParamValues; quality: Quality; validate?: ValidateOptions; display?: boolean }
   | { id: number; kind: 'solve'; code: string; values: ParamValues; quality: Quality; target: DimTarget; goal: number }
-  | { id: number; kind: 'owners'; code: string; values: ParamValues };
+  | { id: number; kind: 'owners'; code: string; values: ParamValues });
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
   const req = ev.data;
+  if (req.printer) setPrinter(req.printer);
   // `crashed` tells the client the wasm instance trapped, so it replaces this worker and retries
   // (unless it ran out of memory, which a retry would only repeat).
   const post = (msg: object, transfer: Transferable[] = []) =>

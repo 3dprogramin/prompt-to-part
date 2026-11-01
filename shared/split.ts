@@ -7,6 +7,7 @@
 // Where a seam crosses a bar or frame it runs straight across it, so a dovetail fits there.
 //
 // Seams are data (polylines in mm): they could be stored and moved by hand later.
+import { maxPiece as largestPiece } from './printer';
 
 type Pt = [number, number];
 
@@ -16,8 +17,6 @@ export interface SplitGrid { w: number; h: number; px: number; x0: number; y1: n
 /** How to split: 'auto' (the fewest pieces that fit the bed), a number of pieces, or a grid [columns, rows]. */
 export type SplitSpec = 'auto' | number | [number, number];
 
-/** The largest a piece may be (mm): the A1's 256 mm bed less a margin. */
-export const MAX_PIECE = 250;
 /** The most pieces of one split. */
 export const MAX_PIECES = 100;
 
@@ -50,7 +49,7 @@ export function formatSplitSpec(s: SplitSpec | 'off'): string {
 }
 
 /** Columns × rows for a piece `w` × `h` mm: `reserve` mm of each piece's room is kept for seams that wander and dovetails. */
-export function splitGrid(w: number, h: number, spec: SplitSpec, maxPiece = MAX_PIECE, reserve = 20): { cols: number; rows: number } {
+export function splitGrid(w: number, h: number, spec: SplitSpec, maxPiece = largestPiece(), reserve = 20): { cols: number; rows: number } {
   if (Array.isArray(spec)) return { cols: spec[0], rows: spec[1] };
   if (spec === 'auto') {
     // A direction that fits the bed needs no seam (and no room for one).

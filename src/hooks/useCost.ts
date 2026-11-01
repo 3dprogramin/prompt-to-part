@@ -1,3 +1,4 @@
+import { printer } from '../../shared/printer';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Design, EvalResult, ParamValues } from '../../shared/types';
 import type { BambuTemplate } from '../../shared/api';
@@ -76,7 +77,7 @@ export function useCost(geo: GeometryClient, { design, values, hiddenParts, user
   const busy = useRef(false);
   useEffect(() => { api.costSettings().then(setSettings).catch(() => {}); }, []);
 
-  const key = costKey(design.code, values, hiddenParts, userPrint, oneColour);
+  const key = costKey(design.code, values, hiddenParts, userPrint, oneColour, printer().id);
   const latest = useRef({ design, values, hiddenParts, userPrint, oneColour, onTemplate, key });
   latest.current = { design, values, hiddenParts, userPrint, oneColour, onTemplate, key };
 

@@ -4,6 +4,7 @@
 // looping script can be killed and a script that ever got past the SES sandbox would still find
 // nothing to reach.
 import '../shared/sandbox'; // first: locks down the worker before anything else loads
+import { setPrinter, type ActivePrinter } from '../shared/printer';
 import dgram from 'node:dgram';
 import dns from 'node:dns';
 import inspector from 'node:inspector';
@@ -145,12 +146,13 @@ async function run(code: string, values: ParamValues | undefined, quality: Quali
   }
 }
 
-type Req =
+/** Every job carries the server's chosen printer (its bed decides how line art splits, what fits). */
+type Req = { printer?: ActivePrinter } & (
   | { id: number; cmd: 'evaluate'; code: string; values?: ParamValues; quality?: Quality }
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues }
-  | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions; palette?: { colors: number; mine: LayerToneFilament[] } };
+  | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions; palette?: { colors: number; mine: LayerToneFilament[] } });
 
 type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
 type MeshReply = { meshReply: number; bytes?: Uint8Array; error?: string; transient?: boolean };
@@ -173,6 +175,7 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
     } catch (e) { w?.reject(e as Error); }
     return;
   }
+  if (req.printer) setPrinter(req.printer);
   const post = (msg: { data?: unknown; error?: string; crashed?: boolean }) => send({ id: req.id, crashed: runtimeTrapped(), oom: runtimeOutOfMemory(), ...msg });
   try {
     await ready;

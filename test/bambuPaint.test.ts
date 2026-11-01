@@ -152,7 +152,7 @@ test('one colour: the Bambu project has one filament, no paint_color and no Laye
 });
 
 test('one colour: the cost is out of date when the switch changes', () => {
-  const key = (c: null | 'main' | string) => costKey('code', { a: 1 }, [], {}, c);
+  const key = (c: null | 'main' | string) => costKey('code', { a: 1 }, [], {}, c, 'p');
   assert.notEqual(key(null), key('main'));
   assert.notEqual(key('main'), key('#336699'));
   assert.equal(key('main'), key('main'));

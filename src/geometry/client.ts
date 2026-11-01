@@ -1,4 +1,5 @@
 import type { DimTarget, EvalResult, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../../shared/types';
+import { printer } from '../../shared/printer';
 import type { ValidateOptions, ValidationReport } from './validate';
 
 export type EvalOutcome =
@@ -176,10 +177,10 @@ export class GeometryClient {
       this.pump();
     }, job.timeoutMs);
     this.running = { id, job, timer, started: performance.now() };
-    this.worker.postMessage(job.owners
+    this.worker.postMessage({ printer: printer(), ...(job.owners
       ? { id, kind: 'owners', code: job.code, values: job.values }
       : job.solve
       ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }
-      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality, validate: job.validate, display: job.display });
+      : { id, kind: 'eval', code: job.code, values: job.values, quality: job.quality, validate: job.validate, display: job.display }) });
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValue, ParamValues, PartMesh } from '../../shared/types';
 import { DEFAULT_SPLIT_JOIN, formatLineArtSize, LINE_ART_STYLE_INFO, LINEART_JOIN_KEY, parseLineArtJoin, LINEART_EDITS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, MAX_LINEART_SIZE, parseLineArtEdits, parseLineArtSize, parseLineArtSplit, type LineArtEdits, type LineArtInfo, type LineArtSplitInfo } from '../../shared/lineart';
-import { formatSplitSpec, MAX_PIECE, parseSplitSpec, type SplitSpec } from '../../shared/split';
+import { formatSplitSpec, parseSplitSpec, type SplitSpec } from '../../shared/split';
 import { NumBox } from './NumBox';
 import { DEFAULT_JOIN_ENDS, LINEART_ENDS_KEY, parseLineArtEnds } from '../../shared/lineart';
 import { colourBands, colourSwaps, LINEART_DEPTH_KEY, MAX_COLOUR_LAYERS, parseLineArtDepth, type ColourDepth, type LineArtPaint } from '../../shared/lineart';
@@ -9,7 +9,7 @@ import { colourFamilies } from '../../shared/filaments';
 import { staleEdits, withoutColours, withoutDrawings } from '../lib/lineArtEdit';
 import { AMS_SLOTS } from '../lib/bambu3mf';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
-import { printer } from '../../shared/printer';
+import { maxPiece, printer } from '../../shared/printer';
 import { Icon } from './Icon';
 import { SCALE_KEY } from '../../shared/params';
 import { load, store } from '../lib/storage';
@@ -158,7 +158,6 @@ interface Props {
 const PIECE_COUNTS = [2, 3, 4, 6, 8, 9, 10, 12, 15, 16, 20, 24, 30, 36];
 const MAX_GRID = 10;
 /** About how big a piece Auto makes, to guess a count before the model is split (mm). */
-const AUTO_ROOM = MAX_PIECE - 24;
 
 /**
  * Split into pieces: Off / Auto / a number of pieces / a grid, the size of the whole piece (the
@@ -171,7 +170,7 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
   const mode = choice === 'off' ? 'off' : choice === 'auto' ? 'auto' : Array.isArray(choice) ? 'grid' : 'pieces';
   const set = (c: SplitSpec | 'off') => onValue(LINEART_SPLIT_KEY, formatSplitSpec(c));
   const [w, h] = la.size;
-  const guess: [number, number] = sp ? [sp.cols, sp.rows] : [w > MAX_PIECE ? Math.ceil(w / AUTO_ROOM) : 1, h > MAX_PIECE ? Math.ceil(h / AUTO_ROOM) : 1];
+  const guess: [number, number] = sp ? [sp.cols, sp.rows] : [w > maxPiece() ? Math.ceil(w / (maxPiece() - 24)) : 1, h > maxPiece() ? Math.ceil(h / (maxPiece() - 24)) : 1];
   const grid: [number, number] = Array.isArray(choice) ? choice : guess;
   const count = typeof choice === 'number' ? choice : Math.max(2, guess[0] * guess[1]);
   // The size typed here (before the design's overall scale, which applies to it too).

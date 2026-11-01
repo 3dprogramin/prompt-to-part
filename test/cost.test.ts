@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanCostSettings, costOf, defaultCostSettings, duration, money, parseCurrency } from '../shared/cost';
+import { cleanCostSettings, costKey, costOf, defaultCostSettings, duration, money, parseCurrency } from '../shared/cost';
 import { parseSliceInfo } from '../server/slicer';
 import { parseSuggestion } from '../server/pricing';
 
@@ -59,4 +59,8 @@ test('the currency: any ISO code from JIG_CURRENCY, typical starting prices in a
   assert.deepEqual(defaultCostSettings('RON'), { filamentPerKg: 140, electricityPerKwh: 1.45, averageWatts: 200 });
   // Elsewhere the Cost tab asks for the prices.
   assert.deepEqual(defaultCostSettings('JPY'), { averageWatts: 200 });
+});
+
+test('costKey changes with the printer', () => {
+  assert.notEqual(costKey('c', {}, [], {}, null, 'Bambu Lab A1 0.4 nozzle'), costKey('c', {}, [], {}, null, 'Bambu Lab P1S 0.4 nozzle'));
 });

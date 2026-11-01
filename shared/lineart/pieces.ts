@@ -1,6 +1,7 @@
 // A line art too big for the bed, cut into pieces with dovetails, each piece cleaned up on its own,
 // labelled and laid out.
-import { boxFitter, dovetail, formatSplitSpec, keepTogether, MAX_PIECE, pieceLabel, routeSeam, type Seam, seamAt, seamGeometry, type SplitGrid, type SplitSpec } from '../split';
+import { maxPiece } from '../printer';
+import { boxFitter, dovetail, formatSplitSpec, keepTogether, pieceLabel, routeSeam, type Seam, seamAt, seamGeometry, type SplitGrid, type SplitSpec } from '../split';
 import type { LineArtDeps, LineArtPieceInfo, LineArtResult, LineArtSplitInfo, LineArtStyle } from './info';
 import { band, lineArtMask } from './mask';
 import { strokeOutlines } from './outlines';
@@ -91,7 +92,7 @@ export function splitPieces(o: SplitInput): SplitResult {
   const x0 = ab.min[0], x1 = ab.max[0], y0 = ab.min[1], y1 = ab.max[1], W = x1 - x0, H = y1 - y0;
   const Wc = W / cols, Hr = H / rows;
   // How far a seam may wander from the ideal cut: the pieces must still fit the bed.
-  const bandFor = (cell: number) => Math.max(3, Math.min(40, 0.3 * cell, (MAX_PIECE - 10 - cell) / 2));
+  const bandFor = (cell: number) => Math.max(3, Math.min(40, 0.3 * cell, (maxPiece() - 10 - cell) / 2));
   const Bv = bandFor(Wc), Bh = bandFor(Hr), margin = 3;
   const Yt = y1 + 2 * margin + 1, Yb = y0 - 2 * margin - 1, Xl = x0 - 2 * margin - 1, Xr = x1 + 2 * margin + 1;
   let c = splitCache.get(o.key);
@@ -139,7 +140,7 @@ export function splitPieces(o: SplitInput): SplitResult {
     // A bit of the drawing a seam leaves on its own in a piece goes to the piece it carries on into.
     const pa = Math.max(lineWidth / 2, Math.sqrt(((Xr - Xl) * (Yt - Yb)) / 4e6));
     const ga: SplitGrid = { px: pa, x0: Xl, y1: Yt, w: Math.ceil((Xr - Xl) / pa), h: Math.ceil((Yt - Yb) / pa) };
-    const kept = keepTogether({ g: ga, ink: rasterize(artPolys, ga), anchor: anchorPolys ? rasterize(anchorPolys, ga) : null, seams, cols, rows, box: [Xl, Xr, Yt, Yb], maxBridge: o.maxBridge, minPart: o.minPart, maxPiece: MAX_PIECE - 2 });
+    const kept = keepTogether({ g: ga, ink: rasterize(artPolys, ga), anchor: anchorPolys ? rasterize(anchorPolys, ga) : null, seams, cols, rows, box: [Xl, Xr, Yt, Yb], maxBridge: o.maxBridge, minPart: o.minPart, maxPiece: maxPiece() - 2 });
     seams = kept.seams;
     const geo = seamGeometry(seams, cols, rows, Xl, Xr, Yt, Yb);
     // Each piece's outline: its column's strip ∩ its row's strip in that column.
@@ -253,7 +254,7 @@ export function splitPieces(o: SplitInput): SplitResult {
       if (!alive[i] || !alive[j] || !bare(a) || !bare(b)) continue;
       const ba = boxOf(a), bb = boxOf(b);
       const size = Math.max(Math.max(ba.max[0], bb.max[0]) - Math.min(ba.min[0], bb.min[0]), Math.max(ba.max[1], bb.max[1]) - Math.min(ba.min[1], bb.min[1]));
-      if (size > MAX_PIECE || size >= bestSize) continue;
+      if (size > maxPiece() || size >= bestSize) continue;
       // They meet (across a seam, or a dovetail's clearance).
       if (ba.min[0] > bb.max[0] + 1 || bb.min[0] > ba.max[0] + 1 || ba.min[1] > bb.max[1] + 1 || bb.min[1] > ba.max[1] + 1) continue;
       if (a.an.offset(o.clearance + 0.05, 'Miter').intersect(b.an).isEmpty()) continue;

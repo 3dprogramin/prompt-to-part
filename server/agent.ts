@@ -23,7 +23,8 @@ import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
 import { printerLoaded } from './printerSetting';
 import { readMyFilaments } from './myFilaments';
-import { A1_DEFAULTS } from '../shared/print';
+import { printDefaultsFor } from '../shared/print';
+import { printer } from '../shared/printer';
 import type { ParamValues } from '../shared/types';
 import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
@@ -157,7 +158,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   });
   // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
   await printerLoaded().catch(() => undefined);
-  const printBase = (await cachedPrintDefaults()) ?? A1_DEFAULTS;
+  const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
   const parts: string[] = [];

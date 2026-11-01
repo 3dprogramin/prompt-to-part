@@ -37,8 +37,8 @@ export interface SliceStats {
  * What a cost calculation is made from (the script, values, hidden parts, print settings and
  * "Print in one colour"): a result with another key is out of date.
  */
-export function costKey(code: string, values: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string): string {
-  return JSON.stringify([code, values, hiddenParts, userPrint, oneColour]);
+export function costKey(code: string, values: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string, printerId: string): string {
+  return JSON.stringify([code, values, hiddenParts, userPrint, oneColour, printerId]);
 }
 
 /** The user's prices, and their printer's measured average power. Unset values are left out of the cost. */

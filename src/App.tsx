@@ -4,7 +4,7 @@ import { SCALE_KEY } from '../shared/params';
 import { DRAWINGS_KEY } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY } from '../shared/layertone';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } from '../shared/meshes';
-import type { MeshyBalance } from '../shared/api';
+import type { MeshyBalance, PrinterInfo } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api } from './lib/api';
 import type { AutoBuild } from './lib/autoBuild';
@@ -33,7 +33,8 @@ import { load, store } from './lib/storage';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import type { TrueScale } from '../shared/photos';
 import type { ValidationState } from './components/ValidationPanel';
-import { A1_DEFAULTS, defaultsFromTemplate, type PrintSettings } from '../shared/print';
+import { A1_DEFAULTS, defaultsFromTemplate, printDefaultsFor, type PrintSettings } from '../shared/print';
+import { setPrinter, type PrinterSetup } from '../shared/printer';
 import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
 import { forgetChatMode } from './lib/chatModes';
@@ -128,7 +129,23 @@ export default function App() {
     section: { enabled: false, axis: 'z', position: 0, flip: false },
     ...load<Partial<ViewerOptions>>('viewOpts', {}),
   }));
-  const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality);
+  // The chosen printer (the server's data/printer.json): asked on a first start, changed in the Print tab.
+  const [printerInfo, setPrinterInfo] = useState<PrinterInfo | null>(null);
+  const applyPrinter = (info: PrinterInfo) => { setPrinter(info.printer); setPrinterInfo(info); };
+  useEffect(() => {
+    api.printer().then((info) => {
+      applyPrinter(info);
+      // No template built yet for it (the capabilities had no defaults): its nozzle's baseline.
+      setPrintBase((b: Required<PrintSettings>) => (b === A1_DEFAULTS ? printDefaultsFor(info.printer) : b));
+    }).catch(() => {});
+  }, []);
+  const onPrinter = async (s: PrinterSetup) => {
+    const info = await api.setPrinter(s);
+    applyPrinter(info);
+    const c = await api.capabilities().catch(() => null);
+    setPrintBase(c?.printDefaults ?? printDefaultsFor(info.printer));
+  };
+  const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality, printerInfo?.printer.id);
   // Line art's joins of loose ends, shown in the 3D view while the Print tab's Line art section asks for them.
   const [showJoins, setShowJoins] = useState(false);
   const snapshotRef = useRef<(() => string | null) | null>(null);
@@ -624,6 +641,7 @@ export default function App() {
           claudeProblem={claudeProblem}
         />
         <ViewerPanel
+          printerId={printerInfo?.printer.id}
           costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}
           result={playback ? playback.result : sizes.viewResult ?? result ?? lastGood}
           banner={sizes.viewed && !playback ? <>
@@ -758,6 +776,8 @@ export default function App() {
           aiPrint={aiPrint}
           userPrint={userPrint}
           printBase={printBase}
+          printerInfo={printerInfo}
+          onPrinter={onPrinter}
           onUserPrint={setUserPrint}
           bambu={bambu}
           printChanges={printChanges}

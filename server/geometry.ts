@@ -124,7 +124,7 @@ function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number): Pr
       reject(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s – the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`));
     }, timeoutMs);
     pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); resolve(r); } });
-    w.send({ ...msg, id });
+    w.send({ ...msg, id, printer: printer() });
   });
 }
 

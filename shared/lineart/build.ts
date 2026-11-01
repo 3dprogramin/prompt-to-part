@@ -1,7 +1,8 @@
 // H.lineart: the drawing cleaned up at its final size, made into the piece with its style's bar,
 // frame, hooks or stand, coloured and split as the user set.
 import type { PartFilament } from '../params';
-import { MAX_PIECE, parseSplitSpec, seamAt, splitGrid, type SplitSpec } from '../split';
+import { parseSplitSpec, seamAt, splitGrid, type SplitSpec } from '../split';
+import { maxPiece, printer } from '../printer';
 import { colourBottom, colourLayers, depthLayers, filamentTd, type LineArtPaint, type PaintMaterial } from './depth';
 import { DEFAULT_LINE_ART_STYLE, isLineArtStyle, LINE_ART_STYLES, type LineArtDeps, type LineArtInfo, type LineArtOptions, lineArtPrint, type LineArtResult, type LineArtSplitInfo } from './info';
 import { band, lineArtMask } from './mask';
@@ -21,8 +22,8 @@ import { traceMask } from './trace';
 const cache = new Map<string, { loops: Pt[][]; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number; joins: Pt[][]; loose: Pt[] }>();
 const CACHE_SIZE = 6;
 
-/** The A1's bed. */
-const BED = 256;
+/** The chosen printer's bed, as "the Bambu Lab A1's 256 mm bed" in notes. */
+const bedName = () => { const [w, d] = printer().bed; return `${printer().name}'s ${w === d ? w : `${w} × ${d}`} mm bed`; };
 /** The largest piece H.lineart makes (split into pieces that fit the bed), mm. */
 const MAX_SIZE = 3000;
 
@@ -188,7 +189,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   if (!(LINEART_LAYOUTS as readonly string[]).includes(layout)) throw new Error(`H.lineart: layout must be one of ${LINEART_LAYOUTS.map((l) => `'${l}'`).join(', ')}`);
   const ab = (anchor ? art.add(anchor) : art).bounds();
   const splitSpec = d.split ?? optSplit ?? 'off';
-  const grid = splitSpec === 'off' ? null : splitGrid(ab.max[0] - ab.min[0], ab.max[1] - ab.min[1], splitSpec, MAX_PIECE, SPLIT_RESERVE);
+  const grid = splitSpec === 'off' ? null : splitGrid(ab.max[0] - ab.min[0], ab.max[1] - ab.min[1], splitSpec, maxPiece(), SPLIT_RESERVE);
 
   // Key holder: pegs out of the bar's front, printed standing up: a flared foot, the stem, and a
   // cap that keeps the keys on (its underside a 45° cone, no support).
@@ -527,7 +528,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   if (!sp) Object.assign(info, placeMarks(marks));
   let note: string, assembly: LineArtResult['assembly'];
   if (!sp) {
-    const big = pieceW > BED || pieceH > BED ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the A1's ${BED} mm bed: make it smaller${grid ? '' : ', or split it into pieces'}.` : '';
+    const bed = printer().bed;
+    const big = pieceW > bed[0] || pieceH > bed[1] ? ` It is ${pieceW.toFixed(0)} × ${pieceH.toFixed(0)} mm, bigger than the ${bedName()}: make it smaller${grid ? '' : ', or split it into pieces'}.` : '';
     note = `Print it flat, back on the bed,${filaments}: 0.2 mm layers, 100 % infill, no brim. ${style === 'keyholder' ? `The ${hooks} pegs print standing up. ` : ''}${style === 'stand' ? '' : 'Hang it with double-sided tape or Command strips.'}${slotNote}${big}`;
   } else {
     const split = splitInfo(sp, splitSpec as SplitSpec, grid!, -cx, -cy, anchor, layout as LineArtSplitInfo['layout']);
@@ -540,7 +542,8 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       if (dx || dy) move(p, dx, dy);
       if (i < n) p.lineArt = { ...info, ...(i ? { split: undefined } : {}), ...(p.lineArt?.components ? { components: p.lineArt.components, paint: p.lineArt.paint } : {}), ...placeMarks(sp!.pieces[i]), piece: { label: p.name, offset: [dx, dy] } };
     });
-    const big = split.pieces.filter((p) => p.size[0] > BED || p.size[1] > BED);
+    const bed = printer().bed;
+    const big = split.pieces.filter((p) => p.size[0] > bed[0] || p.size[1] > bed[1]);
     const order = split.pieces.map((p) => p.label);
     assembly = order.slice(1).map((l) => ({ label: `Stick ${l} on the wall against the pieces already up`, parts: [l, ...(parts.find((p) => p.name === l)?.colours ?? []).map((c) => c.name)], from: [0, 0, Math.max(30, 0.15 * Math.max(pieceW, pieceH))] }));
     const lab = split.pieces.filter((p) => p.labelSize > 0).length;
@@ -548,7 +551,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       + `${split.joints.length ? `The ${split.joints.length} dovetail${split.joints.length > 1 ? 's' : ''} on the ${anchorWord(style)} lock the pieces together; ` : ''}lines that cross a seam just meet end to end, so each piece is taped up on its own. `
       + `${lab ? `Each piece's name (row letter from the top, column number from the left) is engraved on its back${lab < n ? ` (${n - lab} had no room for it)` : ''}. ` : ''}`
       + `Put it up from the top left: A1 first, then along the row and down. Mark a level line, tape each piece up and push it against the one before.${slotNote}`
-      + `${big.length ? ` ${big.map((p) => `${p.label} is ${p.size[0].toFixed(0)} × ${p.size[1].toFixed(0)} mm`).join(', ')}: bigger than the A1's ${BED} mm bed – use more pieces.` : ''}`;
+      + `${big.length ? ` ${big.map((p) => `${p.label} is ${p.size[0].toFixed(0)} × ${p.size[1].toFixed(0)} mm`).join(', ')}: bigger than the ${bedName()} - use more pieces.` : ''}`;
   }
   // Each part followed by its colours (on its plate, with the line-art info and the filament).
   const out: LineArtResult['parts'] = parts.flatMap(({ colours, ...p }) => [p, ...(colours ?? []).map((c) => ({

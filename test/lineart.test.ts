@@ -8,6 +8,7 @@ import { DRAWINGS_KEY, type SvgDrawing } from '../shared/svgFeatures';
 import { cleanLineArtInfo, drawingFingerprint, isLineArt, lineArtMask, LINE_ART_STYLES, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, rasterize, traceMask, type LineArtGrid } from '../shared/lineart';
 import { keepTogether, parseSplitSpec, pieceLabel, routeSeam, seamAt, splitGrid } from '../shared/split';
 import type { Vec2 } from '../shared/types';
+import { DEFAULT_PRINTER, maxPiece, setPrinter } from '../shared/printer';
 
 const circle = (cx: number, cy: number, r: number, n = 48): Vec2[] => Array.from({ length: n }, (_, k) => [cx + r * Math.cos((2 * Math.PI * k) / n), cy + r * Math.sin((2 * Math.PI * k) / n)]);
 const ring = (cx: number, cy: number, r: number, w: number) => [circle(cx, cy, r + w / 2), circle(cx, cy, r - w / 2)];
@@ -288,4 +289,15 @@ test('H.lineart split: hand edits land on every piece in every layout – a draw
   }
   assert.deepEqual(seen[1], seen[0]);
   assert.deepEqual(seen[2], seen[0]);
+});
+
+test('H.lineart split follows the chosen printer: an A1 mini bed splits a 220 mm piece', async () => {
+  const opts = "style: 'keyholder', width: 220, split: 'auto', layout: 'assembled'";
+  setPrinter({ ...DEFAULT_PRINTER, id: 'Bambu Lab A1 mini 0.4 nozzle', name: 'Bambu Lab A1 mini', model: 'Bambu Lab A1 mini', bed: [180, 180], height: 180 });
+  try {
+    const r = await withFonts(() => run(opts), loadFontBuffers);
+    const sp = r.parts[0].lineArt!.split!;
+    assert.ok(sp.cols * sp.rows >= 2, 'split into pieces');
+    for (const p of r.parts) assert.ok(p.bbox.max[0] - p.bbox.min[0] <= maxPiece() && p.bbox.max[1] - p.bbox.min[1] <= maxPiece(), `${p.name} fits the A1 mini`);
+  } finally { setPrinter(DEFAULT_PRINTER); }
 });

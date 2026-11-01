@@ -27,11 +27,11 @@ import { useReleaseSlider } from './useReleaseSlider';
 import { usePopover } from './usePopover';
 import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
-import type { FontEntry } from '../../shared/api';
+import type { FontEntry, PrinterInfo } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
-import { printer, fitProblem } from '../../shared/printer';
+import { printer, fitProblem, type PrinterSetup } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
@@ -86,6 +86,9 @@ interface Props {
   userPrint: PrintProfile;
   /** The profile's own settings (from the user's Bambu Studio template). */
   printBase: Required<PrintSettings>;
+  /** The chosen printer and the printers to pick from (null until loaded). */
+  printerInfo: PrinterInfo | null;
+  onPrinter: (s: PrinterSetup) => Promise<void>;
   onUserPrint: (p: PrintProfile) => void;
   bambu: string | null;
   /** Number of print-setting changes that would be written to a 3MF. */

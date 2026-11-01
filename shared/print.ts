@@ -2,7 +2,7 @@
 // Bambu Studio when its template has been built).
 // Only values that differ from the baseline are written to an exported Bambu project.
 
-import { layerHeights, printer } from './printer';
+import { layerHeights, printer, type Printer } from './printer';
 
 export type Supports = 'off' | 'normal' | 'tree';
 /** 'auto' and 'none' map to Bambu's brim types; a number is an outer brim of that width in mm. */
@@ -73,6 +73,16 @@ export const A1_DEFAULTS: Required<PrintSettings> = {
   layerHeight: 0.2, firstLayerHeight: 0.2, walls: 2, topLayers: 5, bottomLayers: 3, infill: 15, infillPattern: 'grid', supports: 'off', brim: 'auto',
   ironing: 'off', seam: 'aligned', supportsOnPlate: false, wallOrder: 'inner-outer', fuzzySkin: 'none',
 };
+
+/**
+ * A printer's baseline until its Bambu Studio template is built: the A1 0.4's, with the nozzle's
+ * standard layer height (half the nozzle: 0.10 mm on a 0.2 nozzle, 0.40 mm on a 0.8).
+ */
+export function printDefaultsFor(p: Pick<Printer, 'nozzle'>): Required<PrintSettings> {
+  const heights = layerHeights(p.nozzle);
+  const h = heights.reduce((a, b) => (Math.abs(b - p.nozzle / 2) < Math.abs(a - p.nozzle / 2) ? b : a));
+  return { ...A1_DEFAULTS, layerHeight: h, firstLayerHeight: h };
+}
 
 /** Bambu Studio infill pattern ids (all verified to slice) and display names. */
 export const INFILL_PATTERNS: { id: string; label: string }[] = [

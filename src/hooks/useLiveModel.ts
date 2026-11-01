@@ -7,7 +7,8 @@ import type { GeometryClient } from '../geometry/client';
  * is the last model that built (shown while a broken edit is fixed) and is never carried over
  * from another design; `resultCode` is the code `result` was built from.
  */
-export function useLiveModel(geo: GeometryClient, design: Design, quality: Quality) {
+/** `printerId`: the chosen printer; a new one builds the model again (what fits, its checks and line art splits follow the bed). */
+export function useLiveModel(geo: GeometryClient, design: Design, quality: Quality, printerId = '') {
   const [result, setResult] = useState<EvalResult | null>(null);
   const [lastGood, setLastGood] = useState<EvalResult | null>(null);
   const [error, setError] = useState<ScriptErrorInfo | null>(null);
@@ -33,7 +34,7 @@ export function useLiveModel(geo: GeometryClient, design: Design, quality: Quali
       else { setError(o.error); setResult(null); }
     });
     return () => { cancelled = true; };
-  }, [geo, design.id, design.code, design.values, quality]);
+  }, [geo, design.id, design.code, design.values, quality, printerId]);
 
   return { result, lastGood, error, busy, resultCode };
 }

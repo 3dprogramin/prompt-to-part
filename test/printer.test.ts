@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bedShift, clampFilaments, DEFAULT_PRINTER, fitProblem, layerHeights, maxPiece, printer, printerName, setPrinter } from '../shared/printer';
-import { cleanSettings } from '../shared/print';
+import { A1_DEFAULTS, cleanSettings, printDefaultsFor } from '../shared/print';
 
 test('printerName shows the nozzle only when it is not 0.4', () => {
   assert.equal(printerName('Bambu Lab A1', 0.4), 'Bambu Lab A1');
@@ -41,4 +41,12 @@ test('clampFilaments: 1 to 16, default 4', () => {
 test('cleanSettings snaps layer height to the current nozzle', () => {
   setPrinter({ ...DEFAULT_PRINTER, nozzle: 0.2 });
   try { assert.equal(cleanSettings({ layerHeight: 0.2 }).layerHeight, 0.14); } finally { setPrinter(DEFAULT_PRINTER); }
+});
+
+test('printDefaultsFor: the A1 0.4 baseline, layer heights from the nozzle until its template is built', () => {
+  assert.deepEqual(printDefaultsFor(DEFAULT_PRINTER), A1_DEFAULTS);
+  const fine = printDefaultsFor({ ...DEFAULT_PRINTER, nozzle: 0.2 });
+  assert.deepEqual([fine.layerHeight, fine.firstLayerHeight], [0.1, 0.1]);
+  const coarse = printDefaultsFor({ ...DEFAULT_PRINTER, nozzle: 0.8 });
+  assert.deepEqual([coarse.layerHeight, coarse.firstLayerHeight], [0.4, 0.4]);
 });

@@ -7,6 +7,8 @@ import { Icon } from './Icon';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
 
 interface Props {
+  /** The chosen printer: its plate is drawn (redrawn when it changes). */
+  printerId?: string;
   /** A cost calculation under way (slicing in Bambu Studio), shown in the status bar from any tab. */
   costStatus?: { text: string; since: number } | null | false;
   result: EvalResult | null;
@@ -70,7 +72,7 @@ const f2 = (n: number) => n.toFixed(2);
 /** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
 const touch = window.matchMedia('(pointer: coarse)').matches;
 
-export function ViewerPanel({ costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner }: Props) {
+export function ViewerPanel({ printerId, costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -185,6 +187,7 @@ export function ViewerPanel({ costStatus, result, recolor, previewColors, error,
   useEffect(() => { viewer.current?.recolor(recolor?.part ?? null, recolor?.layers ?? null); }, [recolor, result]);
   useEffect(() => { viewer.current?.previewColors(previewColors ?? null); }, [previewColors, result]);
 
+  useEffect(() => { viewer.current?.refreshPlate(); }, [printerId]);
   useEffect(() => { viewer.current?.setOptions(options); }, [options]);
   useEffect(() => { viewer.current?.setRepaint(repaint ?? null); }, [repaint]);
 

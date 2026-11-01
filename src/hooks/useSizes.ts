@@ -1,3 +1,4 @@
+import { printer } from '../../shared/printer';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Design, EvalResult, ParamValues, Quality, Vec3 } from '../../shared/types';
 import type { BambuTemplate } from '../../shared/api';
@@ -48,7 +49,7 @@ export function useSizes(geo: GeometryClient, i: Inputs) {
   const resolvedOf = useCallback((s: DesignSize): ResolvedSize | null => (s.resolved && s.resolved.key === keyOf(s) ? s.resolved : null), [keyOf]);
   /** What a size is sliced with: the design's values, the size's, laid out for print. */
   const printValues = useCallback((r: ResolvedSize): ParamValues => ({ ...design.values, ...r.values, ...(layoutKey && printLayout ? { [layoutKey]: printLayout } : {}) }), [design.values, layoutKey, printLayout]);
-  const sliceKeyOf = useCallback((r: ResolvedSize) => hashText(costKey(design.code, printValues(r), i.hiddenParts, i.userPrint, i.oneColour)), [design.code, printValues, i.hiddenParts, i.userPrint, i.oneColour]);
+  const sliceKeyOf = useCallback((r: ResolvedSize) => hashText(costKey(design.code, printValues(r), i.hiddenParts, i.userPrint, i.oneColour, printer().id)), [design.code, printValues, i.hiddenParts, i.userPrint, i.oneColour, printer().id]);
 
   const latest = useRef({ design, assembled, keyOf, printValues, sliceKeyOf, i });
   latest.current = { design, assembled, keyOf, printValues, sliceKeyOf, i };
