@@ -161,7 +161,7 @@ export class Viewer {
     this.headlight.target.position.copy(this.controls.target);
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
-    declutter(this.labelRenderer.domElement);
+    declutter(this.labelRenderer.domElement, this.camera);
   };
 
   private resize() {
@@ -973,7 +973,7 @@ export class Viewer {
     this.renderer.render(this.scene, this.camera);
     // The labels too: a hidden view (loop) hasn't placed them since it was last shown.
     this.labelRenderer.render(this.scene, this.camera);
-    declutter(this.labelRenderer.domElement);
+    declutter(this.labelRenderer.domElement, this.camera);
     const src = this.renderer.domElement;
     const w = this.container.clientWidth, h = this.container.clientHeight;
     const k = Math.min(1, maxSize / Math.max(w, h));
@@ -988,6 +988,19 @@ export class Viewer {
       const base = this.container.getBoundingClientRect();
       ctx.font = `600 ${Math.max(9, Math.round(11.5 * k))}px ui-monospace, monospace`;
       ctx.textBaseline = 'middle';
+      // Leader lines first, under the labels they lead to.
+      for (const line of this.labelRenderer.domElement.querySelectorAll<HTMLElement>('.dim-leader')) {
+        const el = line.nextElementSibling;
+        if (line.style.display === 'none' || !el || (el as HTMLElement).offsetParent === null) continue;
+        const from = line.parentElement!.getBoundingClientRect(), to = el.getBoundingClientRect();
+        ctx.strokeStyle = line.style.background;
+        ctx.lineWidth = Math.max(1, k);
+        ctx.beginPath();
+        ctx.moveTo((from.left + from.width / 2 - base.left) * k, (from.top + from.height / 2 - base.top) * k);
+        ctx.lineTo((to.left + to.width / 2 - base.left) * k, (to.top + to.height / 2 - base.top) * k);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
       for (const el of this.labelRenderer.domElement.querySelectorAll<HTMLElement>('.dim-label')) {
         if (el.offsetParent === null) continue;
         const r = el.getBoundingClientRect();

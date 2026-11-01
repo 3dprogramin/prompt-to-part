@@ -392,6 +392,8 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .good-text { color: var(--good); text-align: right; }
 .bad-text { color: var(--bad); text-align: right; font-weight: 600; }
 .dim-label.editable { pointer-events: auto; cursor: text; }
+/* From a dimension to its label when the label had to step off the line (overlay.ts declutter). */
+.dim-leader { position: absolute; left: 50%; top: 50%; height: 1px; transform-origin: 0 50%; opacity: 0.7; pointer-events: none; }
 .dim-label.editable:hover { background: #26292f; box-shadow: 0 0 0 1px currentColor; }
 .dim-editor { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 7px; padding: 3px 8px 3px 3px; box-shadow: 0 8px 30px #000a; z-index: 20; font-size: 11px; color: var(--text-3); }
 .dim-editor input { width: 80px; background: var(--bg); border: 0; border-radius: 5px; padding: 4px 6px; outline: none; text-align: right; font-size: 13px; }
