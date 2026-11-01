@@ -1,0 +1,1 @@
+{ "type": "machine", "name": "Custom", "from": "User", "instantiation": "true", "printer_model": "Custom Printer", "nozzle_diameter": ["0.4"], "printable_area": ["0x0", "200x0", "200x200", "0x200"], "printable_height": "200" }

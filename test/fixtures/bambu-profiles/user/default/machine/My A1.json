@@ -1,0 +1,1 @@
+{ "type": "machine", "name": "My A1", "inherits": "Bambu Lab A1 0.4 nozzle", "from": "User", "instantiation": "true", "printable_height": "250" }

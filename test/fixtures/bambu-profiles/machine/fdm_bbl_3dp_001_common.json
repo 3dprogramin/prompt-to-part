@@ -1,0 +1,1 @@
+{ "type": "machine", "name": "fdm_bbl_3dp_001_common", "inherits": "fdm_machine_common", "from": "system", "instantiation": "false", "nozzle_diameter": ["0.4"], "printable_area": ["0x0", "256x0", "256x256", "0x256"] }

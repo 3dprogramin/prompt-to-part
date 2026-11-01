@@ -1,0 +1,1 @@
+{ "type": "machine", "name": "fdm_machine_common", "from": "system", "instantiation": "false", "printer_structure": "corexy", "printable_height": "250" }

@@ -1,0 +1,1 @@
+{ "type": "machine", "name": "Ender", "inherits": "Creality Ender-3 0.4 nozzle", "from": "User", "instantiation": "true" }

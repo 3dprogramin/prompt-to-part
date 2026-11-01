@@ -61,10 +61,46 @@ async function profilesDir(bin: string, work: string): Promise<string> {
   throw new Error('Could not find Bambu Studio printer profiles');
 }
 
-async function resolvePreset(dir: string, kind: string, name: string): Promise<Record<string, unknown>> {
-  const d = JSON.parse(await readFile(path.join(dir, kind, `${name}.json`), 'utf8')) as Record<string, unknown>;
-  const base = typeof d.inherits === 'string' && d.inherits ? await resolvePreset(dir, kind, d.inherits) : {};
+/** A preset file as it is (not resolved): the first of `dirs` (each holding machine/, process/, filament/) that has it, or null. */
+export async function readPreset(dirs: string[], kind: string, name: string): Promise<{ data: Record<string, unknown>; dir: string } | null> {
+  for (const dir of dirs) {
+    const text = await readFile(path.join(dir, kind, `${name}.json`), 'utf8').catch(() => null);
+    if (text != null) return { data: JSON.parse(text) as Record<string, unknown>, dir };
+  }
+  return null;
+}
+
+/** A preset with its `inherits` chain merged in, looked up in `dirs` in order (the user's presets first, then Bambu's). */
+export async function resolvePreset(dirs: string[], kind: string, name: string, depth = 0): Promise<Record<string, unknown>> {
+  const found = await readPreset(dirs, kind, name);
+  if (!found) throw new Error(`Bambu Studio has no ${kind} preset "${name}"`);
+  if (depth > 20) throw new Error(`The ${kind} preset "${name}" inherits in a loop`);
+  const d = found.data;
+  const base = typeof d.inherits === 'string' && d.inherits ? await resolvePreset(dirs, kind, d.inherits, depth + 1) : {};
   return { ...base, ...d };
+}
+
+let systemDir: Promise<string> | null = null;
+
+/**
+ * Bambu Studio's own profiles (resources/profiles/BBL): in place for an installed Bambu Studio, or
+ * extracted once per version from an AppImage into data/bambu/profiles.
+ */
+export function systemProfilesDir(): Promise<string> {
+  systemDir ??= (async () => {
+    const bin = await findBambuBinary();
+    if (!bin) throw new Error('Bambu Studio was not found on this computer');
+    const version = (await bambuVersion()) ?? 'unknown';
+    const target = path.join(DATA_DIR, 'bambu', 'profiles', version.replace(/[^\w.-]/g, '_'));
+    const done = path.join(target, '.done');
+    if (existsSync(done)) return readFile(done, 'utf8');
+    await mkdir(target, { recursive: true });
+    const dir = await profilesDir(bin, target);
+    await writeFile(done, dir);
+    return dir;
+  })();
+  systemDir.catch(() => { systemDir = null; });
+  return systemDir;
 }
 
 function cubeStl(): Buffer {
@@ -115,7 +151,7 @@ export async function bambuTemplate(): Promise<BambuTemplate> {
     try {
       const dir = await profilesDir(bin, work);
       for (const [kind, name] of Object.entries(PRESETS)) {
-        const p = await resolvePreset(dir, kind, name);
+        const p = await resolvePreset([dir], kind, name);
         delete p.inherits;
         p.from = 'system';
         p.name = name;
