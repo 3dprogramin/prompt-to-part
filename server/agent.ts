@@ -64,7 +64,7 @@ export function workspaceDir(designId: string) {
   return path.join(DATA_DIR, 'workspaces', designId);
 }
 
-export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEvent) => void, abort: AbortController): Promise<void> {
+export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEvent) => void, abort: AbortController, runQuery: typeof query = query): Promise<void> {
   const t0 = Date.now();
   const emit = (e: AgentEvent) => {
     if (e.type === 'step') e.step.at = Date.now() - t0;
@@ -298,7 +298,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // session starts from what it had cost before, so the reply's own cost is the difference (unknown
     // when the design doesn't know the earlier total, e.g. a session from before Jig kept it).
     const costBase = resume ? req.sessionCostUsd : 0;
-    const q = query({
+    const q = runQuery({
       prompt: messages(),
       options: {
         systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
