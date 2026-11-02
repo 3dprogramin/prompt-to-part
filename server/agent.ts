@@ -301,9 +301,16 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     const q = runQuery({
       prompt: messages(),
       options: {
-        systemPrompt: buildSystemPrompt(file, !!req.webSearch, printBase, artwork, layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined, lithophane ? { pictures: artworkAvailable() } : undefined,
-          figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined,
-          lineArt ? { pictures: artworkAvailable() } : undefined),
+        systemPrompt: buildSystemPrompt({
+          workspaceFile: file,
+          webSearch: !!req.webSearch,
+          printBase,
+          artwork,
+          layerTone: layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined,
+          lithophane: lithophane ? { pictures: artworkAvailable() } : undefined,
+          meshes: figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined,
+          lineArt: lineArt ? { pictures: artworkAvailable() } : undefined,
+        }),
         model: req.model || 'opus',
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },

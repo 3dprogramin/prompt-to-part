@@ -11,7 +11,18 @@ import { lithophanePrompt } from './prompt/lithophane';
 import { lineArtSection } from './prompt/lineArt';
 import { meshPrompt } from './prompt/meshes';
 
-export function buildSystemPrompt(workspaceFile: string, webSearch: boolean, printBase: Required<PrintSettings> = A1_DEFAULTS, artwork = false, layerTone?: { pictures: boolean; mine?: LayerToneFilament[] }, lithophane?: { pictures: boolean }, meshes?: { figure: boolean; meshy: boolean; concepts?: boolean; color?: boolean }, lineArt?: { pictures: boolean }): string {
+export interface SystemPromptOptions {
+  workspaceFile: string;
+  webSearch: boolean;
+  printBase?: Required<PrintSettings>; // default A1_DEFAULTS
+  artwork?: boolean;
+  layerTone?: { pictures: boolean; mine?: LayerToneFilament[] };
+  lithophane?: { pictures: boolean };
+  meshes?: { figure: boolean; meshy: boolean; concepts?: boolean; color?: boolean };
+  lineArt?: { pictures: boolean };
+}
+
+export function buildSystemPrompt({ workspaceFile, webSearch, printBase = A1_DEFAULTS, artwork = false, layerTone, lithophane, meshes, lineArt }: SystemPromptOptions): string {
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${printer().name} (FDM ${isBedSlinger() ? 'bed-slinger' : 'CoreXY'}, ${printer().nozzle} mm nozzle, PLA/PETG, build volume ${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)

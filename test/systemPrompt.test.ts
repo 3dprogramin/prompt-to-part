@@ -6,7 +6,7 @@ import { printDefaultsFor } from '../shared/print';
 
 const P1S: ActivePrinter = { ...DEFAULT_PRINTER, id: 'Bambu Lab P1S 0.4 nozzle', name: 'Bambu Lab P1S', model: 'Bambu Lab P1S', height: 250, structure: 'corexy', presets: { machine: 'Bambu Lab P1S 0.4 nozzle', process: '0.20mm Standard @BBL X1C', filament: 'Bambu PLA Basic @BBL P1S 0.4 nozzle' } };
 const MINI: ActivePrinter = { ...DEFAULT_PRINTER, id: 'Bambu Lab A1 mini 0.4 nozzle', name: 'Bambu Lab A1 mini', model: 'Bambu Lab A1 mini', bed: [180, 180], height: 180 };
-const all = (base = printDefaultsFor(DEFAULT_PRINTER)) => buildSystemPrompt('w.js', false, base, true, { pictures: true }, { pictures: true }, { figure: true, meshy: true }, { pictures: true });
+const all = (base = printDefaultsFor(DEFAULT_PRINTER)) => buildSystemPrompt({ workspaceFile: 'w.js', webSearch: false, printBase: base, artwork: true, layerTone: { pictures: true }, lithophane: { pictures: true }, meshes: { figure: true, meshy: true }, lineArt: { pictures: true } });
 const withPrinter = <T>(p: ActivePrinter, f: () => T): T => { setPrinter(p); try { return f(); } finally { setPrinter(DEFAULT_PRINTER); } };
 
 test('the A1 prompt keeps its wording', () => {

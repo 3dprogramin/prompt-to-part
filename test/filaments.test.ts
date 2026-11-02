@@ -198,11 +198,11 @@ test('my filaments: checked, saved in the data folder, read back', async () => {
 test('my filaments go into the LayerTone prompt, marked as the user\'s own', async () => {
   const { buildSystemPrompt } = await import('../server/systemPrompt');
   const mine = [{ name: 'PolyTerra Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5 }, { name: 'Leftover grey', color: '#808080', td: 1 }];
-  const p = buildSystemPrompt('/w/model.js', false, undefined, false, { pictures: false, mine });
+  const p = buildSystemPrompt({ workspaceFile: '/w/model.js', webSearch: false, layerTone: { pictures: false, mine } });
   assert.match(p, /The user's own filaments[^\n]*prefer them/);
   assert.match(p, /PolyTerra Teal \(Polymaker\) #33aa77 2\.5/);
   assert.match(p, /Leftover grey #808080 1\n/);
-  const none = buildSystemPrompt('/w/model.js', false, undefined, false, { pictures: false });
+  const none = buildSystemPrompt({ workspaceFile: '/w/model.js', webSearch: false, layerTone: { pictures: false } });
   assert.doesNotMatch(none, /The user's own filaments/);
-  assert.doesNotMatch(buildSystemPrompt('/w/model.js', false), /The user's own filaments/);
+  assert.doesNotMatch(buildSystemPrompt({ workspaceFile: '/w/model.js', webSearch: false }), /The user's own filaments/);
 });
