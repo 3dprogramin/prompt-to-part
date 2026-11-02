@@ -982,6 +982,63 @@ body.resizing { cursor: col-resize; user-select: none; }
 .mode-icon { width: 30px; height: 30px; flex-shrink: 0; display: grid; place-items: center; border-radius: 7px; background: var(--bg); border: 1px solid var(--line-2); color: var(--text-2); }
 .mode-default { margin-left: 7px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text-3); font: 600 9.5px/1.4 var(--sans); font-style: normal; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
 .mode-menu button.on .mode-icon { color: var(--accent-2); border-color: var(--accent); background: #e0a43c1a; }
+/* The picture mode menu: a grid of cards, each with a real example (3 columns, 2 in a narrow
+   menu), wider than the chat when there is room; its Example button opens a closer look. */
+.mode-menu.picture-menu { right: auto; width: min(560px, calc(100vw - 20px)); padding: 10px; container-type: inline-size; }
+.mode-grid-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 2px 8px; }
+.mode-grid-head b { font-size: 13px; font-weight: 600; }
+.mode-grid-head span { font-size: 11px; color: var(--text-3); }
+.mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mode-card { position: relative; min-width: 0; }
+.mode-menu .mode-card > button[role='menuitemradio'] { flex-direction: column; align-items: stretch; gap: 7px; height: 100%; padding: 6px 6px 8px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel); }
+.mode-menu .mode-card > button[role='menuitemradio']:hover { background: #ffffff0a; border-color: #4a505b; }
+.mode-menu .mode-card > button[role='menuitemradio']:focus-visible { box-shadow: none; outline: 2px solid var(--text-2); outline-offset: 1px; }
+.mode-menu .mode-card > button.on, .mode-menu .mode-card > button.on:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: #e0a43c0f; }
+.mode-menu .mode-card > button.on:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+.mode-thumb { display: grid; place-items: center; aspect-ratio: 1; border-radius: 7px; background: #f4f4f0; color: #5a5f68; overflow: hidden; }
+.mode-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.mode-menu .mode-card-text { gap: 2px; padding: 0 2px; min-width: 0; }
+.mode-card-text b { display: flex; align-items: center; gap: 5px; font-size: 12.5px; }
+.mode-card-text b svg { flex-shrink: 0; color: var(--text-2); }
+.mode-menu button.on .mode-card-text b svg { color: var(--accent-2); }
+.mode-card-text .mode-default { margin-left: auto; }
+.mode-menu .mode-card-text > span { font-size: 11px; line-height: 1.35; }
+.mode-menu button.unavailable .mode-thumb { opacity: 0.5; }
+.mode-menu .mode-card > .mode-example { position: absolute; top: 11px; right: 11px; display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 2px 7px 2px 6px; border-radius: 999px; background: #121316c7; color: #f2f2f2; font-size: 10.5px; font-weight: 500; line-height: 1.4; }
+.mode-menu .mode-card > .mode-example:hover { background: #121316f0; color: var(--accent-2); }
+@container (max-width: 459px) {
+  .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Shorter pictures, so all six cards fit above the chip on a phone. */
+  .mode-thumb { aspect-ratio: 4 / 3; }
+}
+/* A mode's example, up close: the picture on the left, the request and what Jig made on the right
+   (one above the other in a narrow window). */
+.mx-backdrop { position: fixed; inset: 0; z-index: 95; background: #0009; display: grid; place-items: center; padding: 16px; }
+.mx-panel { width: min(820px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 20px 60px #000b; container-type: inline-size; outline: none; }
+.mx-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; padding: 16px; }
+.mx-media { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mx-big { display: grid; place-items: center; aspect-ratio: 1; border-radius: 9px; background: #f4f4f0; color: #5a5f68; overflow: hidden; }
+.mx-big img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.mx-strip { display: flex; align-items: center; gap: 6px; }
+.mx-strip button { width: 52px; height: 52px; padding: 0; border: 1px solid var(--line-2); border-radius: 7px; background: #f4f4f0; overflow: hidden; }
+.mx-strip button img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mx-strip button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.mx-caption { margin-left: 4px; font-size: 11.5px; color: var(--text-3); }
+.mx-side { display: flex; flex-direction: column; min-width: 0; }
+.mx-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.mx-head h3 { display: flex; align-items: center; gap: 7px; margin: 2px 0 0; font-size: 16px; }
+.mx-head h3 svg { color: var(--accent-2); }
+.mx-close { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line-2); border-radius: 7px; background: transparent; color: var(--text-2); }
+.mx-close:hover { color: var(--text); border-color: #4a505b; }
+.mx-label { margin-bottom: 6px; font: 600 10.5px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+.mx-request { margin: 0 0 16px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+.mx-facts { margin: 0 0 18px; padding-left: 18px; color: var(--text-2); display: flex; flex-direction: column; gap: 5px; }
+.mx-facts li::marker { color: var(--text-3); }
+.mx-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+@container (max-width: 699px) {
+  .mx-body { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px; }
+  .mx-big { aspect-ratio: auto; height: min(calc(100cqw - 28px), 40dvh); }
+}
 
 /* ---------- LayerTone (Print tab) ---------- */
 .layertone-panel { display: flex; flex-direction: column; gap: 8px; }

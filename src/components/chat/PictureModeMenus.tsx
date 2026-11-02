@@ -1,12 +1,14 @@
 // The composer's picture mode chip (3D model, AI artwork, LayerTone, Lithophane, Line art, 3D
 // figure) and the ▾ menus beside it: the 3D figure's options and the line art's style.
 import { meshColorBudget } from '../../../shared/meshColors';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GenerateRequest, MeshyBalance } from '../../../shared/api';
 import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits } from '../../../shared/meshes';
 import { DEFAULT_LINE_ART_STYLE, LINE_ART_STYLE_INFO, LINE_ART_STYLES, type LineArtStyle } from '../../../shared/lineart';
 import { AUTO_BUILD_SECONDS } from '../../lib/autoBuild';
 import { Icon } from '../Icon';
+import { ModeExamplePanel } from './ModeExamplePanel';
+import type { ModeExample } from './modeImages';
 import { useChipMenu } from './useChipMenu';
 
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
@@ -98,25 +100,60 @@ export function LineArtMenu({ style, onStyle }: { style: LineArtStyle; onStyle: 
   );
 }
 
-export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineArtStyle, split, autoBuild, onMode }: {
+export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineArtStyle, split, autoBuild, examples, onMode, onTryRequest }: {
   mode: ImageMode; artworkModel: string | null; meshy: boolean; credits: MeshyBalance | null; color: boolean; lineArtStyle: LineArtStyle;
   /** A ▾ menu (3D figure, Line art) is attached on the right; a figure's button then also marks Colour on and Wait for my OK off (`autoBuild`). */
   split: boolean; autoBuild: boolean; onMode: (m: ImageMode) => void;
+  /** Each mode's example (MODE_EXAMPLES): passed in, as its pictures need Vite and the tests import this file. */
+  examples: Record<ImageMode, ModeExample>;
+  /** "Try this request" in a mode's example: pick that mode and put its request in the message box. */
+  onTryRequest: (mode: ImageMode, request: string) => void;
 }) {
-  const { open, wrap, menu, triggerProps, onMenuKey: onKey, close } = useChipMenu();
+  const { open, setOpen, wrap, menu, triggerProps, close } = useChipMenu();
   const modes = IMAGE_MODES.filter((m) => m.mode !== 'artwork' || artworkModel || mode === 'artwork');
   const current = IMAGE_MODES.find((m) => m.mode === mode) ?? IMAGE_MODES[0];
+  // The mode whose example is open, and what had the focus before (its card or its Example button).
+  const [example, setExample] = useState<ImageMode | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => { if (!open) setExample(null); }, [open]);
   // Opening puts the focus on the chosen mode; arrows, Home and End move it.
   useEffect(() => { if (open) menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus(); }, [open]);
   // Picking another mode keeps the menu open (to compare the modes); picking the chosen one again,
   // Escape, Tab or a click outside closes it.
   const pick = (m: ImageMode) => (m !== mode ? onMode(m) : close());
+  // Without a Meshy key the 3D figure is shown, saying what it needs, but can't be chosen.
+  const unavailable = (m: ImageMode) => m === 'figure' && !meshy && mode !== 'figure';
+  const showExample = (m: ImageMode, from: HTMLElement | null) => { opener.current = from; setExample(m); };
+  const closeExample = () => { setExample(null); const el = opener.current; if (el?.isConnected) el.focus(); };
+  // The cards are a grid: left and right move one card, up and down one row (2 or 3 columns, by
+  // the menu's width), Home and End to the first and last; E opens the focused card's example.
+  const onKey = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Tab') { setOpen(false); return; }
+    const cards = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
+    const active = document.activeElement;
+    const i = cards.findIndex((c) => c === active || c.parentElement?.contains(active));
+    if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const m = cards[i]?.dataset.mode as ImageMode | undefined;
+      if (m) { e.preventDefault(); showExample(m, cards[i]); }
+      return;
+    }
+    const grid = menu.current?.querySelector<HTMLElement>('.mode-grid');
+    const cols = grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length : 1;
+    const n = cards.length, last = n - 1;
+    const to = e.key === 'ArrowRight' ? (i + 1) % n
+      : e.key === 'ArrowLeft' ? (i <= 0 ? last : i - 1)
+      : e.key === 'ArrowDown' ? (i < 0 ? 0 : i + cols <= last ? i + cols : Math.floor(i / cols) < Math.floor(last / cols) ? last : i)
+      : e.key === 'ArrowUp' ? (i < 0 ? last : i - cols >= 0 ? i - cols : i)
+      : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1;
+    if (to >= 0) { e.preventDefault(); cards[to]?.focus(); }
+  };
   const figure = split && mode === 'figure';
   const marks = figure && (color || autoBuild);
   // Line art names its style (but plain "Line art" for the default outline).
   const style = mode === 'lineart' ? LINE_ART_STYLE_INFO[lineArtStyle] : null;
   const short = style && lineArtStyle !== DEFAULT_LINE_ART_STYLE ? style.label : current.short;
   const name = style ? `${current.label} – ${style.label}` : current.label;
+  const shown = example ? IMAGE_MODES.find((m) => m.mode === example) : null;
   return (
     <span className="mode-wrap" ref={wrap}>
       <button
@@ -137,19 +174,34 @@ export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineA
         )}
       </button>
       {open && (
-        <div className="mode-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>
-          {modes.map((m) => {
-            // Without a Meshy key the mode is shown, saying what it needs, but can't be chosen.
-            const off = m.mode === 'figure' && !meshy && mode !== 'figure';
-            return (
-              <button key={m.mode} role="menuitemradio" aria-checked={m.mode === mode} aria-disabled={off || undefined} className={`${m.mode === mode ? 'on' : ''} ${off ? 'unavailable' : ''}`} onClick={() => { if (!off) pick(m.mode); }}
-                title={`${m.hint(artworkModel, meshy)}${m.mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''}`}>
-                <span className="mode-check" aria-hidden>{m.mode === mode && <Icon name="check" size={13} />}</span>
-                <span className="mode-icon" aria-hidden><Icon name={m.icon} size={16} /></span>
-                <span><b>{m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.desc(meshy)}</span></span>
-              </button>
-            );
-          })}
+        <div className="mode-menu picture-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>
+          <div className="mode-grid-head" aria-hidden><b>What should Jig make?</b><span>Click a card to pick it</span></div>
+          <div className="mode-grid" role="none">
+            {modes.map((m) => {
+              const off = unavailable(m.mode);
+              const ex = examples[m.mode];
+              return (
+                <div key={m.mode} className="mode-card" role="none">
+                  <button role="menuitemradio" data-mode={m.mode} aria-checked={m.mode === mode} aria-disabled={off || undefined} className={`${m.mode === mode ? 'on' : ''} ${off ? 'unavailable' : ''}`} onClick={() => { if (!off) pick(m.mode); }}
+                    title={`${m.hint(artworkModel, meshy)}${m.mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''} Press E for an example.`}>
+                    <span className="mode-thumb" aria-hidden>{ex.thumb ? <img src={ex.thumb} alt="" /> : <Icon name={m.icon} size={28} />}</span>
+                    <span className="mode-card-text"><b><Icon name={m.icon} size={14} /> {m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.desc(meshy)}</span></span>
+                  </button>
+                  <button className="mode-example" tabIndex={-1} aria-label={`Example of ${m.label}`} title={`Example of ${m.label}: what Jig made for one request`}
+                    onClick={(e) => { e.stopPropagation(); showExample(m.mode, e.currentTarget); }}>
+                    <Icon name="eye" size={11} /> Example
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {shown && example && (
+            <ModeExamplePanel mode={example} example={examples[example]} label={shown.label} icon={shown.icon}
+              unavailable={unavailable(example) ? shown.desc(meshy) : undefined}
+              onClose={closeExample}
+              onUse={() => { setExample(null); if (example !== mode) onMode(example); close(); }}
+              onTry={() => { setExample(null); setOpen(false); onTryRequest(unavailable(example) ? mode : example, examples[example].request); }} />
+          )}
         </div>
       )}
     </span>

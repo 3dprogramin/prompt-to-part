@@ -18,6 +18,7 @@ import type { AutoBuild } from '../lib/autoBuild';
 import { ModelMenu } from './chat/ModelMenu';
 import { OptionsMenu } from './chat/OptionsMenu';
 import { FigureMenu, ImageModeMenu, LineArtMenu, type ImageMode } from './chat/PictureModeMenus';
+import { MODE_EXAMPLES } from './chat/modeImages';
 import { Message } from './chat/Message';
 import { AutoBuildCard } from './chat/AutoBuildCard';
 import { clip, meshSummary } from './chat/text';
@@ -101,6 +102,13 @@ export function ChatPanel(p: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // "Try this request" in a picture mode's example: that mode, and its request in the box (after
+  // what is already typed, on a new line), ready to send or change.
+  const tryRequest = (mode: ImageMode, request: string) => {
+    if (mode !== p.imageMode) p.onImageMode(mode);
+    setText((t) => (t.trim() ? `${t.trimEnd()}\n${request}` : request));
+    requestAnimationFrame(() => { const el = textarea.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  };
   // Follow new output only while the chat is scrolled to the bottom, so earlier messages can be
   // read while Claude works; a new message (sending one) always scrolls down.
   const atBottom = useRef(true);
@@ -429,7 +437,7 @@ export function ChatPanel(p: Props) {
                 (the figure's Colour, Wait for my OK and credits; the line art's style). */}
             <span className="mode-split">
               <ImageModeMenu mode={p.imageMode} artworkModel={p.artworkModel} meshy={p.meshy} credits={p.meshyCredits} color={p.figureColor} lineArtStyle={p.lineArtStyle}
-                split={(p.imageMode === 'figure' && p.meshy) || p.imageMode === 'lineart'} autoBuild={p.imageMode === 'figure' && p.meshy && !!p.artworkModel && !p.waitForOk} onMode={p.onImageMode} />
+                split={(p.imageMode === 'figure' && p.meshy) || p.imageMode === 'lineart'} autoBuild={p.imageMode === 'figure' && p.meshy && !!p.artworkModel && !p.waitForOk} examples={MODE_EXAMPLES} onMode={p.onImageMode} onTryRequest={tryRequest} />
               {p.imageMode === 'figure' && p.meshy && (
                 <FigureMenu color={p.figureColor} onColor={p.onFigureColor} waitForOk={p.artworkModel ? p.waitForOk : null} onWaitForOk={p.onWaitForOk} credits={p.meshyCredits} />
               )}
