@@ -12,6 +12,7 @@ import type { ConceptEntry, MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
 import type { UsageWindow } from './usage';
 import type { ChatQuestion } from './questions';
+import type { StabilityReport } from './stability';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -79,7 +80,8 @@ export type AgentEvent =
   | { type: 'moved' }
   | { type: 'session'; sessionId: string }
   | { type: 'step'; step: AgentStep }
-  | { type: 'model'; code: string; summary: string; sources: DimensionSource[] }
+  /** stability: submit_model's tipping check (missing if it couldn't run). */
+  | { type: 'model'; code: string; summary: string; sources: DimensionSource[]; stability?: StabilityReport }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string; costUsd?: number; sessionCostUsd?: number }
   /** resetsAt: when the reached usage limit lifts (ms), if known; the page adds it in local time. */
   | { type: 'error'; message: string; resetsAt?: number }

@@ -138,6 +138,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   };
   // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
   const myFilaments = layerTone ? await readMyFilaments() : [];
+  // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
+  await printerLoaded().catch(() => undefined);
+  const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());
   const { server: cad, state, newUserMessage } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
     pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
@@ -146,10 +149,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
     lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
     askFirst: req.askFirst !== false,
+    printBase,
   });
-  // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
-  await printerLoaded().catch(() => undefined);
-  const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
   const parts: string[] = [];

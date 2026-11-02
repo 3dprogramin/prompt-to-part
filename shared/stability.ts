@@ -50,6 +50,9 @@ export function footprint(parts: { positions: Float32Array }[], tolerance = 0.5)
 
 export interface PoseCheck { pose: string; ok: boolean; mass: number; com: [number, number, number]; edgeMm: number; tiltDeg: number; error?: string }
 
+/** submit_model's tipping check, kept with the version: every pose checked, the loads the script declared, and the AI's reason if it was let through anyway. */
+export interface StabilityReport { poses: PoseCheck[]; loads: string[]; explanation?: string }
+
 /** Signed distance from p to the nearest edge of a CCW polygon, negative outside. */
 function edgeDistance(p: V2, poly: V2[]): number {
   let d = Infinity, inside = true;

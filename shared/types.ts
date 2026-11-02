@@ -1,4 +1,4 @@
-import type { Load } from './stability';
+import type { Load, StabilityReport } from './stability';
 import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
 import type { LayerToneSource, LayerColor } from './layertone';
@@ -261,6 +261,8 @@ export interface DesignVersion {
   values?: ParamValues;
   /** Claude's versions: where the real-world dimensions it designed around came from. */
   sources?: DimensionSource[];
+  /** Claude's versions: the tipping check submit_model ran (missing if it couldn't run). */
+  stability?: StabilityReport;
 }
 
 export interface Design {

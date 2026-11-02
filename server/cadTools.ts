@@ -10,6 +10,9 @@ import { scadFileName } from '../shared/scad';
 import { requestImage } from './artwork';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
+import { printDefaultsFor, type PrintSettings } from '../shared/print';
+import { printer } from '../shared/printer';
+import { formatPose, type StabilityReport } from '../shared/stability';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
 import type { AiImages, LineArtOptions, MeshyOptions, ToolContext } from './tools/context';
 import { layerToneTools } from './tools/layerTone';
@@ -24,6 +27,15 @@ const sourcesSchema = z.array(z.object({
   kind: z.enum(SOURCE_KIND_NAMES).describe(`Where it came from: ${SOURCE_KIND_NAMES.map((k) => `${k} = ${SOURCE_KINDS[k].hint.toLowerCase()}`).join('; ')}`),
   url: z.string().max(1000).optional().describe('The page or document it came from (required for official, distributor, community and social)'),
 })).max(40).describe('Every real-world dimension the design depends on (a product it must fit, a standard part, a size the user gave) and where it came from; [] if it depends on none.');
+
+const stabilitySchema = z.object({
+  poses: z.array(z.object({
+    label: z.string().max(60).describe('What the pose is, e.g. "tilt 60"'),
+    values: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).describe('The parameter values that make the pose, e.g. { tilt: 60 }'),
+  })).max(12).optional().describe('Extra poses to check besides the defaults: one for every tilt, swivel or reach limit (each slider at its min and max) that moves weight over the edge of the base'),
+  upright: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Only if the design is printed in a different orientation than it stands in use: the XYZ rotation in degrees that turns it upright, e.g. [0, -90, 0]'),
+  explanation: z.string().max(300).optional().describe('Only if it can\'t tip in use: why, e.g. "screwed to the wall", "clamped to the desk", "lies flat"'),
+}).optional().describe('The tipping check: the design must stand on its base with its declared loads in every pose');
 
 const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional()
   .describe('Optional parameter values to test with (defaults are used for missing keys)');
@@ -52,6 +64,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   image?: typeof requestImage;
   /** "Ask first" is on: ask_questions is there. */
   askFirst?: boolean;
+  /** The print baseline (the chosen printer's profile), for weighing parts in the tipping check. */
+  printBase?: Required<PrintSettings>;
 } = {}) {
   const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst } = extra;
   const drawImage = extra.image ?? requestImage;
@@ -146,7 +160,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-      tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max. Rejected if anything fails (set force=true only if a failure is truly unavoidable and harmless).', {
+      tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max (set force=true only if a stress failure is truly unavoidable and harmless). Then checks the design doesn\'t tip over: parts weighed as printed PLA plus the loads build() declares, at the defaults and every pose in stability.poses (give one for every tilt or swivel limit). Pass stability.upright if it is printed lying down, and stability.explanation only if it can\'t tip in use (wall-mounted, clamped, lies flat). Rejected if anything fails.', {
         summary: z.string().describe('One or two sentences describing this version (shown in version history)'),
         sources: sourcesSchema,
         force: z.boolean().optional(),
@@ -157,7 +171,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           independentParts: z.string().optional().describe('Only if the parts are separate objects that are never assembled together: say why'),
           singlePrint: z.boolean().optional().describe('True if the parts are coloured regions of one object printed together in place (multi-colour)'),
         }).optional().describe('Required when the model has more than one part'),
-      }, async ({ summary, sources: rawSources, force, assembly }) => {
+        stability: stabilitySchema,
+      }, async ({ summary, sources: rawSources, force, assembly, stability: tipping }) => {
         const code = await readModel();
         if (code == null) return noFile;
         const problem = sourcesProblem(rawSources);
@@ -185,6 +200,28 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
               content: [{ type: 'text', text: `Rejected – ${s.failures.length} of ${s.tested} slider-extreme cases fail:\n${s.failures.slice(0, 15).map((f) => `  - ${f.case}: ${f.error}`).join('\n')}\nClamp derived values inside build() or narrow the parameter ranges, then submit again.` }],
               isError: true,
             };
+          }
+          // The tipping check, at the defaults and every pose Claude names (assembled, for a multi-part design).
+          let report: StabilityReport | undefined;
+          let tippingStep: { ok: boolean; text: string; detail?: string };
+          const layout = assembly?.layoutParam && assembly.assembledValue ? { [assembly.layoutParam]: assembly.assembledValue } : {};
+          const poses = [{ label: 'default', values: {} }, ...(tipping?.poses ?? [])].map((p) => ({ label: p.label, values: { ...p.values, ...layout } }));
+          try {
+            const t = await geometry.stability({ code, extra: base, poses, printBase: extra.printBase ?? printDefaultsFor(printer()), nozzle: printer().nozzle, upright: tipping?.upright });
+            const detail = t.poses.map(formatPose).join('\n') + (t.loads.length ? `\nLoads: ${t.loads.join(', ')}` : '');
+            const failing = t.poses.filter((p) => !p.ok);
+            if (failing.length && !tipping?.explanation) {
+              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Tipping check: ${failing.length} of ${t.poses.length} pose(s) tip over`, detail } });
+              return {
+                content: [{ type: 'text', text: `Rejected - the design tips over:\n${failing.map(formatPose).join('\n')}\nFix it (wider or heavier base, lower hinge, load moved back over the base) or pass stability.explanation if it can't tip in use (wall-mounted, clamped, lies flat).` }],
+                isError: true,
+              };
+            }
+            report = { ...t, ...(tipping?.explanation ? { explanation: tipping.explanation } : {}) };
+            tippingStep = { ok: true, text: failing.length ? `Tipping check: explained - ${tipping!.explanation}` : `Tipping check passed (${t.poses.length} pose${t.poses.length === 1 ? '' : 's'})`, detail };
+          } catch (e) {
+            // A check that couldn't run (timeout, worker error) doesn't block the design.
+            tippingStep = { ok: false, text: `Tipping check couldn't run: ${(e as Error).message}` };
           }
           // Multi-part designs: the user gets assembled + exploded pictures.
           const pictures: { label: string; png: string }[] = [];
@@ -219,7 +256,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           }
           state.submitted = true;
           emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Stress test passed (${s.tested} cases)${s.skipped ? `, ${s.skipped} skipped for time` : ''}` } });
-          emit({ type: 'model', code, summary, sources });
+          emit({ type: 'step', step: { kind: 'tool', ...tippingStep } });
+          emit({ type: 'model', code, summary, sources, ...(report ? { stability: report } : {}) });
           for (const p of pictures) emit({ type: 'step', step: { kind: 'assembly', ok: true, text: p.label, image: `data:image/png;base64,${p.png}` } });
           if (!pictures.length) return { content: [{ type: 'text', text: 'Accepted and loaded in the user\'s viewer. Now end your turn with a short message to the user.' }] };
           return {
