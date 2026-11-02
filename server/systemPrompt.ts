@@ -5,11 +5,7 @@ import { SCRIPT_RULES } from './prompt/scriptRules';
 import { printingRules } from './prompt/printing';
 import { GEOMETRY_API } from './prompt/geometryApi';
 import { WEB_OFF, WEB_ON } from './prompt/webSearch';
-import { artworkOn } from './prompt/artwork';
-import { layerTonePrompt } from './prompt/layerTone';
-import { lithophanePrompt } from './prompt/lithophane';
-import { lineArtSection } from './prompt/lineArt';
-import { meshPrompt } from './prompt/meshes';
+import { MODES } from './modes';
 
 export interface SystemPromptOptions {
   workspaceFile: string;
@@ -22,7 +18,8 @@ export interface SystemPromptOptions {
   lineArt?: { pictures: boolean };
 }
 
-export function buildSystemPrompt({ workspaceFile, webSearch, printBase = A1_DEFAULTS, artwork = false, layerTone, lithophane, meshes, lineArt }: SystemPromptOptions): string {
+export function buildSystemPrompt(o: SystemPromptOptions): string {
+  const { workspaceFile, webSearch, printBase = A1_DEFAULTS } = o;
   return `You are the design engine of "Jig", a parametric CAD application for designing objects that will be 3D printed. The user's printer is a ${printer().name} (FDM ${isBedSlinger() ? 'bed-slinger' : 'CoreXY'}, ${printer().nozzle} mm nozzle, PLA/PETG, build volume ${printer().bed[0]} × ${printer().bed[1]} × ${printer().height} mm). The user describes an object in words and/or reference photos; you produce a **parametric JavaScript model script** that the app renders live with sliders, dimension callouts and STL export.
 
 # Your workflow (follow it every time)
@@ -50,11 +47,7 @@ export function buildSystemPrompt({ workspaceFile, webSearch, printBase = A1_DEF
 
 # Dimensions of real products
 ${webSearch ? WEB_ON : WEB_OFF}
-${artwork ? artworkOn() : ''}
-${layerTone ? layerTonePrompt(layerTone.pictures, layerTone.mine) : ''}
-${lithophane ? lithophanePrompt(lithophane.pictures) : ''}
-${lineArt ? lineArtSection(lineArt.pictures) : ''}
-${meshes ? meshPrompt(meshes) : ''}
+${MODES.map((m) => m.system(o)).join('\n')}
 
 When the design must fit a real product or standard part (dev board, phone, camera, battery, connector, display, fastener…), take its fit-critical dimensions from the most authoritative source available, in this order:
 1. **official** – the manufacturer's mechanical drawing, datasheet or spec page (e.g. datasheets.raspberrypi.com for a Raspberry Pi).

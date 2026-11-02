@@ -1,7 +1,9 @@
-// The system prompt's section for LayerTone mode (H.layertone), with the filament library to pick from.
+// LayerTone mode (H.layertone): its system prompt section, with the filament library to pick from,
+// and its notes on the user's setup and pictures.
 import { loadsAtOnce, maxPiece, printer } from '../../shared/printer';
 import { FILAMENT_LIBRARY } from '../../shared/filaments';
-import type { LayerToneFilament } from '../../shared/layertone';
+import { LAYERTONE_KEY, type LayerToneFilament } from '../../shared/layertone';
+import type { PromptMode } from './types';
 
 /** The filament library, one line per brand and line, for Claude to pick LayerTone filaments from. */
 const FILAMENT_LINES = (() => {
@@ -17,7 +19,7 @@ const FILAMENT_LINES = (() => {
 /** The user's own filaments (saved in the LayerTone panel), one per line. */
 const myFilamentLines = (mine: LayerToneFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
 
-export function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = []) {
+function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = []) {
   const loads = printer().filaments;
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   return `LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
@@ -44,3 +46,17 @@ ${myFilamentLines(mine)}
 - Keep it on the bed (no moving in Z) and don't scale it. You may add a stand, hanging hole or frame as extra parts, but the picture part must stay a plain H.layertone part.
 - Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the LayerTone panel (Print tab) or ask you to.`;
 }
+
+export const layerTone: PromptMode = {
+  id: 'layerTone',
+  active: (m) => m.layerTone,
+  system: (o) => (o.layerTone ? layerTonePrompt(o.layerTone.pictures, o.layerTone.mine) : ''),
+  turnNotes: ({ isFollowUp, pictureValues, layerToneImages, newPictures, images }) => {
+    const names = Object.keys(layerToneImages);
+    const setup = typeof pictureValues[LAYERTONE_KEY] === 'string' ? pictureValues[LAYERTONE_KEY] : null;
+    return [
+      ...(isFollowUp ? [setup ? `The LayerTone setup (the user's panel; set_layertone changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_layertone changes that).'] : []),
+      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`,
+    ];
+  },
+};

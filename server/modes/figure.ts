@@ -1,9 +1,11 @@
-// The system prompt's section on meshes: imported models and AI 3D figures made with Meshy.
+// 3D figure mode and meshes (imported models and AI 3D figures made with Meshy): the system prompt's
+// section on them and the notes on the design's meshes, concept pictures and the figure.
 import { loadsAtOnce, printer } from '../../shared/printer';
 import { meshColorBudget } from '../../shared/meshColors';
-import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyMaxPerReply } from '../meshy';
+import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply } from '../meshy';
+import type { PromptMode } from './types';
 
-export function meshPrompt({ figure, meshy, concepts, color }: { figure: boolean; meshy: boolean; concepts?: boolean; color?: boolean }) {
+function meshPrompt({ figure, meshy, concepts, color }: { figure: boolean; meshy: boolean; concepts?: boolean; color?: boolean }) {
   const max = meshyMaxPerReply();
   return `# Meshes (imported models and AI 3D figures)
 This design works with ready-made meshes: models the user attached (STL, OBJ, GLB, 3MF; each arrives with a four-view render and an import report)${meshy ? ' and ones you have made with generate_3d' : ''}. Jig has already repaired each one (welded, holes closed, inside-out faces flipped, or rebuilt as a watertight solid on a fine grid; heavy meshes simplified) and stored it with the design. Use them with H.mesh(name, …), which returns an ordinary Manifold.
@@ -23,3 +25,32 @@ ${meshy ? `
 - Colours stay on the mesh's triangles through the script (union, subtract, trimByPlane, splitByPlane, transforms); geometry you build has its part's colour. Count every part's colour against the 4 filaments: give a base, plinth or name plate one of the figure's filament colours (usually its darkest, e.g. black, or white), unless the figure has fewer than 4 – then a colour of its own is fine. Ask for fewer colours with generate_3d's colors (e.g. 3) when the user wants a base in another colour. Jig warns (evaluate_model) when the design needs more than 4.
 - A coloured figure and its base are best one part (a union): one solid, painted per triangle, exported to Bambu Studio with its filaments.` : ''}`;
 }
+
+export const figure: PromptMode = {
+  id: 'figure',
+  // Not only figures: any design can hold meshes (attached files need no Meshy key) and concept
+  // pictures, which ActiveModes doesn't show, so each note checks its own condition.
+  active: () => true,
+  // The section applies whenever the design works with meshes (agent.ts decides o.meshes).
+  system: (o) => (o.meshes ? meshPrompt(o.meshes) : ''),
+  turnNotes: ({ meshes, attachedMeshes, concepts, references }, m) => {
+    const notes: string[] = [];
+    // Mesh files attached now get their own note and picture in agent.ts.
+    if (Object.keys(meshes).length && !attachedMeshes.length) {
+      notes.push(`Meshes in this design (H.mesh): ${Object.entries(meshes).map(([n, e]) => `"${n}" (${e.source === 'meshy' ? `made with generate_3d${e.prompt ? `: ${e.prompt.slice(0, 120)}` : ''}` : `from ${e.original ?? 'a file'}`}; ${e.size.map((x) => x.toFixed(0)).join(' × ')} mm as stored, ${e.triangles.toLocaleString('en')} triangles)`).join(', ')}.`);
+    }
+    if (m.meshTools && Object.keys(concepts).length) {
+      notes.push(`Concept pictures in this design (generate_3d from_concept builds one; the newest is last): ${Object.entries(concepts).map(([n, c]) => `"${n}" (${c.subject.slice(0, 160)}${c.painted ? '; in colour: the shape and its painted colours' : ''})`).join(', ')}.`);
+    }
+    if (!m.figure) return notes;
+    // In figure mode meshTools is exactly "Jig has a Meshy key".
+    if (!m.meshTools) notes.push('3D figure mode is on, but Jig has no Meshy key (MESHY_API_KEY), so generate_3d is not available.');
+    else if (references.length) notes.push('3D figure mode is on: make the subject with generate_3d (from_photo: true builds it from the attached photo) and build the design around it with H.mesh.');
+    else if (m.conceptTools) notes.push(`3D figure mode is on: if the user is approving a concept picture, build it with generate_3d({ name, from_concept }) and the design around it with H.mesh; if they want it changed, draw a new one with generate_concept. For a new figure, draw a concept picture with generate_concept and end your reply asking the user to approve it (no generate_3d in this reply) – unless they said to skip the picture and go straight to 3D. Each Meshy model costs ${meshyCredits(m.figureColor)} credits.`);
+    else notes.push('3D figure mode is on: make the subject with generate_3d and build the design around it with H.mesh.');
+    if (m.meshTools) notes.push(m.figureColor
+      ? `Colour is on: the figure is made in colour – each concept is a grey picture (the shape) and the same picture painted (the colours), generate_3d textured from the painted one (${MESHY_CREDITS_PER_COLOR_MODEL} credits a model), its colours printed in up to 4 filaments (see "Coloured figures").`
+      : `Colour is off: figures are grey and print in one colour (${MESHY_CREDITS_PER_MODEL} credits a model). If the user asks for a figure in colour, use color: true on generate_concept and generate_3d (${MESHY_CREDITS_PER_COLOR_MODEL} credits) and tell them about the Colour switch next to the Figure button.`);
+    return notes;
+  },
+};

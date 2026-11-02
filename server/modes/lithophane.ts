@@ -1,7 +1,8 @@
-// The system prompt's section for Lithophane mode (H.lithophane).
+// Lithophane mode (H.lithophane): its system prompt section and its note on the pictures.
 import { printer } from '../../shared/printer';
+import type { PromptMode } from './types';
 
-export function lithophanePrompt(pictures: boolean) {
+function lithophanePrompt(pictures: boolean) {
   return `Lithophane mode is ON: the user wants a lithophane – a photo printed in white PLA as a panel that is thick where the picture is dark and thin where it is bright, so it shows the picture when lit from behind.
 - Build it with H.lithophane(picture, { width, minThickness, maxThickness, border, shape, angle, stand, standHeight, gamma, invert, upright }) → { shape, print, lithophane, note }. Return it as one part so its print settings (0.12 mm layers, 100 % infill, enough walls to fill the panel solid, a brim unless it has a foot) are used:
     const params = { width: { label: 'Width', value: 100, min: 50, max: 200, step: 1, unit: 'mm', group: 'Lithophane' }, minThickness: { label: 'Thinnest (bright)', value: 0.8, min: 0.6, max: 1.2, step: 0.1, unit: 'mm', group: 'Lithophane' }, maxThickness: { label: 'Thickest (dark)', value: 3, min: 2, max: 4, step: 0.1, unit: 'mm', group: 'Lithophane' }, border: { label: 'Frame', value: 3, min: 0, max: 8, step: 0.5, unit: 'mm', group: 'Lithophane' }, stand: { label: 'Foot depth (0 = none)', value: 20, min: 0, max: 40, step: 1, unit: 'mm', group: 'Lithophane' } };
@@ -19,3 +20,13 @@ export function lithophanePrompt(pictures: boolean) {
 - Don't use H.layertone in this design: a design is a lithophane or a LayerTone print, not both.
 - Check it with render_model: it shows the panel lit from behind (thin = warm white, thick = dark), and the report gives its size and thicknesses. In your final message give the size (width × height × depth), the thinnest/thickest values and the print advice: white PLA (e.g. Bambu PLA Basic White or Jade White), standing up as built, 0.12 mm layers, 100 % infill, the walls from the print settings, a brim unless it has a foot, and an LED light behind it (not a hot bulb: PLA softens at about 60 °C). The user sees the picture and the lit preview in the Lithophane section of the Print tab.`;
 }
+
+export const lithophane: PromptMode = {
+  id: 'lithophane',
+  active: (m) => m.lithophane,
+  system: (o) => (o.lithophane ? lithophanePrompt(o.lithophane.pictures) : ''),
+  turnNotes: ({ layerToneImages, newPictures, images }) => {
+    const names = Object.keys(layerToneImages);
+    return [`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`];
+  },
+};

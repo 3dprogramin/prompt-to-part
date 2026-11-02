@@ -7,6 +7,7 @@ import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/clau
 import type { AgentEvent, GenerateRequest } from '../shared/api';
 import { cadTools } from './cadTools';
 import { detectModes } from './modes/detect';
+import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { authMode, claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
@@ -28,12 +29,12 @@ import { printer } from '../shared/printer';
 import type { ParamValues } from '../shared/types';
 import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
-import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyClient, meshyCredits } from './meshy';
+import { meshyClient } from './meshy';
 import { recordRateLimit } from './usage';
 import { MODEL_FILE, toolPolicy } from './generation/toolPolicy';
 import { currentModelContext, IMAGE_TYPES, Inbox, recapOf, steering } from './generation/messages';
 import { describeToolInput, detail, lastSentence, readText, TOOL_LABELS } from './generation/activity';
-import { askFirstNote, lineArtNote } from './generation/notes';
+import { askFirstNote } from './generation/notes';
 
 export { publicPage, publicUrl, toolPolicy } from './generation/toolPolicy';
 export { currentModelContext, steerGeneration } from './generation/messages';
@@ -92,7 +93,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // stays line art the same way. Decided in modes/detect.ts.
   // The design's pictures and LayerTone setup (sent with every request; the follow-up values win).
   const pictureValues: ParamValues = { ...req.pictures, ...req.renderValues };
-  const { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools } = detectModes(req, pictureValues, { images: artworkAvailable(), meshy: !!meshyClient() });
+  const modes = detectModes(req, pictureValues, { images: artworkAvailable(), meshy: !!meshyClient() });
+  const { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools } = modes;
   const lineArtStyle = req.lineArtStyle ?? DEFAULT_LINE_ART_STYLE;
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   // Pictures: the design's own, plus the photos attached now (kept with the design).
@@ -195,27 +197,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (attachedScad.length) {
     parts.push('Jig runs model scripts, not OpenSCAD: build model.js so it reproduces the OpenSCAD design, then apply what the user asks. Keep its Customizer parameters as params (same names, defaults, ranges, steps, groups and captions; options become select, free text becomes text) and each color() as its own part, unless the user says otherwise. Compare your script with the original as you go: render_scad shows the OpenSCAD file at any parameter values, render_model your script.');
   }
-  if (layerTone) {
-    const names = Object.keys(layerToneImages);
-    const setup = typeof pictureValues[LAYERTONE_KEY] === 'string' ? pictureValues[LAYERTONE_KEY] : null;
-    if (isFollowUp) parts.push(setup ? `The LayerTone setup (the user's panel; set_layertone changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_layertone changes that).');
-    parts.push(`LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
-  }
-  if (artwork) {
-    // The user chose AI artwork for this design: the picture comes first, whatever the subject.
-    const names = Object.keys(drawings);
-    parts.push(`AI artwork mode is on: the user wants this as artwork – a flat multi-colour wall piece, relief, plaque or sign whose picture the image model draws, not a 3D model of the subject. ${names.length
-      ? `Drawings in this design: ${names.map((n) => `"${n}"`).join(', ')}; keep using them unless the user asks for a new or different picture (then call generate_artwork again).`
-      : 'There is no artwork yet: start with generate_artwork – for any subject, objects and machines included (a tommy gun, a car, a guitar are drawn as illustrations too) – then build the piece around it with H.svg.'} Model the subject in 3D geometry only if the user's message explicitly asks for a 3D object.`);
-  }
-  if (lithophane) {
-    const names = Object.keys(layerToneImages);
-    parts.push(`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (artworkAvailable() ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`);
-  }
+  // Each mode's notes (modes/), in MODES order.
+  const turn: TurnContext = { req, isFollowUp, pictureValues, drawings, refs, layerToneImages, newPictures, meshes, concepts, attachedMeshes, references, images: artworkAvailable(), lineArtStyle };
+  for (const mode of MODES) if (mode.active(modes)) parts.push(...mode.turnNotes(turn, modes));
   // Filaments the user picked for parts in the Object tab: they win over the script's colours.
   const picked = Object.entries(parsePartColors(pictureValues[PART_COLORS_KEY]));
   if (picked.length) parts.push(`The user picked the filaments for these parts in the Object tab, which win over the script's colours: ${picked.map(([n, f]) => `"${n}" → ${f.brand ? `${f.brand} ` : ''}${f.name ?? ''} ${f.color}`.replace(/\s+/g, ' ')).join(', ')}. Keep those part names (a renamed part loses its pick); to change one of these colours, tell the user to pick it in the Object tab (or reset it there) rather than editing the script's colour.`);
-  if (lineArt) parts.push(lineArtNote(lineArtStyle, drawings, refs, pictureValues));
   // Mesh files attached now: a picture of each as imported, and what the import did.
   for (const name of attachedMeshes) {
     const entry = meshes[name];
@@ -228,19 +215,6 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     }
     parts.push(`The user attached a mesh file. ${describeImport(name, entry)}`);
   }
-  if (Object.keys(meshes).length && !attachedMeshes.length) {
-    parts.push(`Meshes in this design (H.mesh): ${Object.entries(meshes).map(([n, m]) => `"${n}" (${m.source === 'meshy' ? `made with generate_3d${m.prompt ? `: ${m.prompt.slice(0, 120)}` : ''}` : `from ${m.original ?? 'a file'}`}; ${m.size.map((x) => x.toFixed(0)).join(' × ')} mm as stored, ${m.triangles.toLocaleString('en')} triangles)`).join(', ')}.`);
-  }
-  if (meshTools && Object.keys(concepts).length) {
-    parts.push(`Concept pictures in this design (generate_3d from_concept builds one; the newest is last): ${Object.entries(concepts).map(([n, c]) => `"${n}" (${c.subject.slice(0, 160)}${c.painted ? '; in colour: the shape and its painted colours' : ''})`).join(', ')}.`);
-  }
-  if (figure && !meshy) parts.push('3D figure mode is on, but Jig has no Meshy key (MESHY_API_KEY), so generate_3d is not available.');
-  else if (figure && references.length) parts.push('3D figure mode is on: make the subject with generate_3d (from_photo: true builds it from the attached photo) and build the design around it with H.mesh.');
-  else if (figure && conceptTools) parts.push(`3D figure mode is on: if the user is approving a concept picture, build it with generate_3d({ name, from_concept }) and the design around it with H.mesh; if they want it changed, draw a new one with generate_concept. For a new figure, draw a concept picture with generate_concept and end your reply asking the user to approve it (no generate_3d in this reply) – unless they said to skip the picture and go straight to 3D. Each Meshy model costs ${meshyCredits(figureColor)} credits.`);
-  else if (figure) parts.push('3D figure mode is on: make the subject with generate_3d and build the design around it with H.mesh.');
-  if (figure && meshy) parts.push(figureColor
-    ? `Colour is on: the figure is made in colour – each concept is a grey picture (the shape) and the same picture painted (the colours), generate_3d textured from the painted one (${MESHY_CREDITS_PER_COLOR_MODEL} credits a model), its colours printed in up to 4 filaments (see "Coloured figures").`
-    : `Colour is off: figures are grey and print in one colour (${MESHY_CREDITS_PER_MODEL} credits a model). If the user asks for a figure in colour, use color: true on generate_concept and generate_3d (${MESHY_CREDITS_PER_COLOR_MODEL} credits) and tell them about the Colour switch next to the Figure button.`);
   if (earlierScad.length) parts.push(`OpenSCAD files attached earlier in this design (in ${scadDir}; render_scad renders them): ${earlierScad.join(', ')}`);
 
   if (isFollowUp) {

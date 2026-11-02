@@ -1,10 +1,13 @@
-// The system prompt's section for Line art mode (H.lineart).
+// Line art mode (H.lineart): its system prompt section and its note on the drawings and the user's
+// Print tab settings.
 import { maxPiece, printer } from '../../shared/printer';
+import { drawingFingerprint, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtSize, parseLineArtSplit } from '../../shared/lineart';
+import type { PromptMode, TurnContext } from './types';
 
 /** A default size that fits the chosen printer's bed. */
 const cap = (mm: number) => Math.min(mm, maxPiece());
 
-export function lineArtSection(pictures: boolean) {
+function lineArtSection(pictures: boolean) {
   return `Line art mode is ON: the user wants line art – a wall cut-out of a drawing (a motorbike and a car standing on a key-holder bar, a woman's figure in a rectangular frame, a pet's outline), printed flat in one colour, about 2 mm thick with lines about 1 mm wide, its flat back stuck to the wall – one piece, or for a big one (up to a whole wall) several pieces that each fit the bed. Many are designs the user sells, so they must look clean and professional – like a product photo, not a sketch.
 - Build it with H.lineart(source, opts) → { parts, print, lineArt, note } and return that result as it is from build(), so its print settings and line-art info go with it (to add parts, push them onto its parts and keep print and lineArt). Jig thickens lines too thin to print (keeping the drawing's own line weights), joins lines that would dangle (held at one point only, so they'd lift off the wall) to a nearby line, joins loose bits to the rest with short bridges, drops specks too small to print, and adds the style's bar, frame, pegs or base. Don't draw the lines, bars or frames yourself.
     const meta = { name: 'Bike & car key holder' };
@@ -41,3 +44,38 @@ export function lineArtSection(pictures: boolean) {
 - Don't use H.layertone or H.lithophane in a line-art design: a design is one kind of picture print.
 - In your final message give the size (width × height × thickness), the style, the line width, how many bridges Jig added and specks it dropped, and how to hang it: double-sided tape or Command strips on the flat back (the pegs of a key holder hold keys, so use strips rated for the weight). Call the app Jig, never Claude, and call filament painting LayerTone, never by another app's name.`;
 }
+
+/** Line art mode: the style, the attached images, the drawings and what the user set in the Print tab. */
+function lineArtNote({ lineArtStyle, drawings, refs, pictureValues, images }: TurnContext): string {
+  const info = LINE_ART_STYLE_INFO[lineArtStyle];
+  const names = Object.keys(drawings);
+  const attached = refs.length ? `The user attached ${refs.length > 1 ? `${refs.length} images (numbered 1–${refs.length} in the order above)` : 'an image (image 1)'}: trace_line_art({ name, image }) traces one that already is line art as it is; a photo of a real subject is redrawn with generate_line_art({ …, use_attached_photos: true })${images ? '' : ' (not available: Jig has no image model without OPENROUTER_API_KEY)'}.` : '';
+  const none = images
+    ? 'There is no drawing yet: make one with generate_line_art (or trace an attached line-art picture with trace_line_art).'
+    : 'There is no drawing yet, and Jig has no image model without OPENROUTER_API_KEY: trace an attached line-art picture with trace_line_art, or ask the user to attach an SVG or a picture of line art (dark lines on white).';
+  // The user's brush edits, per drawing (only those made on the drawing as it is now apply).
+  const edits = parseLineArtEdits(pictureValues[LINEART_EDITS_KEY]);
+  const handEdited = (n: string) => { const e = edits[n]; return e && e.fp === drawingFingerprint(drawings[n]) ? `, ${e.strokes.length} hand edit${e.strokes.length > 1 ? 's' : ''} by the user` : ''; };
+  const available = names.length ? `Drawings available to H.lineart: ${names.map((n) => `"${n}" (${drawings[n].aspect.toFixed(2)} times as wide as high${handEdited(n)})`).join(', ')}.` : none;
+  // The user's split choice in the Print tab wins over the script's split option.
+  const split = parseLineArtSplit(pictureValues[LINEART_SPLIT_KEY]);
+  const splitNote = split === undefined ? '' : split === 'off'
+    ? 'The user turned Split into pieces off in the Print tab: it stays one piece whatever the script\'s split option says (they turn it on there; say so if it is bigger than the bed).'
+    : `The user split it into pieces in the Print tab (${split === 'auto' ? 'Auto: the fewest that fit the bed' : Array.isArray(split) ? `a grid of ${split[0]} × ${split[1]}` : `${split} pieces`}), which wins over the script's split option; the renders and reports already use it.`;
+  // The whole piece's size the user typed in the Print tab wins over the script's width and height.
+  const size = parseLineArtSize(pictureValues[LINEART_SIZE_KEY]);
+  const sizeNote = size ? `The user set the whole piece's size in the Print tab (${size.width ? `${size.width} mm wide` : ''}${size.width && size.height ? ', ' : ''}${size.height ? `${size.height} mm high` : ''}${size.width && !size.height ? ', the height following the drawing' : ''}), which wins over the script's width and height: the renders and reports already use it. Keep it; to change the size, ask them to change it there (or set the width and height parameters if they ask you to and they clear it).` : '';
+  // How far loose ends reach to join a line, as the user set it in the Print tab, wins over the script's joinEnds.
+  const ends = parseLineArtEnds(pictureValues[LINEART_ENDS_KEY]);
+  const endsNote = ends === undefined ? '' : ends === 0
+    ? "The user turned Join loose ends off in the Print tab: Jig leaves loose lines as drawn whatever the script's joinEnds says (they glue them down, or turn it on there)."
+    : `The user set Join loose ends to ${ends} mm in the Print tab, which wins over the script's joinEnds; the renders and reports already use it.`;
+  return [`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote, sizeNote, endsNote].filter(Boolean).join(' ');
+}
+
+export const lineArt: PromptMode = {
+  id: 'lineArt',
+  active: (m) => m.lineArt,
+  system: (o) => (o.lineArt ? lineArtSection(o.lineArt.pictures) : ''),
+  turnNotes: (c) => [lineArtNote(c)],
+};
