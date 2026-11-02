@@ -58,6 +58,14 @@ export function stabilityLines(r: StabilityReport): string[] {
   return [...(r.explanation ? [`Explained: ${r.explanation}`] : []), ...r.poses.map(formatPose)];
 }
 
+/** The tipping check for the code shown: the latest AI version's report at or below `current`, only while that version's code is the code now shown. */
+export function stabilityFor(versions: { code: string; source: string; stability?: StabilityReport }[], current: number): StabilityReport | undefined {
+  const shown = versions[current];
+  if (!shown) return undefined;
+  for (let i = current; i >= 0; i--) if (versions[i].source === 'ai') return versions[i].code === shown.code ? versions[i].stability : undefined;
+  return undefined;
+}
+
 /** Signed distance from p to the nearest edge of a CCW polygon, negative outside. */
 function edgeDistance(p: V2, poly: V2[]): number {
   let d = Infinity, inside = true;

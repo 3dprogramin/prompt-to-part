@@ -711,7 +711,7 @@ function CodeTab({ code, stability, error, onApply, draft, onDraft }: {
   const tokens = useMemo(() => tokenize(text), [text]);
   return (
     <div className="code-tab">
-      {stability && <StabilityStrip report={stability} />}
+      {stability && <StabilityStrip key={JSON.stringify(stability)} report={stability} />}
       {error && <div className="code-error" role="alert"><Icon name="alert" size={14} /> {error.line ? `Line ${error.line}: ` : ''}{error.message}</div>}
       {outdated && (
         <div className="code-note">

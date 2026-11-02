@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult, Vec3 } from '../shared/types';
+import { stabilityFor } from '../shared/stability';
 import { SCALE_KEY } from '../shared/params';
 import { DRAWINGS_KEY } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY } from '../shared/layertone';
@@ -738,7 +739,7 @@ export default function App() {
           summary={design.versions[design.currentVersion]?.summary}
           cost={cost}
           sources={dimensionSources}
-          stability={latestAi?.stability}
+          stability={stabilityFor(design.versions, design.currentVersion)}
           result={result}
           lastGood={lastGood}
           error={error}
