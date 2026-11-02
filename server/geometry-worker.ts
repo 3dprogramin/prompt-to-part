@@ -21,6 +21,8 @@ import type { ImportOptions } from '../shared/meshRepair';
 import { decodeTexture } from '../shared/imageDecode';
 import { meshPalette, meshSlots, triangleAreas, type PaintFilament } from '../shared/meshColors';
 import type { LayerToneFilament } from '../shared/layertone';
+import { checkPose, footprint, meshCentroid, partMass, type MassPoint, type PoseCheck } from '../shared/stability';
+import { effectiveSettings, parseProfile, PRINT_KEY, type PrintSettings } from '../shared/print';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
 import type { LayerColor } from '../shared/layertone';
 import type { LithophaneSource } from '../shared/lithophane';
@@ -151,6 +153,7 @@ type Req = { printer?: ActivePrinter } & (
   | { id: number; cmd: 'evaluate'; code: string; values?: ParamValues; quality?: Quality }
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
+  | { id: number; cmd: 'stability'; code: string; extra: ParamValues; poses: { label: string; values: ParamValues }[]; printBase: Required<PrintSettings>; nozzle: number; upright?: [number, number, number] }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues }
   | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions; palette?: { colors: number; mine: LayerToneFilament[] } });
 
@@ -209,6 +212,8 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
       post({ data: { bin: encodeMesh(mesh), report, png: png.toString('base64'), gridStep, ...(palette ? { palette } : {}) } });
     } else if (req.cmd === 'stress') {
       post({ data: await stress(req.code, req.budgetMs ?? 20000, req.extra) });
+    } else if (req.cmd === 'stability') {
+      post({ data: await stability(req) });
     }
   } catch (e) {
     post({ error: (e as Error).message });
@@ -249,4 +254,51 @@ async function stress(code: string, budgetMs: number, extra: ParamValues = {}) {
     else if (!out.parts.length) failures.push({ case: c.label, error: 'produced no geometry (all parts empty)' });
   }
   return { failures, tested, skipped: cases.length - tested };
+}
+
+/** Rotate v by XYZ Euler angles in degrees about the origin (X first, then Y, then Z, about the fixed axes, as Manifold does). Rotating [0, -90, 0] stands a bar lying along +X up along +Z. */
+function rotate(v: [number, number, number], deg: [number, number, number]): [number, number, number] {
+  let [x, y, z] = v;
+  const [a, b, c] = deg.map((d) => d * Math.PI / 180);
+  [y, z] = [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
+  [x, z] = [x * Math.cos(b) + z * Math.sin(b), -x * Math.sin(b) + z * Math.cos(b)];
+  [x, y] = [x * Math.cos(c) - y * Math.sin(c), x * Math.sin(c) + y * Math.cos(c)];
+  return [x, y, z];
+}
+
+/** Does each pose stay standing? Parts are weighed as printed, loads added, the base is what touches the bed. */
+async function stability(req: Extract<Req, { cmd: 'stability' }>) {
+  const user = parseProfile(req.extra?.[PRINT_KEY]);
+  const poses: PoseCheck[] = [];
+  const loadNames = new Set<string>();
+  for (const pose of req.poses) {
+    const { result, out } = await run(req.code, { ...req.extra, ...pose.values }, 'draft');
+    if (!result) {
+      const e = out.ok ? undefined : out.error;
+      poses.push({ pose: pose.label, ok: false, mass: 0, com: [0, 0, 0], edgeMm: 0, tiltDeg: 0, error: e ? `${e.message}${e.line ? ` (line ${e.line})` : ''}` : 'the script failed' });
+      continue;
+    }
+    // Copies: the result's arrays are not ours to change. Rotated (if asked), then dropped so the lowest vertex is at z = 0.
+    // A part with no triangles or no volume has no vertices to stand on and no mass, so it is left out of both.
+    const turn = (v: [number, number, number]) => (req.upright ? rotate(v, req.upright) : v);
+    const solid = result.parts.filter((p) => p.indices.length && p.volume > 0);
+    const moved = solid.map((p) => {
+      const pos = new Float32Array(p.positions.length);
+      for (let i = 0; i < pos.length; i += 3) pos.set(turn([p.positions[i], p.positions[i + 1], p.positions[i + 2]]), i);
+      return { part: p, positions: pos };
+    });
+    const loads = result.loads.map((l) => ({ ...l, at: turn(l.at) }));
+    let low = Infinity;
+    for (const { positions } of moved) for (let i = 2; i < positions.length; i += 3) low = Math.min(low, positions[i]);
+    if (!Number.isFinite(low)) low = 0;
+    for (const { positions } of moved) for (let i = 2; i < positions.length; i += 3) positions[i] -= low;
+    for (const l of loads) { l.at = [l.at[0], l.at[1], l.at[2] - low]; loadNames.add(l.name); }
+    const points: MassPoint[] = moved.map(({ part, positions }) => ({
+      name: part.name,
+      mass: partMass(part.volume, part.surfaceArea, effectiveSettings(result.print, user, part.name, req.printBase), req.nozzle),
+      at: meshCentroid(positions, part.indices),
+    }));
+    poses.push(checkPose(pose.label, [...points, ...loads], footprint(moved)));
+  }
+  return { poses, loads: [...loadNames] };
 }

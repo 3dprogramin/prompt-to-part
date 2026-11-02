@@ -12,6 +12,8 @@ import { ROOT } from './config';
 import { loadFontBuffers } from './fonts';
 import { readMeshFile } from './meshes';
 import type { ImportOptions, ImportReport } from '../shared/meshRepair';
+import type { PrintSettings } from '../shared/print';
+import type { PoseCheck } from '../shared/stability';
 import type { ParamValues, Quality } from '../shared/types';
 import type { EvalFailure, EvalSummary } from './geometry-worker';
 
@@ -164,12 +166,18 @@ export interface ImportedMesh {
 export type RenderResult = (EvalSummary | EvalFailure) & { png?: string; gridStep?: number; top?: string };
 export interface StressResult { failures: { case: string; error: string }[]; tested: number; skipped: number }
 
+export interface StabilityPose { label: string; values: ParamValues }
+export interface StabilityRequest { code: string; extra: ParamValues; poses: StabilityPose[]; printBase: Required<PrintSettings>; nozzle: number; upright?: [number, number, number] }
+export interface StabilityResult { poses: PoseCheck[]; loads: string[] }
+
 export const geometry = {
   evaluate: (code: string, values?: ParamValues, quality: Quality = 'normal') =>
     call<EvalSummary | EvalFailure>({ cmd: 'evaluate', code, values, quality }, 30000),
   render: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'render', code, values }, 45000),
   /** `extra`: values every case starts from (attached drawings). */
   stress: (code: string, extra?: ParamValues) => call<StressResult>({ cmd: 'stress', code, budgetMs: 20000, extra }, 40000),
+  /** Does the design stay standing in each pose (parameter values), with its declared loads? */
+  stability: (req: StabilityRequest) => call<StabilityResult>({ cmd: 'stability', ...req }, 40000),
   /** One large iso picture (used for assembled / exploded views). */
   iso: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'iso', code, values }, 45000),
   /** Parse, repair and normalise an uploaded mesh file in the locked-down worker (a stored .bin, a report and a four-view render). */
