@@ -36,7 +36,7 @@ export function OptionsMenu({ options, onToggle }: { options: ChatOption[]; onTo
           {options.map((o) => (
             <button key={o.key} role="menuitemcheckbox" aria-checked={o.on} className={o.on ? 'on' : ''} title={o.title} onClick={() => onToggle(o.key, !o.on)}>
               <span className="options-icon" aria-hidden><Icon name={ICONS[o.key](o.on)} size={15} /></span>
-              <span><b>{o.label}</b><span>{o.line}</span></span>
+              <span className="options-text"><b>{o.label}</b><span>{o.line}</span></span>
               <span className="options-switch" aria-hidden><i /></span>
             </button>
           ))}

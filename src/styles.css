@@ -839,7 +839,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .act-detail summary { cursor: pointer; color: var(--text-3); font-size: 11.5px; }
 .act-detail summary:hover { color: var(--text-2); }
 .act-detail pre { margin: 4px 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 11px/1.45 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; color: var(--text-2); }
-.web-toggle.art.on { background: #e0a43c22; border-color: var(--accent); color: var(--accent-2); }
 
 /* ---------- picture mode (the palette menu in the composer) ---------- */
 /* The menu opens across the whole composer bar, above it. */
@@ -901,10 +900,13 @@ body.resizing { cursor: col-resize; user-select: none; }
 .options-badge { position: absolute; top: -5px; right: -5px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: #5b9bd5; color: #0b1a2a; font: 600 9.5px/14px var(--sans); text-align: center; }
 .mode-menu.options-menu { left: auto; right: 0; width: 280px; max-width: 100%; }
 .mode-menu.options-menu button { align-items: center; gap: 9px; padding: 7px 10px; }
-.mode-menu.options-menu button > span:nth-child(2) { flex: 1; min-width: 0; }
+.mode-menu.options-menu .options-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.mode-menu.options-menu .options-text > span { font-size: 11.5px; color: var(--text-3); }
+/* The switch is the row's last child: keep it out of the shared last-child column rule. */
+.mode-menu.options-menu button > .options-switch { display: block; flex-direction: initial; }
 .options-icon { display: inline-flex; flex-shrink: 0; color: var(--text-3); }
 .options-menu button.on .options-icon { color: #b4d4f5; }
-.options-menu button.on b { color: var(--text); }
+.mode-menu.options-menu button.on b { color: var(--text); }
 .options-switch { flex-shrink: 0; width: 28px; height: 16px; border-radius: 8px; background: var(--line-2); position: relative; transition: background 0.15s; }
 .options-switch i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-3); transition: transform 0.15s, background 0.15s; }
 .options-menu button.on .options-switch { background: #5b9bd5; }
