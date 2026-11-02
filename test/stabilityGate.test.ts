@@ -117,6 +117,19 @@ function build(p) { return Manifold.cube([40, 40, 5]); }`;
   assert.doesNotMatch(text, /tips over/);
 });
 
+test('an explanation covers tipping, not a pose that could not be evaluated', async () => {
+  // The default pose tips (explained away); the misnamed pose never ran, so it must still be refused.
+  const code = `const params = { tiltAngle: { value: 10, min: 0, max: 90 } };
+function build(p) {
+  return { parts: [Manifold.cube([10, 10, 5])], loads: [{ name: 'phone', mass: 200, at: [40, 5, 40] }] };
+}`;
+  const { result, text } = await submit('typo-explained', code, { stability: { poses: [{ label: 'tilt 60', values: { tilt: 60 } }], explanation: 'screwed to the wall' } });
+  assert.ok(result.isError, JSON.stringify(result));
+  assert.match(text, /Rejected - the design fails in these poses:/);
+  assert.match(text, /unknown parameter "tilt" \(parameters: tiltAngle\)/);
+  assert.doesNotMatch(text, /tips over/);
+});
+
 test('a check that cannot run warns but does not block the design', async () => {
   const real = geometry.stability;
   geometry.stability = async () => { throw new Error('timed out'); };

@@ -218,10 +218,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
             // Nothing held and no poses: a plain object (keychain, line art, LayerTone) only needs a quiet check,
             // and a round or pointed bottom just rests where it lies.
             const plain = !t.loads.length && t.poses.length === 1;
+            // An explanation covers tipping only: a pose that never ran (a misnamed or mistyped value) is always refused.
+            const broken = failing.filter((p) => p.error && !p.noBase);
+            const tipped = tipping?.explanation ? [] : failing.filter((p) => !p.error || p.noBase);
             if (plain && failing.length === 1 && failing[0].noBase) {
               tippingStep = { ok: true, verbose: true, text: 'Tipping check passed', detail: 'no flat base to check: rests on a point or a line' };
-            } else if (failing.length && !tipping?.explanation) {
-              const tipped = failing.filter((p) => !p.error || p.noBase), broken = failing.filter((p) => p.error && !p.noBase);
+            } else if (tipped.length || broken.length) {
               const fixes = [...(tipped.some((p) => p.noBase) ? ['flatten the underside'] : []), 'wider or heavier base', 'lower hinge', 'load moved back over the base'];
               const text = [
                 ...(tipped.length ? [`Rejected - the design tips over:\n${tipped.map(formatPose).join('\n')}`] : []),
@@ -229,7 +231,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
               ].join('\n') + loadsLine
                 + (broken.length ? '\nA pose\'s values must be the script\'s own parameters, with values of the right type.' : '')
                 + (tipped.length ? `\nFix it (${fixes.join(', ')}) or pass stability.explanation if it can't tip in use (wall-mounted, clamped, lies flat).` : '');
-              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Tipping check: ${failing.length} of ${t.poses.length} pose(s) ${broken.length ? 'fail' : 'tip over'}`, detail } });
+              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Tipping check: ${tipped.length + broken.length} of ${t.poses.length} pose(s) ${broken.length ? 'fail' : 'tip over'}`, detail } });
               return { content: [{ type: 'text', text }], isError: true };
             } else if (plain && !failing.length) {
               tippingStep = { ok: true, verbose: true, text: 'Tipping check passed (1 pose)', detail };
