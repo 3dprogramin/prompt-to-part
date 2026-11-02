@@ -1,3 +1,4 @@
+import type { Load } from './stability';
 import type { DimensionSource } from './sources';
 import type { PrintProfile } from './print';
 import type { LayerToneSource, LayerColor } from './layertone';
@@ -168,6 +169,8 @@ export interface EvalResult {
   assembly: AssemblyStep[];
   /** Print settings suggested by the script (only what differs from the printer's profile). */
   print: PrintProfile;
+  /** Devices or things the design holds (grams, mm, model frame), for the tipping check. Empty when none. */
+  loads: Load[];
   params: Record<string, ParamDef>;
   values: ParamValues;
   parts: PartMesh[];

@@ -11,6 +11,7 @@ import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KE
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
 import { cleanLineArtInfo, lineArtPrint, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtDepth, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
+import type { Load } from './stability';
 import { cleanProfile, parseProfile, PRINT_KEY } from './print';
 import { getMeshData, MESHES_KEY, MeshMissingError, parseMeshes, type MeshData, type MeshEntry } from './meshes';
 import { parseMeshFile, type Raster } from './meshFormats';
@@ -342,6 +343,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     let rawDims: unknown[] = [];
     let rawAssembly: unknown[] = [];
     let rawPrint: unknown;
+    let rawLoads: unknown[] = [];
     const M = rt.wasm.Manifold as any;
     const C = rt.wasm.CrossSection as any;
     if (out instanceof M) rawParts = [out];
@@ -353,6 +355,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (Array.isArray(o.dimensions)) rawDims = o.dimensions;
       if (Array.isArray(o.assembly)) rawAssembly = o.assembly;
       if (o.print && typeof o.print === 'object') rawPrint = o.print;
+      if (Array.isArray(o.loads)) rawLoads = o.loads;
     }
     if (out instanceof C) throw new ScriptError({ message: 'build() returned a 2D CrossSection – extrude or revolve it into a Manifold', stage: 'output' });
     if (!rawParts.length) throw new ScriptError({ message: 'build() must return a Manifold, an array of parts, or { parts: [...], dimensions: [...] }', stage: 'output' });
@@ -489,8 +492,16 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       assembly.push(step);
     });
     for (const f of takeFontSubstitutions()) warnings.push(`Font "${f.replace(/^(std|sys):/, '').replace('|', ' ')}" is not available – the text uses Roboto Bold instead`);
+    // Loads (a held device): mass in grams stays, the position follows the model's scale.
+    const loads: Load[] = [];
+    rawLoads.forEach((l, i) => {
+      const o = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>;
+      if (typeof o.mass === 'number' && Number.isFinite(o.mass) && o.mass > 0 && isVec3(o.at)) {
+        loads.push({ name: typeof o.name === 'string' && o.name ? o.name : 'load', mass: o.mass, at: scaled(o.at) });
+      } else warnings.push(`loads[${i}] ignored: needs { name, mass (g), at: [x, y, z] }`);
+    });
     const print = cleanProfile(rawPrint, parts.map((p) => p.name));
-    return { meta, params, values, parts, dimensions, assembly, print, bbox, timeMs: performance.now() - t0, warnings: capWarnings(warnings), logs, quality };
+    return { meta, params, values, parts, dimensions, assembly, print, loads, bbox, timeMs: performance.now() - t0, warnings: capWarnings(warnings), logs, quality };
   } catch (e) {
     noteTrap(e);
     if (runtimeOutOfMemory()) {

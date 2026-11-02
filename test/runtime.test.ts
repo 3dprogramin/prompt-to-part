@@ -102,3 +102,25 @@ function build() {
   assert.deepEqual(Object.keys(r.params), ['ok']);
   assert.equal(r.params.ok.label!.length, 120);
 });
+
+const loadsCode = (loads: string) => `function build() { return { parts: [Manifold.cube([10, 10, 10])], loads: ${loads} }; }`;
+
+test("a script's loads come back", () => {
+  const r = evaluateScript(loadsCode("[{ name: 'phone', mass: 270, at: [0, 0, 40] }]"), {}, 'draft');
+  assert.deepEqual(r.loads, [{ name: 'phone', mass: 270, at: [0, 0, 40] }]);
+});
+
+test('a bad load is dropped with a warning', () => {
+  const r = evaluateScript(loadsCode("[{ name: 'phone', mass: -1, at: [0, 0, 40] }]"), {}, 'draft');
+  assert.deepEqual(r.loads, []);
+  assert.equal(r.warnings.filter((w) => /loads\[0\] ignored/.test(w)).length, 1);
+});
+
+test('scale moves loads, not their mass', () => {
+  const r = evaluateScript(loadsCode("[{ name: 'phone', mass: 270, at: [0, 0, 40] }]"), { $scale: 2 }, 'draft');
+  assert.deepEqual(r.loads, [{ name: 'phone', mass: 270, at: [0, 0, 80] }]);
+});
+
+test('no loads gives an empty array', () => {
+  assert.deepEqual(evaluateScript(CUBE, {}, 'draft').loads, []);
+});
