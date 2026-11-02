@@ -53,6 +53,11 @@ export interface PoseCheck { pose: string; ok: boolean; mass: number; com: [numb
 /** submit_model's tipping check, kept with the version: every pose checked, the loads the script declared, and the AI's reason if it was let through anyway. */
 export interface StabilityReport { poses: PoseCheck[]; loads: string[]; explanation?: string }
 
+/** The lines the Code tab lists: the AI's reason first when it let a failing pose through, then one line per pose. */
+export function stabilityLines(r: StabilityReport): string[] {
+  return [...(r.explanation ? [`Explained: ${r.explanation}`] : []), ...r.poses.map(formatPose)];
+}
+
 /** Signed distance from p to the nearest edge of a CCW polygon, negative outside. */
 function edgeDistance(p: V2, poly: V2[]): number {
   let d = Infinity, inside = true;

@@ -113,7 +113,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
             // A page Claude opened in an earlier generation of this design counts as opened.
             const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
             const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources }];
+            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources, ...(ev.stability && { stability: ev.stability }) }];
             const vi = versions.length - 1;
             return {
               ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),

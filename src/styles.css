@@ -1365,3 +1365,15 @@ body.resizing { cursor: col-resize; user-select: none; }
 .ph-improve { font-size: 12.5px; margin-top: -2px; }
 .ph-true-scale { font-size: 12.5px; }
 .ph-scene-search { margin: -4px 0 0; padding: 5px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg); }
+
+.stability { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.stability-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; color: var(--text); font: inherit; padding: 6px 9px; cursor: pointer; text-align: left; }
+.stability-sum { color: var(--text-2); flex: 1; }
+.stability-caret { color: var(--text-3); }
+.stability-list { list-style: none; margin: 0; padding: 0 9px 8px; display: flex; flex-direction: column; gap: 5px; color: var(--text-2); }
+.stability-list li { display: flex; gap: 8px; align-items: flex-start; }
+.stability .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 4px; }
+.stability-head .dot { margin-top: 0; }
+.stability .dot.good { background: var(--good); }
+.stability .dot.bad { background: var(--bad); }
+.stability .dot.none { background: transparent; }

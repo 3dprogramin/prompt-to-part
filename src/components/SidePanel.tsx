@@ -33,6 +33,7 @@ import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
 import { bambuProjectSupported, printer, fitProblem, profileName, shortName, type PrinterSetup } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
+import { stabilityLines, type StabilityReport } from '../../shared/stability';
 import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
 type Tab = 'object' | 'decorate' | 'print' | 'code';
@@ -47,6 +48,8 @@ interface Props {
   cost: ReturnType<typeof useCost>;
   /** Where the real-world dimensions of the shown version came from (Claude's report). */
   sources?: DimensionSource[];
+  /** The tipping check of Jig's version the shown model is based on. */
+  stability?: StabilityReport;
   result: EvalResult | null;
   lastGood: EvalResult | null;
   error: ScriptErrorInfo | null;
@@ -209,7 +212,7 @@ export function SidePanel(p: Props) {
         </>}
         {tab === 'code' && <>
           {section('info', 'Model', () => (shown ? <InfoTab result={shown} sources={p.sources} /> : noModel('No model yet.')))}
-          {section('code', 'Code', () => <CodeTab code={p.code} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />)}
+          {section('code', 'Code', () => <CodeTab code={p.code} stability={p.stability} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />)}
         </>}
       </div>
       <div className="export-bar">
@@ -659,11 +662,42 @@ function Sources({ list }: { list: DimensionSource[] }) {
   );
 }
 
+/** The tipping check of the version: one summary line, the poses on click (open at once when something failed or was explained). */
+function StabilityStrip({ report }: { report: StabilityReport }) {
+  const failed = report.poses.filter((p) => !p.ok).length;
+  const n = report.poses.length;
+  const [open, setOpen] = useState(failed > 0 || !!report.explanation);
+  const listId = useId();
+  const summary = failed ? `Tips in ${failed} of ${n} pose${n === 1 ? '' : 's'}` : `Stable in ${n} pose${n === 1 ? '' : 's'}`;
+  const lines = stabilityLines(report);
+  const first = report.explanation ? 1 : 0;
+  return (
+    <div className="stability">
+      <button className="stability-head" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
+        <span className={`dot ${failed ? 'bad' : 'good'}`} aria-hidden="true" />
+        <b>Tipping check</b>
+        <span className="stability-sum">{summary}</span>
+        <span className="stability-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <ul id={listId} className="stability-list">
+          {lines.map((l, i) => (
+            <li key={i}>
+              {i >= first ? <span className={`dot ${report.poses[i - first].ok ? 'good' : 'bad'}`} aria-hidden="true" /> : <span className="dot none" aria-hidden="true" />}
+              <span>{l}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Code typed in the editor but not applied: `base` is the script it started from. */
 interface CodeDraft { base: string; text: string }
 
-function CodeTab({ code, error, onApply, draft, onDraft }: {
-  code: string; error: ScriptErrorInfo | null; onApply: (c: string) => void; draft: CodeDraft | undefined; onDraft: (d: CodeDraft | null) => void;
+function CodeTab({ code, stability, error, onApply, draft, onDraft }: {
+  code: string; stability?: StabilityReport; error: ScriptErrorInfo | null; onApply: (c: string) => void; draft: CodeDraft | undefined; onDraft: (d: CodeDraft | null) => void;
 }) {
   const text = draft?.text ?? code;
   const dirty = text !== code;
@@ -677,6 +711,7 @@ function CodeTab({ code, error, onApply, draft, onDraft }: {
   const tokens = useMemo(() => tokenize(text), [text]);
   return (
     <div className="code-tab">
+      {stability && <StabilityStrip report={stability} />}
       {error && <div className="code-error" role="alert"><Icon name="alert" size={14} /> {error.line ? `Line ${error.line}: ` : ''}{error.message}</div>}
       {outdated && (
         <div className="code-note">

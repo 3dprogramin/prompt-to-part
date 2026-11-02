@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkPose, footprint, formatPose, meshCentroid, partMass, PLA_DENSITY } from '../shared/stability';
+import { checkPose, footprint, formatPose, stabilityLines, meshCentroid, partMass, PLA_DENSITY } from '../shared/stability';
 
 /** Closed, outward-facing meshes of boxes (x, y, z, w, d, h), merged into one. */
 const T = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6], [1, 2, 6], [1, 6, 5], [3, 0, 4], [3, 4, 7]];
@@ -81,4 +81,14 @@ test('load outside the bounding box counts', () => {
 test('no mass or no base is an error, not a pass', () => {
   assert.equal(checkPose('default', [], square(40)).ok, false);
   assert.ok(checkPose('default', [{ name: 'a', mass: 1, at: [0, 0, 1] }], []).error);
+});
+
+test('stability lines', () => {
+  const a = checkPose('default', [{ name: 'body', mass: 10, at: [20, 20, 20] }], square(40));
+  const b = checkPose('tilt 60° back', [{ name: 'body', mass: 10, at: [44, 20, 20] }], square(40));
+  const lines = stabilityLines({ poses: [a, b], loads: [], explanation: 'screwed to the wall' });
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0], 'Explained: screwed to the wall');
+  assert.equal(lines[2], formatPose(b));
+  assert.equal(stabilityLines({ poses: [a], loads: [] }).length, 1);
 });

@@ -317,10 +317,11 @@ export default function App() {
 
   // Sources of the dimensions the shown version was built around: those of Claude's version it is
   // (or that a manual edit or saved settings were based on).
-  const dimensionSources = useMemo(() => {
-    for (let i = design.currentVersion; i >= 0; i--) if (design.versions[i]?.source === 'ai') return design.versions[i].sources;
+  const latestAi = useMemo(() => {
+    for (let i = design.currentVersion; i >= 0; i--) if (design.versions[i]?.source === 'ai') return design.versions[i];
     return undefined;
   }, [design.versions, design.currentVersion]);
+  const dimensionSources = latestAi?.sources;
 
   /**
    * Everything needed to rebuild the model as the user has set it: the sliders as they are now
@@ -737,6 +738,7 @@ export default function App() {
           summary={design.versions[design.currentVersion]?.summary}
           cost={cost}
           sources={dimensionSources}
+          stability={latestAi?.stability}
           result={result}
           lastGood={lastGood}
           error={error}
