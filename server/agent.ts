@@ -6,6 +6,7 @@ import path from 'node:path';
 import { query, type SDKUserMessage, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, GenerateRequest } from '../shared/api';
 import { cadTools } from './cadTools';
+import { detectModes } from './modes/detect';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { authMode, claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
@@ -15,9 +16,8 @@ import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
-import { isLithophane } from '../shared/lithophane';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
-import { DEFAULT_LINE_ART_STYLE, isLineArt, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../shared/lineart';
+import { DEFAULT_LINE_ART_STYLE, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../shared/lineart';
 import { formatCost, formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
@@ -87,17 +87,13 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // The chat's picture mode: AI artwork (flat colours traced for H.svg), a LayerTone filament
   // painting (H.layertone), a lithophane (H.lithophane) or line art (H.lineart); all only when
   // turned on, and AI pictures need an OpenRouter key.
-  const mode = req.imageMode ?? (req.artwork ? 'artwork' : 'off');
-  const artwork = mode === 'artwork' && artworkAvailable();
   // A LayerTone or lithophane design stays one in follow-ups, whatever the menu says now (unless it
-  // asks for the other): Claude keeps its picture tools. A design is one or the other.
+  // asks for the other): Claude keeps its picture tools. A design is one or the other, and line art
+  // stays line art the same way. Decided in modes/detect.ts.
   // The design's pictures and LayerTone setup (sent with every request; the follow-up values win).
   const pictureValues: ParamValues = { ...req.pictures, ...req.renderValues };
-  // Line art stays line art the same way; a design is one kind of picture print.
-  const lineArt = mode === 'lineart' || (isLineArt(req.code) && mode !== 'layertone' && mode !== 'lithophane');
+  const { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools } = detectModes(req, pictureValues, { images: artworkAvailable(), meshy: !!meshyClient() });
   const lineArtStyle = req.lineArtStyle ?? DEFAULT_LINE_ART_STYLE;
-  const lithophane = !lineArt && (mode === 'lithophane' || (mode !== 'layertone' && isLithophane(req.code)));
-  const layerTone = !lineArt && !lithophane && (mode === 'layertone' || /\bH\.layertone\s*\(/.test(req.code ?? '') || Object.keys(parseLayerToneImages(pictureValues[LAYERTONE_IMAGES_KEY])).length > 0);
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   // Pictures: the design's own, plus the photos attached now (kept with the design).
   const layerToneImages = parseLayerToneImages(pictureValues[LAYERTONE_IMAGES_KEY]);
@@ -120,16 +116,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Meshes kept with the design (attached files and Meshy models), for H.mesh.
   const meshes = parseMeshes(pictureValues[MESHES_KEY]);
   const attachedMeshes = (req.meshes ?? []).filter((n) => meshes[n]);
-  const figure = mode === 'figure';
-  // Colour (3D figure mode): figures textured by Meshy and printed in up to 4 filaments.
-  const figureColor = figure && !!req.figureColor;
   const meshy = meshyClient();
   // Concept pictures drawn earlier (generate_concept), for generate_3d's from_concept.
   const concepts = parseConcepts(pictureValues[CONCEPTS_KEY]);
-  // generate_3d: in 3D figure mode, and in follow-ups on designs that have meshes or concepts.
-  const meshTools = !!meshy && (figure || Object.keys(meshes).length > 0 || Object.keys(concepts).length > 0);
-  // With the image model, a figure starts as a concept picture the user approves (no credits spent on a wrong one).
-  const conceptTools = meshTools && artworkAvailable();
   const base: ParamValues = {
     ...(Object.keys(meshes).length ? { [MESHES_KEY]: JSON.stringify(meshes) } : {}),
     ...(Object.keys(concepts).length ? { [CONCEPTS_KEY]: JSON.stringify(concepts) } : {}),
