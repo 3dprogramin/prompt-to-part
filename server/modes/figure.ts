@@ -28,6 +28,7 @@ ${meshy ? `
 
 export const figure: PromptMode = {
   id: 'figure',
+  picture: false,
   // Not only figures: any design can hold meshes (attached files need no Meshy key) and concept
   // pictures, which ActiveModes doesn't show, so each note checks its own condition.
   active: () => true,

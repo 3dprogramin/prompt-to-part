@@ -76,6 +76,7 @@ function lineArtNote({ lineArtStyle, drawings, refs, pictureValues, images }: Tu
 
 export const lineArt: PromptMode = {
   id: 'lineArt',
+  picture: true,
   active: (m) => m.lineArt,
   system: (o) => (o.lineArt ? lineArtSection(o.lineArt.pictures) : ''),
   turnNotes: (c) => [lineArtNote(c)],

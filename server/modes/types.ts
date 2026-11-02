@@ -22,6 +22,8 @@ export interface TurnContext {
 
 export interface PromptMode {
   id: 'artwork' | 'layerTone' | 'lithophane' | 'lineArt' | 'figure';
+  /** A flat picture (not a 3D object): the prompt leaves out the object-modelling rules. */
+  picture: boolean;
   active(m: ActiveModes): boolean;
   /** The mode's system prompt section, '' when the options leave the mode out. */
   system(o: SystemPromptOptions): string;

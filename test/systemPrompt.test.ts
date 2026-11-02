@@ -58,3 +58,23 @@ test('mode sections follow the geometry API', () => {
   const dims = p.slice(start, p.indexOf('\n# ', start + 1));
   assert.doesNotMatch(dims, /mode is ON/);
 });
+
+const base = { workspaceFile: 'w.js', webSearch: false };
+test('picture modes get no sculpting rules', () => {
+  const modes = { artwork: { artwork: true }, layerTone: { layerTone: { pictures: true } }, lithophane: { lithophane: { pictures: true } }, lineArt: { lineArt: { pictures: true } } };
+  for (const [name, opt] of Object.entries(modes)) {
+    const p = buildSystemPrompt({ ...base, ...opt });
+    assert.doesNotMatch(p, /Organic shapes/, name);
+    assert.doesNotMatch(p, /Holding a phone/, name);
+    assert.match(p, /# Dimensions of real products/, name);
+    assert.match(p, /Fitting purchased parts/, name);
+  }
+});
+
+test('plain and figure keep them', () => {
+  for (const opt of [{}, { meshes: { figure: true, meshy: true } }]) {
+    const p = buildSystemPrompt({ ...base, ...opt });
+    assert.match(p, /Organic shapes/);
+    assert.match(p, /Holding a phone/);
+  }
+});

@@ -50,6 +50,7 @@ ${myFilamentLines(mine)}
 
 export const layerTone: PromptMode = {
   id: 'layerTone',
+  picture: true,
   active: (m) => m.layerTone,
   system: (o) => (o.layerTone ? layerTonePrompt(o.layerTone.pictures, o.layerTone.mine) : ''),
   turnNotes: ({ isFollowUp, pictureValues, layerToneImages, newPictures, images }) => {

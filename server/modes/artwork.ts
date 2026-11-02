@@ -12,6 +12,7 @@ AI artwork mode is ON (generate_artwork): the user chose it, so the design is ar
 
 export const artwork: PromptMode = {
   id: 'artwork',
+  picture: true,
   active: (m) => m.artwork,
   system: (o) => (o.artwork ? artworkOn() : ''),
   turnNotes: ({ drawings }) => {

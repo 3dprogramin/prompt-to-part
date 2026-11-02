@@ -24,6 +24,7 @@ Lithophane mode is ON: the user wants a lithophane – a photo printed in white 
 
 export const lithophane: PromptMode = {
   id: 'lithophane',
+  picture: true,
   active: (m) => m.lithophane,
   system: (o) => (o.lithophane ? lithophanePrompt(o.lithophane.pictures) : ''),
   turnNotes: ({ layerToneImages, newPictures, images }) => {
