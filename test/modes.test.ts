@@ -14,6 +14,13 @@ test('line art stays line art when the menu is off', () => {
   assert.deepEqual(m, { ...none, lineArt: true });
 });
 
+test('lithophane code with the menu off is a lithophane', () => {
+  const m = detectModes(req({ code: 'return H.lithophane(img, {});', imageMode: 'off' }), {}, env);
+  assert.equal(m.lithophane, true);
+  assert.equal(m.layerTone, false);
+  assert.equal(m.lineArt, false);
+});
+
 test('layertone menu wins over lithophane code', () => {
   const m = detectModes(req({ code: 'return H.lithophane(img, {});', imageMode: 'layertone' }), {}, env);
   assert.equal(m.layerTone, true);

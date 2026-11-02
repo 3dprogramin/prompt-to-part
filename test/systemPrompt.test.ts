@@ -65,10 +65,16 @@ test('picture modes get no sculpting rules', () => {
   for (const [name, opt] of Object.entries(modes)) {
     const p = buildSystemPrompt({ ...base, ...opt });
     assert.doesNotMatch(p, /Organic shapes/, name);
-    assert.doesNotMatch(p, /Holding a phone/, name);
+    assert.match(p, /Holding a phone/, name);
+    assert.match(p, /no text, names, labels or logos/, name);
     assert.match(p, /# Dimensions of real products/, name);
     assert.match(p, /Fitting purchased parts/, name);
   }
+});
+
+test('a 3D figure keeps the sculpting rules even in a picture mode', () => {
+  const p = buildSystemPrompt({ ...base, lineArt: { pictures: true }, meshes: { figure: true, meshy: true } });
+  assert.match(p, /Organic shapes/);
 });
 
 test('plain and figure keep them', () => {
@@ -76,5 +82,6 @@ test('plain and figure keep them', () => {
     const p = buildSystemPrompt({ ...base, ...opt });
     assert.match(p, /Organic shapes/);
     assert.match(p, /Holding a phone/);
+    assert.match(p, /no text, names, labels or logos/);
   }
 });

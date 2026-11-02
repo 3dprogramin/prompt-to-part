@@ -1,9 +1,9 @@
 // The full prompt each mode sends (system prompt, tool list, first user message), as files in
 // test/fixtures/prompts. A change to the prompt code that changes the text fails here; if the
 // change is meant, run `UPDATE_PROMPTS=1 npm test` and review the diff of the fixtures.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { query } from '@anthropic-ai/claude-agent-sdk';
@@ -13,6 +13,7 @@ import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
 const dataDir = mkdtempSync(path.join(tmpdir(), 'jig-prompts-'));
 // server/config.ts reads these when it is first imported.
 process.env.JIG_DATA = dataDir;
+after(() => rmSync(dataDir, { recursive: true, force: true }));
 process.env.ANTHROPIC_API_KEY = 'test';
 setPrinter(DEFAULT_PRINTER);
 const { runGeneration } = await import('../server/agent');
