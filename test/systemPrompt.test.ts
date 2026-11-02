@@ -50,3 +50,11 @@ test('the filament count replaces the A1 AMS lite in every mode', () => {
   assert.match(none, /no AMS/);
   assert.match(all(), /Bambu Lab A1 loads 4 filaments at once/);
 });
+
+test('mode sections follow the geometry API', () => {
+  const p = buildSystemPrompt({ workspaceFile: 'w.js', webSearch: false, printBase: printDefaultsFor(DEFAULT_PRINTER), lineArt: { pictures: true } });
+  assert.ok(p.indexOf('# Line art mode') > p.indexOf('# Geometry API'), 'line art section after the geometry API');
+  const start = p.indexOf('# Dimensions of real products');
+  const dims = p.slice(start, p.indexOf('\n# ', start + 1));
+  assert.doesNotMatch(dims, /mode is ON/);
+});

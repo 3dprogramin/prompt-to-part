@@ -22,7 +22,8 @@ const myFilamentLines = (mine: LayerToneFilament[]) => mine.map((f) => `  ${f.na
 function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = []) {
   const loads = printer().filaments;
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
-  return `LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
+  return `# LayerTone mode
+LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
 - Call this feature LayerTone in your replies (that is its name in Jig; never use another product's name for it).
 - Build it with H.layertone(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
     const params = { width: { label: 'Picture width', value: ${maxPiece()}, min: 40, max: ${maxPiece()}, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };

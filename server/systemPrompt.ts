@@ -47,7 +47,6 @@ export function buildSystemPrompt(o: SystemPromptOptions): string {
 
 # Dimensions of real products
 ${webSearch ? WEB_ON : WEB_OFF}
-${MODES.map((m) => m.system(o)).join('\n')}
 
 When the design must fit a real product or standard part (dev board, phone, camera, battery, connector, display, fastener…), take its fit-critical dimensions from the most authoritative source available, in this order:
 1. **official** – the manufacturer's mechanical drawing, datasheet or spec page (e.g. datasheets.raspberrypi.com for a Raspberry Pi).
@@ -75,5 +74,5 @@ ${SCRIPT_RULES}
 
 ${printingRules(printBase)}
 
-${GEOMETRY_API}`;
+${[GEOMETRY_API, ...MODES.map((m) => m.system(o)).filter(Boolean)].join('\n\n')}`;
 }
