@@ -454,8 +454,8 @@ export function ChatPanel(p: Props) {
                     : 'Ask first is off: Jig never asks, it picks defaults and says which. Click to let it ask a few short questions first when something important is unclear.' },
                 ...(p.hasModel ? [{ key: 'view' as const, label: 'Send my view', line: 'Your 3D view with each change', on: p.sendView,
                   title: p.sendView
-                    ? 'Send my view is on: with each change you ask for, Jig gets a screenshot of your 3D view and a four-view render at your settings, it lets Jig see what you mean by "this". Click to send only your words (Jig can still render the model itself).'
-                    : 'Send my view is off: Jig gets only your words (it can still render the model itself). Click to send a screenshot of your 3D view and a four-view render at your settings with each change, it lets Jig see what you mean by "this".' }] : []),
+                    ? 'Send my view is on: with each change you ask for, Jig gets a screenshot of your 3D view and a four-view render at your settings, so Jig sees what you mean by "this". Click to send only your words (Jig can still render the model itself).'
+                    : 'Send my view is off: Jig gets only your words (it can still render the model itself). Click to send a screenshot of your 3D view and a four-view render at your settings with each change, so Jig sees what you mean by "this".' }] : []),
                 { key: 'sounds', label: 'Sounds', line: 'A chime when Jig needs you', on: p.sounds,
                   title: p.sounds
                     ? 'Sounds are on: a chime when Jig needs you (questions to answer, concept pictures to approve, an error) and a softer one when a reply has finished. Click to turn them off.'

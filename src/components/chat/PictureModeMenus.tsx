@@ -197,10 +197,10 @@ export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineA
           </div>
           {shown && example && (
             <ModeExamplePanel mode={example} example={examples[example]} label={shown.label} icon={shown.icon}
-              unavailable={unavailable(example) ? shown.desc(meshy) : undefined}
+              unavailable={unavailable(example) ? shown.hint(artworkModel, meshy) : undefined}
               onClose={closeExample}
               onUse={() => { setExample(null); if (example !== mode) onMode(example); close(); }}
-              onTry={() => { setExample(null); setOpen(false); onTryRequest(unavailable(example) ? mode : example, examples[example].request); }} />
+              onTry={() => { setExample(null); setOpen(false); onTryRequest(example, examples[example].request); }} />
           )}
         </div>
       )}

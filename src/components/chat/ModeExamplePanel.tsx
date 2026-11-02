@@ -65,7 +65,7 @@ export function ModeExamplePanel({ mode, example, label, icon, unavailable, onUs
             <ul className="mx-facts">{example.facts.map((f) => <li key={f}>{f}</li>)}</ul>
             <div className="mx-actions">
               <button ref={first} className="btn primary" disabled={!!unavailable} title={unavailable} onClick={onUse}>Use {label}</button>
-              <button className="btn ghost" onClick={onTry} title="Put this request in the message box">Try this request</button>
+              <button className="btn ghost" disabled={!!unavailable} onClick={onTry} title={unavailable ?? 'Put this request in the message box'}>Try this request</button>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 // The composer's one options button: a gear with a count of what is on, and a menu of the four
 // toggles (web search, ask first, send my view, sounds) as labelled switches.
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { Icon } from '../Icon';
 import { useChipMenu } from './useChipMenu';
 
@@ -23,6 +23,7 @@ const ICONS: Record<ChatOption['key'], (on: boolean) => string> = {
 
 export function OptionsMenu({ options, onToggle }: { options: ChatOption[]; onToggle: (key: ChatOption['key'], on: boolean) => void }) {
   const m = useChipMenu();
+  const descId = useId();
   const { count, title } = optionsSummary(options);
   useEffect(() => { if (m.open) m.menu.current?.querySelector<HTMLElement>('[role="menuitemcheckbox"]')?.focus(); }, [m.open]);
   return (
@@ -34,9 +35,9 @@ export function OptionsMenu({ options, onToggle }: { options: ChatOption[]; onTo
       {m.open && (
         <div className="mode-menu options-menu" role="menu" aria-label="Options" ref={m.menu} onKeyDown={m.onMenuKey}>
           {options.map((o) => (
-            <button key={o.key} role="menuitemcheckbox" aria-checked={o.on} className={o.on ? 'on' : ''} title={o.title} onClick={() => onToggle(o.key, !o.on)}>
+            <button key={o.key} role="menuitemcheckbox" aria-checked={o.on} aria-label={o.label} aria-describedby={`${descId}-${o.key}`} className={o.on ? 'on' : ''} title={o.title} onClick={() => onToggle(o.key, !o.on)}>
               <span className="options-icon" aria-hidden><Icon name={ICONS[o.key](o.on)} size={15} /></span>
-              <span className="options-text"><b>{o.label}</b><span>{o.line}</span></span>
+              <span className="options-text"><b>{o.label}</b><span id={`${descId}-${o.key}`}>{o.line}</span></span>
               <span className="options-switch" aria-hidden><i /></span>
             </button>
           ))}

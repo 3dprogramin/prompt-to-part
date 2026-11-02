@@ -548,13 +548,17 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   });
   await page.goto(`${A}/?design=${fid}`);
   await page.waitForFunction(() => document.title === 'Jig - Knight');
-  const view = page.getByRole('button', { name: 'Send my view' });
-  assert.equal(await view.getAttribute('aria-pressed'), 'true');
+  // The toggles are rows of the options menu (the sliders button): open it before each look.
+  const view = page.getByRole('menuitemcheckbox', { name: 'Send my view' });
+  const askFirst = page.getByRole('menuitemcheckbox', { name: 'Ask first' });
+  const openOptions = () => page.getByRole('button', { name: /^Options:/ }).click();
+  await openOptions();
+  assert.equal(await view.getAttribute('aria-checked'), 'true');
   assert.match(await view.getAttribute('title') ?? '', /what you mean by "this"/);
   // Ask first: on by default, every mode; off, Jig is told to pick defaults.
-  const askFirst = page.getByRole('button', { name: 'Ask first' });
-  assert.equal(await askFirst.getAttribute('aria-pressed'), 'true');
+  assert.equal(await askFirst.getAttribute('aria-checked'), 'true');
   assert.match(await askFirst.getAttribute('title') ?? '', /at most 5/);
+  await page.keyboard.press('Escape');
   await page.locator('.composer').screenshot({ path: path.join(shots, '10-chat-bar.png') });
   const figureMode = async () => {
     await page.getByRole('button', { name: /^Picture mode:/ }).click();
@@ -571,12 +575,16 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   assert.match(await wait.getAttribute('title') ?? '', /Wait for my OK is off: 10 s after/);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.mode-btn .figure-marks svg').count(), 1);
+  await openOptions();
   await view.click();
   await askFirst.click();
+  await page.keyboard.press('Escape');
   await page.reload();
   await page.waitForFunction(() => document.title === 'Jig - Knight');
-  assert.equal(await view.getAttribute('aria-pressed'), 'false');
-  assert.equal(await askFirst.getAttribute('aria-pressed'), 'false');
+  await openOptions();
+  assert.equal(await view.getAttribute('aria-checked'), 'false');
+  assert.equal(await askFirst.getAttribute('aria-checked'), 'false');
+  await page.keyboard.press('Escape');
   await figureMode();
   await figureOptions.click();
   assert.equal(await wait.getAttribute('aria-checked'), 'false');
@@ -616,7 +624,9 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   await card.getByRole('button', { name: 'Stop' }).click();
   await card.waitFor({ state: 'detached' });
   // Typing a change stops it too.
+  await openOptions();
   await view.click();
+  await page.keyboard.press('Escape');
   await ask('Another knight');
   assert.ok(sent[1].currentView, 'with Send my view on, the view goes');
   await box.fill('make the sword longer');
