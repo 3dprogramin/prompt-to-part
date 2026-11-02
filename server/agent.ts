@@ -24,7 +24,7 @@ import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
 import { printerLoaded } from './printerSetting';
 import { readMyFilaments } from './myFilaments';
-import { printDefaultsFor } from '../shared/print';
+import { PRINT_KEY, printDefaultsFor } from '../shared/print';
 import { printer } from '../shared/printer';
 import type { ParamValues } from '../shared/types';
 import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
@@ -150,6 +150,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
     askFirst: req.askFirst !== false,
     printBase,
+    // The user's print settings (follow-ups on a finished version send them in renderValues).
+    printProfile: typeof pictureValues[PRINT_KEY] === 'string' ? pictureValues[PRINT_KEY] : undefined,
   });
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];

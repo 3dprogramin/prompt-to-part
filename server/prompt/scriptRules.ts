@@ -42,7 +42,7 @@ function build(p) {
 \`\`\`
 - \`build(p)\` may also return just a Manifold, or an array of Manifolds / { name, shape, color } objects. Multi-part assemblies additionally return \`assembly: [...]\` (see multi-part rules).
 - \`dimensions\`: from/to are [x, y, z] points on the actual geometry; offset (optional) shifts the drawn line away from the part for readability. The app measures and displays the length; label names it. Set \`param\` to the parameter key the callout represents – the user can double-click a callout and type a value, and the app adjusts that parameter until the callout measures exactly that.
-- If the design holds a device or object (a phone stand, a holder), return \`loads: [{ name, mass, at: [x, y, z] }]\` so Jig can check it will not tip. mass is in grams, \`at\` is the object's centre of mass in mm in the model frame. Compute \`at\` in build() from the parameters, so it moves with the sliders and poses. Put the object's weight source in \`sources\` like any other fit-critical number.
+- If the design holds a device or object (a phone stand, a holder), return \`loads: [{ name, mass, at: [x, y, z] }]\` so Jig can check it will not tip. mass is in grams, \`at\` is the object's centre of mass in mm in the model frame. Compute \`at\` in build() from the parameters, so it moves with the sliders and poses: the held device's centre as it sits in the design, moved with the same rotate/translate as the part that holds it. Put the object's weight source in \`sources\` like any other fit-critical number.
 - Top-level code runs on every evaluation; create geometry inside build().
 
 # Parameters

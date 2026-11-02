@@ -48,14 +48,21 @@ export function footprint(parts: { positions: Float32Array }[], tolerance = 0.5)
   return hull(pts);
 }
 
-export interface PoseCheck { pose: string; ok: boolean; mass: number; com: [number, number, number]; edgeMm: number; tiltDeg: number; error?: string }
+/**
+ * One pose checked. `base`: the x/y extent of what touches the bed (which way it tips, against `com`);
+ * `noBase`: it rests on a point or a line (a round or pointed bottom), so there is no base to check.
+ */
+export interface PoseCheck {
+  pose: string; ok: boolean; mass: number; com: [number, number, number]; edgeMm: number; tiltDeg: number; error?: string;
+  base?: { min: [number, number]; max: [number, number] }; noBase?: true;
+}
 
 /** submit_model's tipping check, kept with the version: every pose checked, the loads the script declared, and the AI's reason if it was let through anyway. */
 export interface StabilityReport { poses: PoseCheck[]; loads: string[]; explanation?: string }
 
-/** The lines the Code tab lists: the AI's reason first when it let a failing pose through, then one line per pose. */
+/** The lines the Code tab lists: the AI's reason first when it let a failing pose through, then one line per pose, then the loads. */
 export function stabilityLines(r: StabilityReport): string[] {
-  return [...(r.explanation ? [`Explained: ${r.explanation}`] : []), ...r.poses.map(formatPose)];
+  return [...(r.explanation ? [`Explained: ${r.explanation}`] : []), ...r.poses.map(formatPose), ...(r.loads.length ? [`Loads: ${r.loads.join(', ')}`] : [])];
 }
 
 /** The tipping check for the code shown: the latest AI version's report at or below `current`, only while that version's code is the code now shown. */
@@ -83,27 +90,36 @@ export function checkPose(pose: string, points: MassPoint[], hullPts: V2[]): Pos
   const mass = points.reduce((n, p) => n + p.mass, 0);
   const com: [number, number, number] = [0, 0, 0];
   for (const p of points) for (let k = 0; k < 3; k++) com[k] += p.at[k] * p.mass / (mass || 1);
-  const fail = (error: string): PoseCheck => ({ pose, ok: false, mass, com, edgeMm: 0, tiltDeg: 0, error });
+  const base = hullPts.length ? {
+    min: [Math.min(...hullPts.map((p) => p[0])), Math.min(...hullPts.map((p) => p[1]))] as V2,
+    max: [Math.max(...hullPts.map((p) => p[0])), Math.max(...hullPts.map((p) => p[1]))] as V2,
+  } : undefined;
+  const fail = (error: string, more: Partial<PoseCheck> = {}): PoseCheck => ({ pose, ok: false, mass, com, edgeMm: 0, tiltDeg: 0, error, ...more });
   if (!(mass > 0)) return fail('nothing to weigh');
-  if (hullPts.length < 3) return fail('no base to stand on');
-  const edgeMm = edgeDistance([com[0], com[1]], hullPts);
   // Area centroid of the hull (shoelace), the fixed point of the margin shrink.
   let area = 0, cx = 0, cy = 0;
   for (let i = 0; i < hullPts.length; i++) {
     const a = hullPts[i], b = hullPts[(i + 1) % hullPts.length], w = a[0] * b[1] - b[0] * a[1];
     area += w; cx += (a[0] + b[0]) * w; cy += (a[1] + b[1]) * w;
   }
+  // Fewer than 3 corners, or a sliver (shoelace area is twice the area): a round or pointed bottom.
+  if (hullPts.length < 3 || Math.abs(area) / 2 < 0.01) return fail('no flat base to stand on: it rests on a point or a line', { noBase: true, ...(base ? { base } : {}) });
+  const edgeMm = edgeDistance([com[0], com[1]], hullPts);
   const c: V2 = [cx / (3 * area), cy / (3 * area)];
   const k = 1 - STABILITY_MARGIN;
   const shrunk = hullPts.map((p): V2 => [c[0] + (p[0] - c[0]) * k, c[1] + (p[1] - c[1]) * k]);
   const ok = edgeDistance([com[0], com[1]], shrunk) >= 0;
   const tiltDeg = edgeMm > 0 ? Math.atan2(edgeMm, Math.max(com[2], 1e-9)) * 180 / Math.PI : 0;
-  return { pose, ok, mass, com, edgeMm, tiltDeg };
+  return { pose, ok, mass, com, edgeMm, tiltDeg, ...(base ? { base } : {}) };
 }
 
+/** One line per pose; with the base known, also where the centre of mass is against it (which way it tips). */
 export function formatPose(c: PoseCheck): string {
-  if (c.error) return `${c.pose}: ${c.error}`;
-  if (c.edgeMm < 0) return `${c.pose}: tips, centre of mass ${(-c.edgeMm).toFixed(1)} mm outside the base`;
+  const one = (x: number) => (Math.abs(x) < 0.05 ? 0 : x).toFixed(1);
+  const short = (x: number) => String(+x.toFixed(1) || 0);
+  const where = c.base ? `; centre of mass at x ${one(c.com[0])}, y ${one(c.com[1])}; base spans x ${short(c.base.min[0])}..${short(c.base.max[0])}, y ${short(c.base.min[1])}..${short(c.base.max[1])}` : '';
+  if (c.error) return `${c.pose}: ${c.error}${where}`;
+  if (c.edgeMm < 0) return `${c.pose}: tips, centre of mass ${(-c.edgeMm).toFixed(1)} mm outside the base${where}`;
   const past = `tips past ${Math.round(c.tiltDeg)}°`;
-  return c.ok ? `${c.pose}: stable, ${c.edgeMm.toFixed(1)} mm inside the base edge, ${past}` : `${c.pose}: marginal, only ${c.edgeMm.toFixed(1)} mm inside the base edge, ${past}`;
+  return `${c.ok ? `${c.pose}: stable, ${c.edgeMm.toFixed(1)} mm inside the base edge` : `${c.pose}: marginal, only ${c.edgeMm.toFixed(1)} mm inside the base edge`}, ${past}${where}`;
 }

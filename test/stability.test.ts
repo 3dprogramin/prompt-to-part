@@ -63,7 +63,11 @@ test('centre outside the base', () => {
   assert.ok(Math.abs(c.edgeMm + 4) < 1e-9);
   assert.equal(c.tiltDeg, 0);
   assert.match(formatPose(c), /4\.0 mm outside/);
-  assert.equal(formatPose(c), 'tilt 60° back: tips, centre of mass 4.0 mm outside the base');
+  // Which way it tips: the centre of mass and the base's extent.
+  assert.equal(formatPose(c), 'tilt 60° back: tips, centre of mass 4.0 mm outside the base; centre of mass at x 44.0, y 20.0; base spans x 0..40, y 0..40');
+  // A report saved before the base was kept still reads.
+  const { base: _b, ...old } = c;
+  assert.equal(formatPose(old), 'tilt 60° back: tips, centre of mass 4.0 mm outside the base');
 });
 
 test('inside but within the 15 % margin', () => {
@@ -83,13 +87,26 @@ test('no mass or no base is an error, not a pass', () => {
   assert.ok(checkPose('default', [{ name: 'a', mass: 1, at: [0, 0, 1] }], []).error);
 });
 
+test('a point or a line is no base', () => {
+  const point = checkPose('default', [{ name: 'ball', mass: 5, at: [0, 0, 10] }], [[0, 0]]);
+  assert.equal(point.ok, false);
+  assert.equal(point.noBase, true);
+  assert.match(formatPose(point), /rests on a point or a line/);
+  const line = checkPose('default', [{ name: 'rod', mass: 5, at: [0, 0, 10] }], [[-10, 0], [10, 0]]);
+  assert.equal(line.noBase, true);
+  // A sliver of a base is still no base.
+  assert.equal(checkPose('default', [{ name: 'rod', mass: 5, at: [0, 0, 10] }], [[-10, 0], [10, 0], [0, 1e-9]]).noBase, true);
+  assert.equal(checkPose('default', [{ name: 'a', mass: 1, at: [20, 20, 1] }], square(40)).noBase, undefined);
+});
+
 test('stability lines', () => {
   const a = checkPose('default', [{ name: 'body', mass: 10, at: [20, 20, 20] }], square(40));
   const b = checkPose('tilt 60° back', [{ name: 'body', mass: 10, at: [44, 20, 20] }], square(40));
-  const lines = stabilityLines({ poses: [a, b], loads: [], explanation: 'screwed to the wall' });
-  assert.equal(lines.length, 3);
+  const lines = stabilityLines({ poses: [a, b], loads: ['phone (270 g)'], explanation: 'screwed to the wall' });
+  assert.equal(lines.length, 4);
   assert.equal(lines[0], 'Explained: screwed to the wall');
   assert.equal(lines[2], formatPose(b));
+  assert.equal(lines[3], 'Loads: phone (270 g)');
   assert.equal(stabilityLines({ poses: [a], loads: [] }).length, 1);
 });
 

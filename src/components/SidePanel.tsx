@@ -683,7 +683,7 @@ function StabilityStrip({ report }: { report: StabilityReport }) {
         <ul id={listId} className="stability-list">
           {lines.map((l, i) => (
             <li key={i}>
-              {i >= first ? <span className={`dot ${report.poses[i - first].ok ? 'good' : 'bad'}`} aria-hidden="true" /> : <span className="dot none" aria-hidden="true" />}
+              {i >= first && report.poses[i - first] ? <span className={`dot ${report.poses[i - first].ok ? 'good' : 'bad'}`} aria-hidden="true" /> : <span className="dot none" aria-hidden="true" />}
               <span>{l}</span>
             </li>
           ))}

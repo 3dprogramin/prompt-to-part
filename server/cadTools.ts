@@ -10,7 +10,7 @@ import { scadFileName } from '../shared/scad';
 import { requestImage } from './artwork';
 import type { AgentEvent } from '../shared/api';
 import type { ParamValues } from '../shared/types';
-import { printDefaultsFor, type PrintSettings } from '../shared/print';
+import { PRINT_KEY, printDefaultsFor, type PrintSettings } from '../shared/print';
 import { printer } from '../shared/printer';
 import { formatPose, type StabilityReport } from '../shared/stability';
 import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type DimensionSource } from '../shared/sources';
@@ -66,6 +66,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   askFirst?: boolean;
   /** The print baseline (the chosen printer's profile), for weighing parts in the tipping check. */
   printBase?: Required<PrintSettings>;
+  /** The user's own print settings (PRINT_KEY, as JSON), which weigh the parts in the tipping check too. */
+  printProfile?: string;
 } = {}) {
   const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst } = extra;
   const drawImage = extra.image ?? requestImage;
@@ -160,7 +162,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-      tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max (set force=true only if a stress failure is truly unavoidable and harmless). Then checks the design doesn\'t tip over: parts weighed as printed PLA plus the loads build() declares, at the defaults and every pose in stability.poses (give one for every tilt or swivel limit). Pass stability.upright if it is printed lying down, and stability.explanation only if it can\'t tip in use (wall-mounted, clamped, lies flat). Rejected if anything fails.', {
+      tool('submit_model', 'Submit model.js as the finished design. Validates the defaults and stress-tests every parameter at its min/max (set force=true only if a stress failure is truly unavoidable and harmless). Then checks the design doesn\'t tip over: parts weighed as printed PLA plus the loads build() declares, at the defaults and every pose in stability.poses (give one for every tilt or swivel limit, and combine limits that act together, e.g. the maximum tilt at each swivel limit). Pass stability.upright if it is printed lying down, and stability.explanation only if it can\'t tip in use (wall-mounted, clamped, lies flat). Rejected if anything fails.', {
         summary: z.string().describe('One or two sentences describing this version (shown in version history)'),
         sources: sourcesSchema,
         force: z.boolean().optional(),
@@ -203,22 +205,38 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           }
           // The tipping check, at the defaults and every pose Claude names (assembled, for a multi-part design).
           let report: StabilityReport | undefined;
-          let tippingStep: { ok: boolean; text: string; detail?: string };
+          let tippingStep: { ok: boolean; text: string; detail?: string; verbose?: boolean };
           const layout = assembly?.layoutParam && assembly.assembledValue ? { [assembly.layoutParam]: assembly.assembledValue } : {};
           const poses = [{ label: 'default', values: {} }, ...(tipping?.poses ?? [])].map((p) => ({ label: p.label, values: { ...p.values, ...layout } }));
           try {
-            const t = await geometry.stability({ code, extra: base, poses, printBase: extra.printBase ?? printDefaultsFor(printer()), nozzle: printer().nozzle, upright: tipping?.upright });
-            const detail = t.poses.map(formatPose).join('\n') + (t.loads.length ? `\nLoads: ${t.loads.join(', ')}` : '');
+            // The user's print settings weigh the parts too (only here: they don't change the shape).
+            const weighWith = extra.printProfile ? { ...base, [PRINT_KEY]: extra.printProfile } : base;
+            const t = await geometry.stability({ code, extra: weighWith, poses, printBase: extra.printBase ?? printDefaultsFor(printer()), nozzle: printer().nozzle, upright: tipping?.upright });
+            const loadsLine = t.loads.length ? `\nLoads: ${t.loads.join(', ')}` : '';
+            const detail = t.poses.map(formatPose).join('\n') + loadsLine;
             const failing = t.poses.filter((p) => !p.ok);
-            if (failing.length && !tipping?.explanation) {
-              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Tipping check: ${failing.length} of ${t.poses.length} pose(s) tip over`, detail } });
-              return {
-                content: [{ type: 'text', text: `Rejected - the design tips over:\n${failing.map(formatPose).join('\n')}\nFix it (wider or heavier base, lower hinge, load moved back over the base) or pass stability.explanation if it can't tip in use (wall-mounted, clamped, lies flat).` }],
-                isError: true,
-              };
+            // Nothing held and no poses: a plain object (keychain, line art, LayerTone) only needs a quiet check,
+            // and a round or pointed bottom just rests where it lies.
+            const plain = !t.loads.length && t.poses.length === 1;
+            if (plain && failing.length === 1 && failing[0].noBase) {
+              tippingStep = { ok: true, verbose: true, text: 'Tipping check passed', detail: 'no flat base to check: rests on a point or a line' };
+            } else if (failing.length && !tipping?.explanation) {
+              const tipped = failing.filter((p) => !p.error || p.noBase), broken = failing.filter((p) => p.error && !p.noBase);
+              const fixes = [...(tipped.some((p) => p.noBase) ? ['flatten the underside'] : []), 'wider or heavier base', 'lower hinge', 'load moved back over the base'];
+              const text = [
+                ...(tipped.length ? [`Rejected - the design tips over:\n${tipped.map(formatPose).join('\n')}`] : []),
+                ...(broken.length ? [`${tipped.length ? 'It also fails in these poses' : 'Rejected - the design fails in these poses'}:\n${broken.map(formatPose).join('\n')}`] : []),
+              ].join('\n') + loadsLine
+                + (broken.length ? '\nA pose\'s values must be the script\'s own parameters, with values of the right type.' : '')
+                + (tipped.length ? `\nFix it (${fixes.join(', ')}) or pass stability.explanation if it can't tip in use (wall-mounted, clamped, lies flat).` : '');
+              emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Tipping check: ${failing.length} of ${t.poses.length} pose(s) ${broken.length ? 'fail' : 'tip over'}`, detail } });
+              return { content: [{ type: 'text', text }], isError: true };
+            } else if (plain && !failing.length) {
+              tippingStep = { ok: true, verbose: true, text: 'Tipping check passed (1 pose)', detail };
+            } else {
+              report = { ...t, ...(tipping?.explanation ? { explanation: tipping.explanation } : {}) };
+              tippingStep = { ok: true, text: failing.length ? `Tipping check: explained - ${tipping!.explanation}` : `Tipping check passed (${t.poses.length} pose${t.poses.length === 1 ? '' : 's'})`, detail };
             }
-            report = { ...t, ...(tipping?.explanation ? { explanation: tipping.explanation } : {}) };
-            tippingStep = { ok: true, text: failing.length ? `Tipping check: explained - ${tipping!.explanation}` : `Tipping check passed (${t.poses.length} pose${t.poses.length === 1 ? '' : 's'})`, detail };
           } catch (e) {
             // A check that couldn't run (timeout, worker error) doesn't block the design.
             tippingStep = { ok: false, text: `Tipping check couldn't run: ${(e as Error).message}` };

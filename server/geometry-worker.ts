@@ -270,14 +270,18 @@ function rotate(v: [number, number, number], deg: [number, number, number]): [nu
 async function stability(req: Extract<Req, { cmd: 'stability' }>) {
   const user = parseProfile(req.extra?.[PRINT_KEY]);
   const poses: PoseCheck[] = [];
-  const loadNames = new Set<string>();
+  const loadNames = new Map<string, number>();
+  const failed = (label: string, error: string): PoseCheck => ({ pose: label, ok: false, mass: 0, com: [0, 0, 0], edgeMm: 0, tiltDeg: 0, error });
   for (const pose of req.poses) {
     const { result, out } = await run(req.code, { ...req.extra, ...pose.values }, 'draft');
     if (!result) {
       const e = out.ok ? undefined : out.error;
-      poses.push({ pose: pose.label, ok: false, mass: 0, com: [0, 0, 0], edgeMm: 0, tiltDeg: 0, error: e ? `${e.message}${e.line ? ` (line ${e.line})` : ''}` : 'the script failed' });
+      poses.push(failed(pose.label, e ? `${e.message}${e.line ? ` (line ${e.line})` : ''}` : 'the script failed'));
       continue;
     }
+    // A misnamed or mistyped value would be dropped and the defaults checked instead: say so.
+    const wrong = poseProblem(pose.values, result.params);
+    if (wrong) { poses.push(failed(pose.label, wrong)); continue; }
     // Copies: the result's arrays are not ours to change. Rotated (if asked), then dropped so the lowest vertex is at z = 0.
     // A part with no triangles or no volume has no vertices to stand on and no mass, so it is left out of both.
     const turn = (v: [number, number, number]) => (req.upright ? rotate(v, req.upright) : v);
@@ -292,7 +296,7 @@ async function stability(req: Extract<Req, { cmd: 'stability' }>) {
     for (const { positions } of moved) for (let i = 2; i < positions.length; i += 3) low = Math.min(low, positions[i]);
     if (!Number.isFinite(low)) low = 0;
     for (const { positions } of moved) for (let i = 2; i < positions.length; i += 3) positions[i] -= low;
-    for (const l of loads) { l.at = [l.at[0], l.at[1], l.at[2] - low]; loadNames.add(l.name); }
+    for (const l of loads) { l.at = [l.at[0], l.at[1], l.at[2] - low]; if (!loadNames.has(l.name)) loadNames.set(l.name, l.mass); }
     const points: MassPoint[] = moved.map(({ part, positions }) => ({
       name: part.name,
       mass: partMass(part.volume, part.surfaceArea, effectiveSettings(result.print, user, part.name, req.printBase), req.nozzle),
@@ -300,5 +304,19 @@ async function stability(req: Extract<Req, { cmd: 'stability' }>) {
     }));
     poses.push(checkPose(pose.label, [...points, ...loads], footprint(moved)));
   }
-  return { poses, loads: [...loadNames] };
+  return { poses, loads: [...loadNames].map(([name, mass]) => `${name} (${+mass.toFixed(1)} g)`) };
+}
+
+/** Why a pose's values don't fit the script's parameters (a name it doesn't have, a value of the wrong type), or undefined. */
+function poseProblem(values: ParamValues, params: EvalResult['params']): string | undefined {
+  for (const [k, v] of Object.entries(values)) {
+    if (k.startsWith('$')) continue;
+    const d = params[k];
+    if (!d) return `unknown parameter "${k}" (parameters: ${Object.keys(params).join(', ') || 'none'})`;
+    if ((d.type === 'number' || d.type === 'integer') && !(typeof v === 'number' && Number.isFinite(v))) return `parameter "${k}" needs a number`;
+    if (d.type === 'boolean' && typeof v !== 'boolean') return `parameter "${k}" needs true or false`;
+    if ((d.type === 'select' || d.type === 'text') && typeof v !== 'string') return `parameter "${k}" needs text`;
+    if (d.type === 'select' && !d.options.some((o) => o.value === v)) return `parameter "${k}" has no option "${v}" (options: ${d.options.map((o) => o.value).join(', ')})`;
+  }
+  return undefined;
 }

@@ -41,7 +41,7 @@ const tower = (base: number) => `function build() {
 test('a tall load on a narrow post tips', async () => {
   const r = await geometry.stability({ code: tower(10), extra: {}, poses: [{ label: 'default', values: {} }], printBase: BASE, nozzle: 0.4 });
   assert.equal(r.poses[0].ok, false, JSON.stringify(r));
-  assert.deepEqual(r.loads, ['phone']);
+  assert.deepEqual(r.loads, ['phone (200 g)']);
 });
 
 test('a wide base holds it', async () => {
@@ -55,6 +55,20 @@ test('a pose that fails reports its error', async () => {
   assert.equal(r.poses[1].ok, false);
   assert.match(r.poses[1].error ?? '', /too steep/);
   assert.equal(r.poses[0].error, undefined);
+});
+
+test('a pose with a misnamed or mistyped parameter is an error, not the defaults', async () => {
+  const code = `const params = { tiltAngle: { value: 10, min: 0, max: 90 }, swivel: { value: 0, min: -45, max: 45 }, foot: { type: 'select', value: 'round', options: [{ value: 'round', label: 'Round' }, { value: 'square', label: 'Square' }] } };
+function build(p) { return Manifold.cube([20, 20, 5]); }`;
+  const r = await geometry.stability({ code, extra: {}, poses: [
+    { label: 'tilt 60', values: { tilt: 60 } },
+    { label: 'steep', values: { tiltAngle: '60' } },
+    { label: 'square foot', values: { foot: 'hexagon' } },
+  ], printBase: BASE, nozzle: 0.4 });
+  assert.equal(r.poses[0].ok, false);
+  assert.match(r.poses[0].error ?? '', /unknown parameter "tilt" \(parameters: tiltAngle, swivel, foot\)/);
+  assert.match(r.poses[1].error ?? '', /parameter "tiltAngle" needs a number/);
+  assert.match(r.poses[2].error ?? '', /"foot" has no option "hexagon" \(options: round, square\)/);
 });
 
 test('upright turns a part printed on its side', async () => {
