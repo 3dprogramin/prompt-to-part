@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Jig app icon: the mark on the app's dark grey tile (favicon, GitHub avatar, home screen). -->
+  <rect width="64" height="64" rx="14" fill="#191b1f"/>
+  <rect x=".75" y=".75" width="62.5" height="62.5" rx="13.25" fill="none" stroke="#e0a43c" stroke-opacity=".28" stroke-width="1.5"/>
+  <g transform="translate(12 10) scale(.6875)">
+    <rect fill="#f1efe9" x="22" y="4" width="30" height="8" rx="3"/>
+    <g fill="#e0a43c">
+      <rect x="36" y="14" width="16" height="8" rx="3"/><rect x="36" y="24" width="16" height="8" rx="3"/>
+      <rect x="8" y="34" width="12" height="8" rx="3"/><rect x="36" y="34" width="16" height="8" rx="3"/>
+      <rect x="8" y="44" width="44" height="8" rx="3"/><rect x="14" y="54" width="32" height="8" rx="3"/>
+    </g>
+  </g>
+</svg>

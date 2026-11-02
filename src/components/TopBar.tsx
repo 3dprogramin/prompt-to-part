@@ -8,6 +8,7 @@ import { TEMP_TAG } from '../../shared/tags';
 import { cleanFilter, tagCounts, type DesignFilter } from '../lib/designList';
 import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
+import { JigMark } from './JigMark';
 import { DesignsMenu, KindIcon } from './DesignsMenu';
 import { DesignTagsButton } from './Tags';
 import { DesignTabs, type DesignTab } from './DesignTabs';
@@ -93,7 +94,7 @@ export function TopBar(p: Props) {
     <header className="topbar">
       {/* Real links (logo and New), so they can be opened in a new tab. */}
       <a className="brand" href="/" title={newTitle} onClick={newHere}>
-        <span className="logo"><Icon name="cube" size={18} /></span> <span className="brand-name">Jig</span>
+        <span className="logo"><JigMark /></span> <span className="brand-name">Jig</span>
       </a>
       <span className="app-version" title="Jig version">v{import.meta.env.VITE_APP_VERSION}</span>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
