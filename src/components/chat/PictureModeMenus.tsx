@@ -11,8 +11,8 @@ import { useChipMenu } from './useChipMenu';
 
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 
-const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; desc: (meshy: boolean) => string; hint: (artworkModel: string | null, meshy: boolean) => string }[] = [
-  { mode: 'off', label: '3D model', icon: 'cube', desc: () => 'Everything modelled in 3D', hint: () => 'Jig models people, characters and animals as 3D objects.' },
+export const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; desc: (meshy: boolean) => string; hint: (artworkModel: string | null, meshy: boolean) => string }[] = [
+  { mode: 'off', label: '3D model', short: '3D model', icon: 'cube', desc: () => 'Everything modelled in 3D', hint: () => 'Jig models people, characters and animals as 3D objects.' },
   { mode: 'artwork', label: 'AI artwork', short: 'Artwork', icon: 'palette', desc: () => 'Flat colour layers for reliefs and signs', hint: (m) => `Jig has ${m ?? 'an image model'} draw the subject – a person, an animal, a scene or an object – as flat artwork first, then turns it into colour layers for wall art, reliefs and signs.` },
   { mode: 'layertone', label: 'LayerTone', short: 'LayerTone', icon: 'layers', desc: () => 'A picture painted by stacked filaments', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Jig makes one' : ''}; set the filaments in the Print tab.` },
   { mode: 'lithophane', label: 'Lithophane', short: 'Lithophane', icon: 'lamp', desc: () => 'A photo that glows lit from behind', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
@@ -121,7 +121,7 @@ export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineA
     <span className="mode-wrap" ref={wrap}>
       <button
         {...triggerProps}
-        className={`web-toggle art mode-btn ${mode !== 'off' ? 'on' : ''} ${split ? 'split' : ''}`}
+        className={`web-toggle art mode-btn mode-chip ${split ? 'split' : ''}`}
         aria-label={`Picture mode: ${name}`}
         title={`Picture mode: ${name}${style ? ` (${style.desc.toLowerCase()})` : ''}. ${current.hint(artworkModel, meshy)}${mode === 'figure' && credits ? ` ${creditsText(credits, color)}` : ''}${figure && color ? ' Colour is on.' : ''}${figure && autoBuild ? ` Wait for my OK is off: concept pictures are built ${AUTO_BUILD_SECONDS} s after they are drawn.` : ''} Click to choose.`}
       >

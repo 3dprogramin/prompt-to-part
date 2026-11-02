@@ -846,8 +846,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 .composer-bar { position: relative; }
 .mode-btn { width: auto; min-width: 30px; gap: 5px; padding: 0 7px; }
 /* The mode's name only where it fits on the composer's one row (with "Lithophane", the longest). */
-.mode-label { display: none; font-size: 11.5px; font-weight: 500; }
-@container (min-width: 480px) { .mode-label { display: inline; } }
+.mode-label { font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+/* The mode chip is Jig's amber in every mode and always says its mode; only a very narrow chat leaves the icon. */
+.web-toggle.mode-chip { background: #e0a43c1f; border-color: var(--accent); color: var(--accent-2); }
+.web-toggle.mode-chip:hover { color: var(--accent-2); background: #e0a43c33; }
+@container (max-width: 339px) { .mode-label { display: none; } }
 /* The Meshy credits left, on the 3D figure button. */
 .mode-credits { font: 500 10.5px/1 var(--mono); color: var(--text-2); background: var(--bg); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 4px; }
 .mode-credits.low { color: var(--bad); border-color: var(--bad); }
@@ -891,6 +894,21 @@ body.resizing { cursor: col-resize; user-select: none; }
 .mode-menu.model-menu button { align-items: center; padding: 5px 10px 5px 6px; }
 .model-menu .mode-check { padding-top: 0; }
 .model-menu button.on > span:last-child { color: var(--accent-2); font-weight: 500; }
+/* The options button (gear, count of what is on) and its menu of switches, pushed to the right of the toolbar. */
+.composer-tools .options-wrap { margin-left: auto; }
+.web-toggle.options-btn { position: relative; width: 30px; }
+.web-toggle.options-btn.has-on { color: var(--text-2); }
+.options-badge { position: absolute; top: -5px; right: -5px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: #5b9bd5; color: #0b1a2a; font: 600 9.5px/14px var(--sans); text-align: center; }
+.mode-menu.options-menu { left: auto; right: 0; width: 280px; max-width: 100%; }
+.mode-menu.options-menu button { align-items: center; gap: 9px; padding: 7px 10px; }
+.mode-menu.options-menu button > span:nth-child(2) { flex: 1; min-width: 0; }
+.options-icon { display: inline-flex; flex-shrink: 0; color: var(--text-3); }
+.options-menu button.on .options-icon { color: #b4d4f5; }
+.options-menu button.on b { color: var(--text); }
+.options-switch { flex-shrink: 0; width: 28px; height: 16px; border-radius: 8px; background: var(--line-2); position: relative; transition: background 0.15s; }
+.options-switch i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-3); transition: transform 0.15s, background 0.15s; }
+.options-menu button.on .options-switch { background: #5b9bd5; }
+.options-menu button.on .options-switch i { transform: translateX(12px); background: #fff; }
 /* As the chat narrows (the Figure's name goes at 480 px): the model's version and the credits badge (sooner
    beside a long model chip), the model chip's words (an icon then), and below 260 px everything
    tightens. The full text is in each chip's tooltip and menu. */

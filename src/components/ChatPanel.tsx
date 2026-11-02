@@ -16,6 +16,7 @@ import { load, store } from '../lib/storage';
 import { startDictation, type Dictation } from '../lib/dictation';
 import type { AutoBuild } from '../lib/autoBuild';
 import { ModelMenu } from './chat/ModelMenu';
+import { OptionsMenu } from './chat/OptionsMenu';
 import { FigureMenu, ImageModeMenu, LineArtMenu, type ImageMode } from './chat/PictureModeMenus';
 import { Message } from './chat/Message';
 import { AutoBuildCard } from './chat/AutoBuildCard';
@@ -424,37 +425,6 @@ export function ChatPanel(p: Props) {
             <button className="icon-btn" title="Attach photos, SVG, OpenSCAD (.scad) or 3D models (STL, 3MF, OBJ, GLB)" aria-label="Attach photos, SVG, OpenSCAD files or 3D models" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
             <input ref={fileInput} type="file" accept="image/*,.svg,.scad,.stl,.3mf,.obj,.glb,.gltf" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
             <ModelMenu model={p.model} effort={p.effort} defaultModel={p.defaultModel} onModel={p.onModel} onEffort={p.onEffort} />
-            <button
-              className={`web-toggle ${p.webSearch ? 'on' : ''}`}
-              aria-label="Web search"
-              aria-pressed={p.webSearch}
-              onClick={() => p.onWebSearch(!p.webSearch)}
-              title={p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products'}
-            >
-              <Icon name="globe" size={14} />
-            </button>
-            <button
-              className={`web-toggle ask-first ${p.askFirst ? 'on' : ''}`}
-              aria-label="Ask first"
-              aria-pressed={p.askFirst}
-              onClick={() => p.onAskFirst(!p.askFirst)}
-              title={p.askFirst
-                ? 'Ask first is on: when your request leaves an important choice open, Jig asks a few short questions (at most 5) before it builds; clear requests and small changes it just does. Click to have it pick defaults instead.'
-                : 'Ask first is off: Jig never asks, it picks defaults and says which. Click to let it ask a few short questions first when something important is unclear.'}
-            >
-              <Icon name="ask" size={14} />
-            </button>
-            <button
-              className={`web-toggle sounds ${p.sounds ? 'on' : ''}`}
-              aria-label="Sounds"
-              aria-pressed={p.sounds}
-              onClick={() => p.onSounds(!p.sounds)}
-              title={p.sounds
-                ? 'Sounds are on: a chime when Jig needs you (questions to answer, concept pictures to approve, an error) and a softer one when a reply has finished. Click to turn them off.'
-                : 'Sounds are off. Click for a chime when Jig needs you and when a reply has finished.'}
-            >
-              <Icon name={p.sounds ? 'sound' : 'soundOff'} size={14} />
-            </button>
             {/* 3D figure and Line art modes: the picture mode button with a ▾ for the mode's options
                 (the figure's Colour, Wait for my OK and credits; the line art's style). */}
             <span className="mode-split">
@@ -465,19 +435,25 @@ export function ChatPanel(p: Props) {
               )}
               {p.imageMode === 'lineart' && <LineArtMenu style={p.lineArtStyle} onStyle={p.onLineArtStyle} />}
             </span>
-            {p.hasModel && (
-              <button
-                className={`web-toggle send-view ${p.sendView ? 'on' : ''}`}
-                aria-label="Send my view"
-                aria-pressed={p.sendView}
-                onClick={() => p.onSendView(!p.sendView)}
-                title={p.sendView
-                  ? 'Send my view is on: with each change you ask for, Jig gets a screenshot of your 3D view and a four-view render at your settings – it lets Jig see what you mean by "this". Click to send only your words (Jig can still render the model itself).'
-                  : 'Send my view is off: Jig gets only your words (it can still render the model itself). Click to send a screenshot of your 3D view and a four-view render at your settings with each change – it lets Jig see what you mean by "this".'}
-              >
-                <Icon name={p.sendView ? 'eye' : 'eyeOff'} size={14} />
-              </button>
-            )}
+            <OptionsMenu
+              onToggle={(key, on) => (key === 'web' ? p.onWebSearch(on) : key === 'ask' ? p.onAskFirst(on) : key === 'view' ? p.onSendView(on) : p.onSounds(on))}
+              options={[
+                { key: 'web', label: 'Web search', line: 'Look up real product sizes', on: p.webSearch,
+                  title: p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products' },
+                { key: 'ask', label: 'Ask first', line: 'A few questions when something is unclear', on: p.askFirst,
+                  title: p.askFirst
+                    ? 'Ask first is on: when your request leaves an important choice open, Jig asks a few short questions (at most 5) before it builds; clear requests and small changes it just does. Click to have it pick defaults instead.'
+                    : 'Ask first is off: Jig never asks, it picks defaults and says which. Click to let it ask a few short questions first when something important is unclear.' },
+                ...(p.hasModel ? [{ key: 'view' as const, label: 'Send my view', line: 'Your 3D view with each change', on: p.sendView,
+                  title: p.sendView
+                    ? 'Send my view is on: with each change you ask for, Jig gets a screenshot of your 3D view and a four-view render at your settings, it lets Jig see what you mean by "this". Click to send only your words (Jig can still render the model itself).'
+                    : 'Send my view is off: Jig gets only your words (it can still render the model itself). Click to send a screenshot of your 3D view and a four-view render at your settings with each change, it lets Jig see what you mean by "this".' }] : []),
+                { key: 'sounds', label: 'Sounds', line: 'A chime when Jig needs you', on: p.sounds,
+                  title: p.sounds
+                    ? 'Sounds are on: a chime when Jig needs you (questions to answer, concept pictures to approve, an error) and a softer one when a reply has finished. Click to turn them off.'
+                    : 'Sounds are off. Click for a chime when Jig needs you and when a reply has finished.' },
+              ]}
+            />
           </div>
           <button
             className={`icon-btn mic ${listening}`}
