@@ -165,19 +165,34 @@ export function ChatPanel(p: Props) {
   // Mesh files are imported (repaired, stored with the design) as soon as they are attached.
   const [meshes, setMeshes] = useState<{ key: number; name: string; upload?: MeshUpload; error?: string }[]>([]);
   const meshKey = useRef(0);
+  // Attachments belong to the design they were added in (a mesh file is stored with it): another
+  // design starts with none, and one still reading or uploading when the design changes is dropped.
+  // The typed text stays, as it always has (it isn't tied to a design).
+  const designId = useRef(p.designId);
+  designId.current = p.designId;
+  useEffect(() => {
+    setImages([]);
+    setSvgShapes({});
+    setScad([]);
+    setMeshes([]);
+    setAttachError(null);
+  }, [p.designId]);
   const addMeshes = (files: File[]) => {
+    const forDesign = p.designId;
     for (const f of files) {
       const key = ++meshKey.current;
       setMeshes((prev) => [...prev, { key, name: f.name }].slice(-4));
-      api.uploadMesh(p.designId, f).then(
-        (upload) => setMeshes((prev) => prev.map((m) => (m.key === key ? { ...m, upload } : m))),
-        (e: Error) => setMeshes((prev) => prev.map((m) => (m.key === key ? { ...m, error: e.message } : m))),
+      api.uploadMesh(forDesign, f).then(
+        (upload) => { if (designId.current === forDesign) setMeshes((prev) => prev.map((m) => (m.key === key ? { ...m, upload } : m))); },
+        (e: Error) => { if (designId.current === forDesign) setMeshes((prev) => prev.map((m) => (m.key === key ? { ...m, error: e.message } : m))); },
       );
     }
   };
   const importing = meshes.some((m) => !m.upload && !m.error);
   const readyMeshes = meshes.flatMap((m) => (m.upload ? [m.upload] : []));
   const addFiles = async (files: Iterable<File>) => {
+    const forDesign = p.designId;
+    const stillHere = () => designId.current === forDesign;
     const all = [...files];
     const imgs = all.filter((f) => f.type.startsWith('image/') || isSvg(f));
     setAttachError(null);
@@ -187,21 +202,23 @@ export function ChatPanel(p: Props) {
     if (scadFiles.length) {
       const read = await Promise.all(scadFiles.map(async (f) => (f.size > MAX_SCAD_CHARS * 4 ? null : { name: scadFileName(f.name), source: await f.text() })));
       const ok = read.filter((f): f is ScadFile => !!f && f.source.length <= MAX_SCAD_CHARS);
+      if (!stillHere()) return;
       if (ok.length < scadFiles.length) setAttachError(`OpenSCAD files can be up to ${MAX_SCAD_CHARS.toLocaleString('en')} characters.`);
       setScad((prev) => [...prev.filter((p) => !ok.some((f) => f.name === p.name)), ...ok].slice(0, MAX_SCAD_FILES));
     }
     const added = await Promise.all(imgs.map(async (f) => {
       const url = await prepareImage(f).catch(() => null);
-      if (!url) { setAttachError(`${f.name} could not be read as a picture.`); return null; }
+      if (!url) { if (stillHere()) setAttachError(`${f.name} could not be read as a picture.`); return null; }
       if (!isSvg(f)) return { url };
       try {
         return { url, drawing: importSvg(await f.text(), f.name).drawing };
       } catch (e) {
         // Still sent as a picture; Claude just doesn't get the exact shapes.
-        setAttachError(`${f.name}: ${(e as Error).message} It is attached as a picture only.`);
+        if (stillHere()) setAttachError(`${f.name}: ${(e as Error).message} It is attached as a picture only.`);
         return { url };
       }
     }));
+    if (!stillHere()) return;
     const ok = added.filter((a): a is { url: string; drawing?: SvgDrawing } => !!a);
     setImages((prev) => [...prev, ...ok.map((a) => a.url)].slice(0, 8));
     setSvgShapes((prev) => ({ ...prev, ...Object.fromEntries(ok.filter((a) => a.drawing).map((a) => [a.url, a.drawing!])) }));
