@@ -2,8 +2,11 @@ import { createApp, endGenerations } from './app';
 import { DATA_DIR, HOST, PASSWORD, PORT } from './config';
 import { isLoopback } from './auth';
 import { geometry } from './geometry';
+import { sweepDataDir } from './sweep';
 
 geometry.warmup();
+// Leftovers of a crash (a half-restored backup, temp files, workspaces of designs never saved).
+void sweepDataDir().then(({ removed }) => { if (removed.length) console.log(`[jig] Removed ${removed.length} leftover file(s) from the data folder`); }, (e) => console.warn('[sweep]', (e as Error).message));
 createApp().listen(PORT, HOST, () => {
   console.log(`Jig server on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
   // In Docker the container listens on 0.0.0.0 and JIG_PUBLISHED (JIG_BIND, set by docker-compose.yml) says
