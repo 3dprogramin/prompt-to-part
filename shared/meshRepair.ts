@@ -156,9 +156,11 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
   const pieces = solid.decompose();
   const vols = pieces.map((p) => p.volume());
   const total = vols.reduce((s, v) => s + Math.max(0, v), 0);
-  const keep = pieces.filter((_, i) => vols[i] < 0 || vols[i] >= Math.max(total * 1e-3, 0.5));
+  // At most half the biggest shell, so a tiny print (a 3 mm thin tag) or many equal beads stay whole.
+  const floor = Math.min(Math.max(total * 1e-3, 0.5), vols.reduce((m, v) => Math.max(m, v), 0) / 2);
+  const keep = pieces.filter((_, i) => vols[i] < 0 || vols[i] >= floor);
   const specks = pieces.length - keep.length;
-  if (specks) repairs.push(`Removed ${count(specks, 'loose fragment')} smaller than ${fmt(Math.max(total * 1e-3, 0.5), 2)} mm³`);
+  if (specks) repairs.push(`Removed ${count(specks, 'loose fragment')} smaller than ${fmt(floor, 2)} mm³`);
   const shells = keep.filter((p) => p.volume() > 0).length;
   // A sealed cavity (negative volume) can't take part in a union of its own: then only recombine.
   if (shells > 1 && shells === keep.length) {

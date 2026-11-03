@@ -10,6 +10,13 @@ wasm.setup();
 const raw = (positions: number[] | Float32Array, indices: number[] | Uint32Array): RawMesh =>
   ({ positions: Float32Array.from(positions), indices: Uint32Array.from(indices), format: '3mf', up: 'z', mmPerUnit: 1, warnings: [] });
 
+/** A box from (x, y, z) of the given size, 8 vertices from `base` on, outward. */
+function box(p: number[], t: number[], [x, y, z]: number[], [sx, sy, sz]: number[]) {
+  const b = p.length / 3;
+  for (let k = 0; k < 8; k++) p.push(x + (k & 1 ? sx : 0), y + (k & 2 ? sy : 0), z + (k & 4 ? sz : 0));
+  for (const [a, c, d, e] of [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]]) t.push(b + a, b + c, b + d, b + a, b + d, b + e);
+}
+
 /** A cone of n segments (radius 20) around the apex (vertex 0), open at the base. */
 function cone(n: number, height = 60) {
   const pos = new Float32Array((n + 1) * 3);
@@ -124,4 +131,20 @@ test('a fan of 200,000 triangles round one vertex repairs in seconds, not hours'
   assert.match(r.report.repairs.join('\n'), /Closed 1 hole/);
   assert.ok(Math.abs(r.report.volume - (Math.PI * 400 * 60) / 3) < 1, `${r.report.volume}`);
   assert.ok(ms < 10_000, `${Math.round(ms)} ms`);
+});
+
+test('a tiny thin piece keeps its shells; specks next to it still go', () => {
+  // 3.2 x 3.2 x 0.04 mm is 0.41 mm³, under the 0.5 mm³ speck floor.
+  const p: number[] = [], t: number[] = [];
+  box(p, t, [0, 0, 0], [3.2, 3.2, 0.04]);
+  const tag = repairMesh(wasm, raw(p, t)).report;
+  assert.ok(Math.abs(tag.volume - 0.4096) < 1e-3, `${tag.volume}`);
+  assert.equal(tag.components, 1);
+  assert.doesNotMatch(tag.repairs.join('\n'), /Removed/);
+  // Two equal tiny pieces both stay; a much smaller one beside them goes.
+  box(p, t, [5, 0, 0], [3.2, 3.2, 0.04]);
+  box(p, t, [10, 0, 0], [0.1, 0.1, 0.04]);
+  const pair = repairMesh(wasm, raw(p, t)).report;
+  assert.equal(pair.components, 2);
+  assert.match(pair.repairs.join('\n'), /Removed 1 loose fragment smaller than 0\.20 mm³/);
 });
