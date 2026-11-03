@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOff, parseScadFiles, scadDefines, scadFileName } from '../shared/scad';
-import { engineInstalled, runScad } from '../server/openscad';
+import { EventEmitter } from 'node:events';
+import { engineInstalled, runScad, workerResult, type WorkerChild } from '../server/openscad';
 
 test('OFF output: one part per face colour, polygons triangulated, sizes measured', () => {
   // A 10 mm cube (orange, quads) and a triangle-only tetrahedron (blue, 0–1 colours).
@@ -45,4 +46,28 @@ test('OpenSCAD renders a file with its parameters (needs the downloaded engine)'
   assert.deepEqual(r.params.map((p) => [p.name, p.min, p.max]), [['w', 5, 50]]);
   assert.deepEqual(r.parts.map((p) => [p.color, +(p.bbox.max[0] - p.bbox.min[0]).toFixed(3)]), [['#ff0000', 20], ['#0000ff', 3]]);
   assert.deepEqual(r.messages, ['ECHO: "hi"']);
+});
+
+test('a worker that fails to start or to take the job rejects once and never crashes the server', async () => {
+  /** A stand-in child process: send() answers through `onSend`. */
+  const fake = (onSend: (child: EventEmitter, cb: (e: Error | null) => void) => void) => {
+    const child = new EventEmitter() as EventEmitter & { kills: number };
+    child.kills = 0;
+    Object.assign(child, { send: (_m: unknown, cb: (e: Error | null) => void) => { onSend(child, cb); return true; }, kill: () => { child.kills++; return true; } });
+    return child;
+  };
+  const job = { engineDir: '/nowhere', source: 'cube(1);' };
+  // The fork fails (an 'error' event, twice, then 'exit'): one rejection, the child is killed.
+  const broken = fake((c) => setImmediate(() => { c.emit('error', new Error('spawn EAGAIN')); c.emit('error', new Error('again')); c.emit('exit', null, null); }));
+  await assert.rejects(workerResult(broken as unknown as WorkerChild, job, 5000), /OpenSCAD could not run: spawn EAGAIN/);
+  assert.equal(broken.kills, 1);
+  // The job can't be sent (a closed channel).
+  const closed = fake((_c, cb) => setImmediate(() => cb(new Error('channel closed'))));
+  await assert.rejects(workerResult(closed as unknown as WorkerChild, job, 5000), /channel closed/);
+  // An answer, then the worker exits: the answer stands.
+  const out = { ok: true, params: [], parts: [], messages: [], timeMs: 1 };
+  const fine = fake((c, cb) => { cb(null); setImmediate(() => { c.emit('message', { out }); c.emit('exit', 0, null); c.emit('error', new Error('late')); }); });
+  assert.deepEqual(await workerResult(fine as unknown as WorkerChild, job, 5000), out);
+  // No answer in time.
+  await assert.rejects(workerResult(fake(() => {}) as unknown as WorkerChild, job, 20), /longer than/);
 });

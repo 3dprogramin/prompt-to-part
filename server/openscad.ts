@@ -1,9 +1,9 @@
 // OpenSCAD for .scad files attached in the chat. The engine (the OpenSCAD Playground's WebAssembly
 // build, with its fonts and libraries such as BOSL2 and MCAD) is GPL software and not part of Jig:
 // it is downloaded from npm the first time it is needed, checked against a pinned hash, and run in
-// a separate locked-down process (server/openscad-worker.ts) – on this server only, never sent to
+// a separate locked-down process (server/openscad-worker.ts), on this server only, never sent to
 // the browser.
-import { fork } from 'node:child_process';
+import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -80,14 +80,39 @@ export async function runScad(source: string, values?: ParamValues, onStatus?: (
     serialization: 'advanced',
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
+  return workerResult(child, { engineDir: ENGINE_DIR, source, values } satisfies ScadJob, TIMEOUT_MS);
+}
+
+/** The part of a ChildProcess workerResult uses (tests pass a stand-in). */
+export type WorkerChild = Pick<ChildProcess, 'on' | 'once' | 'send' | 'kill'>;
+
+/**
+ * Sends `job` to a forked OpenSCAD worker and settles once, with its answer or the first thing that
+ * goes wrong: an error reply, the worker exiting, the time running out, or the fork or send failing
+ * (an 'error' event, which would otherwise crash the server).
+ */
+export function workerResult(child: WorkerChild, job: ScadJob, timeoutMs: number): Promise<ScadOutput> {
   return new Promise<ScadOutput>((resolve, reject) => {
-    const timer = setTimeout(() => { child.kill(); reject(new Error(`OpenSCAD took longer than ${TIMEOUT_MS / 1000} s`)); }, TIMEOUT_MS);
-    child.once('message', (m: { out?: ScadOutput; error?: string }) => {
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      fn();
+    };
+    const fail = (e: Error) => settle(() => { child.kill(); reject(e); });
+    const timer = setTimeout(() => fail(new Error(`OpenSCAD took longer than ${timeoutMs / 1000} s`)), timeoutMs);
+    // on, not once: a child process can emit 'error' more than once (a failed kill after a failed send).
+    child.on('error', (e: Error) => fail(new Error(`OpenSCAD could not run: ${e.message}`)));
+    child.once('message', (m: { out?: ScadOutput; error?: string }) => settle(() => {
       if (m.out) resolve(m.out); else reject(new Error(m.error ?? 'OpenSCAD failed'));
-    });
-    child.once('exit', (code, signal) => { clearTimeout(timer); reject(new Error(`OpenSCAD stopped (${signal ?? `code ${code}`})`)); });
-    child.send({ engineDir: ENGINE_DIR, source, values } satisfies ScadJob);
+    }));
+    child.once('exit', (code: number | null, signal: NodeJS.Signals | null) => settle(() => reject(new Error(`OpenSCAD stopped (${signal ?? `code ${code}`})`))));
+    try {
+      child.send(job, (e) => { if (e) fail(new Error(`OpenSCAD could not run: ${e.message}`)); });
+    } catch (e) {
+      fail(new Error(`OpenSCAD could not run: ${(e as Error).message}`));
+    }
   });
 }
 
