@@ -4,6 +4,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import { toBinaryStl } from '../src/lib/files';
 import { to3mf } from '../src/lib/export';
 import { toBambuProject } from '../src/lib/bambu3mf';
+import { esc } from '../src/lib/threeMf';
 import { printer } from '../shared/printer';
 import type { PartMesh } from '../shared/types';
 
@@ -25,6 +26,11 @@ test('3MF: one escaped object per part, centred on the bed', async () => {
   const model = strFromU8(files['3D/3dmodel.model']);
   assert.equal((model.match(/<object /g) ?? []).length, 2);
   assert.match(model, /name="A &amp; &lt;B&gt;"/);
+  // Control characters XML forbids are dropped (tab, LF and CR are allowed).
+  assert.equal(esc('a\u0000b\u0007c\u000B\u001F\td\ne\r<'), 'abc\td\ne\r&lt;');
+  const ctl = strFromU8((await unzip(to3mf([cube('Pa\u0001rt', 0, 10, '#ff0000')], 'T\u0008')))['3D/3dmodel.model']);
+  assert.match(ctl, /name="Part"/);
+  assert.doesNotMatch(ctl, /[\u0000-\u0008]/);
   const xs = [...model.matchAll(/<vertex x="([^"]+)"/g)].map((m) => Number(m[1]));
   assert.equal((Math.min(...xs) + Math.max(...xs)) / 2, printer().bed[0] / 2);
   // In one colour: that colour for every part.

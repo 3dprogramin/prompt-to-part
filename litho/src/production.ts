@@ -46,7 +46,9 @@ function build(el: LithoPreviewElement, resolution: number): Built | null {
 }
 
 const num = (v: number) => (Math.abs(v) < 1e-9 ? '0' : String(+v.toFixed(4)));
-const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
+// Control characters other than tab, LF and CR are not allowed in XML at all (not even escaped):
+// they are dropped, or slicers refuse the whole file.
+const esc = (s: string) => s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 
 /**
  * A plain 3MF (core spec, millimetres) with one object, as Bambu Studio, PrusaSlicer and Cura read

@@ -1,7 +1,9 @@
 // Pieces both 3MF writers (plain 3MF in export.ts, Bambu project in bambu3mf.ts) share.
 import type { PartMesh } from '../../shared/types';
 
-export const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
+// Control characters other than tab, LF and CR are not allowed in XML at all (not even escaped):
+// they are dropped, or Bambu Studio and OrcaSlicer refuse the whole file.
+export const esc = (s: string) => s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 export const num = (n: number) => (Math.abs(n) < 1e-9 ? '0' : String(+n.toFixed(5)));
 
 const FALLBACK_COLOUR = '#C9A26B';
