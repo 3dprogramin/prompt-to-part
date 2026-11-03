@@ -10,6 +10,10 @@ const MAX_PIXELS = 8192 * 8192;
 export function decodeTexture(bytes: Uint8Array, mimeType = ''): Raster {
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: MAX_PIXELS / 1e6, maxMemoryUsageInMB: 1024 });
   if (bytes[0] === 0x89 && bytes[1] === 0x50) {
+    // The size from the IHDR header (always the first chunk), checked before decoding allocates it.
+    const head = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (bytes.length < 24 || head.getUint32(12) !== 0x49484452) throw new Error('not a valid PNG');
+    if (head.getUint32(16) * head.getUint32(20) > MAX_PIXELS) throw new Error('texture too large');
     const p = decodePng(bytes);
     if (p.width * p.height > MAX_PIXELS) throw new Error('texture too large');
     const n = p.width * p.height, ch = p.channels, data = new Uint8Array(n * 4);

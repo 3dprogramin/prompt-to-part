@@ -8,6 +8,7 @@ import Module from 'manifold-3d';
 import { importMeshFile } from '../shared/runtime';
 import { MeshFormatError, parseMeshFile } from '../shared/meshFormats';
 import { decodeMesh, encodeMesh, type MeshData } from '../shared/meshes';
+import { decodeTexture } from '../shared/imageDecode';
 
 const FIXTURES = path.join(import.meta.dirname, 'fixtures', 'meshes');
 const fixture = (name: string) => new Uint8Array(readFileSync(path.join(FIXTURES, name)));
@@ -92,6 +93,94 @@ test('3MF: units, components and build transforms', () => {
   assert.equal(parseMeshFile(tri('<vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>'), 't.3mf').mmPerUnit, 25.4);
   assert.throws(() => parseMeshFile(strToU8('not a zip'), 'x.3mf'), MeshFormatError);
   assert.throws(() => parseMeshFile(strToU8('solid'), 'x.dae'), MeshFormatError);
+});
+
+// ---- crafted files: tiny inputs that claim huge sizes or loop, refused quickly without big allocations
+const triGltf = (over: Record<string, unknown> = {}) => {
+  const b64 = Buffer.from(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer).toString('base64');
+  return {
+    asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' }],
+    bufferViews: [{ buffer: 0, byteLength: 36 }],
+    buffers: [{ byteLength: 36, uri: `data:application/octet-stream;base64,${b64}` }],
+    ...over,
+  };
+};
+const gltfFile = (j: unknown) => strToU8(JSON.stringify(j));
+
+test('glTF: accessor counts and offsets are checked before anything is allocated', () => {
+  const acc = (a: Record<string, unknown>) => gltfFile(triGltf({ accessors: [{ componentType: 5126, type: 'VEC3', ...a }] }));
+  // 500 million vertices of zeros (no buffer view) or claimed from a 36-byte buffer.
+  assert.throws(() => parseMeshFile(acc({ count: 500_000_000 }), 'z.gltf'), (e) => e instanceof MeshFormatError && /more than/.test(e.message));
+  assert.throws(() => parseMeshFile(acc({ count: 500_000_000, bufferView: 0 }), 'b.gltf'), MeshFormatError);
+  for (const count of [-1, 2.5, '3', null]) assert.throws(() => parseMeshFile(acc({ count, bufferView: 0 }), 'c.gltf'), /bad count/);
+  assert.throws(() => parseMeshFile(acc({ count: 3, bufferView: 0, byteOffset: -12 }), 'o.gltf'), /bad buffer offsets/);
+  assert.throws(() => parseMeshFile(acc({ count: 4, bufferView: 0 }), 'p.gltf'), /runs past/);
+  // The view's own length bounds it too, not just the buffer's.
+  assert.throws(() => parseMeshFile(gltfFile(triGltf({ bufferViews: [{ buffer: 0, byteLength: 24 }] })), 'v.gltf'), /runs past/);
+  assert.equal(parseMeshFile(gltfFile(triGltf()), 'ok.gltf').indices.length, 3);
+});
+
+test('glTF: broken GLB JSON, node cycles and fan-out are refused or skipped', () => {
+  const json = strToU8('{"asset": nope');
+  const glb = new Uint8Array(12 + 8 + json.length);
+  const dv = new DataView(glb.buffer);
+  dv.setUint32(0, 0x46546c67, true); dv.setUint32(4, 2, true); dv.setUint32(8, glb.length, true);
+  dv.setUint32(12, json.length, true); dv.setUint32(16, 0x4e4f534a, true); glb.set(json, 20);
+  assert.throws(() => parseMeshFile(glb, 'x.glb'), (e) => e instanceof MeshFormatError && /GLB/.test(e.message));
+  assert.throws(() => parseMeshFile(strToU8('null'), 'n.gltf'), MeshFormatError);
+  // A node that is its own child (twice): placed once.
+  const loop = parseMeshFile(gltfFile(triGltf({ nodes: [{ mesh: 0, children: [0, 0] }] })), 'loop.gltf');
+  assert.equal(loop.indices.length, 3);
+  // Each node lists the next one twice: 2^40 paths without a cap.
+  const nodes = Array.from({ length: 40 }, (_, i) => (i < 39 ? { children: [i + 1, i + 1] } : { mesh: 0 }));
+  assert.throws(() => parseMeshFile(gltfFile(triGltf({ nodes })), 'fan.gltf'), /placed parts/);
+});
+
+const model3mf = (body: string) => zipSync({ '3D/3dmodel.model': strToU8(body) });
+const triObj = (id: number, extra = '') => `<object id="${id}"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/></vertices><triangles><triangle v1="0" v2="1" v3="2"/>${extra}</triangles></mesh></object>`;
+
+test('3MF: self-referencing and doubling components, bad triangle indices, single quotes', () => {
+  // An object that is its own component, twice: placed once.
+  const self = `<model><resources><object id="1"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/></vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh><components><component objectid="1"/><component objectid="1"/></components></object></resources><build><item objectid="1"/></build></model>`;
+  assert.equal(parseMeshFile(model3mf(self), 's.3mf').indices.length, 3);
+  // Each object holds the next one twice (2^30 copies without a cap).
+  const objs = Array.from({ length: 30 }, (_, i) => `<object id="${i + 1}"><components><component objectid="${i + 2}"/><component objectid="${i + 2}"/></components></object>`).join('') + triObj(31);
+  assert.throws(() => parseMeshFile(model3mf(`<model><resources>${objs}</resources><build><item objectid="1"/></build></model>`), 'fan.3mf'), /placed parts/);
+  // Negative, fractional and missing indices are skipped (a -1 would reach into another object's vertices).
+  const bad = triObj(1, '<triangle v1="-1" v2="1" v3="2"/><triangle v1="0.5" v2="1" v3="2"/><triangle v1="0" v2="1"/>');
+  const m = parseMeshFile(model3mf(`<model><resources>${triObj(9)}${bad}</resources><build><item objectid="9"/><item objectid="1"/></build></model>`), 'b.3mf');
+  assert.deepEqual([...m.indices], [0, 1, 2, 3, 4, 5]);
+  // Single-quoted attributes are read like double-quoted ones.
+  const q = parseMeshFile(model3mf(`<model unit='inch'><resources><object id='1'><mesh><vertices><vertex x='0' y='0' z='0'/><vertex x='2' y='0' z='0'/><vertex x='0' y='1' z='0'/></vertices><triangles><triangle v1='0' v2='1' v3='2'/></triangles></mesh></object></resources><build><item objectid='1'/></build></model>`), 'q.3mf');
+  assert.equal(q.mmPerUnit, 25.4);
+  assert.deepEqual([...q.positions], [0, 0, 0, 2, 0, 0, 0, 1, 0]);
+});
+
+test('3MF: zip entries claiming huge sizes, or too many entries, are refused before unpacking', () => {
+  const zip = zipSync({ '3D/3dmodel.model': strToU8(`<model><resources>${triObj(1)}</resources><build><item objectid="1"/></build></model>`) }, { level: 0 });
+  const find = (sig: number) => { const dv = new DataView(zip.buffer); for (let i = zip.length - 4; i >= 0; i--) if (dv.getUint32(i, true) === sig) return i; return -1; };
+  // The central directory says the model unpacks to 300 MB.
+  const big = zip.slice();
+  new DataView(big.buffer).setUint32(find(0x02014b50) + 24, 300 * 1024 * 1024, true);
+  assert.throws(() => parseMeshFile(big, 'big.3mf'), (e) => e instanceof MeshFormatError && /too large/.test(e.message));
+  // The end record claims 65,535 entries (only one is there).
+  const many = zip.slice();
+  const eocd = find(0x06054b50), dv = new DataView(many.buffer);
+  dv.setUint16(eocd + 8, 0xffff, true); dv.setUint16(eocd + 10, 0xffff, true);
+  assert.throws(() => parseMeshFile(many, 'many.3mf'), (e) => e instanceof MeshFormatError && /files in the archive/.test(e.message));
+});
+
+test('PNG textures claiming huge sizes are refused from the header, before decoding', () => {
+  const png = new Uint8Array(33);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const dv = new DataView(png.buffer);
+  dv.setUint32(8, 13); dv.setUint32(12, 0x49484452); dv.setUint32(16, 100_000); dv.setUint32(20, 100_000);
+  png.set([8, 6, 0, 0, 0], 24);
+  assert.throws(() => decodeTexture(png), /too large/);
+  assert.throws(() => decodeTexture(png.subarray(0, 20)), /not a valid PNG/);
 });
 
 test('every sample becomes a watertight solid, standing on the bed, centred', () => {

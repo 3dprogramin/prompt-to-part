@@ -31,6 +31,14 @@ export interface ParseOptions {
 
 /** Most triangles a file may have (about 120 MB of positions). */
 export const MAX_FILE_TRIANGLES = 5_000_000;
+/** Most vertices a file may have: three per triangle (an unshared soup). */
+export const MAX_FILE_VERTICES = 3 * MAX_FILE_TRIANGLES;
+/** Most placed copies of objects (3MF components and items, glTF nodes) a file may have. */
+export const MAX_FILE_INSTANCES = 100_000;
+/** Most uncompressed bytes of model files read from a 3MF, and most entries its zip may list. */
+export const MAX_3MF_MODEL_BYTES = 256 * 1024 * 1024;
+export const MAX_3MF_ENTRIES = 10_000;
+const MAX_3MF_MODELS = 256;
 
 export class MeshFormatError extends Error {}
 
@@ -51,12 +59,24 @@ export function parseMeshFile(bytes: Uint8Array, filename: string, opts: ParseOp
   return out;
 }
 
+const tooManyTriangles = () => new MeshFormatError(`More than ${MAX_FILE_TRIANGLES.toLocaleString('en')} triangles`);
+const tooManyVertices = () => new MeshFormatError(`More than ${MAX_FILE_VERTICES.toLocaleString('en')} vertices`);
+const tooManyInstances = () => new MeshFormatError(`More than ${MAX_FILE_INSTANCES.toLocaleString('en')} placed parts`);
+
+/** The bytes as text; a file too big for one string is refused like any other bad file. */
+function text(bytes: Uint8Array): string {
+  try { return strFromU8(bytes); } catch { throw new MeshFormatError('The file is too large to read as text'); }
+}
+
 // ---- growing typed buffers (files can hold millions of triangles)
 class Floats {
   a = new Float32Array(3 * 1024);
   n = 0;
   push3(x: number, y: number, z: number) {
-    if (this.n + 3 > this.a.length) { const b = new Float32Array(this.a.length * 2); b.set(this.a); this.a = b; }
+    if (this.n + 3 > this.a.length) {
+      if (this.n / 3 >= MAX_FILE_VERTICES) throw tooManyVertices();
+      const b = new Float32Array(this.a.length * 2); b.set(this.a); this.a = b;
+    }
     this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z;
   }
   done() { return this.a.slice(0, this.n); }
@@ -66,7 +86,7 @@ class Ints {
   n = 0;
   push3(x: number, y: number, z: number) {
     if (this.n + 3 > this.a.length) {
-      if (this.n / 3 >= MAX_FILE_TRIANGLES) throw new MeshFormatError(`More than ${MAX_FILE_TRIANGLES.toLocaleString('en')} triangles`);
+      if (this.n / 3 >= MAX_FILE_TRIANGLES) throw tooManyTriangles();
       const b = new Uint32Array(this.a.length * 2); b.set(this.a); this.a = b;
     }
     this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z;
@@ -88,7 +108,7 @@ function parseStl(bytes: Uint8Array): RawMesh {
   // Binary when the size matches the triangle count; many binary files start with "solid" too.
   const binary = count >= 0 && 84 + count * 50 === bytes.length;
   const head = strFromU8(bytes.subarray(0, Math.min(bytes.length, 512))).trimStart();
-  if (!binary && head.startsWith('solid') && /facet|endsolid/.test(strFromU8(bytes.subarray(0, Math.min(bytes.length, 4096))))) return parseAsciiStl(strFromU8(bytes));
+  if (!binary && head.startsWith('solid') && /facet|endsolid/.test(strFromU8(bytes.subarray(0, Math.min(bytes.length, 4096))))) return parseAsciiStl(text(bytes));
   if (!binary) {
     // Some exporters pad or truncate: read the whole triangles that are there.
     if (count < 0 || bytes.length < 84 + 50) throw new MeshFormatError('Not a valid STL file');
@@ -116,12 +136,12 @@ function parseAsciiStl(text: string): RawMesh {
 
 // ---------------------------------------------------------------------------- OBJ
 function parseObj(bytes: Uint8Array): RawMesh {
-  const text = strFromU8(bytes);
+  const src = text(bytes);
   const pos = new Floats();
   const idx = new Ints();
   const face: number[] = [];
   let bad = 0;
-  for (const raw of text.split('\n')) {
+  for (const raw of src.split('\n')) {
     const line = raw.trim();
     if (line.startsWith('v ') || line.startsWith('v\t')) {
       const p = line.split(/\s+/);
@@ -205,16 +225,17 @@ function parseGltf(bytes: Uint8Array, decode?: (bytes: Uint8Array, mimeType: str
     while (at + 8 <= bytes.length) {
       const len = view.getUint32(at, true), type = view.getUint32(at + 4, true);
       const chunk = bytes.subarray(at + 8, at + 8 + len);
-      if (type === 0x4e4f534a) jsonText = strFromU8(chunk);
+      if (type === 0x4e4f534a) jsonText = text(chunk);
       else if (type === 0x004e4942 && !bin) bin = chunk;
       at += 8 + len;
     }
     if (!jsonText) throw new MeshFormatError('Not a valid GLB file (no JSON chunk)');
-    json = JSON.parse(jsonText);
+    try { json = JSON.parse(jsonText); } catch { throw new MeshFormatError('Not a valid GLB file (its JSON is broken)'); }
     if (bin) buffers[0] = bin;
   } else {
-    try { json = JSON.parse(strFromU8(bytes)); } catch { throw new MeshFormatError('Not a valid glTF file'); }
+    try { json = JSON.parse(text(bytes)); } catch (e) { throw e instanceof MeshFormatError ? e : new MeshFormatError('Not a valid glTF file'); }
   }
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new MeshFormatError('Not a valid glTF file');
   const unsupported = (json.extensionsRequired ?? []).filter((e) => e !== 'KHR_mesh_quantization' && e !== 'KHR_materials_pbrSpecularGlossiness' && !e.startsWith('KHR_texture') && !e.startsWith('KHR_materials'));
   if (unsupported.length) throw new MeshFormatError(`This glTF needs ${unsupported.join(', ')}, which Jig doesn't read (export it without ${/draco|meshopt/i.test(unsupported.join()) ? 'mesh compression' : 'these extensions'})`);
   (json.buffers ?? []).forEach((b, i) => {
@@ -224,25 +245,37 @@ function parseGltf(bytes: Uint8Array, decode?: (bytes: Uint8Array, mimeType: str
     else if (b.uri) throw new MeshFormatError('This .gltf refers to a separate .bin file: upload the .glb version instead');
   });
 
+  // Values read from accessors over the whole file: an instanced mesh is read again for every
+  // copy, so this bounds the work as well as each accessor's own size.
+  let readBudget = 8 * MAX_FILE_VERTICES;
+  const whole = (x: unknown) => x === undefined || (Number.isInteger(x) && (x as number) >= 0);
   const read = (ai: number, what: 'positions' | 'indices' | 'UVs'): Float64Array => {
     const a = json.accessors?.[ai];
     if (!a) throw new MeshFormatError(`glTF accessor ${ai} is missing`);
     if (a.sparse) throw new MeshFormatError('Sparse glTF accessors are not supported');
     const comps = COMPONENTS[a.type] ?? 1;
-    const out = new Float64Array(a.count * comps);
-    if (a.bufferView == null) return out; // all zeros, per the spec
+    const count = a.count;
+    // Checked before anything is allocated: the count is only a number in the JSON.
+    if (!Number.isInteger(count) || count < 0) throw new MeshFormatError(`glTF ${what}: bad count`);
+    if (count > MAX_FILE_VERTICES || count * comps > 3 * MAX_FILE_VERTICES) throw new MeshFormatError(`glTF ${what}: more than ${MAX_FILE_VERTICES.toLocaleString('en')} values`);
+    if ((readBudget -= count * comps) < 0) throw tooManyVertices();
+    if (a.bufferView == null) return new Float64Array(count * comps); // all zeros, per the spec
     const bv = json.bufferViews?.[a.bufferView];
     const buf = bv && buffers[bv.buffer];
     if (!bv || !buf) throw new MeshFormatError(`glTF ${what}: buffer missing`);
     const size = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 }[a.componentType];
     if (!size) throw new MeshFormatError(`glTF ${what}: unsupported component type ${a.componentType}`);
+    if (!whole(bv.byteOffset) || !whole(bv.byteStride) || !whole(bv.byteLength) || !whole(a.byteOffset)) throw new MeshFormatError(`glTF ${what}: bad buffer offsets`);
     const stride = bv.byteStride || size * comps;
-    const base = (bv.byteOffset ?? 0) + (a.byteOffset ?? 0);
-    if (base + stride * (a.count - 1) + size * comps > buf.length) throw new MeshFormatError(`glTF ${what}: data runs past its buffer`);
+    const viewStart = bv.byteOffset ?? 0;
+    const viewEnd = Math.min(buf.length, viewStart + (bv.byteLength ?? buf.length));
+    const base = viewStart + (a.byteOffset ?? 0);
+    if (count && base + stride * (count - 1) + size * comps > viewEnd) throw new MeshFormatError(`glTF ${what}: data runs past its buffer`);
+    const out = new Float64Array(count * comps);
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
     // Normalised integers (KHR_mesh_quantization) map to [-1, 1] or [0, 1].
     const norm = a.normalized ? { 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 }[a.componentType as 5120] ?? 1 : 1;
-    for (let i = 0; i < a.count; i++) {
+    for (let i = 0; i < count; i++) {
       for (let c = 0; c < comps; c++) {
         const o = base + i * stride + c * size;
         let v: number;
@@ -327,7 +360,7 @@ function parseGltf(bytes: Uint8Array, decode?: (bytes: Uint8Array, mimeType: str
         };
       }
       const tri = (a: number, b: number, c: number) => {
-        if (a >= nv || b >= nv || c >= nv) return;
+        if (!(Number.isInteger(a) && Number.isInteger(b) && Number.isInteger(c) && a >= 0 && b >= 0 && c >= 0 && a < nv && b < nv && c < nv)) return;
         if (det < 0) idx.push3(first + a, first + c, first + b); else idx.push3(first + a, first + b, first + c);
         color?.(a, b, c);
       };
@@ -336,13 +369,20 @@ function parseGltf(bytes: Uint8Array, decode?: (bytes: Uint8Array, mimeType: str
       else for (let i = 1; i + 1 < ix.length; i++) tri(ix[0], ix[i], ix[i + 1]);
     }
   };
+  // Nodes form a tree: a node that is its own ancestor (a cycle) is skipped, and the number of
+  // placed nodes is capped (a node listed twice as a child at every level doubles each time).
+  const onPath = new Set<number>();
+  let instances = 0;
   const visit = (ni: number, parent: Mat4, depth: number) => {
     const n = json.nodes?.[ni];
-    if (!n || depth > 64) return;
+    if (!n || depth > 64 || onPath.has(ni)) return;
+    if (++instances > MAX_FILE_INSTANCES) throw tooManyInstances();
     const local = n.matrix?.length === 16 ? n.matrix : trs(n.translation, n.rotation, n.scale);
     const m = mul(parent, local);
     if (n.mesh != null) addMesh(n.mesh, m);
+    onPath.add(ni);
     for (const c of n.children ?? []) visit(c, m, depth + 1);
+    onPath.delete(ni);
   };
   const scene = json.scenes?.[json.scene ?? 0];
   if (scene?.nodes?.length) for (const ni of scene.nodes) visit(ni, IDENTITY, 0);
@@ -356,7 +396,7 @@ const UNITS: Record<string, number> = { micron: 0.001, millimeter: 1, centimeter
 
 function attrs(tag: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const m of tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)) out[m[1].replace(/^[\w]+:(?!path)/, '')] = m[2];
+  for (const m of tag.matchAll(/([\w:]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) out[m[1].replace(/^[\w]+:(?!path)/, '')] = m[2] ?? m[3];
   return out;
 }
 /** A 3MF transform ("m00 m01 m02 m10 … m32", row vectors) as a column-major 4×4. */
@@ -369,9 +409,20 @@ function transform3mf(s: string | undefined): Mat4 {
 function parse3mf(bytes: Uint8Array): RawMesh {
   let files: Record<string, Uint8Array>;
   try {
-    // Only the model files: textures and thumbnails can be big.
-    files = unzipSync(bytes, { filter: (f) => /\.model$/i.test(f.name) && f.originalSize < 1024 * 1024 * 1024 });
-  } catch { throw new MeshFormatError('Not a valid 3MF file (not a zip archive)'); }
+    // Only the model files: textures and thumbnails can be big. fflate inflates each accepted
+    // entry into a buffer of its declared size (and no more), so capping the declared sizes caps
+    // the memory; every listed entry passes through the filter, so counting them caps the work.
+    let entries = 0, models = 0, total = 0;
+    files = unzipSync(bytes, {
+      filter: (f) => {
+        if (++entries > MAX_3MF_ENTRIES) throw new MeshFormatError(`Not a 3MF Jig reads (more than ${MAX_3MF_ENTRIES.toLocaleString('en')} files in the archive)`);
+        if (!/\.model$/i.test(f.name)) return false;
+        total += f.originalSize;
+        if (++models > MAX_3MF_MODELS || !(total <= MAX_3MF_MODEL_BYTES)) throw new MeshFormatError(`The 3MF's models are too large (over ${MAX_3MF_MODEL_BYTES / 1024 / 1024} MB unpacked)`);
+        return true;
+      },
+    });
+  } catch (e) { throw e instanceof MeshFormatError ? e : new MeshFormatError('Not a valid 3MF file (not a zip archive)'); }
   const main = Object.keys(files).find((f) => /^\/?3D\/3dmodel\.model$/i.test(f)) ?? Object.keys(files)[0];
   if (!main) throw new MeshFormatError('Not a valid 3MF file (no 3D/3dmodel.model)');
   type Obj = { mesh?: { pos: number[]; tri: number[] }; components: { id: string; path?: string; m: Mat4 }[] };
@@ -384,7 +435,7 @@ function parse3mf(bytes: Uint8Array): RawMesh {
     models.set(key, objs);
     const file = files[key] ?? files[`/${key}`];
     if (!file) return objs;
-    const xml = strFromU8(file);
+    const xml = text(file);
     if (key === main.replace(/^\//, '')) mmPerUnit = UNITS[attrs(/<(?:\w+:)?model\b[^>]*>/.exec(xml)?.[0] ?? '').unit ?? 'millimeter'] ?? 1;
     for (const om of xml.matchAll(/<(?:\w+:)?object\b([^>]*)>([\s\S]*?)<\/(?:\w+:)?object>/g)) {
       const id = attrs(om[1]).id;
@@ -406,10 +457,17 @@ function parse3mf(bytes: Uint8Array): RawMesh {
   };
   const pos = new Floats();
   const idx = new Ints();
+  // Components form a tree: one that contains itself (a cycle) is skipped, and the number of placed
+  // objects and of triangles looked at is capped (a component listed twice per level doubles).
+  const onPath = new Set<string>();
+  let instances = 0, looked = 0;
   const emit = (file: string, id: string, m: Mat4, depth: number) => {
     const obj = load(file).get(id);
-    if (!obj || depth > 32) return;
+    const key = `${file.replace(/^\//, '')}#${id}`;
+    if (!obj || depth > 32 || onPath.has(key)) return;
+    if (++instances > MAX_FILE_INSTANCES) throw tooManyInstances();
     if (obj.mesh) {
+      if ((looked += obj.mesh.tri.length / 3) > MAX_FILE_TRIANGLES) throw tooManyTriangles();
       const first = pos.n / 3, nv = obj.mesh.pos.length / 3;
       const p = obj.mesh.pos;
       for (let i = 0; i < p.length; i += 3) {
@@ -417,11 +475,14 @@ function parse3mf(bytes: Uint8Array): RawMesh {
         pos.push3(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
       }
       const t = obj.mesh.tri;
-      for (let i = 0; i + 2 < t.length; i += 3) if (t[i] < nv && t[i + 1] < nv && t[i + 2] < nv) idx.push3(first + t[i], first + t[i + 1], first + t[i + 2]);
+      const ok = (k: number) => Number.isInteger(k) && k >= 0 && k < nv;
+      for (let i = 0; i + 2 < t.length; i += 3) if (ok(t[i]) && ok(t[i + 1]) && ok(t[i + 2])) idx.push3(first + t[i], first + t[i + 1], first + t[i + 2]);
     }
+    onPath.add(key);
     for (const c of obj.components) emit(c.path ?? file, c.id, mul(m, c.m), depth + 1);
+    onPath.delete(key);
   };
-  const mainXml = strFromU8(files[main]);
+  const mainXml = text(files[main]);
   load(main);
   const items = [...mainXml.matchAll(/<(?:\w+:)?item\b([^>]*)\/?>/g)].map((m) => attrs(m[1]));
   if (items.length) for (const it of items) emit(it['p:path'] ?? it.path ?? main, it.objectid, transform3mf(it.transform), 0);
