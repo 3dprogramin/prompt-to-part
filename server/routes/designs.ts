@@ -2,7 +2,7 @@
 import express from 'express';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { workspaceDir } from '../agent';
 import { DATA_DIR } from '../config';
 import type { Design, DesignSummary } from '../../shared/types';
@@ -10,22 +10,48 @@ import { designKind } from '../../shared/designKind';
 import { cleanTags, hasTag, MAX_TAGS, tagsProblem, withTag } from '../../shared/tags';
 import { DESIGNS, ID_RE, STARRED_FILE, readStarred, readTags, isDesign, writeAtomically, type RouteContext } from './store';
 
+type Summary = Omit<DesignSummary, 'starred' | 'tags'>;
+
+/** A design file's summary for the list, or null when it isn't one (corrupt). */
+function summarize(text: string): Summary | null {
+  try {
+    const d = JSON.parse(text) as Design;
+    return {
+      id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, createdAt: Number(d.createdAt) || 0,
+      versions: Array.isArray(d.versions) ? d.versions.length : 0, kind: designKind(d.code, d.values),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function registerDesignRoutes(app: express.Express, { json, designFile, imageDir, generatingDesigns, deleted, serially, changeTags, putTags }: RouteContext) {
+  // The list's summaries by design file name, with the file's time and size they were read at: the
+  // list reads only the files changed since (a design file can be tens of MB). Saves and deletes
+  // here drop their entry; other writes (a restored backup) show in the time and size.
+  const summaries = new Map<string, { mtimeMs: number; size: number; summary: Summary | null }>();
   app.get('/api/designs', async (_req, res) => {
     await mkdir(DESIGNS, { recursive: true });
     const out: DesignSummary[] = [];
     const starred = new Set(await readStarred().catch(() => []));
     const tags = await readTags().catch(() => ({} as Record<string, string[]>));
-    for (const f of await readdir(DESIGNS)) {
-      if (!f.endsWith('.json')) continue;
-      try {
-        const d = JSON.parse(await readFile(path.join(DESIGNS, f), 'utf8')) as Design;
-        out.push({
-          id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, createdAt: Number(d.createdAt) || 0,
-          versions: Array.isArray(d.versions) ? d.versions.length : 0, kind: designKind(d.code, d.values),
-          ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }),
-        });
-      } catch { /* skip corrupt */ }
+    const files = (await readdir(DESIGNS)).filter((f) => f.endsWith('.json'));
+    const here = new Set(files);
+    for (const f of summaries.keys()) if (!here.has(f)) summaries.delete(f);
+    for (const f of files) {
+      const file = path.join(DESIGNS, f);
+      const st = await stat(file).catch(() => null);
+      if (!st?.isFile()) continue;
+      let cached = summaries.get(f);
+      if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
+        const text = await readFile(file, 'utf8').catch(() => null);
+        if (text === null) continue;
+        cached = { mtimeMs: st.mtimeMs, size: st.size, summary: summarize(text) };
+        summaries.set(f, cached);
+      }
+      const d = cached.summary;
+      if (!d) continue; // corrupt
+      out.push({ ...d, ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }) });
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
     res.json(out);
@@ -56,6 +82,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
       const rev = (stored ?? 0) + 1;
       await mkdir(DESIGNS, { recursive: true });
       await writeAtomically(file, JSON.stringify({ ...d, rev }));
+      summaries.delete(path.basename(file));
       res.json({ ok: true, rev });
     });
   });
@@ -124,6 +151,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     await serially(id, async () => {
       deleted.add(id);
       await rm(designFile(id), { force: true });
+      summaries.delete(path.basename(designFile(id)));
       await rm(imageDir(id), { recursive: true, force: true });
       await rm(workspaceDir(id), { recursive: true, force: true });
     });

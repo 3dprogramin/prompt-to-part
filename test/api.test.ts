@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -171,6 +171,28 @@ test('a server that stops ends running replies with a note, and a reply in progr
   assert.equal((await put(design({ id: 'test-api-00000012', messages: [{ id: 'm1', role: 'user', text: 'a cube', createdAt: 1 }, reply] }))).status, 200);
   const saved = await (await fetch(`${A}/api/designs/test-api-00000012`)).json();
   assert.deepEqual(saved.messages[1], reply);
+});
+
+test('the design list reads a design file again only when it changed', async () => {
+  const id = 'test-api-00000031';
+  const names = async () => ((await (await fetch(`${A}/api/designs`)).json()) as { id: string; name: string }[]).filter((d) => d.id === id).map((d) => d.name);
+  assert.equal((await put(design({ id, name: 'Hook' }))).status, 200);
+  assert.deepEqual(await names(), ['Hook']);
+  // Saved through the API: the list follows at once.
+  assert.equal((await put(design({ id, name: 'Hool', rev: 1 }))).status, 200);
+  const file = path.join(dataDir, 'designs', `${id}.json`);
+  const at = new Date(Date.now() - 60_000);
+  utimesSync(file, at, at);
+  assert.deepEqual(await names(), ['Hool']);
+  // Changed on disk with the same size and time: still the summary read before (the file isn't read).
+  writeFileSync(file, readFileSync(file, 'utf8').replace('"Hool"', '"Hoop"'));
+  utimesSync(file, at, at);
+  assert.deepEqual(await names(), ['Hool']);
+  // A change of size (a restored backup, say) is read.
+  writeFileSync(file, readFileSync(file, 'utf8').replace('"Hoop"', '"Hook2"'));
+  assert.deepEqual(await names(), ['Hook2']);
+  assert.equal((await del(id)).status, 200);
+  assert.deepEqual(await names(), []);
 });
 
 test('a reply goes on when the page\'s connection drops; the page catches up and can stop it', async () => {
