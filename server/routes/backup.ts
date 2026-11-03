@@ -5,7 +5,7 @@ import express from 'express';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm, statfs } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import type { BackupImport } from '../../shared/api';
 import { DATA_DIR } from '../config';
@@ -13,7 +13,7 @@ import { cleanMyFilaments, myFilamentsProblem } from '../../shared/filaments';
 import { cleanCostSettings } from '../../shared/cost';
 import { cleanTagMap } from '../../shared/tags';
 import { MAX_MESH_BYTES, MESH_FILE, meshDir } from '../meshes';
-import { MAX_ZIP_BYTES, openZip, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from '../backup';
+import { MAX_ZIP_BYTES, openZip, unpackProblem, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from '../backup';
 import { DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
@@ -127,17 +127,24 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       const root = projectRoot(zip.entries.map((e) => e.name));
       const designs = new Map<string, { json?: ZipEntry; files: { entry: ZipEntry; sub: '' | 'meshes'; name: string }[] }>();
       const settings: ZipEntry[] = [];
+      // What the entries that may be written add up to, checked before anything is (see unpackProblem).
+      let unpacked = 0;
       for (const entry of zip.entries) {
         const p = root === null ? backupPath(entry.name) : projectPath(entry.name, root);
         if (!p) throw new ZipError(`Not a Jig backup: it holds "${entry.name.slice(0, 100)}"`);
         if (p.kind === 'folder' || p.kind === 'other') continue;
         if (entry.size > BACKUP_LIMITS[p.kind === 'file' ? (p.sub ? 'mesh' : 'image') : p.kind]) throw new ZipError(`${entry.name} is too large`);
+        unpacked += entry.size;
         if (p.kind === 'settings') { settings.push(entry); continue; }
         const design = designs.get(p.id) ?? { files: [] };
         designs.set(p.id, design);
         if (p.kind === 'design') design.json = entry;
         else design.files.push({ entry, sub: p.sub, name: p.name });
       }
+
+      const free = await statfs(DATA_DIR).then((f) => f.bavail * f.bsize, () => null);
+      const tooBig = unpackProblem(unpacked, received, free);
+      if (tooBig) throw new ZipError(tooBig);
 
       const out: BackupImport = { imported: [], skipped: [], settings: [] };
       for (const [key, { json, files }] of designs) {

@@ -212,3 +212,31 @@ test('a backup restores the printer choice where none is saved, and the server f
   const info = await (await fetch(`${A}/api/printer`)).json();
   assert.equal(info.printer.name, 'Bambu Lab P1S');
 });
+
+test('import: a zip that would unpack to far more than its size, or than the disk has free, is refused', async () => {
+  const { unpackProblem } = await import('../server/backup');
+  const MB = 1024 ** 2, GB = 1024 ** 3;
+  // A real backup: mostly images and meshes, which hardly compress.
+  assert.equal(unpackProblem(900 * MB, 800 * MB, 100 * GB), null);
+  assert.equal(unpackProblem(3 * GB, 2.9 * GB, null), null);
+  // Up to 1 GiB plus 100 times the zip, whatever it holds.
+  assert.equal(unpackProblem(GB, 1, 100 * GB), null);
+  assert.match(unpackProblem(3 * GB, 10 * MB, 100 * GB) ?? '', /would unpack to 3\.0 GB/);
+  // 1 GiB of the disk always stays free.
+  assert.equal(unpackProblem(2 * GB, 2 * GB, 3 * GB), null);
+  assert.match(unpackProblem(2 * GB, 2 * GB, 2.5 * GB) ?? '', /needs 2\.0 GB of disk space and only 1\.5 GB/);
+});
+
+test('import: entries that each fit but add up to far more than the zip is refused before anything is written', async () => {
+  const id = 'test-bkp-00000077';
+  const files: Zippable = {};
+  for (let i = 0; i < 50; i++) files[`designs/${id}/${i.toString(16).padStart(32, '0')}.png`] = [new Uint8Array(1000), { level: 6 }];
+  const zip = Buffer.from(zipSync(files));
+  // Each entry's central directory record says 25 MiB (an image's limit): 1.2 GiB from a 5 KB zip.
+  const CD = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+  for (let p = zip.indexOf(CD); p >= 0; p = zip.indexOf(CD, p + 4)) zip.writeUInt32LE(25 * 1024 * 1024, p + 24);
+  const r = await importZip(zip);
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /would unpack to 1\.2 GB/);
+  assert.equal(existsSync(path.join(dataDir, 'designs', id)), false);
+});

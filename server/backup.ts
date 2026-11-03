@@ -14,6 +14,26 @@ export const MAX_ZIP_BYTES = 0xffffffff;
 /** Bytes a zip adds per file besides its name (local header, data descriptor, central directory entry). */
 const ENTRY_OVERHEAD = 30 + 16 + 46;
 
+/**
+ * Why a zip of `zipBytes` must not be unpacked to `total` bytes (the sum of its entries' declared
+ * sizes, which openZip's read() holds them to) with `free` bytes free on the disk (null: unknown), or
+ * null when it may. Each entry's own size is capped, but deflate packs zeros about 1000:1, so a small
+ * zip of many entries could otherwise fill the disk. A real backup is mostly images and meshes,
+ * which hardly compress, plus design JSON, which packs well but nowhere near 100:1. So a zip may
+ * unpack to 1 GiB plus 100 times its own size: plenty for a real one, while a 10 MB zip can write
+ * 2 GB at most.
+ * And whatever it is, 1 GiB of the disk stays free for everything else.
+ */
+export function unpackProblem(total: number, zipBytes: number, free: number | null): string | null {
+  const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (total > UNPACK_FLOOR + UNPACK_RATIO * zipBytes) return `This zip would unpack to ${gb(total)}, far more than a Jig backup of its size holds`;
+  if (free !== null && total > free - KEEP_FREE_BYTES) return `This backup needs ${gb(total)} of disk space and only ${gb(Math.max(0, free - KEEP_FREE_BYTES))} can be used`;
+  return null;
+}
+const UNPACK_FLOOR = 1024 ** 3;
+const UNPACK_RATIO = 100;
+const KEEP_FREE_BYTES = 1024 ** 3;
+
 export interface ZipSource {
   /** Path inside the zip. */
   name: string;
