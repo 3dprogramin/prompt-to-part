@@ -1,7 +1,7 @@
 // Where the designs, their images and the user's settings are stored, and what the route groups share.
 import express from 'express';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { DATA_DIR } from '../config';
 import type { Design } from '../../shared/types';
@@ -30,6 +30,8 @@ export function isDesign(d: unknown): d is Design {
 // content, instead of inside the design JSON that is rewritten on every autosave.
 export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
 export const IMAGE_NAME = /^[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
+/** What a stored image or mesh file is named by (before its extension): its content's sha256, shortened. */
+export const contentHash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex').slice(0, 32);
 
 /** Write through a temp file and rename it into place, so readers see the old or the new file. */
 export async function writeAtomically(file: string, data: string | Uint8Array) {

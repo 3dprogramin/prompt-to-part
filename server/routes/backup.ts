@@ -14,7 +14,7 @@ import { cleanCostSettings } from '../../shared/cost';
 import { cleanTagMap } from '../../shared/tags';
 import { MAX_MESH_BYTES, MESH_FILE, meshDir } from '../meshes';
 import { MAX_ZIP_BYTES, openZip, unpackProblem, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from '../backup';
-import { DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
+import { contentHash, DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
 const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'printer.json': 'printer', 'starred.json': 'starred designs', 'tags.json': 'design tags' };
@@ -171,6 +171,9 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
               const target = path.join(dir, f.name);
               if (existsSync(target)) continue; // named by content: the same file
               const bytes = await f.entry.read();
+              // Named by content (images, and every mesh file: the .bin too), so a file whose
+              // bytes aren't what its name says was changed or damaged: the design is skipped.
+              if (contentHash(bytes) !== f.name.slice(0, 32)) throw new ZipError(`${f.sub ? 'meshes/' : ''}${f.name} does not match its content (changed or damaged)`);
               await mkdir(dir, { recursive: true });
               await writeAtomically(target, bytes);
               written.push(target);

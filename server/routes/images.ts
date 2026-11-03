@@ -1,7 +1,6 @@
 // A design's images (stored by content) and its product photos, made by the image model from a render.
 import express from 'express';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { claudeAuthProblem } from '../config';
@@ -9,7 +8,7 @@ import { writeScene } from '../photoScene';
 import { artworkAvailable, requestImage } from '../artwork';
 import { IDEA_SCENE, MAX_NOTES_CHARS, photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneRequest, type PhotoSceneResponse } from '../../shared/photos';
 import type { Vec3 } from '../../shared/types';
-import { ID_RE, IMAGE_TYPES, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
+import { contentHash, ID_RE, IMAGE_TYPES, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 /** Largest render sent for a product photo. */
 const MAX_RENDER_BYTES = 15 * 1024 * 1024;
@@ -17,7 +16,7 @@ const MAX_RENDER_BYTES = 15 * 1024 * 1024;
 export function registerImageRoutes(app: express.Express, { json, imageDir, deleted, serially }: RouteContext, { image, sceneWriter }: { image: typeof requestImage; sceneWriter: typeof writeScene }) {
   /** Stores an image with the design, named by its content: its URL, or null if the design was deleted. */
   const storeImage = (id: string, bytes: Buffer, ext: string) => {
-    const name = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}.${ext}`;
+    const name = `${contentHash(bytes)}.${ext}`;
     // In the design's queue, so a delete can't run between the check and the write.
     return serially(id, async () => {
       if (deleted.has(id)) return null;

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, request, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 
 // The API on a free port with its own data folder (as in api.test.ts).
@@ -29,8 +30,10 @@ const statusWith = (headers: Record<string, string>) => new Promise<number>((res
   request({ host: '127.0.0.1', port, path: '/api/backup', headers }, (res) => { res.resume(); resolve(res.statusCode!); }).on('error', reject).end();
 });
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
-const MESH_NAME = `${'ab'.repeat(16)}.bin`;
+/** Stored images and mesh files are named by their content (server/routes/store.ts contentHash). */
+const named = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex').slice(0, 32);
 const MESH = new Uint8Array(300_000).map((_, i) => (i * 7919) % 251);
+const MESH_NAME = `${named(MESH)}.bin`;
 let imageUrl = '';
 
 test('export: every design with its images and meshes, and the settings, as one zip', async () => {
@@ -141,9 +144,22 @@ test('import: damaged zips and designs', async () => {
   assert.equal(existsSync(path.join(dataDir, 'designs', id, 'meshes', MESH_NAME)), false);
 });
 
+test('import: an image or mesh file whose bytes are not what its name says skips its design', async () => {
+  const id = 'test-bkp-00000006';
+  for (const [file, label] of [[`designs/${id}/${'cd'.repeat(16)}.png`, `${'cd'.repeat(16)}.png`], [`designs/${id}/meshes/${'ab'.repeat(16)}.bin`, `meshes/${'ab'.repeat(16)}.bin`]]) {
+    const zip = zipSync({ [`designs/${id}.json`]: strToU8(JSON.stringify(design({ id }))), [`designs/${id}/${named(PNG)}.png`]: PNG, [file]: file.endsWith('.png') ? PNG : MESH });
+    const out = await (await importZip(zip)).json();
+    assert.deepEqual(out.imported, []);
+    assert.deepEqual(out.skipped.map((s: { id: string; reason: string }) => [s.id, s.reason]), [[id, `${label} does not match its content (changed or damaged)`]]);
+    assert.equal((await fetch(`${A}/api/designs/${id}`)).status, 404);
+    // Nothing of it is left: the image that did match was taken out again.
+    assert.equal(existsSync(path.join(dataDir, 'designs', id, `${named(PNG)}.png`)), false);
+  }
+});
+
 test('a zipped project ("Export project…") brings back its design, pictures and meshes; nothing else in it is written', async () => {
   const id = 'test-bkp-00000007', other = 'test-bkp-00000008';
-  const IMG = `${'cd'.repeat(16)}.png`;
+  const IMG = `${named(PNG)}.png`;
   const project = (dir: string, extra: Zippable = {}): Uint8Array => zipSync({
     [`${dir}design.jig.json`]: strToU8(JSON.stringify(design({ id, name: 'Project hook' }))),
     [`${dir}images/${IMG}`]: PNG,
