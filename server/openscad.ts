@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { bundleWorker, NODE_MODULES, PERMISSION_FLAG } from './geometry';
+import { abortable, bundleWorker, NODE_MODULES, PERMISSION_FLAG, stoppedError } from './geometry';
 import { describeScadParams } from '../shared/scad';
 import type { ParamValues } from '../shared/types';
 import type { ScadJob, ScadOutput } from './openscad-worker';
@@ -71,16 +71,21 @@ function* untar(buf: Buffer): Generator<[string, Buffer]> {
   }
 }
 
-/** Renders a .scad source with OpenSCAD at the given Customizer values (defaults for the rest). */
-export async function runScad(source: string, values?: ParamValues, onStatus?: (text: string) => void): Promise<ScadOutput> {
-  await ensureEngine(onStatus);
+/**
+ * Renders a .scad source with OpenSCAD at the given Customizer values (defaults for the rest).
+ * `signal` (the generation's) aborting stops the wait for the engine download and kills OpenSCAD.
+ */
+export async function runScad(source: string, values?: ParamValues, onStatus?: (text: string) => void, signal?: AbortSignal): Promise<ScadOutput> {
+  if (signal?.aborted) throw stoppedError();
+  // (The download itself goes on: another file may be waiting for it.)
+  await abortable(ensureEngine(onStatus), signal);
   const child = fork(bundleWorker('openscad-worker'), [], {
     execArgv: [PERMISSION_FLAG, '--disable-warning=ExperimentalWarning', `--allow-fs-read=${NODE_MODULES}`, '--max-old-space-size=1024'],
     env: {},
     serialization: 'advanced',
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
-  return workerResult(child, { engineDir: ENGINE_DIR, source, values } satisfies ScadJob, TIMEOUT_MS);
+  return workerResult(child, { engineDir: ENGINE_DIR, source, values } satisfies ScadJob, TIMEOUT_MS, signal);
 }
 
 /** The part of a ChildProcess workerResult uses (tests pass a stand-in). */
@@ -88,20 +93,25 @@ export type WorkerChild = Pick<ChildProcess, 'on' | 'once' | 'send' | 'kill'>;
 
 /**
  * Sends `job` to a forked OpenSCAD worker and settles once, with its answer or the first thing that
- * goes wrong: an error reply, the worker exiting, the time running out, or the fork or send failing
- * (an 'error' event, which would otherwise crash the server).
+ * goes wrong: an error reply, the worker exiting, the time running out, `signal` aborting (Stop), or
+ * the fork or send failing (an 'error' event, which would otherwise crash the server). The worker is
+ * killed on every failure.
  */
-export function workerResult(child: WorkerChild, job: ScadJob, timeoutMs: number): Promise<ScadOutput> {
+export function workerResult(child: WorkerChild, job: ScadJob, timeoutMs: number, signal?: AbortSignal): Promise<ScadOutput> {
   return new Promise<ScadOutput>((resolve, reject) => {
     let settled = false;
     const settle = (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       fn();
     };
     const fail = (e: Error) => settle(() => { child.kill(); reject(e); });
+    const onAbort = () => fail(stoppedError());
     const timer = setTimeout(() => fail(new Error(`OpenSCAD took longer than ${timeoutMs / 1000} s`)), timeoutMs);
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener('abort', onAbort, { once: true });
     // on, not once: a child process can emit 'error' more than once (a failed kill after a failed send).
     child.on('error', (e: Error) => fail(new Error(`OpenSCAD could not run: ${e.message}`)));
     child.once('message', (m: { out?: ScadOutput; error?: string }) => settle(() => {

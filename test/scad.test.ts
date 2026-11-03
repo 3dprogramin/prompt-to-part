@@ -71,3 +71,22 @@ test('a worker that fails to start or to take the job rejects once and never cra
   // No answer in time.
   await assert.rejects(workerResult(fake(() => {}) as unknown as WorkerChild, job, 20), /longer than/);
 });
+
+test('Stop kills the OpenSCAD worker at once', async () => {
+  const child = new EventEmitter() as EventEmitter & { kills: number };
+  child.kills = 0;
+  Object.assign(child, { send: (_m: unknown, cb: (e: Error | null) => void) => { cb(null); return true; }, kill: () => { child.kills++; return true; } });
+  const job = { engineDir: '/nowhere', source: 'cube(1);' };
+  const abort = new AbortController();
+  const result = workerResult(child as unknown as WorkerChild, job, 5000, abort.signal);
+  abort.abort();
+  await assert.rejects(result, /Stopped/);
+  assert.equal(child.kills, 1);
+  // Already stopped: killed before the job is sent.
+  const late = new EventEmitter() as EventEmitter & { kills: number; sent: number };
+  Object.assign(late, { kills: 0, sent: 0, send: () => { late.sent++; return true; }, kill: () => { late.kills++; return true; } });
+  await assert.rejects(workerResult(late as unknown as WorkerChild, job, 5000, abort.signal), /Stopped/);
+  assert.deepEqual([late.kills, late.sent], [1, 0]);
+  // runScad: no download, no worker.
+  await assert.rejects(runScad('cube(1);', undefined, undefined, abort.signal), /Stopped/);
+});

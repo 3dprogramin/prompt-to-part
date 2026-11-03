@@ -125,20 +125,43 @@ export function diedOfOom(code: number | null, signal: NodeJS.Signals | null): b
   return signal === 'SIGABRT' || code === 134;
 }
 
+/** The error for a job whose generation was stopped. */
+export const stoppedError = () => Object.assign(new Error('Stopped.'), { name: 'AbortError' });
+
+/** `p`, or a rejection (stoppedError) as soon as `signal` aborts. */
+export function abortable<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(stoppedError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(stoppedError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 function dropWorker(w: Worker) {
   if (worker === w) worker = null;
   w.kill();
 }
 
-function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number): Promise<Reply> {
+/**
+ * Runs one job on `w`. Running out of time, or `signal` aborting (the generation was stopped),
+ * kills the worker: the job is the only one on it, and the next job starts a fresh one.
+ */
+function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const id = ++seq;
-    const timer = setTimeout(() => {
+    const give = (e: Error) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       pending.delete(id);
       dropWorker(w);
-      reject(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s – the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`));
-    }, timeoutMs);
-    pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); resolve(r); } });
+      reject(e);
+    };
+    const onAbort = () => give(stoppedError());
+    const timer = setTimeout(() => give(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s: the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`)), timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve(r); } });
     w.send({ ...msg, id, printer: printer() });
   });
 }
@@ -146,11 +169,17 @@ function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number): Pr
 // Serialise jobs: one at a time keeps timeouts meaningful.
 let chain: Promise<unknown> = Promise.resolve();
 
-function call<T>(msg: Record<string, unknown>, timeoutMs: number): Promise<T> {
+/**
+ * Queues a job. With `signal` (the generation's), a stop drops the job while it waits (its turn
+ * passes at once) and kills the worker while it runs; the caller hears of it straight away.
+ */
+function call<T>(msg: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) return Promise.reject(stoppedError());
   const job = chain.then(async () => {
     for (let retried = false; ; retried = true) {
+      if (signal?.aborted) throw stoppedError();
       const w = getWorker();
-      const r = await attempt(w, msg, timeoutMs);
+      const r = await attempt(w, msg, timeoutMs, signal);
       if (r.crashed) {
         // A wasm trap leaves the heap unusable: replace the worker and run the job once more
         // (not after running out of memory, which would only happen again).
@@ -166,7 +195,7 @@ function call<T>(msg: Record<string, unknown>, timeoutMs: number): Promise<T> {
     }
   });
   chain = job.catch(() => undefined);
-  return job;
+  return abortable(job, signal);
 }
 
 export interface ImportedMesh {
@@ -183,19 +212,20 @@ export interface StabilityPose { label: string; values: ParamValues }
 export interface StabilityRequest { code: string; extra: ParamValues; poses: StabilityPose[]; printBase: Required<PrintSettings>; nozzle: number; upright?: [number, number, number] }
 export interface StabilityResult { poses: PoseCheck[]; loads: string[] }
 
+/** Each job takes an optional `signal` (a generation's abort signal): see call(). */
 export const geometry = {
-  evaluate: (code: string, values?: ParamValues, quality: Quality = 'normal') =>
-    call<EvalSummary | EvalFailure>({ cmd: 'evaluate', code, values, quality }, 30000),
-  render: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'render', code, values }, 45000),
+  evaluate: (code: string, values?: ParamValues, quality: Quality = 'normal', signal?: AbortSignal) =>
+    call<EvalSummary | EvalFailure>({ cmd: 'evaluate', code, values, quality }, 30000, signal),
+  render: (code: string, values?: ParamValues, signal?: AbortSignal) => call<RenderResult>({ cmd: 'render', code, values }, 45000, signal),
   /** `extra`: values every case starts from (attached drawings). */
-  stress: (code: string, extra?: ParamValues) => call<StressResult>({ cmd: 'stress', code, budgetMs: 20000, extra }, 40000),
+  stress: (code: string, extra?: ParamValues, signal?: AbortSignal) => call<StressResult>({ cmd: 'stress', code, budgetMs: 20000, extra }, 40000, signal),
   /** Does the design stay standing in each pose (parameter values), with its declared loads? */
-  stability: (req: StabilityRequest) => call<StabilityResult>({ cmd: 'stability', ...req }, 40000),
+  stability: (req: StabilityRequest, signal?: AbortSignal) => call<StabilityResult>({ cmd: 'stability', ...req }, 40000, signal),
   /** One large iso picture (used for assembled / exploded views). */
-  iso: (code: string, values?: ParamValues) => call<RenderResult>({ cmd: 'iso', code, values }, 45000),
+  iso: (code: string, values?: ParamValues, signal?: AbortSignal) => call<RenderResult>({ cmd: 'iso', code, values }, 45000, signal),
   /** Parse, repair and normalise an uploaded mesh file in the locked-down worker (a stored .bin, a report and a four-view render). */
   /** With options.colors and `palette`: its colours, at most palette.colors, each with the closest filament (the user's own, `mine`, first). */
-  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions, palette?: { colors: number; mine: LayerToneFilament[] }) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options, palette }, 120000),
+  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions, palette?: { colors: number; mine: LayerToneFilament[] }, signal?: AbortSignal) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options, palette }, 120000, signal),
   warmup: () => { getWorker(); },
   /** Stop the worker process (tests: it would keep the event loop alive). */
   stop: () => { if (worker) dropWorker(worker); },

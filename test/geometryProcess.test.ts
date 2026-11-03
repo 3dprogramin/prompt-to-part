@@ -81,6 +81,30 @@ test('upright turns a part printed on its side', async () => {
   assert.ok(up.poses[0].edgeMm < 6, JSON.stringify(up));
 });
 
+// Stop: a generation's jobs are dropped while they wait and the worker is killed while one runs.
+const SLOW = 'function build() { let x = 0; for (let i = 0; i < 1e11; i++) x += i; return Manifold.cube([1, 1, x > 0 ? 1 : 2]); }';
+
+test('a stopped generation\'s geometry jobs end at once, and the next job still runs', async () => {
+  const a = new AbortController();
+  const b = new AbortController();
+  const running = geometry.evaluate(SLOW, undefined, undefined, a.signal);
+  const waiting = geometry.evaluate('function build() { return Manifold.cube([1, 1, 1]); }', undefined, undefined, b.signal);
+  // Another design's job (no signal), queued behind both.
+  const other = geometry.evaluate('function build() { return Manifold.cube([3, 3, 3]); }');
+  await new Promise((r) => setTimeout(r, 300));
+  const t0 = Date.now();
+  b.abort();
+  await assert.rejects(waiting, /Stopped/);
+  a.abort();
+  await assert.rejects(running, /Stopped/);
+  assert.ok(Date.now() - t0 < 2000, 'took too long');
+  const r = await other;
+  assert.ok(r.ok);
+  assert.match(formatReport(r), /3\.00 × 3\.00 × 3\.00 mm/);
+  // Already stopped: never queued.
+  await assert.rejects(geometry.render(SLOW, undefined, a.signal), /Stopped/);
+});
+
 test('a worker killed by running out of JavaScript heap counts as out of memory (not retried)', () => {
   assert.equal(diedOfOom(null, 'SIGABRT'), true);
   assert.equal(diedOfOom(134, null), true);
