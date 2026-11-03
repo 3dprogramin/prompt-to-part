@@ -89,10 +89,6 @@ export async function startDictation(onText: (text: string) => void, onError: (m
     if (!stopping) onError('Dictation stopped: the connection to ElevenLabs closed.');
   };
 
-  const workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
-  await ctx.audioWorklet.addModule(workletUrl).finally(() => URL.revokeObjectURL(workletUrl));
-  const source = ctx.createMediaStreamSource(stream);
-  const node = new AudioWorkletNode(ctx, 'jig-mic');
   const block = Math.round(rate * BLOCK_SECONDS);
   let pending: Float32Array[] = [];
   let pendingLength = 0;
@@ -109,12 +105,27 @@ export async function startDictation(onText: (text: string) => void, onError: (m
     pendingLength = 0;
     send(all);
   };
-  node.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-    pending.push(ev.data);
-    pendingLength += ev.data.length;
-    if (pendingLength >= block) flush();
-  };
-  source.connect(node);
+  let source: MediaStreamAudioSourceNode;
+  let node: AudioWorkletNode;
+  try {
+    const workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
+    await ctx.audioWorklet.addModule(workletUrl).finally(() => URL.revokeObjectURL(workletUrl));
+    source = ctx.createMediaStreamSource(stream);
+    node = new AudioWorkletNode(ctx, 'jig-mic');
+    node.port.onmessage = (ev: MessageEvent<Float32Array>) => {
+      pending.push(ev.data);
+      pendingLength += ev.data.length;
+      if (pendingLength >= block) flush();
+    };
+    source.connect(node);
+  } catch (e) {
+    // Let go of the microphone (its indicator goes off), the audio and the connection; this error
+    // is the one reported, not "the connection closed" on top of it.
+    stopping = true;
+    release();
+    ws.close();
+    throw e;
+  }
 
   return {
     async stop() {
