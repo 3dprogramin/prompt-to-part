@@ -43,8 +43,8 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 /** The environment for the Claude Code process the Agent SDK starts. */
 export function claudeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
-  // Claude runs on the key (or token and base URL) only, never on a CLI login or a subscription
-  // token; without a key nothing runs (claudeAuthProblem).
+  // Claude runs on the key (or token and base URL) only, never on a CLI login or an OAuth token left
+  // in the environment; without a key nothing runs (claudeAuthProblem).
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
   if (claudeViaOpenRouter()) Object.assign(env, { ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });

@@ -1,7 +1,7 @@
 # Jig in Docker: `docker compose up -d --build`, then open http://localhost:8787 (see "Docker" in the
 # README). Settings and secrets come from .env (copy .env.sample).
 #
-# Jig has no login: anyone who can reach its port can use your Claude account and keys. It is
+# Jig has no login: anyone who can reach its port can use your API keys. It is
 # therefore published on this computer only (127.0.0.1). JIG_BIND=0.0.0.0 in .env publishes it on
 # every interface (e.g. to try it from a phone; add this computer's address to JIG_HOSTS): only on
 # a network you trust.
