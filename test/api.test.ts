@@ -9,7 +9,7 @@ import path from 'node:path';
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-api-test-'));
 process.env.JIG_DATA = dataDir;
 // The stand-in for Claude needs no credentials, but the API checks them first.
-process.env.JIG_AUTH = 'subscription';
+process.env.ANTHROPIC_API_KEY = 'sk-test';
 // Listening first and attaching the app after: the app needs the port for its Host check.
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
@@ -18,8 +18,6 @@ let releaseGeneration = () => {};
 let imageAsked: { prompt: string; aspect: string; references?: string[]; size?: string } | null = null;
 const { createApp } = await import('../server/app');
 const { UsageLimitError } = await import('../server/agent');
-const { recordRateLimit } = await import('../server/usage');
-const LIMIT_RESET = Math.floor(Date.now() / 1000) + 3600;
 server.on('request', createApp({
   port,
   hosts: ['192.168.1.20'],
@@ -30,9 +28,8 @@ server.on('request', createApp({
     return { image: { data: Buffer.from('89504e470d0a1a0a70686f746f', 'hex').toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
   },
   generate: (req, send, abort) => new Promise((resolve, reject) => {
-    // A reply refused because the subscription's usage limit is reached.
+    // A reply refused because a Claude usage limit is reached.
     if (req.prompt === 'over the limit') {
-      recordRateLimit({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: LIMIT_RESET });
       return reject(new UsageLimitError('Claude Code returned an error result: You\'ve hit your limit'));
     }
     send({ type: 'live', text: 'working' });
@@ -198,10 +195,10 @@ test('a reply goes on when the page\'s connection drops; the page catches up and
   assert.equal(events(await (await fetch(`${A}/api/generate/${id}/events?run=${runId}&from=2`)).text()).length, 1);
 });
 
-test('a reply refused at the usage limit says when it resets', async () => {
+test('a reply refused at the usage limit says so', async () => {
   const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000011', prompt: 'over the limit' }) });
   const events = (await r.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6))).filter((e) => e.type !== 'run');
-  assert.deepEqual(events, [{ type: 'error', message: 'Your Claude subscription\'s usage limit is reached. (Claude Code returned an error result: You\'ve hit your limit)', resetsAt: LIMIT_RESET * 1000 }]);
+  assert.deepEqual(events, [{ type: 'error', message: 'Claude usage limit reached for now. (Claude Code returned an error result: You\'ve hit your limit)' }]);
 });
 
 test('dictation tokens need the ElevenLabs key, and only Jig may ask', { skip: !!process.env.ELEVENLABS_API_KEY && 'ELEVENLABS_API_KEY is set' }, async () => {
@@ -233,9 +230,9 @@ test('cost settings are stored, slicing needs a project, price suggestions go th
   }
 });
 
-test('without an API key (and not in subscription mode) Claude is never started', async () => {
-  const saved = { auth: process.env.JIG_AUTH, key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN, openrouter: process.env.OPENROUTER_API_KEY };
-  delete process.env.JIG_AUTH; delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.OPENROUTER_API_KEY;
+test('without an API key Claude is never started', async () => {
+  const saved = { key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN, openrouter: process.env.OPENROUTER_API_KEY };
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.OPENROUTER_API_KEY;
   try {
     assert.match((await (await fetch(`${A}/api/capabilities`)).json()).claude, /ANTHROPIC_API_KEY/);
     const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000007', prompt: 'a cube' }) });
@@ -244,7 +241,7 @@ test('without an API key (and not in subscription mode) Claude is never started'
     process.env.ANTHROPIC_API_KEY = 'sk-test';
     assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).claude, null);
   } finally {
-    for (const [k, v] of [['JIG_AUTH', saved.auth], ['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token], ['OPENROUTER_API_KEY', saved.openrouter]] as const) {
+    for (const [k, v] of [['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token], ['OPENROUTER_API_KEY', saved.openrouter]] as const) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }

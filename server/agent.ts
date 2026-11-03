@@ -10,7 +10,7 @@ import { detectModes } from './modes/detect';
 import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
-import { authMode, claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
+import { claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
@@ -30,7 +30,6 @@ import type { ParamValues } from '../shared/types';
 import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
 import { meshyClient } from './meshy';
-import { recordRateLimit } from './usage';
 import { MODEL_FILE, toolPolicy } from './generation/toolPolicy';
 import { currentModelContext, IMAGE_TYPES, Inbox, recapOf, steering } from './generation/messages';
 import { describeToolInput, detail, lastSentence, readText, TOOL_LABELS } from './generation/activity';
@@ -44,16 +43,11 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 /** The environment for the Claude Code process the Agent SDK starts. */
 export function claudeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
-  // Subscription mode uses the `claude` CLI's login or the CLAUDE_CODE_OAUTH_TOKEN from `claude
-  // setup-token`, so no key may override it; in the default API-key mode the key (or token and base
-  // URL) is passed on, and without one nothing runs at all (claudeAuthProblem), so the subscription
-  // is never used silently.
-  if (authMode() === 'subscription') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_BASE_URL; }
-  else {
-    delete env.CLAUDE_CODE_OAUTH_TOKEN;
-    // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
-    if (claudeViaOpenRouter()) Object.assign(env, { ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });
-  }
+  // Claude runs on the key (or token and base URL) only, never on a CLI login or a subscription
+  // token; without a key nothing runs (claudeAuthProblem).
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
+  if (claudeViaOpenRouter()) Object.assign(env, { ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });
   // Claude has no use for other services' keys.
   delete env.ELEVENLABS_API_KEY;
   delete env.OPENROUTER_API_KEY;
@@ -242,7 +236,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // Whether Claude has answered at all: then a failure is not a missing session, and starting over
   // in a new one would repeat the work (and could produce a second version).
   let gotOutput = false;
-  // A request was refused because the subscription's usage limit is reached.
+  // A request was refused because a Claude usage limit is reached.
   let limitHit = false;
   // Messages the user sends while Claude works go into the running reply (steerGeneration).
   const inbox = new Inbox();
@@ -434,7 +428,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       } else if (msg.type === 'system' && msg.subtype === 'api_retry') {
         // A refused key won't start working on a retry: stop at once and say which key to check
         // (Claude Code would otherwise retry it for minutes).
-        if (authMode() === 'api-key' && (msg.error_status === 401 || msg.error_status === 403)) {
+        if (msg.error_status === 401 || msg.error_status === 403) {
           q.close();
           throw new KeyRefusedError(claudeKeyRefused(msg.error_status));
         }
@@ -444,8 +438,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       } else if (msg.type === 'system' && msg.subtype === 'status' && msg.status && String(msg.status) !== 'requesting') {
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Status: ${String(msg.status)}` } });
       } else if (msg.type === 'rate_limit_event') {
-        if (msg.rate_limit_info) recordRateLimit(msg.rate_limit_info);
-        if (msg.rate_limit_info?.status && msg.rate_limit_info.status !== 'allowed') emit({ type: 'step', step: { kind: 'status', ok: false, text: msg.rate_limit_info.status === 'rejected' ? 'Subscription usage limit reached – waiting for it to reset.' : 'Approaching the subscription usage limit.' } });
+        if (msg.rate_limit_info?.status && msg.rate_limit_info.status !== 'allowed') emit({ type: 'step', step: { kind: 'status', ok: false, text: msg.rate_limit_info.status === 'rejected' ? 'Claude usage limit reached - waiting for it to reset.' : 'Approaching the Claude usage limit.' } });
       } else if (msg.type === 'tool_progress') {
         pushLive(`${TOOL_LABELS[msg.tool_name] ?? msg.tool_name}… ${Math.round(msg.elapsed_time_seconds)} s`);
       } else if (msg.type === 'result') {
@@ -454,7 +447,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
-        const sessionCostUsd = authMode() === 'api-key' ? msg.total_cost_usd : undefined;
+        const sessionCostUsd = msg.total_cost_usd;
         // (A total below the earlier one means Claude Code started this session's count from zero.)
         const costUsd = sessionCostUsd === undefined || costBase === undefined ? undefined : sessionCostUsd >= costBase ? sessionCostUsd - costBase : sessionCostUsd;
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${formatDuration(msg.duration_ms)} · ${msg.num_turns} turns${costUsd !== undefined ? ` · ${formatCost(costUsd)}` : ''}` } });
@@ -477,8 +470,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   } catch (e) {
     if (abort.signal.aborted) return;
     const msg = (e as Error).message ?? String(e);
-    // The session may be gone, or the API refuses its history (e.g. a session started on a Claude
-    // subscription, continued through another provider): retry once in a fresh session, with a
+    // The session may be gone, or the API refuses its history (e.g. a session started with another
+    // provider): retry once in a fresh session, with a
     // recap of the conversation so Claude knows what came before.
     if (req.sessionId && !gotOutput && !limitHit && !(e instanceof KeyRefusedError) && /session|conversation|invalid .*request/i.test(msg)) {
       emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
@@ -494,7 +487,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
 }
 
-/** A reply that failed because the Claude subscription's usage limit is reached. */
+/** A reply that failed because a Claude usage limit is reached. */
 export class UsageLimitError extends Error {}
 
 /** A reply that failed because the Claude API refused Jig's API key or token (the message says which). */

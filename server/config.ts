@@ -1,7 +1,6 @@
 // Settings from the environment, read once. Paths are resolved from the Jig folder rather than the
 // working directory, so the server also works when started from somewhere else.
 import { existsSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CURRENCY, parseCurrency } from '../shared/cost';
@@ -20,35 +19,18 @@ export const DATA_DIR = process.env.JIG_DATA ? path.resolve(process.env.JIG_DATA
 /** Serve the built app from dist/ as well as the API (`npm start`). */
 export const PRODUCTION = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
 /**
- * How Jig signs in to Claude (read when it is needed, so a changed environment counts):
- * - 'api-key' (the default): ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN with an Anthropic-compatible
- *   ANTHROPIC_BASE_URL;
- * - 'subscription' (JIG_AUTH=subscription): the Claude account the `claude` CLI is logged in with, or
- *   the long-lived token in CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, how the Docker image signs
- *   in), only for your own use on your own computer (see the README).
- */
-export function authMode(): 'api-key' | 'subscription' {
-  return process.env.JIG_AUTH === 'subscription' ? 'subscription' : 'api-key';
-}
-
-/**
- * Claude through OpenRouter: in API-key mode, when OPENROUTER_API_KEY is set and no Anthropic key
+ * Claude through OpenRouter: when OPENROUTER_API_KEY is set and no Anthropic key
  * or token is (an Anthropic key wins, and OpenRouter is then used for artwork only).
  */
 export function claudeViaOpenRouter(): boolean {
-  return authMode() === 'api-key' && !!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN;
+  return !!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN;
 }
 
 /** Why Jig can't run Claude as configured, or null. Without a key it never falls back to the CLI's login. */
 export function claudeAuthProblem(): string | null {
-  if (authMode() === 'subscription') {
-    // A container has no `claude` login of its own: it needs the long-lived token from `claude setup-token`
-    // (or a login made inside it, kept in the CLAUDE_CONFIG_DIR volume).
-    const credentials = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
-    if (process.env.JIG_DOCKER && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !existsSync(credentials)) {
-      return 'Jig runs in Docker on your Claude subscription (JIG_AUTH=subscription) but has no login: run `claude setup-token` on your computer, put the token in .env as CLAUDE_CODE_OAUTH_TOKEN and restart Jig (docker compose up -d). See "Docker" in the README.';
-    }
-    return null;
+  const mode = process.env.JIG_AUTH?.trim();
+  if (mode && mode !== 'api-key') {
+    return 'Jig no longer runs on a Claude subscription (JIG_AUTH=subscription in .env): set ANTHROPIC_API_KEY or OPENROUTER_API_KEY, remove JIG_AUTH and restart Jig. See "Claude API key" in the README.';
   }
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.OPENROUTER_API_KEY) return null;
   return 'Jig has no Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude account or API key" in the README.';
