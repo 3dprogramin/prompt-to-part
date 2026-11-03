@@ -1,21 +1,29 @@
-// What Claude may do in a design's workspace: its model.js, the CAD tools and (with web search on)
-// public web pages only.
+// What Claude may do in a design's workspace: its model.js, reading its attached OpenSCAD files,
+// the CAD tools and (with web search on) public web pages only.
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
 import path from 'node:path';
 
 export const MODEL_FILE = 'model.js';
+/** The workspace folder with the OpenSCAD files attached in the chat (a long one is Read from here). */
+export const SCAD_DIR = 'scad';
 
 /**
- * What Claude may do in a design's workspace: read and write its model.js, use the CAD tools, and
- * (only with web search on) search and read public web pages. Returns why a call is refused, or
- * null to allow it. `resolve` looks up a host name's addresses (replaceable in tests).
+ * What Claude may do in a design's workspace: read and write its model.js, read the .scad files
+ * attached to it, use the CAD tools, and (only with web search on) search and read public web
+ * pages. Returns why a call is refused, or null to allow it. `resolve` looks up a host name's
+ * addresses (replaceable in tests).
  */
 export function toolPolicy(ws: string, webSearch: boolean, resolve = resolveHost) {
   const file = path.join(ws, MODEL_FILE);
+  const scadDir = path.join(ws, SCAD_DIR);
   return async (name: string, input: Record<string, unknown>): Promise<string | null> => {
     if (['Read', 'Write', 'Edit'].includes(name)) {
-      return path.resolve(ws, String(input.file_path ?? '')) === file ? null : `Only ${file} may be accessed.`;
+      const target = path.resolve(ws, String(input.file_path ?? ''));
+      if (target === file) return null;
+      // Jig saves attached .scad files here under a cleaned-up name; Claude may only read them.
+      if (name === 'Read' && path.dirname(target) === scadDir && target.endsWith('.scad')) return null;
+      return name === 'Read' ? `Only ${file} and the .scad files in ${scadDir} may be read.` : `Only ${file} may be changed.`;
     }
     if (name.startsWith('mcp__cad__')) return null;
     if (webSearch && name === 'WebSearch') return null;

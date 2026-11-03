@@ -20,6 +20,20 @@ test('only the design\'s own model.js can be read and written', async () => {
   assert.equal(await policy('mcp__cad__evaluate_model', {}), null);
 });
 
+test('the attached OpenSCAD files can be read, never written', async () => {
+  const policy = toolPolicy(ws, false);
+  const scad = path.join(ws, 'scad', 'box.scad');
+  assert.equal(await policy('Read', { file_path: scad }), null);
+  assert.equal(await policy('Read', { file_path: 'scad/box.scad' }), null);
+  for (const name of ['Write', 'Edit']) assert.match(await policy(name, { file_path: scad }) ?? '', /may be changed/);
+  // Only .scad files directly in the folder, of this design.
+  assert.notEqual(await policy('Read', { file_path: path.join(ws, 'scad', 'notes.txt') }), null);
+  assert.notEqual(await policy('Read', { file_path: path.join(ws, 'scad', 'sub', 'box.scad') }), null);
+  assert.notEqual(await policy('Read', { file_path: 'scad/../../other/scad/box.scad' }), null);
+  assert.notEqual(await policy('Read', { file_path: path.join(ws, 'box.scad') }), null);
+  assert.notEqual(await policy('Read', { file_path: path.join(ws, 'scad') }), null);
+});
+
 // Stands in for DNS so the tests never touch the network.
 const DNS: Record<string, string[]> = {
   'example.com': ['93.184.215.14', '2606:2800:21f:cb07:6820:80da:af6b:8b2c'],
