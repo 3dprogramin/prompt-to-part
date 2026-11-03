@@ -33,7 +33,7 @@ export function claudeAuthProblem(): string | null {
     return 'Jig no longer runs on a Claude subscription (JIG_AUTH=subscription in .env): set ANTHROPIC_API_KEY or OPENROUTER_API_KEY, remove JIG_AUTH and restart Jig. See "Claude API key" in the README.';
   }
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.OPENROUTER_API_KEY) return null;
-  return 'Jig has no Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude account or API key" in the README.';
+  return 'Jig has no Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude API key" in the README.';
 }
 
 /** What to tell the user when the Claude API refuses Jig's API key or token (HTTP 401 or 403). */

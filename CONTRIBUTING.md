@@ -9,7 +9,7 @@ Open an issue with:
 - what you asked Jig for (the prompt, and any photo, SVG or model you attached, if you can share it),
 - what happened and what you expected,
 - a screenshot of the design, and the reply's steps (click the step line, or *activity*) when it is about a generation,
-- how you run Jig (Docker or `npm start`, your OS, Node version, and whether Claude runs on an Anthropic key, OpenRouter or a subscription).
+- how you run Jig (Docker or `npm start`, your OS, Node version, and whether Claude runs on an Anthropic key, OpenRouter or another provider).
 
 Never paste API keys, tokens or your `.env` into an issue.
 

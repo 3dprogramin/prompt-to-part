@@ -2,7 +2,7 @@
 
 ## Run Jig on your own computer only
 
-Jig has no login. Anyone who can reach its port can use your Claude account and API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `npm start` listens there too. Keep it that way: don't expose Jig to the internet or put it behind a public proxy. To use it from a phone, only open it on a network you trust (`JIG_BIND` and `JIG_HOSTS` in `.env`).
+Jig has no login. Anyone who can reach its port can use your API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `npm start` listens there too. Keep it that way: don't expose Jig to the internet or put it behind a public proxy. To use it from a phone, only open it on a network you trust (`JIG_BIND` and `JIG_HOSTS` in `.env`).
 
 ## Run it in Docker
 
