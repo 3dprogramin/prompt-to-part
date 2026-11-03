@@ -12,7 +12,7 @@ export const MESHY_DEFAULT_BASE = 'https://api.meshy.ai/openapi';
 export const meshyAvailable = () => !!process.env.MESHY_API_KEY?.trim();
 export const meshyBaseUrl = () => (process.env.MESHY_BASE_URL?.trim() || MESHY_DEFAULT_BASE).replace(/\/+$/, '');
 /** Largest model or picture downloaded. */
-const MAX_DOWNLOAD = 100 * 1024 * 1024;
+export const MAX_DOWNLOAD = 100 * 1024 * 1024;
 /** Longest prompt Meshy takes. */
 export const MAX_MESHY_PROMPT = 800;
 export { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits } from '../shared/meshes';
@@ -215,9 +215,35 @@ export async function download(c: MeshyClient, url: string, signal?: AbortSignal
     throw new MeshyError(`Couldn't download from Meshy: ${(e as Error).message}`);
   }
   if (!r.ok) throw new MeshyError(`Downloading from Meshy failed (HTTP ${r.status})`, r.status);
-  if (Number(r.headers.get('content-length')) > MAX_DOWNLOAD) throw new MeshyError('The model Meshy made is too big to download');
-  const bytes = new Uint8Array(await r.arrayBuffer());
-  if (bytes.length > MAX_DOWNLOAD) throw new MeshyError('The model Meshy made is too big to download');
+  const tooBig = () => new MeshyError('The model Meshy made is too big to download');
+  if (Number(r.headers.get('content-length')) > MAX_DOWNLOAD) {
+    void r.body?.cancel().catch(() => undefined);
+    throw tooBig();
+  }
+  // Read as it comes, so a body larger than it said (or one with no length) stops at the limit
+  // instead of being held in memory whole.
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (r.body) {
+    const reader = r.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if ((size += value.length) > MAX_DOWNLOAD) {
+          void reader.cancel().catch(() => undefined);
+          throw tooBig();
+        }
+        chunks.push(value);
+      }
+    } catch (e) {
+      if (e instanceof MeshyError || signal?.aborted) throw e;
+      throw new MeshyError(`Couldn't download from Meshy: ${(e as Error).message}`);
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { bytes.set(c, at); at += c.length; }
   return { bytes, type: r.headers.get('content-type') ?? '' };
 }
 

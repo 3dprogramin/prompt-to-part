@@ -3,7 +3,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createMeshyMock } from '../server/meshyMock';
-import { createImageTo3d, createTextTo3d, generateMeshyModel, getTask, MeshyError, waitForTask, type MeshyClient, type MeshyTask } from '../server/meshy';
+import { createImageTo3d, createTextTo3d, download, generateMeshyModel, getTask, MAX_DOWNLOAD, MeshyError, waitForTask, type MeshyClient, type MeshyTask } from '../server/meshy';
 import { importMeshFile } from '../shared/runtime';
 import { decodeTexture } from '../shared/imageDecode';
 import { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL } from '../shared/meshes';
@@ -142,5 +142,23 @@ test('in colour: image to 3D textured, text to 3D refined after its preview, 35 
   assert.equal(mock.created.at(-1)!.body.should_texture, false);
   assert.equal(mock.created.at(-1)!.body.texture_image_url, undefined);
   assert.equal(grey.credits, MESHY_CREDITS_PER_MODEL);
+});
+
+test('a download is read as it comes and refused once it is larger than the limit', async () => {
+  const MB = new Uint8Array(1024 * 1024);
+  let pulled = 0;
+  // No length given, and more than the limit: the reading stops at it.
+  const endless = () => new ReadableStream<Uint8Array>({ pull(ctl) { pulled++; ctl.enqueue(MB); } });
+  const client = (body: () => BodyInit, headers: Record<string, string> = {}): MeshyClient => ({ key: 'x', baseUrl: 'http://meshy.test', fetch: async () => new Response(body(), { headers }) });
+  await assert.rejects(download(client(endless), 'https://assets.meshy.test/model.glb'), (e) => e instanceof MeshyError && /too big/.test(e.message));
+  assert.ok(pulled <= MAX_DOWNLOAD / MB.length + 3, `read ${pulled} MB`);
+  // Said up front: refused before reading.
+  pulled = 0;
+  await assert.rejects(download(client(endless, { 'content-length': String(MAX_DOWNLOAD + 1) }), 'https://assets.meshy.test/model.glb'), /too big/);
+  assert.ok(pulled <= 2, `read ${pulled} MB`);
+  // A small one comes whole.
+  const r = await download(client(() => new Uint8Array([1, 2, 3]), { 'content-type': 'model/gltf-binary' }), 'https://assets.meshy.test/model.glb');
+  assert.deepEqual([...r.bytes], [1, 2, 3]);
+  assert.equal(r.type, 'model/gltf-binary');
 });
 
