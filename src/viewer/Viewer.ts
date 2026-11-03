@@ -144,8 +144,24 @@ export class Viewer {
     this.clearModel();
     clearGroup(this.joinGroup);
     for (const m of Object.values(this.joinLooks ?? {})) { (m as THREE.PointsMaterial).map?.dispose(); m.dispose(); }
+    // Everything else on the GPU: the grid, plate, dimensions, notes, measurements, issues, repaint
+    // highlights, the brush ring, the lights (shadow maps) and the photo rig's environment map.
+    this.scene.traverse((o) => {
+      if (o instanceof CSS2DObject) o.element.remove();
+      if (o instanceof THREE.Light) o.dispose();
+      const m = o as THREE.Mesh;
+      if (m.geometry) { m.geometry.disposeBoundsTree?.(); m.geometry.dispose(); }
+      for (const mat of m.material ? [m.material].flat() : []) {
+        for (const v of Object.values(mat)) if (v instanceof THREE.Texture) v.dispose();
+        mat.dispose();
+      }
+    });
+    this.scene.clear();
+    this.photoRig?.env.dispose();
+    this.photoRig = null;
     this.controls.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.container.innerHTML = '';
   }
 
