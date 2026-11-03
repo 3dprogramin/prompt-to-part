@@ -3,10 +3,11 @@ import express from 'express';
 import type { BlendRequest } from '../../shared/api';
 import { listFonts, loadFontBuffers } from '../fonts';
 import { exportBlend } from '../blend';
-import type { RouteContext } from './store';
+import { oneAtATime, type RouteContext } from './store';
 
 export function registerExportRoutes(app: express.Express, { json }: RouteContext) {
-  app.post('/api/export/blend', json('300mb'), async (req, res) => {
+  // One Blender export running and one waiting at most (each body can be hundreds of MB).
+  app.post('/api/export/blend', oneAtATime('Jig is busy with another .blend export. Try again in a moment.'), json('300mb'), async (req, res) => {
     const body = req.body as BlendRequest;
     if (!body?.parts?.length) return void res.status(400).json({ error: 'no parts' });
     try {

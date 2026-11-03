@@ -4,7 +4,8 @@ import path from 'node:path';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { runGeneration } from './agent';
-import { DATA_DIR, EXTRA_HOSTS, PORT, PRODUCTION, ROOT } from './config';
+import { DATA_DIR, EXTRA_HOSTS, MAX_GENERATIONS, PASSWORD, PORT, PRODUCTION, ROOT } from './config';
+import { HEALTH_PATH, requirePassword } from './auth';
 import { suggestPrice } from './pricing';
 import { writeScene } from './photoScene';
 import { lookupFilament } from './filaments';
@@ -42,10 +43,18 @@ export interface AppOptions {
   image?: typeof requestImage;
   /** Checks what Jig runs Claude on (tests pass a stand-in: the real one calls the provider). */
   connection?: typeof checkConnection;
+  /** The password every request must carry (JIG_PASSWORD), or '' for none. */
+  password?: string;
+  /** Most replies at once, over all designs (JIG_MAX_GENERATIONS). */
+  maxGenerations?: number;
 }
 
-export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, image = requestImage, connection = checkConnection }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, image = requestImage, connection = checkConnection, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
   const app = express();
+
+  // With JIG_PASSWORD, every page and API call needs it (HTTP Basic auth): the Host and Origin checks
+  // below only stop browsers on other sites, not another device on the network calling the API.
+  if (password) app.use(requirePassword(password));
 
   // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
   // domain is re-pointed at 127.0.0.1), the Origin check refuses every other site, including pages
@@ -61,6 +70,8 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['x-jig'] !== '1') return void res.status(403).json({ error: 'Missing X-Jig header' });
     next();
   });
+  // Docker's healthcheck: only that the server answers (it needs no password).
+  app.get(HEALTH_PATH, (_req, res) => void res.json({ ok: true }));
   // Body size limits per route: a design (its images are stored separately) or a generation request
   // with a few photos is small; a mesh sent for .blend export can be large.
   const json = (limit: string) => express.json({ limit });
@@ -113,12 +124,12 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   registerFilamentRoutes(app, ctx, { lookup });
   registerBackupRoutes(app, ctx);
   registerExportRoutes(app, ctx);
-  registerGenerateRoutes(app, ctx, { generate });
+  registerGenerateRoutes(app, ctx, { generate, maxGenerations });
 
   const dist = path.join(ROOT, 'dist');
   if (PRODUCTION) {
-    if (!existsSync(path.join(dist, 'index.html'))) console.warn('[jig] dist/ is missing – run `npm run build` first; only the API is served.');
-    else if (newestSource() > statSync(path.join(dist, 'index.html')).mtimeMs) console.warn('[jig] dist/ is older than the source code – run `npm run build` to serve the current app.');
+    if (!existsSync(path.join(dist, 'index.html'))) console.warn('[jig] dist/ is missing: run `npm run build` first; only the API is served.');
+    else if (newestSource() > statSync(path.join(dist, 'index.html')).mtimeMs) console.warn('[jig] dist/ is older than the source code: run `npm run build` to serve the current app.');
     // Built files under assets/ have a content hash in their name: a new build gets new names.
     app.use('/assets', express.static(path.join(dist, 'assets'), { immutable: true, maxAge: '1y' }));
     app.use(express.static(dist));

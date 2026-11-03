@@ -19,6 +19,8 @@ interface Run { id: string; events: string[]; listener: express.Response | null;
 const runs = new Map<string, Run>();
 /** How long a finished reply's events are kept for a page that comes back. */
 const KEEP_RUN_MS = 30 * 60_000;
+/** Replies under way in this process, over all designs (each runs Claude Code and spends the API key). */
+let running = 0;
 
 /** Streams `run`'s events from `from` on to `res`, which takes over from any page following it before. */
 function follow(run: Run, res: express.Response, from: number) {
@@ -86,7 +88,7 @@ function friendlyError(msg: string, limited: boolean) {
   return msg;
 }
 
-export function registerGenerateRoutes(app: express.Express, { json, generatingDesigns }: RouteContext, { generate }: { generate: typeof runGeneration }) {
+export function registerGenerateRoutes(app: express.Express, { json, generatingDesigns }: RouteContext, { generate, maxGenerations }: { generate: typeof runGeneration; maxGenerations: number }) {
   // A message for the reply Claude is working on (it reads it at its next step); 409 when none is
   // running, so the page queues it for after the reply instead.
   app.post('/api/generate/:id/message', json('40mb'), (req, res) => {
@@ -110,7 +112,11 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
     if (generatingDesigns.has(body.designId)) {
       return void res.status(409).json({ error: 'Jig is already working on this design (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
     }
+    if (running >= maxGenerations) {
+      return void res.status(429).json({ error: `Jig is already working on ${maxGenerations === 1 ? 'a reply' : `${maxGenerations} replies`}, the most it runs at once. Wait for one to finish, then send again.` });
+    }
     generatingDesigns.add(body.designId);
+    running++;
 
     // The reply runs on whatever happens to the page's connection (a phone that locks its screen
     // drops it): its events are kept, so the page can catch up (GET …/events) and stop it (POST …/stop).
@@ -146,6 +152,7 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
       if (!ended) send({ type: 'error', message: 'Stopped.' });
       openStreams.delete(end);
       generatingDesigns.delete(body.designId);
+      running--;
       clearInterval(ping);
       run.done = true;
       run.listener?.end();

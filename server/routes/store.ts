@@ -38,6 +38,22 @@ export async function writeAtomically(file: string, data: string | Uint8Array) {
   await rename(tmp, file);
 }
 
+/**
+ * Middleware for a heavy route (a slice, a .blend export) that admits one request running and one
+ * waiting and answers 429 with `busy` beyond that. It runs before the body is read, so further
+ * uploads of up to hundreds of MB are refused at once instead of piling up in memory; a request
+ * counts until its response is finished or its connection drops.
+ */
+export function oneAtATime(busy: string, max = 2): express.RequestHandler {
+  let inFlight = 0;
+  return (_req, res, next) => {
+    if (inFlight >= max) return void res.status(429).set('Retry-After', '10').json({ error: busy });
+    inFlight++;
+    res.once('close', () => { inFlight--; });
+    next();
+  };
+}
+
 /** What createApp's route groups share: the body parser, the designs' files and their queues. */
 export interface RouteContext {
   /** express.json with a body size limit. */

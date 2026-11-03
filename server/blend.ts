@@ -35,7 +35,7 @@ export function blenderInfo(): Promise<BlenderInfo | null> {
       const version = /Blender\s+([\d.]+(?:\s+\w+)?)/.exec(stdout)?.[1] ?? 'unknown';
       const [major, minor] = version.split('.').map(Number);
       const old = major < MIN_VERSION[0] || (major === MIN_VERSION[0] && minor < MIN_VERSION[1]);
-      return { version, problem: old ? `Blender ${version} is too old – .blend export needs Blender ${MIN_VERSION.join('.')} or newer` : null };
+      return { version, problem: old ? `Blender ${version} is too old: .blend export needs Blender ${MIN_VERSION.join('.')} or newer` : null };
     } catch {
       return null;
     }
@@ -43,7 +43,16 @@ export function blenderInfo(): Promise<BlenderInfo | null> {
   return info;
 }
 
-export async function exportBlend(req: BlendRequest): Promise<Buffer> {
+/** Exports run one after another (each is a Blender process with the whole model in memory). */
+let chain: Promise<unknown> = Promise.resolve();
+
+export function exportBlend(req: BlendRequest): Promise<Buffer> {
+  const job = chain.then(() => blendOne(req));
+  chain = job.catch(() => undefined);
+  return job;
+}
+
+async function blendOne(req: BlendRequest): Promise<Buffer> {
   const blender = await blenderInfo();
   if (!blender) throw new Error('Blender was not found on this computer');
   if (blender.problem) throw new Error(blender.problem);

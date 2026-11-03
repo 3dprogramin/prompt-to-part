@@ -112,7 +112,7 @@ docker compose up -d --build
 
 Then open http://localhost:8787. The image is built on your computer: it installs Jig's dependencies with `npm ci` (Claude Code among them) and never contains `.env`, `data/` or any credentials.
 
-Jig has no login, so whoever can reach its port can use your API keys. Compose therefore publishes it on `127.0.0.1` only; keep it that way, and don't publish the image to a registry either (it contains Claude Code and, with the Bambu option, Bambu Studio, which are not Jig's to redistribute). `JIG_PORT` in `.env` changes the port (default 8787); the container then listens on that port too, because Jig only answers requests addressed to its own port.
+Jig has no login by default, so whoever can reach its port can use your API keys. Compose therefore publishes it on `127.0.0.1` only. To reach it from other devices (`JIG_BIND=0.0.0.0` and this computer's address in `JIG_HOSTS`), also set `JIG_PASSWORD` in `.env`: the browser then asks for it once (any user name). It is plain HTTP, so only on a network you trust, or behind an HTTPS reverse proxy. Don't publish the image to a registry either (it contains Claude Code and, with the Bambu option, Bambu Studio, which are not Jig's to redistribute). `JIG_PORT` in `.env` changes the port (default 8787); the container then listens on that port too, because Jig only answers requests addressed to its own port.
 
 With API keys in `.env`, Docker works as it is.
 
@@ -364,7 +364,9 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8787` | API server port |
-| `JIG_HOST` | `127.0.0.1` | The address the server listens on (`0.0.0.0` in the Docker image, which Compose publishes on `127.0.0.1` only). Jig has no login: don't make it reachable from other computers |
+| `JIG_HOST` | `127.0.0.1` | The address the server listens on (`0.0.0.0` in the Docker image, which Compose publishes on `127.0.0.1` only). Jig has no login by default: set `JIG_PASSWORD` before making it reachable from other computers |
+| `JIG_PASSWORD` | none | A password for every page and API call (HTTP Basic auth, any user name; the browser asks once). Set it whenever Jig is reachable from your network |
+| `JIG_MAX_GENERATIONS` | `4` | Most replies Jig works on at once, over all designs; one more is refused until one finishes |
 | `ELEVENLABS_API_KEY` | | Turns on dictation (the microphone button) |
 | `ELEVENLABS_LANGUAGE` | detected | Main dictation language (ISO 639 code, e.g. `en`) |
 | `ELEVENLABS_SECONDARY_LANGUAGES` | | Other languages you may speak, comma-separated (e.g. `ro`) |
@@ -383,7 +385,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_IMAGE_FALLBACK` | `google/gemini-nano-banana-2.1` | Used when the image model stays busy (rate-limited upstream) after two retries; empty turns it off |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_PORT`, `JIG_WITH_BAMBU` | `8787`, `0` | Docker Compose only: the published port, and `1` to build the image with Bambu Studio |
-| `JIG_BIND` | `127.0.0.1` | Docker Compose only: the address Jig is published on. `0.0.0.0` makes it reachable from your network (e.g. a phone); Jig has no login, so only on a network you trust |
+| `JIG_BIND` | `127.0.0.1` | Docker Compose only: the address Jig is published on. `0.0.0.0` makes it reachable from your network (e.g. a phone): set `JIG_PASSWORD` too, and only on a network you trust |
 | `JIG_HOSTS` | – | More names Jig answers to besides `localhost` and `127.0.0.1`, comma-separated: this computer's address when it is reached from the network (with `JIG_BIND`). Requests naming any other host are refused |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |

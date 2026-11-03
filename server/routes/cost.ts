@@ -7,7 +7,7 @@ import { claudeAuthProblem, DATA_DIR, jigCurrency } from '../config';
 import { sliceProject } from '../slicer';
 import { suggestPrice } from '../pricing';
 import { cleanCostSettings, defaultCostSettings } from '../../shared/cost';
-import { writeAtomically, type RouteContext } from './store';
+import { oneAtATime, writeAtomically, type RouteContext } from './store';
 
 export function registerCostRoutes(app: express.Express, { json }: RouteContext, { suggest }: { suggest: typeof suggestPrice }) {
   // ---- cost: the user's prices, slicing for grams and time, and Claude's price suggestion
@@ -22,7 +22,8 @@ export function registerCostRoutes(app: express.Express, { json }: RouteContext,
     await writeAtomically(COST_SETTINGS, JSON.stringify(s));
     res.json(s);
   });
-  app.post('/api/slice', express.raw({ type: 'application/octet-stream', limit: '300mb' }), async (req, res) => {
+  // Slices run one after another (server/slicer.ts): one running and one waiting at most.
+  app.post('/api/slice', oneAtATime('Jig is busy slicing another model. Try again in a moment.'), express.raw({ type: 'application/octet-stream', limit: '300mb' }), async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !req.body.length) return void res.status(400).json({ error: 'Send the Bambu Studio project (.3mf) as the body' });
     try {
       res.json(await sliceProject(req.body));

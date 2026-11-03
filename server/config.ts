@@ -14,6 +14,13 @@ export const PORT = Number(process.env.PORT ?? 8787);
 export const HOST = process.env.JIG_HOST?.trim() || '127.0.0.1';
 /** More names Jig answers to besides localhost (JIG_HOSTS, comma-separated), e.g. this computer's address on the network for a phone. */
 export const EXTRA_HOSTS = (process.env.JIG_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+/**
+ * The password Jig asks for (HTTP Basic auth, any user name) on every page and API call, or '' for
+ * none. Off by default (Jig on this computer only); set JIG_PASSWORD when Jig is reachable from a network.
+ */
+export const PASSWORD = process.env.JIG_PASSWORD ?? '';
+/** Most replies Jig works on at once, over all designs (JIG_MAX_GENERATIONS, default 4). */
+export const MAX_GENERATIONS = positiveInt(process.env.JIG_MAX_GENERATIONS) ?? 4;
 /** Designs, workspaces and the Bambu template cache. */
 export const DATA_DIR = process.env.JIG_DATA ? path.resolve(process.env.JIG_DATA) : path.join(ROOT, 'data');
 /** Serve the built app from dist/ as well as the API (`npm start`). */
@@ -54,3 +61,9 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const defaultModel = () => process.env.JIG_MODEL?.trim() || 'opus';
 /** The chat's starting reasoning effort (JIG_EFFORT). */
 export const defaultEffort = () => (EFFORTS.includes(process.env.JIG_EFFORT?.trim() ?? '') ? process.env.JIG_EFFORT!.trim() : 'high');
+
+/** A whole number of at least 1 from an environment variable, or null when unset or not one. */
+function positiveInt(v: string | undefined): number | null {
+  const n = Number(v?.trim() || NaN);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
