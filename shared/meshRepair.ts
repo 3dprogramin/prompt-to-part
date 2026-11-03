@@ -342,7 +342,7 @@ function weld(pos: Float32Array, tris: Uint32Array, eps: number): { positions: F
   return { positions: Float32Array.from(out), tris: t2, merged: usedCount - out.length / 3 };
 }
 
-/** Triangles grouped by their smallest vertex (a cheap stand-in for a hash of the triple). */
+/** Triangles (or edges) grouped by their smallest vertex; `sameKey` then groups each bucket by the rest. */
 function bucketBy(nv: number, n: number, key: (i: number) => number): { start: Uint32Array; items: Uint32Array } {
   const start = new Uint32Array(nv + 1);
   for (let i = 0; i < n; i++) start[key(i) + 1]++;
@@ -353,7 +353,38 @@ function bucketBy(nv: number, n: number, key: (i: number) => number): { start: U
   return { start, items };
 }
 
-function dropBadTriangles(pos: Float32Array, tris: Uint32Array, minArea2: number) {
+/** Buckets bigger than this are grouped by hashing, smaller ones pairwise (cheaper than a Map). */
+const SMALL_BUCKET = 16;
+
+/** Scratch arrays for `sameKey` and its callers, as long as the biggest bucket. */
+function bucketScratch(start: Uint32Array) {
+  let max = 0;
+  for (let v = 0; v + 1 < start.length; v++) max = Math.max(max, start[v + 1] - start[v]);
+  return { keys: new Float64Array(max), first: new Int32Array(max), aux: new Int32Array(max), aux2: new Int32Array(max), map: new Map<number, number>() };
+}
+
+/**
+ * Groups the items of one bucket (items[s..e)) by a key: `first[i]` is the position (from s) of
+ * the first item with the same key as item s + i. Hashed when the bucket is big (a vertex with
+ * thousands of triangles round it, like a disc's centre), so the whole pass stays near-linear.
+ * Keys are integers below 2^53 (vertex indices stay far under 2^26).
+ */
+function sameKey(items: Uint32Array, s: number, e: number, key: (item: number) => number, sc: ReturnType<typeof bucketScratch>): void {
+  const k = e - s, { keys, first } = sc;
+  for (let i = 0; i < k; i++) keys[i] = key(items[s + i]);
+  if (k <= SMALL_BUCKET) {
+    for (let i = 0; i < k; i++) { let f = i; for (let j = 0; j < i; j++) if (keys[j] === keys[i]) { f = j; break; } first[i] = f; }
+    return;
+  }
+  const map = sc.map;
+  map.clear();
+  for (let i = 0; i < k; i++) {
+    const f = map.get(keys[i]);
+    if (f === undefined) { map.set(keys[i], i); first[i] = i; } else first[i] = f;
+  }
+}
+
+export function dropBadTriangles(pos: Float32Array, tris: Uint32Array, minArea2: number) {
   const nt = tris.length / 3, nv = pos.length / 3;
   const drop = new Uint8Array(nt);
   let degenerate = 0, duplicate = 0, internal = 0;
@@ -375,18 +406,23 @@ function dropBadTriangles(pos: Float32Array, tris: Uint32Array, minArea2: number
     const [p, q] = m === a ? [b, c] : m === b ? [c, a] : [a, b];
     return p < q ? { lo: p, hi: q, rev: false } : { lo: q, hi: p, rev: true };
   };
+  const sc = bucketScratch(start);
+  const next = sc.aux, last = sc.aux2;
   for (let v = 0; v < nv; v++) {
-    const s = start[v], e = start[v + 1];
-    if (e - s < 2) continue;
-    for (let i = s; i < e; i++) {
-      const ti = items[i];
+    const s = start[v], e = start[v + 1], k = e - s;
+    if (k < 2) continue;
+    sameKey(items, s, e, (t) => { const o = sorted(t); return o.lo * nv + o.hi; }, sc);
+    // Each triangle's next one (in bucket order) on the same three vertices, or -1.
+    const first = sc.first;
+    for (let i = 0; i < k; i++) { next[i] = -1; const f = first[i]; if (f !== i) next[last[f]] = i; last[f] = i; }
+    for (let i = 0; i < k; i++) {
+      const ti = items[s + i];
       if (drop[ti]) continue;
       const a = sorted(ti);
-      for (let j = i + 1; j < e; j++) {
-        const tj = items[j];
+      for (let j = next[i]; j !== -1; j = next[j]) {
+        const tj = items[s + j];
         if (drop[tj]) continue;
         const b = sorted(tj);
-        if (a.lo !== b.lo || a.hi !== b.hi) continue;
         if (a.rev === b.rev) { drop[tj] = 1; duplicate++; } else { drop[ti] = 1; drop[tj] = 1; internal += 2; break; }
       }
     }
@@ -399,30 +435,28 @@ function dropBadTriangles(pos: Float32Array, tris: Uint32Array, minArea2: number
 }
 
 /** Each edge slot's partner across an edge shared by exactly two triangles (−1: open or non-manifold), and the counts of both. */
-function edgePartners(nv: number, tris: Uint32Array): { partner: Int32Array; open: number; nonManifold: number } {
+export function edgePartners(nv: number, tris: Uint32Array): { partner: Int32Array; open: number; nonManifold: number } {
   const ne = tris.length;
   const eu = (e: number) => tris[e];
   const ev = (e: number) => tris[e - (e % 3) + ((e % 3) + 1) % 3];
   const { start, items } = bucketBy(nv, ne, (e) => Math.min(eu(e), ev(e)));
   const partner = new Int32Array(ne).fill(-1);
   let open = 0, nonManifold = 0;
+  const sc = bucketScratch(start);
+  const n = sc.aux, second = sc.aux2;
   for (let v = 0; v < nv; v++) {
-    const s = start[v], e = start[v + 1];
-    for (let i = s; i < e; i++) {
-      const a = items[i];
-      const other = Math.max(eu(a), ev(a));
-      let found = -1, n = 1, first = true;
-      for (let j = s; j < e; j++) {
-        if (j === i) continue;
-        const b = items[j];
-        if (Math.max(eu(b), ev(b)) !== other) continue;
-        n++;
-        if (found === -1) found = b;
-        if (j < i) first = false;
-      }
-      if (n === 2) partner[a] = found;
-      else if (n === 1) open++;
-      else if (first) nonManifold++;
+    const s = start[v], e = start[v + 1], k = e - s;
+    if (!k) continue;
+    // The slots of one edge share their other vertex (the bucket's is the smaller one).
+    sameKey(items, s, e, (x) => Math.max(eu(x), ev(x)), sc);
+    const first = sc.first;
+    n.fill(0, 0, k);
+    for (let i = 0; i < k; i++) { const f = first[i]; if (n[f] === 1) second[f] = i; n[f]++; }
+    for (let i = 0; i < k; i++) {
+      const f = first[i], c = n[f];
+      if (c === 2) partner[items[s + i]] = items[s + (f === i ? second[f] : f)];
+      else if (c === 1) open++;
+      else if (f === i) nonManifold++;
     }
   }
   return { partner, open, nonManifold };
@@ -572,18 +606,22 @@ function splitVertices(pos: Float32Array, tris: Uint32Array): { positions: Float
  * Caps every hole: each loop of open edges gets a fan of triangles around its centre, wound to
  * match its neighbours. Null when a rim isn't a simple loop (two holes touching at a vertex).
  */
-function fillHoles(pos: Float32Array, tris: Uint32Array): { positions: Float32Array; tris: Uint32Array; holes: number; edges: number } | null {
+export function fillHoles(pos: Float32Array, tris: Uint32Array): { positions: Float32Array; tris: Uint32Array; holes: number; edges: number } | null {
   const nt = tris.length / 3;
   const nv = pos.length / 3;
   // Open edges: a → b with no b → a (edges grouped by their smaller vertex to find the reverse).
   const ev = (e: number) => tris[e - (e % 3) + ((e % 3) + 1) % 3];
   const { start, items } = bucketBy(nv, tris.length, (e) => Math.min(tris[e], ev(e)));
   const next = new Map<number, number>();
+  // A big bucket looks the reverse up in a set of its edges (a → b as a * nv + b, below 2^53).
+  const set = new Set<number>();
   for (let v = 0; v < nv; v++) {
+    const big = start[v + 1] - start[v] > SMALL_BUCKET;
+    if (big) { set.clear(); for (let i = start[v]; i < start[v + 1]; i++) set.add(tris[items[i]] * nv + ev(items[i])); }
     for (let i = start[v]; i < start[v + 1]; i++) {
       const e = items[i], a = tris[e], b = ev(e);
-      let reversed = false;
-      for (let j = start[v]; j < start[v + 1] && !reversed; j++) reversed = tris[items[j]] === b && ev(items[j]) === a;
+      let reversed = big && set.has(b * nv + a);
+      for (let j = start[v]; !big && j < start[v + 1] && !reversed; j++) reversed = tris[items[j]] === b && ev(items[j]) === a;
       if (reversed) continue;
       if (next.has(a)) return null; // two open edges leave one vertex
       next.set(a, b);
