@@ -25,7 +25,18 @@ test('STARTERS: short, plain, distinct, every mode covered', () => {
   }
   assert.equal(new Set(STARTERS.map((s) => s.text.toLowerCase())).size, STARTERS.length);
   for (const m of ALL) assert.ok(STARTERS.some((s) => s.mode === m), m);
-  assert.ok(STARTERS.filter((s) => s.mode === 'off').length >= 4);
+  assert.ok(STARTERS.filter((s) => s.mode === 'off').length >= 8);
+});
+
+test('STARTERS: every named size fits a 180 x 180 mm bed', () => {
+  for (const s of STARTERS) {
+    for (const m of s.text.matchAll(/(\d+(?:\.\d+)?)\s*(cm|mm)\b/g)) {
+      const mm = Number(m[1]) * (m[2] === 'cm' ? 10 : 1);
+      // The cable clip names a 20 mm desk edge, not a printed size.
+      if (/desk edge/.test(s.text) && mm <= 20) continue;
+      assert.ok(mm <= 180, s.text);
+    }
+  }
 });
 
 test('cleanIdeaText: marker, quotes, dashes, whitespace, length', () => {
@@ -108,7 +119,7 @@ test('POST /api/ideas: no ideas from Jig is a 502', async () => {
   reply = () => 'sorry';
   const res = await postIdeas({ shown: [] });
   assert.equal(res.status, 502);
-  assert.match(((await res.json()) as { error: string }).error, /did not come up with ideas/);
+  assert.match(((await res.json()) as { error: string }).error, /couldn't come up with ideas/);
 });
 
 test('POST /api/ideas: checks what it is sent', async () => {
@@ -118,11 +129,33 @@ test('POST /api/ideas: checks what it is sent', async () => {
   assert.equal((await postIdeas({ shown: ['a'.repeat(201)] })).status, 400);
 });
 
-test('POST /api/ideas: a failure is a 502 with its message', async () => {
+test('POST /api/ideas: a failure is a 502 with a plain message', async () => {
   reply = () => { throw new Error('boom'); };
   const res = await postIdeas({ shown: [] });
   assert.equal(res.status, 502);
-  assert.equal(((await res.json()) as { error: string }).error, 'boom');
+  assert.equal(((await res.json()) as { error: string }).error, "Jig couldn't come up with ideas. Try again.");
+});
+
+test('POST /api/ideas: a repeat of a shown idea is never returned as new', async () => {
+  const X = 'A moon lamp, 10 cm across';
+  reply = () => JSON.stringify([{ text: X.toUpperCase(), mode: 'off' }, { text: 'A pen cup, 8 cm', mode: 'off' }]);
+  const res = await postIdeas({ shown: [`  ${X} `] });
+  const { ideas } = (await res.json()) as { ideas: { text: string }[] };
+  assert.equal(ideas.length, 4);
+  assert.equal(ideas[0].text, 'A pen cup, 8 cm');
+  assert.ok(ideas.every((i) => i.text.trim().toLowerCase() !== X.toLowerCase()));
+});
+
+test('writeIdeas: its own timeout reads as Jig taking too long, not as an abort', async () => {
+  const { writeIdeas, IDEAS_TIMEOUT_MESSAGE } = await import('../server/ideas');
+  type query = typeof import('@anthropic-ai/claude-agent-sdk').query;
+  const run = ((a: { options: { abortController: AbortController } }) => (async function* () {
+    await new Promise((_, rej) => a.options.abortController.signal.addEventListener('abort', () => rej(new Error('Claude Code process aborted by user'))));
+    yield undefined;
+  })()) as unknown as query;
+  await assert.rejects(writeIdeas('x', { timeoutMs: 20, run }), new Error(IDEAS_TIMEOUT_MESSAGE));
+  const failing = (() => (async function* () { throw new Error('other'); yield undefined; })()) as unknown as query;
+  await assert.rejects(writeIdeas('x', { timeoutMs: 1000, run: failing }), /other/);
 });
 
 test('POST /api/ideas: 503 without Claude credentials', async () => {

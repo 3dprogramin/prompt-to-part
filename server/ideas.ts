@@ -4,12 +4,15 @@ import { claudeEnv } from './agent';
 import { IDEAS_SYSTEM_PROMPT } from '../shared/ideas';
 
 /** Asks Jig for ideas with this prompt and returns its raw reply (parseIdeas reads it). */
-export async function writeIdeas(prompt: string): Promise<string> {
+export const IDEAS_TIMEOUT_MESSAGE = 'Jig took too long to come up with ideas';
+
+/** `timeoutMs` and `run` (the SDK's query) can be swapped in tests. */
+export async function writeIdeas(prompt: string, { timeoutMs = 30_000, run = query }: { timeoutMs?: number; run?: typeof query } = {}): Promise<string> {
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 30_000);
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
     let text = '';
-    for await (const msg of query({
+    for await (const msg of run({
       prompt,
       options: {
         systemPrompt: IDEAS_SYSTEM_PROMPT,
@@ -30,6 +33,10 @@ export async function writeIdeas(prompt: string): Promise<string> {
       }
     }
     return text;
+  } catch (e) {
+    // The SDK reports our own timeout as "process aborted by user": say what happened.
+    if (abort.signal.aborted) throw new Error(IDEAS_TIMEOUT_MESSAGE);
+    throw e;
   } finally {
     clearTimeout(timer);
   }

@@ -3,10 +3,12 @@ import express from 'express';
 import { claudeAuthProblem } from '../config';
 import { artworkAvailable } from '../artwork';
 import { meshyAvailable } from '../meshy';
-import type { writeIdeas } from '../ideas';
+import { IDEAS_TIMEOUT_MESSAGE, type writeIdeas } from '../ideas';
 import { printer } from '../../shared/printer';
 import { ideaModes, ideasPrompt, parseIdeas, topUp } from '../../shared/ideas';
 import type { RouteContext } from './store';
+
+const IDEAS_FAILED = "Jig couldn't come up with ideas. Try again.";
 
 export function registerIdeaRoutes(app: express.Express, { json }: RouteContext, { ideas }: { ideas: typeof writeIdeas }) {
   app.post('/api/ideas', json('8kb'), async (req, res) => {
@@ -19,11 +21,15 @@ export function registerIdeaRoutes(app: express.Express, { json }: RouteContext,
     const modes = ideaModes({ artwork: artworkAvailable(), meshy: meshyAvailable() });
     const p = printer();
     try {
-      const parsed = parseIdeas(await ideas(ideasPrompt({ modes, bed: p.bed, height: p.height, printerName: p.name, shown })), modes);
-      if (!parsed.length) return void res.status(502).json({ error: 'Jig did not come up with ideas' });
+      const seen = new Set(shown.map((s) => s.trim().toLowerCase()));
+      const parsed = parseIdeas(await ideas(ideasPrompt({ modes, bed: p.bed, height: p.height, printerName: p.name, shown })), modes)
+        .filter((i) => !seen.has(i.text.trim().toLowerCase()));
+      if (!parsed.length) return void res.status(502).json({ error: IDEAS_FAILED });
       res.json({ ideas: topUp(parsed, modes, shown) });
     } catch (e) {
-      res.status(502).json({ error: (e as Error).message });
+      const msg = (e as Error).message;
+      console.error('ideas:', msg);
+      res.status(502).json({ error: msg === IDEAS_TIMEOUT_MESSAGE ? msg : IDEAS_FAILED });
     }
   });
 }
