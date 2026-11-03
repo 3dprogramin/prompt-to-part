@@ -6,6 +6,7 @@
   "author": "3dprogramin <andrei@3dprogramin.io>",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "packageManager": "pnpm@12.15.0",
   "engines": {
     "node": ">=22.12.0"
   },

@@ -13,3 +13,6 @@ data/
 .claude/worktrees/
 .tmp
 .superpowers/
+
+# pnpm puts its store in the root of a drive other than the home folder's
+.pnpm-store/

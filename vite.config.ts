@@ -31,7 +31,11 @@ const hideData = (): Plugin => ({
  * geometry worker (a separate build, so Vite's own build.license would miss it).
  */
 function notices(): { collect: Plugin; write: Plugin } {
-  const packages = new Set<string>();
+  // Each bundled package's folder, by its name. Ids like
+  // node_modules/.pnpm/three@0.186.1/node_modules/three/build/three.module.js: the package is the
+  // folder after the last node_modules, which is also where it is for packages that aren't top-level
+  // (scheduler, @endo/*).
+  const packages = new Map<string, string>();
   let outDir = 'dist';
   const collect: Plugin = {
     name: 'jig-notices-collect',
@@ -39,8 +43,8 @@ function notices(): { collect: Plugin; write: Plugin } {
       for (const chunk of Object.values(bundle)) {
         if (chunk.type !== 'chunk') continue;
         for (const id of chunk.moduleIds) {
-          const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(id.replace(/\\/g, '/'));
-          if (m) packages.add(m[1]);
+          const m = /^\0?(.*\/node_modules\/((?:@[^/]+\/)?[^/]+))\//.exec(id.replace(/\\/g, '/'));
+          if (m) packages.set(m[1], m[2]);
         }
       }
     },
@@ -50,8 +54,8 @@ function notices(): { collect: Plugin; write: Plugin } {
     apply: 'build',
     configResolved(c) { outDir = path.resolve(c.root, c.build.outDir); },
     closeBundle() {
-      const parts = [...packages].sort().map((name) => {
-        const dir = path.join('node_modules', name);
+      const sorted = [...packages].sort(([da, a], [db, b]) => (a < b ? -1 : a > b ? 1 : da < db ? -1 : da > db ? 1 : 0));
+      const parts = sorted.map(([dir, name]) => {
         const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { version: string; license?: string };
         // Every licence and notice file: some packages (ses) include code under further licences.
         const texts = readdirSync(dir).filter((f) => /^(licen[cs]e|copying|notice)/i.test(f)).sort().map((f) => readFileSync(path.join(dir, f), 'utf8').trim());

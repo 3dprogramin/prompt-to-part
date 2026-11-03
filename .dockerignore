@@ -1,4 +1,4 @@
-# Only the sources go into the build: dependencies are installed by npm ci, and secrets, designs and
+# Only the sources go into the build: dependencies are installed by pnpm install, and secrets, designs and
 # local builds stay out of the image.
 node_modules
 dist

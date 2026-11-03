@@ -1,0 +1,14 @@
+# pnpm settings for Jig (a single package, not a workspace of several).
+
+# Packages in node_modules/.pnpm, inside the project: the sandboxed geometry and OpenSCAD workers
+# may only read node_modules (its real path, server/geometry.ts), so no package may resolve to a
+# store outside it.
+nodeLinker: isolated
+enableGlobalVirtualStore: false
+virtualStoreDir: node_modules/.pnpm
+
+# The only dependencies whose install scripts run: esbuild fetches its binary, fsevents (macOS only)
+# builds its file watcher, as npm did.
+allowBuilds:
+  esbuild: true
+  fsevents: true

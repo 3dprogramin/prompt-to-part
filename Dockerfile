@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Jig: the built app and its API on one port (`npm start`). See "Docker" in the README.
+# Jig: the built app and its API on one port (`pnpm start`). See "Docker" in the README.
 #
 # Build arguments:
 #   WITH_BAMBU=1   adds Bambu Studio's command line (Cost tab slicing, 3MF print settings); about
@@ -11,20 +11,27 @@ ARG NODE_IMAGE=node:26.7.0-trixie-slim@sha256:5758d367d7b4f48b73a9bb3530e687e47e
 ARG WITH_BAMBU=0
 ARG WITH_BLENDER=0
 
-# ---- dependencies (all of them, for the build) ----
-FROM ${NODE_IMAGE} AS deps
+# ---- pnpm, for the build stages only (Node 26 comes without Corepack) ----
+FROM ${NODE_IMAGE} AS pnpm
+ARG PNPM_VERSION=12.15.0
+RUN npm install -g --no-audit --no-fund --allow-scripts=pnpm pnpm@${PNPM_VERSION}
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+# ---- dependencies (all of them, for the build) ----
+# The store is a build cache, so packages are copied into node_modules/.pnpm: node_modules holds
+# everything it links to, and can be copied to the runtime stage.
+FROM pnpm AS deps
+RUN --mount=type=cache,target=/pnpm-store pnpm install --frozen-lockfile --store-dir /pnpm-store
 
 # ---- the browser app (dist/) ----
 FROM deps AS build
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # ---- runtime dependencies only ----
-FROM deps AS prod-deps
-RUN --mount=type=cache,target=/root/.npm npm prune --omit=dev --no-audit --no-fund
+FROM pnpm AS prod-deps
+RUN --mount=type=cache,target=/pnpm-store pnpm install --prod --frozen-lockfile --store-dir /pnpm-store
 
 # ---- Bambu Studio: the official Linux AppImage, checked and unpacked ----
 FROM ${NODE_IMAGE} AS bambu-1
@@ -91,7 +98,7 @@ ENV NODE_ENV=production \
     CLAUDE_CONFIG_DIR=/home/node/.claude
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY package.json package-lock.json tsconfig.json index.html vite.config.ts LICENSE ./
+COPY package.json pnpm-lock.yaml tsconfig.json index.html vite.config.ts LICENSE ./
 COPY server ./server
 COPY shared ./shared
 COPY src ./src
@@ -107,5 +114,5 @@ VOLUME ["/data", "/home/node/.claude", "/app/node_modules/.cache"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.PORT}/api/health`).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
-# What `npm start` runs, without npm in between.
+# What `pnpm start` runs, without pnpm in between (the runtime has no pnpm).
 CMD ["node", "--import", "tsx", "server/index.ts", "--production"]
