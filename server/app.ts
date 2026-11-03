@@ -9,6 +9,7 @@ import { HEALTH_PATH, requirePassword } from './auth';
 import { suggestPrice } from './pricing';
 import { writeScene } from './photoScene';
 import { lookupFilament } from './filaments';
+import { writeIdeas } from './ideas';
 import { requestImage } from './artwork';
 import { checkConnection } from './connection';
 import { DESIGNS, TAGS_FILE, readTags, writeAtomically, type RouteContext } from './routes/store';
@@ -18,6 +19,7 @@ import { registerMeshRoutes } from './routes/meshes';
 import { registerSystemRoutes } from './routes/system';
 import { registerCostRoutes } from './routes/cost';
 import { registerFilamentRoutes } from './routes/filaments';
+import { registerIdeaRoutes } from './routes/ideas';
 import { registerBackupRoutes } from './routes/backup';
 import { registerExportRoutes } from './routes/exports';
 import { registerGenerateRoutes } from './routes/generate';
@@ -39,6 +41,8 @@ export interface AppOptions {
   sceneWriter?: typeof writeScene;
   /** Finds a filament's colour and TD (tests pass one with a stand-in for Claude). */
   lookup?: typeof lookupFilament;
+  /** Writes new starter ideas (tests pass a stand-in instead of Claude). */
+  ideas?: typeof writeIdeas;
   /** Asks the image model for a picture (tests pass a stand-in). */
   image?: typeof requestImage;
   /** Checks what Jig runs Claude on (tests pass a stand-in: the real one calls the provider). */
@@ -49,7 +53,7 @@ export interface AppOptions {
   maxGenerations?: number;
 }
 
-export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, image = requestImage, connection = checkConnection, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
   const app = express();
 
   // With JIG_PASSWORD, every page and API call needs it (HTTP Basic auth): the Host and Origin checks
@@ -122,6 +126,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   // The saved printer becomes the server's current one (the AI's instructions, validation, templates).
   void loadPrinterSetting().catch((e) => console.error('Could not read the printer setting:', e));
   registerFilamentRoutes(app, ctx, { lookup });
+  registerIdeaRoutes(app, ctx, { ideas });
   registerBackupRoutes(app, ctx);
   registerExportRoutes(app, ctx);
   registerGenerateRoutes(app, ctx, { generate, maxGenerations });

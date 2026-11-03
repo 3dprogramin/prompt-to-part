@@ -63,3 +63,76 @@ test('ideasPrompt names the bed, the allowed modes and what was shown', () => {
   assert.ok(p.includes('A moon') && p.includes('A box'));
   for (const m of ['artwork', 'layertone', 'lineart', 'figure']) assert.ok(!p.includes(m), m);
 });
+
+// ---- POST /api/ideas (a stand-in for Claude)
+const { mkdtempSync, rmSync } = await import('node:fs');
+const os = await import('node:os');
+const pathMod = await import('node:path');
+const { createServer } = await import('node:http');
+const { after } = await import('node:test');
+const dataDir = mkdtempSync(pathMod.join(os.tmpdir(), 'jig-ideas-test-'));
+process.env.JIG_DATA = dataDir;
+process.env.ANTHROPIC_API_KEY = 'sk-test';
+const { createApp } = await import('../server/app');
+
+let reply: () => string = () => '[]';
+let lastPrompt = '';
+const ideasServer = createServer();
+await new Promise<void>((r) => ideasServer.listen(0, '127.0.0.1', r));
+const ideasPort = (ideasServer.address() as { port: number }).port;
+ideasServer.on('request', createApp({ port: ideasPort, ideas: async (p) => { lastPrompt = p; return reply(); } }));
+after(() => { ideasServer.close(); rmSync(dataDir, { recursive: true, force: true }); });
+const postIdeas = (body: unknown) => fetch(`http://127.0.0.1:${ideasPort}/api/ideas`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(body) });
+
+test('POST /api/ideas: four ideas, topped up, in available modes', async () => {
+  reply = () => '[{"text":"Moon lamp","mode":"off"}]';
+  const res = await postIdeas({ shown: [] });
+  assert.equal(res.status, 200);
+  const { ideas } = (await res.json()) as { ideas: { text: string; mode: string }[] };
+  assert.equal(ideas.length, 4);
+  assert.deepEqual(ideas[0], { text: 'Moon lamp', mode: 'off' });
+  const { artworkAvailable } = await import('../server/artwork');
+  const { meshyAvailable } = await import('../server/meshy');
+  const modes = ideaModes({ artwork: artworkAvailable(), meshy: meshyAvailable() });
+  for (const i of ideas) assert.ok(modes.includes(i.mode as IdeaMode), i.mode);
+});
+
+test('POST /api/ideas: the prompt carries the shown ideas', async () => {
+  reply = () => '[{"text":"Moon lamp","mode":"off"}]';
+  await postIdeas({ shown: ['Wall hook for keys', 'Tiny dragon'] });
+  assert.match(lastPrompt, /Wall hook for keys/);
+  assert.match(lastPrompt, /Tiny dragon/);
+});
+
+test('POST /api/ideas: no ideas from Jig is a 502', async () => {
+  reply = () => 'sorry';
+  const res = await postIdeas({ shown: [] });
+  assert.equal(res.status, 502);
+  assert.match(((await res.json()) as { error: string }).error, /did not come up with ideas/);
+});
+
+test('POST /api/ideas: checks what it is sent', async () => {
+  assert.equal((await postIdeas({ shown: 'x' })).status, 400);
+  assert.equal((await postIdeas({ shown: Array(9).fill('a') })).status, 400);
+  assert.equal((await postIdeas({ shown: [5] })).status, 400);
+  assert.equal((await postIdeas({ shown: ['a'.repeat(201)] })).status, 400);
+});
+
+test('POST /api/ideas: a failure is a 502 with its message', async () => {
+  reply = () => { throw new Error('boom'); };
+  const res = await postIdeas({ shown: [] });
+  assert.equal(res.status, 502);
+  assert.equal(((await res.json()) as { error: string }).error, 'boom');
+});
+
+test('POST /api/ideas: 503 without Claude credentials', async () => {
+  const KEYS = ['JIG_AUTH', 'JIG_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
+  const saved = { ...process.env };
+  try {
+    for (const k of KEYS) delete process.env[k];
+    const res = await postIdeas({ shown: [] });
+    assert.equal(res.status, 503);
+  } finally {
+    Object.assign(process.env, saved);
+  }
+});

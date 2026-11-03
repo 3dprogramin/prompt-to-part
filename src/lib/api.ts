@@ -5,6 +5,7 @@ import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
 import type { LayerToneFilament } from '../../shared/layertone';
 import type { PhotoRequest, PhotoResponse, PhotoSceneRequest, PhotoSceneResponse, SceneIdea } from '../../shared/photos';
+import type { Idea } from '../../shared/ideas';
 import { dataUrlToImage } from './files';
 import { trimActivity } from './activity';
 
@@ -139,6 +140,8 @@ export const lookupFilament = (brand: string, name: string): Promise<FilamentLoo
   getJson<FilamentLookup>('/api/filaments/lookup', { method: 'POST', body: JSON.stringify({ brand, name }) });
 
 /** A message for the reply Claude is working on; false when no reply is running (queue it instead). */
+export const newIdeas = (shown: string[]): Promise<Idea[]> => getJson<{ ideas: Idea[] }>('/api/ideas', { method: 'POST', body: JSON.stringify({ shown }) }).then((r) => r.ideas);
+
 export async function steer(designId: string, text: string, images: ImageData[]): Promise<boolean> {
   try {
     await request(`/api/generate/${designId}/message`, { method: 'POST', body: JSON.stringify({ text, images }) });
