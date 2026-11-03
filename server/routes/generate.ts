@@ -14,11 +14,43 @@ import { ID_RE, type RouteContext } from './store';
  * A reply Jig is working on, or finished a little while ago: its server-sent events so far (the
  * first says which run it is) and the one page connection following it.
  */
-interface Run { id: string; events: string[]; listener: express.Response | null; done: boolean; abort: AbortController; forget?: ReturnType<typeof setTimeout> }
+interface Run { id: string; events: string[]; listener: express.Response | null; done: boolean; abort: AbortController; forget?: ReturnType<typeof setTimeout>; bytes: number; doneAt?: number }
 /** By design id. */
 const runs = new Map<string, Run>();
 /** How long a finished reply's events are kept for a page that comes back. */
 const KEEP_RUN_MS = 30 * 60_000;
+/**
+ * How many bytes of events (renders are base64 pictures, so a reply can hold tens of MB) the kept
+ * replies may hold together: beyond it, the replies that finished first are forgotten first (their
+ * pages, if they come back, show what they have). Replies under way are never forgotten.
+ */
+let keptBytesBudget = 256 * 1024 * 1024;
+/** Bytes of events over all kept replies. */
+let keptBytes = 0;
+
+/** For tests: sets the kept replies' byte budget and returns the old one. */
+export function setKeptRunsBudget(bytes: number): number {
+  const old = keptBytesBudget;
+  keptBytesBudget = bytes;
+  return old;
+}
+
+function forgetRun(designId: string, run: Run) {
+  if (runs.get(designId) !== run) return;
+  runs.delete(designId);
+  clearTimeout(run.forget);
+  keptBytes -= run.bytes;
+}
+
+/** Forgets finished replies, those that finished first first, until the kept ones fit the budget. */
+function fitBudget() {
+  if (keptBytes <= keptBytesBudget) return;
+  const finished = [...runs].filter(([, r]) => r.done).sort((a, b) => (a[1].doneAt ?? 0) - (b[1].doneAt ?? 0));
+  for (const [designId, run] of finished) {
+    if (keptBytes <= keptBytesBudget) break;
+    forgetRun(designId, run);
+  }
+}
 /** Replies under way in this process, over all designs (each runs Claude Code and spends the API key). */
 let running = 0;
 
@@ -121,15 +153,20 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
     // The reply runs on whatever happens to the page's connection (a phone that locks its screen
     // drops it): its events are kept, so the page can catch up (GET …/events) and stop it (POST …/stop).
     const abort = new AbortController();
-    const run: Run = { id: randomUUID(), events: [], listener: null, done: false, abort };
+    const run: Run = { id: randomUUID(), events: [], listener: null, done: false, abort, bytes: 0 };
     const prev = runs.get(body.designId);
-    if (prev) clearTimeout(prev.forget);
+    if (prev) forgetRun(body.designId, prev);
     runs.set(body.designId, run);
     let ended = false;
     const send = (e: AgentEvent) => {
       if (e.type === 'done' || e.type === 'error') ended = true;
       const s = `data: ${JSON.stringify(e)}\n\n`;
       run.events.push(s);
+      if (runs.get(body.designId) === run) {
+        run.bytes += s.length;
+        keptBytes += s.length;
+        fitBudget();
+      }
       if (run.listener && !run.listener.writableEnded) run.listener.write(s);
     };
     send({ type: 'run', runId: run.id });
@@ -155,10 +192,14 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
       running--;
       clearInterval(ping);
       run.done = true;
+      run.doneAt = Date.now();
       run.listener?.end();
       run.listener = null;
-      run.forget = setTimeout(() => { if (runs.get(body.designId) === run) runs.delete(body.designId); }, KEEP_RUN_MS);
-      run.forget.unref?.();
+      if (runs.get(body.designId) === run) {
+        run.forget = setTimeout(() => forgetRun(body.designId, run), KEEP_RUN_MS);
+        run.forget.unref?.();
+        fitBudget();
+      }
     }
   });
 

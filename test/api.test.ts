@@ -195,6 +195,25 @@ test('a reply goes on when the page\'s connection drops; the page catches up and
   assert.equal(events(await (await fetch(`${A}/api/generate/${id}/events?run=${runId}&from=2`)).text()).length, 1);
 });
 
+test('finished replies kept for catching up fit a byte budget, the first finished forgotten first', async () => {
+  const { setKeptRunsBudget } = await import('../server/routes/generate');
+  const finish = async (designId: string) => {
+    const text = await (await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId, prompt: 'over the limit' }) })).text();
+    return { runId: JSON.parse(text.split('\n').find((l) => l.startsWith('data: '))!.slice(6)).runId as string, bytes: text.length };
+  };
+  const first = await finish('test-api-00000021');
+  const old = setKeptRunsBudget(Math.round(first.bytes * 1.5));
+  try {
+    const second = await finish('test-api-00000022');
+    assert.equal((await fetch(`${A}/api/generate/test-api-00000021/events?run=${first.runId}&from=0`)).status, 404);
+    const kept = await fetch(`${A}/api/generate/test-api-00000022/events?run=${second.runId}&from=0`);
+    assert.equal(kept.status, 200);
+    await kept.text();
+  } finally {
+    setKeptRunsBudget(old);
+  }
+});
+
 test('a reply refused at the usage limit says so', async () => {
   const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000011', prompt: 'over the limit' }) });
   const events = (await r.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6))).filter((e) => e.type !== 'run');
