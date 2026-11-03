@@ -55,7 +55,7 @@ const image = async (prompt: string, aspect: string, references: string[] | unde
   const [, mediaType, data] = /^data:([^;]+);base64,(.+)$/s.exec(references![0])!;
   return { image: { data, mediaType }, model: 'test/image', cost: 0.1 };
 };
-server.on('request', createApp({ port, connection, image, generate: async (req, send, abort) => {
+server.on('request', createApp({ port, connection, image, ideas: async () => '[{"text":"A test idea for the smoke test","mode":"lithophane"}]', generate: async (req, send, abort) => {
   if (req.prompt !== 'a slow cube') throw new Error('the smoke test never generates');
   send({ type: 'step', step: { kind: 'status', text: 'Measuring the slow cube' } });
   await new Promise<void>((resolve) => { finishSlowCube = resolve; abort.signal.addEventListener('abort', () => resolve()); });
@@ -1321,4 +1321,31 @@ test('Edit drawing selects an area and clears the hand edits there only: shown a
   assert.deepEqual(JSON.parse((await getDesign(cid)).values.$lineartEdits).frame.strokes, [line(0.6)]);
   await page.locator('.lineart-edit-row', { hasText: '1 hand edit' }).waitFor();
   assert.deepEqual(errors, []);
+});
+
+test('the new-design screen offers four starters with their mode, and "Give me 4 new ideas" swaps them for Jig\'s', TEST, async () => {
+  // Ideas in the picture modes need an image model (a key), as the starters do.
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  const page = await newPage();
+  try {
+    await page.goto(`${A}/?design=${id}`);
+    await page.locator('header a.btn', { hasText: 'New' }).click();
+    const intro = page.locator('.chat-intro');
+    await intro.waitFor({ timeout: 15_000 });
+    await until(async () => (await intro.locator('.example').count()) === 4, 'four starters');
+    assert.equal(await intro.locator('.example .idea-mode').count(), 4);
+    await page.screenshot({ path: path.join(shots, '7-starters.png') });
+    await intro.getByRole('button', { name: 'Give me 4 new ideas' }).click();
+    const idea = intro.locator('.example', { hasText: 'A test idea for the smoke test' });
+    await idea.waitFor({ timeout: 15_000 });
+    assert.equal(await idea.locator('.idea-mode').innerText(), 'Lithophane');
+    await page.screenshot({ path: path.join(shots, '7-new-ideas.png') });
+    await idea.click();
+    assert.equal(await page.locator('.chat-panel textarea').inputValue(), 'A test idea for the smoke test');
+    await page.getByRole('button', { name: 'Picture mode: Lithophane' }).waitFor({ timeout: 15_000 });
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+    await page.close();
+  }
 });

@@ -172,8 +172,12 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .chat-intro h3 { margin: 6px 0 6px; font-size: 15px; }
 .chat-intro p { color: var(--text-2); margin: 0 0 12px; }
 .examples { display: flex; flex-direction: column; gap: 6px; }
-.example { text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; color: var(--text-2); }
+.example { display: flex; align-items: center; gap: 8px; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; color: var(--text-2); }
 .example:hover { border-color: var(--accent); color: var(--text); }
+.idea-mode { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.more-ideas { display: block; margin-top: 8px; padding: 0; background: none; border: 0; color: var(--accent); font-size: 13px; text-align: left; cursor: pointer; }
+.more-ideas:hover:not(:disabled) { text-decoration: underline; }
+.more-ideas:disabled { opacity: 0.7; cursor: default; }
 .msg { display: flex; flex-direction: column; gap: 6px; }
 .msg.user { align-items: flex-end; }
 .msg.user .bubble { background: #2b2f37; border-radius: 12px 12px 3px 12px; max-width: 92%; }

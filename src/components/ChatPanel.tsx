@@ -16,6 +16,7 @@ import { load, store } from '../lib/storage';
 import { startDictation, type Dictation } from '../lib/dictation';
 import type { AutoBuild } from '../lib/autoBuild';
 import { ModelMenu } from './chat/ModelMenu';
+import { Starters } from './chat/Starters';
 import { OptionsMenu } from './chat/OptionsMenu';
 import { FigureMenu, ImageModeMenu, LineArtMenu, type ImageMode } from './chat/PictureModeMenus';
 import { MODE_EXAMPLES } from './chat/modeImages';
@@ -343,16 +344,7 @@ export function ChatPanel(p: Props) {
           <div className="chat-intro">
             <h3>Describe what you want to print</h3>
             <p>Jig designs a parametric model with sliders and dimensions. Attach photos of an existing object to recreate or redesign it. Mention any dimensions you need; anything you leave out, Jig picks for you.</p>
-            <div className="examples">
-              {[
-                'A wine bottle opener: T-handle with a 5-turn corkscrew spiral',
-                'Wall-mounted holder for 3 screwdrivers, screw holes countersunk',
-                'Cable clip for a 6 mm cable that clamps onto a 20 mm desk edge',
-                'M8 knurled thumb nut with a captive hex nut pocket',
-              ].map((ex) => (
-                <button key={ex} className="example" onClick={() => { setText(ex); textarea.current?.focus(); }}>{ex}</button>
-              ))}
-            </div>
+            <Starters artworkModel={p.artworkModel} meshy={p.meshy} claudeProblem={p.claudeProblem} onPick={tryRequest} />
           </div>
         )}
         {p.messages.map((m, i) => {
