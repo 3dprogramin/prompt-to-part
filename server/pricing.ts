@@ -3,7 +3,6 @@ import { printer } from '../shared/printer';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
 import { claudeAuthProblem, jigCountry, jigCurrency } from './config';
-import { recordRateLimit } from './usage';
 import { duration, money } from '../shared/cost';
 import type { PriceRequest, PriceSuggestion } from '../shared/api';
 
@@ -58,7 +57,6 @@ export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
         pathToClaudeCodeExecutable: process.env.CLAUDE_PATH || undefined,
       },
     })) {
-      if (msg.type === 'rate_limit_event') recordRateLimit(msg.rate_limit_info);
       if (msg.type === 'result') {
         if (msg.subtype !== 'success') throw new Error(`Jig couldn't suggest a price (${msg.subtype})`);
         text = msg.result;

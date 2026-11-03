@@ -40,7 +40,7 @@ export interface AppOptions {
   lookup?: typeof lookupFilament;
   /** Asks the image model for a picture (tests pass a stand-in). */
   image?: typeof requestImage;
-  /** Checks what Jig runs Claude on and its usage (tests pass a stand-in: the real one may start Claude Code). */
+  /** Checks what Jig runs Claude on (tests pass a stand-in: the real one calls the provider). */
   connection?: typeof checkConnection;
 }
 

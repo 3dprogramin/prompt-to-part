@@ -10,7 +10,6 @@ import type { PrintSettings } from './print';
 import type { ActivePrinter, Printer } from './printer';
 import type { ConceptEntry, MeshEntry } from './meshes';
 import type { ImportReport } from './meshRepair';
-import type { UsageWindow } from './usage';
 import type { ChatQuestion } from './questions';
 import type { StabilityReport } from './stability';
 
@@ -83,8 +82,7 @@ export type AgentEvent =
   /** stability: submit_model's tipping check (missing if it couldn't run). */
   | { type: 'model'; code: string; summary: string; sources: DimensionSource[]; stability?: StabilityReport }
   | { type: 'done'; durationMs: number; turns: number; submitted: boolean; text: string; costUsd?: number; sessionCostUsd?: number }
-  /** resetsAt: when the reached usage limit lifts (ms), if known; the page adds it in local time. */
-  | { type: 'error'; message: string; resetsAt?: number }
+  | { type: 'error'; message: string }
   /** Artwork Claude had drawn (generate_artwork), kept with the design's attached drawings for H.svg. */
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
   /** Line art: the hand edits of a drawing are now part of it (a partial edit by the image model redrew it with them), so the design drops them; `kept`: their colours, on the new drawing. */
@@ -143,14 +141,12 @@ export interface Capabilities {
 
 /** GET /api/connection: what Jig runs Claude on, and whether that service answers. */
 export interface Connection {
-  via: 'subscription' | 'openrouter' | 'anthropic' | 'custom' | 'none';
+  via: 'openrouter' | 'anthropic' | 'custom' | 'none';
   ok: boolean;
   /** What was checked, or what is wrong. */
   detail: string;
   /** OpenRouter credit left, in USD (when the key may read it). */
   credit?: number;
-  /** The Claude subscription's usage windows, as far as Jig knows them (subscription mode). */
-  usage?: UsageWindow[];
 }
 
 /** GET /api/meshy/balance: the Meshy account's credits (404 when Jig has no Meshy key). */
