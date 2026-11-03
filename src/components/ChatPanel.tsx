@@ -110,6 +110,13 @@ export function ChatPanel(p: Props) {
     setText((t) => (t.trim() ? `${t.trimEnd()}\n${request}` : request));
     requestAnimationFrame(() => { const el = textarea.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
   };
+  // A starter idea: its text goes in the box, replacing what is there when that is empty or still
+  // one of the ideas on screen; text the user typed stays, with the idea on a new line.
+  const pickStarter = (mode: ImageMode, request: string, onScreen: string[]) => {
+    if (mode !== p.imageMode) p.onImageMode(mode);
+    setText((t) => (!t.trim() || onScreen.includes(t.trim()) ? request : `${t.trimEnd()}\n${request}`));
+    requestAnimationFrame(() => { const el = textarea.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  };
   // Follow new output only while the chat is scrolled to the bottom, so earlier messages can be
   // read while Claude works; a new message (sending one) always scrolls down.
   const atBottom = useRef(true);
@@ -344,7 +351,7 @@ export function ChatPanel(p: Props) {
           <div className="chat-intro">
             <h3>Describe what you want to print</h3>
             <p>Jig designs a parametric model with sliders and dimensions. Attach photos of an existing object to recreate or redesign it. Mention any dimensions you need; anything you leave out, Jig picks for you.</p>
-            <Starters artworkModel={p.artworkModel} meshy={p.meshy} claudeProblem={p.claudeProblem} onPick={tryRequest} />
+            <Starters artworkModel={p.artworkModel} meshy={p.meshy} claudeProblem={p.claudeProblem} onPick={pickStarter} />
           </div>
         )}
         {p.messages.map((m, i) => {

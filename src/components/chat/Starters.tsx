@@ -6,7 +6,7 @@ import { IMAGE_MODES, type ImageMode } from './PictureModeMenus';
 
 /** The new-design screen's starter ideas, each marked with the picture mode it uses, and a link
  *  that asks Jig for four new ones. */
-export function Starters(p: { artworkModel: string | null; meshy: boolean; claudeProblem: string | null; onPick: (mode: ImageMode, text: string) => void }) {
+export function Starters(p: { artworkModel: string | null; meshy: boolean; claudeProblem: string | null; onPick: (mode: ImageMode, text: string, onScreen: string[]) => void }) {
   const artwork = !!p.artworkModel;
   const [ideas, setIdeas] = useState<Idea[]>(() => pickStarters(ideaModes({ artwork, meshy: p.meshy })));
   const [fetched, setFetched] = useState(false);
@@ -38,7 +38,7 @@ export function Starters(p: { artworkModel: string | null; meshy: boolean; claud
         {ideas.map((idea) => {
           const m = IMAGE_MODES.find((x) => x.mode === idea.mode);
           return (
-            <button key={idea.text} className="example" onClick={() => p.onPick(idea.mode, idea.text)}>
+            <button key={idea.text} className="example" onClick={() => p.onPick(idea.mode, idea.text, ideas.map((i) => i.text))}>
               {m && <span className="idea-mode"><Icon name={m.icon} size={12} />{m.short ?? m.label}</span>}
               <span>{idea.text}</span>
             </button>
@@ -48,7 +48,7 @@ export function Starters(p: { artworkModel: string | null; meshy: boolean; claud
       {!p.claudeProblem && (
         <button className="more-ideas" disabled={busy} onClick={more}>{busy ? 'Thinking…' : 'Give me 4 new ideas'}</button>
       )}
-      {error && <p className="small dim">{error}</p>}
+      {error && <p className="small dim" role="status">{error}</p>}
     </>
   );
 }

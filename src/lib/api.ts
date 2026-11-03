@@ -139,9 +139,10 @@ export const api = {
 export const lookupFilament = (brand: string, name: string): Promise<FilamentLookup> =>
   getJson<FilamentLookup>('/api/filaments/lookup', { method: 'POST', body: JSON.stringify({ brand, name }) });
 
-/** A message for the reply Claude is working on; false when no reply is running (queue it instead). */
+/** Four new starter ideas from Jig, different from the `shown` ones. */
 export const newIdeas = (shown: string[]): Promise<Idea[]> => getJson<{ ideas: Idea[] }>('/api/ideas', { method: 'POST', body: JSON.stringify({ shown }) }).then((r) => r.ideas);
 
+/** A message for the reply Claude is working on; false when no reply is running (queue it instead). */
 export async function steer(designId: string, text: string, images: ImageData[]): Promise<boolean> {
   try {
     await request(`/api/generate/${designId}/message`, { method: 'POST', body: JSON.stringify({ text, images }) });
