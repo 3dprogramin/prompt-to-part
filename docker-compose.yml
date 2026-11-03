@@ -45,9 +45,14 @@ services:
       # - ~/.config/BambuStudio/user:/bambu-user:ro
     read_only: true
     # Everything else is read-only; scratch space and the rest of the home folder live in memory.
+    # /tmp holds slices and .blend exports while they run; capped so they can't use all the memory.
     tmpfs:
-      - /tmp
+      - /tmp:size=2g
       - /home/node:uid=1000,gid=1000,mode=0700
+    # Limits for the whole container (Jig, Claude Code, OpenSCAD, Bambu Studio, Blender), so a runaway
+    # job can't take the computer down with it. JIG_MEM_LIMIT in .env raises the memory limit.
+    mem_limit: ${JIG_MEM_LIMIT:-8g}
+    pids_limit: 512
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true

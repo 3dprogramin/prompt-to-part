@@ -386,6 +386,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_PORT`, `JIG_WITH_BAMBU` | `8787`, `0` | Docker Compose only: the published port, and `1` to build the image with Bambu Studio |
 | `JIG_BIND` | `127.0.0.1` | Docker Compose only: the address Jig is published on. `0.0.0.0` makes it reachable from your network (e.g. a phone): set `JIG_PASSWORD` too, and only on a network you trust |
+| `JIG_MEM_LIMIT` | `8g` | Docker Compose only: the container's memory limit |
 | `JIG_HOSTS` | – | More names Jig answers to besides `localhost` and `127.0.0.1`, comma-separated: this computer's address when it is reached from the network (with `JIG_BIND`). Requests naming any other host are refused |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |
