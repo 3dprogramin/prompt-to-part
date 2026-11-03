@@ -40,6 +40,7 @@ import { setPrinter, type PrinterSetup } from '../shared/printer';
 import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
 import { forgetChatMode } from './lib/chatModes';
+import { latestOnly } from './lib/latest';
 import { cleanTags } from '../shared/tags';
 import { newDesign, keepAppValues, UNTITLED, withLayerToneImage, withMesh } from './app/designValues';
 import type { Notice } from './app/notice';
@@ -265,6 +266,9 @@ export default function App() {
     setSelectedPart(null);
   }, []);
 
+  // Opening a design (the Designs menu, a tab, New) supersedes one still loading: only the latest counts.
+  const opening = useRef(latestOnly());
+
   // Open the last design on startup (guarded: hot reload re-runs effects).
   const started = useRef(false);
   useEffect(() => {
@@ -274,13 +278,23 @@ export default function App() {
       // A bare URL (new tab) starts a fresh design; ?design=<id> reopens that one.
       const last = new URLSearchParams(location.search).get('design');
       if (last) {
+        // It replaces the blank design Jig opens with, unless the user has moved on by then (opened
+        // or started another design, or sent a message in this one).
+        const blankId = currentId.current;
+        const isLatest = opening.current.begin();
         try {
           const d = await api.getDesign(last);
-          if (d) { lastLoaded.current = d; setDesign(d); }
+          if (d && isLatest()) setDesign((cur) => {
+            if (cur.id !== blankId || cur.messages.length || cur.code) return cur;
+            lastLoaded.current = d;
+            return d;
+          });
         } catch (e) {
-          // Keep ?design= so a reload once the server is back opens it again.
-          unreachable.current = last;
-          setNotice({ text: `${(e as Error).message} Reload this page once it is running.`, level: 'error', details: false });
+          if (isLatest() && currentId.current === blankId) {
+            // Keep ?design= so a reload once the server is back opens it again.
+            unreachable.current = last;
+            setNotice({ text: `${(e as Error).message} Reload this page once it is running.`, level: 'error', details: false });
+          }
         }
       }
       loaded.current = true;
@@ -445,17 +459,21 @@ export default function App() {
 
   const openDesign = async (id: string) => {
     if (id === design.id) return;
+    // Clicking A (slow to load) and then B ends on B: A's late answer is dropped.
+    const isLatest = opening.current.begin();
     try {
       const d = background.current.get(id) ?? (await api.getDesign(id));
+      if (!isLatest()) return;
       if (d) switchTo(d);
       else { setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
     } catch (e) {
-      setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
+      if (isLatest()) setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
     }
   };
 
   /** A new design; `tags` are given to it once it is saved (a new design in the Temp list is Temp). */
   const createNew = (tags?: string[]) => {
+    opening.current.begin(); // a design still loading doesn't replace this one
     const d = newDesign();
     switchTo(d);
     if (tags?.length) setNewTags((t) => ({ ...t, [d.id]: cleanTags(tags) }));
@@ -468,6 +486,7 @@ export default function App() {
   const forkVersion = async (vi: number) => {
     const v = design.versions[vi];
     if (!v) return;
+    const isLatest = opening.current.begin();
     const values: ParamValues = { ...v.values };
     // Drawings, pictures and meshes attached later in the chat may be what this version's script uses.
     if (!values[DRAWINGS_KEY] && design.values[DRAWINGS_KEY]) values[DRAWINGS_KEY] = design.values[DRAWINGS_KEY];
@@ -496,7 +515,8 @@ export default function App() {
       versions: [{ ...v, values, summary: `From "${design.name}" v${vi + 1}: ${v.summary}`, createdAt: d.createdAt }],
       currentVersion: 0,
     };
-    switchTo(forked);
+    // Opened only if no other design was opened while the models were copied (it is saved either way).
+    if (isLatest()) switchTo(forked); else background.current.set(forked.id, forked);
     // Opened designs count as saved (switchTo); this one is new, so save it now.
     saveSoon(forked);
   };
