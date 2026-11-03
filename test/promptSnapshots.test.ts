@@ -1,6 +1,6 @@
 // The full prompt each mode sends (system prompt, tool list, first user message), as files in
 // test/fixtures/prompts. A change to the prompt code that changes the text fails here; if the
-// change is meant, run `UPDATE_PROMPTS=1 npm test` and review the diff of the fixtures.
+// change is meant, run `UPDATE_PROMPTS=1 pnpm test` and review the diff of the fixtures.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
@@ -74,7 +74,7 @@ for (const c of cases) {
         mkdirSync(FIXTURES, { recursive: true });
         writeFileSync(file, actual);
       } else {
-        assert.equal(actual, readFileSync(file, 'utf8'), `prompt for ${c.name} changed: run UPDATE_PROMPTS=1 npm test and review the diff`);
+        assert.equal(actual, readFileSync(file, 'utf8'), `prompt for ${c.name} changed: run UPDATE_PROMPTS=1 pnpm test and review the diff`);
       }
     } finally {
       for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }

@@ -2,7 +2,7 @@
 //   --mode lib:  dist-litho/litho-preview.js, the <litho-preview> web component as one classic
 //                script (styles inside), for a shop theme's <script src>.
 //   default:     the demo page (index.html, which loads that script) and the shop's production page.
-// `npm run build:litho` runs both, the library first.
+// `pnpm build:litho` runs both, the library first.
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 

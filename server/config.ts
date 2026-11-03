@@ -23,7 +23,7 @@ export const PASSWORD = process.env.JIG_PASSWORD ?? '';
 export const MAX_GENERATIONS = positiveInt(process.env.JIG_MAX_GENERATIONS) ?? 4;
 /** Designs, workspaces and the Bambu template cache. */
 export const DATA_DIR = process.env.JIG_DATA ? path.resolve(process.env.JIG_DATA) : path.join(ROOT, 'data');
-/** Serve the built app from dist/ as well as the API (`npm start`). */
+/** Serve the built app from dist/ as well as the API (`pnpm start`). */
 export const PRODUCTION = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
 /**
  * Claude through OpenRouter: when OPENROUTER_API_KEY is set and no Anthropic key

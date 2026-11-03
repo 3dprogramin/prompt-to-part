@@ -4,7 +4,7 @@
 // test/fixtures/meshes. Jig talks to it like to Meshy: MESHY_BASE_URL=http://127.0.0.1:8790/openapi
 // and any MESHY_API_KEY starting with msy_.
 //
-//   npm run mock:meshy             (port 8790, or MESHY_MOCK_PORT; MESHY_MOCK_SECONDS for the run time)
+//   pnpm mock:meshy             (port 8790, or MESHY_MOCK_PORT; MESHY_MOCK_SECONDS for the run time)
 //
 // Test triggers in the prompt: FAIL (the task fails), MODERATION (refused), RESCHEDULE (back to
 // PENDING once), FLAKY (the first poll answers 503), BROKEN (a mesh with holes and flipped faces).

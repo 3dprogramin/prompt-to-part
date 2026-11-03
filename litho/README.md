@@ -12,8 +12,8 @@ It reuses Jig's lithophane engine (`shared/lithophane.ts`): the same Beer–Lamb
 ## Build and run
 
 ```sh
-npm run dev:litho     # http://localhost:5174/ (demo) and /production.html
-npm run build:litho   # → dist-litho/
+pnpm dev:litho     # http://localhost:5174/ (demo) and /production.html
+pnpm build:litho   # → dist-litho/
 ```
 
 `dist-litho/` then holds:
@@ -24,7 +24,7 @@ npm run build:litho   # → dist-litho/
 | `index.html` | A demo page, with a stand-in product form that shows what would be sent. It loads `litho-preview.js` exactly as a theme does. |
 | `production.html` + `assets/` | The shop's production page. Don't upload it to the theme. |
 
-Jig's own `npm run build` and `dist/` are unaffected.
+Jig's own `pnpm build` and `dist/` are unaffected.
 
 ## Component API
 
@@ -123,7 +123,7 @@ None of this could be tried without a store. It follows Shopify's documented beh
 
 ## Production page (shop only)
 
-`npm run dev:litho` and open `http://localhost:5174/production.html`, or serve the built `dist-litho/` (e.g. `npx vite preview -c litho/vite.config.ts`; opening it as a `file://` page won't load its script). It is not linked from anywhere and isn't part of the theme upload.
+`pnpm dev:litho` and open `http://localhost:5174/production.html`, or serve the built `dist-litho/` (e.g. `pnpm exec vite preview -c litho/vite.config.ts`; opening it as a `file://` page won't load its script). It is not linked from anywhere and isn't part of the theme upload.
 
 1. Paste the order's `_litho` value (with or without the `_litho:` in front).
 2. Choose the order's photo (download it from the order's *Fotografie* link).

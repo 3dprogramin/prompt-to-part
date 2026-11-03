@@ -9,7 +9,7 @@ Open an issue with:
 - what you asked Jig for (the prompt, and any photo, SVG or model you attached, if you can share it),
 - what happened and what you expected,
 - a screenshot of the design, and the reply's steps (click the step line, or *activity*) when it is about a generation,
-- how you run Jig (Docker or `npm start`, your OS, Node version, and whether Claude runs on an Anthropic key, OpenRouter or another provider).
+- how you run Jig (Docker or `pnpm start`, your OS, Node version, and whether Claude runs on an Anthropic key, OpenRouter or another provider).
 
 Never paste API keys, tokens or your `.env` into an issue.
 
@@ -19,19 +19,20 @@ Never paste API keys, tokens or your `.env` into an issue.
 
 ```sh
 nvm use                  # Node 26 from .nvmrc (22.12+ works)
-npm install
+npm install -g pnpm      # once: Jig uses pnpm, and Node 26 comes without Corepack
+pnpm install
 cp .env.sample .env      # then set ONE way to run Claude (an Anthropic or OpenRouter key)
-npm run dev              # http://localhost:5173, API on :8787
+pnpm dev                 # http://localhost:5173, API on :8787
 ```
 
-`npm run dev` does not restart the API server when its code changes, because a restart kills running generations; restart it yourself once nothing is generating (or use `npm run dev:watch`). For 3D figures without Meshy credits, run `npm run mock:meshy` and point Jig at it (see the README).
+`pnpm dev` does not restart the API server when its code changes, because a restart kills running generations; restart it yourself once nothing is generating (or use `pnpm dev:watch`). For 3D figures without Meshy credits, run `pnpm mock:meshy` and point Jig at it (see the README).
 
 ## Before you open a pull request
 
 ```sh
-npm run typecheck
-npm test                 # unit and API tests, about 20 s
-npm run test:ui          # UI smoke test in headless Chromium, when you changed the UI
+pnpm typecheck
+pnpm test                # unit and API tests, about 20 s
+pnpm test:ui             # UI smoke test in headless Chromium, when you changed the UI
 ```
 
 - **Small and focused:** one change per pull request. Open an issue first for anything big, so we can agree on the approach before you spend time on it.

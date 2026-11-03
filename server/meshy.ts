@@ -4,7 +4,7 @@
 // with should_texture (painted from texture_image_url when there is a painted concept picture), Text
 // to 3D with a refine task after the preview (35 credits either way), and the GLB's base colour
 // texture gives the colours. The preview picture is only for the chat. The key
-// stays on the server. MESHY_BASE_URL points it at the mock (`npm run mock:meshy`, server/meshyMock.ts).
+// stays on the server. MESHY_BASE_URL points it at the mock (`pnpm mock:meshy`, server/meshyMock.ts).
 
 import type { MeshyBalance } from '../shared/api';
 

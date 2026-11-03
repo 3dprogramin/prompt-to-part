@@ -41,7 +41,7 @@ Open http://localhost:8787 and describe what you want to print. Your designs liv
 
 `docker compose down -v` also deletes the volumes, and with them every design: back them up first (Designs → Export all designs). More in [Docker](#docker).
 
-Without Docker: Node 22.12+, then `npm install && npm run build && npm start` (see [Run](#run)). That's fine for development, but for everyday use prefer Docker.
+Without Docker: Node 22.12+ and pnpm (`npm install -g pnpm`), then `pnpm install && pnpm build && pnpm start` (see [Run](#run)). That's fine for development, but for everyday use prefer Docker.
 
 ### Why Docker
 
@@ -78,20 +78,20 @@ So most designs cost $0.15 to $0.40, and one that has to fit a real product, wit
 ## Run
 
 ```sh
-npm install
-npm run dev          # http://localhost:5173  (API on :8787)
-npm run dev:watch    # same, but the API server restarts on code changes (kills running generations)
+pnpm install
+pnpm dev          # http://localhost:5173  (API on :8787)
+pnpm dev:watch    # same, but the API server restarts on code changes (kills running generations)
 # or
-npm run build && npm start   # single server on http://127.0.0.1:8787
-npm test             # unit and API tests (about 20 s)
-npm run test:ui      # UI smoke test: builds, opens a design in headless Chromium (about 10 s; screenshots in JIG_UI_SHOTS)
-npm run mock:meshy   # a stand-in for Meshy's API, for 3D figures without credits (see "3D figures with Meshy")
-npm run typecheck
+pnpm build && pnpm start   # single server on http://127.0.0.1:8787
+pnpm test         # unit and API tests (about 20 s)
+pnpm test:ui      # UI smoke test: builds, opens a design in headless Chromium (about 10 s; screenshots in JIG_UI_SHOTS)
+pnpm mock:meshy   # a stand-in for Meshy's API, for 3D figures without credits (see "3D figures with Meshy")
+pnpm typecheck
 ```
 
 Or in Docker, which is safer for everyday use: see [Docker](#docker) and [Why Docker](#why-docker).
 
-Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `npm run build` needs the dev dependencies (`npm install` installs them). `npm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
+Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`), [pnpm](https://pnpm.io) (the version in `package.json`'s `packageManager`; Node 26 comes without Corepack, so install it with `npm install -g pnpm`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `pnpm build` needs the dev dependencies (`pnpm install` installs them). `pnpm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
 
 Optional:
 - **Bambu Studio** (2.x) for Bambu project 3MF export, and for the printer list (every Bambu Lab printer and nozzle, and your own printer presets).
@@ -99,18 +99,18 @@ Optional:
 
 Both are found on `PATH` and in their default install folders on macOS (`/Applications`) and Windows (`Program Files`). Otherwise set `BAMBU_STUDIO_PATH` / `BLENDER_PATH`. Jig is developed and tested on Linux.
 
-`npm run dev` does not restart the API server when its code changes, because a restart kills every running generation. Restart it yourself once nothing is generating.
+`pnpm dev` does not restart the API server when its code changes, because a restart kills every running generation. Restart it yourself once nothing is generating.
 
 ## Docker
 
-Jig also runs in Docker (with Compose v2), as a single container serving the app and its API (the production build, as `npm start` does).
+Jig also runs in Docker (with Compose v2), as a single container serving the app and its API (the production build, as `pnpm start` does).
 
 ```sh
 cp .env.sample .env        # then fill it in (see below)
 docker compose up -d --build
 ```
 
-Then open http://localhost:8787. The image is built on your computer: it installs Jig's dependencies with `npm ci` (Claude Code among them) and never contains `.env`, `data/` or any credentials.
+Then open http://localhost:8787. The image is built on your computer: it installs Jig's dependencies with `pnpm install --frozen-lockfile` (Claude Code among them) and never contains `.env`, `data/` or any credentials.
 
 Jig has no login by default, so whoever can reach its port can use your API keys. Compose therefore publishes it on `127.0.0.1` only. To reach it from other devices (`JIG_BIND=0.0.0.0` and this computer's address in `JIG_HOSTS`), also set `JIG_PASSWORD` in `.env`: the browser then asks for it once (any user name). It is plain HTTP, so only on a network you trust, or behind an HTTPS reverse proxy. Don't publish the image to a registry either (it contains Claude Code and, with the Bambu option, Bambu Studio, which are not Jig's to redistribute). `JIG_PORT` in `.env` changes the port (default 8787); the container then listens on that port too, because Jig only answers requests addressed to its own port.
 
@@ -142,7 +142,7 @@ docker compose restart jig
 
 The Bambu template is rebuilt by the container's Bambu Studio when its version differs. Claude sessions are not moved: a design's next message starts a fresh session with a summary of the conversation.
 
-**Updating:** `git pull && npm run rebuild`: it waits until no reply is being generated (and no Bambu Studio slice runs), rebuilds with `docker compose up -d --build` and waits until Jig is healthy again (`--check` only says whether Jig is busy, `--now` skips the wait). Old images can then be removed with `docker image prune`.
+**Updating:** `git pull && pnpm run rebuild`: it waits until no reply is being generated (and no Bambu Studio slice runs), rebuilds with `docker compose up -d --build` and waits until Jig is healthy again (`--check` only says whether Jig is busy, `--now` skips the wait). Old images can then be removed with `docker image prune`.
 
 **Logs:** `docker compose logs -f jig` (add `DEBUG_AGENT=1` to `.env` to include Claude Code's own output). `docker compose ps` shows whether the container is healthy.
 
@@ -270,7 +270,7 @@ The picture mode chip in the chat bar (after the model picker) opens a menu that
 
 ### Lithophane preview widget for shops
 
-`litho/` is a separate, brand-neutral web component, `<litho-preview>`, built from Jig's lithophane code. A shop's customers upload a photo, frame it, and see the lithophane lit from behind and in 3D, all in their browser. On a Shopify product page it adds their choices and the photo to the order. A shop-only page builds the order's STL and 3MF at full resolution. `npm run dev:litho` runs it and `npm run build:litho` builds it to `dist-litho/`; it doesn't change Jig's own build. Setup, the API and the Shopify steps are in [litho/README.md](litho/README.md).
+`litho/` is a separate, brand-neutral web component, `<litho-preview>`, built from Jig's lithophane code. A shop's customers upload a photo, frame it, and see the lithophane lit from behind and in 3D, all in their browser. On a Shopify product page it adds their choices and the photo to the order. A shop-only page builds the order's STL and 3MF at full resolution. `pnpm dev:litho` runs it and `pnpm build:litho` builds it to `dist-litho/`; it doesn't change Jig's own build. Setup, the API and the Shopify steps are in [litho/README.md](litho/README.md).
 
 ## 3D models: imported meshes and AI figures
 
@@ -305,7 +305,7 @@ Choose *3D figure* in the picture menu. Jig then has Meshy make the subject with
   - **Through the script:** `H.mesh` gives a coloured mesh its own Manifold mesh ID and each triangle its index as `faceID`; Manifold keeps both through every boolean, cut and transform, so after the script each output triangle maps back to its stored triangle and its filament (`paintOf` in `shared/runtime.ts`). Geometry the script builds has its part's colour; a part in one of the figure's filament colours shares that filament. The part gets `paint` (its filaments and each triangle's), which the 3D view, Jig's renders and the product photos draw. More than 4 filaments in the design is a warning, for you and for Jig.
   - **Export:** the Bambu Studio project paints each triangle with its filament the way Bambu Studio's own colour painting does (`paint_color` on the triangle: the filament's TriangleSelector state, `4`, `8`, `0C`, `1C` for filaments 1–4), one solid per part, with the filaments' colours in the project's settings (all PLA). Verified by slicing with Bambu Studio 2.8 (`test/bambuPaint.test.ts`: each filament prints where it is painted). With *Print in one colour* on (or *Colours (AMS)* off) there is no painting and one filament. A plain 3MF gives each triangle its filament's colour (the Materials extension); STL is geometry only.
 - **Key:** set `MESHY_API_KEY` (Meshy's API needs a Pro plan; [pricing](https://www.meshy.ai/pricing)). Without it the mode says it needs one and can't be chosen. The key stays on the server (the model never gets it). A stopped generation deletes a Meshy task that hasn't started, which refunds it.
-- **The mock:** `npm run mock:meshy` starts a stand-in for Meshy's API on port 8790 (`server/meshyMock.ts`): the same endpoints, Bearer-key check, status sequence (PENDING → IN_PROGRESS with progress → SUCCEEDED, with Retry-After), errors (400, 401, 402, 404, 409, 429) and expiring download links, serving the sample models in `test/fixtures/meshes` (a figurine, or a fox, dog, cat or fish when the prompt names one) with a grey preview; a textured request (`should_texture`, or a `refine` of a finished preview, 10 credits) gets `colour-figure.glb`, a figure with UVs and an embedded four-colour texture; image to 3D also takes a `texture_image_url` (a URL or a data URI up to 20 MB, checked and recorded). Point Jig at it with `MESHY_BASE_URL=http://127.0.0.1:8790/openapi` and `MESHY_API_KEY=msy_mock`; `MESHY_MOCK_SECONDS` sets how long a task runs (12 s). Words in the prompt trigger the error paths: `FAIL`, `MODERATION`, `RESCHEDULE` (back to PENDING once), `FLAKY` (a 503 while polling), `BROKEN` (a model with holes and flipped faces); more than 10 unfinished tasks get Meshy's `429 NoMorePendingTasks`. Switching to the real Meshy is only removing `MESHY_BASE_URL` and setting your real key.
+- **The mock:** `pnpm mock:meshy` starts a stand-in for Meshy's API on port 8790 (`server/meshyMock.ts`): the same endpoints, Bearer-key check, status sequence (PENDING → IN_PROGRESS with progress → SUCCEEDED, with Retry-After), errors (400, 401, 402, 404, 409, 429) and expiring download links, serving the sample models in `test/fixtures/meshes` (a figurine, or a fox, dog, cat or fish when the prompt names one) with a grey preview; a textured request (`should_texture`, or a `refine` of a finished preview, 10 credits) gets `colour-figure.glb`, a figure with UVs and an embedded four-colour texture; image to 3D also takes a `texture_image_url` (a URL or a data URI up to 20 MB, checked and recorded). Point Jig at it with `MESHY_BASE_URL=http://127.0.0.1:8790/openapi` and `MESHY_API_KEY=msy_mock`; `MESHY_MOCK_SECONDS` sets how long a task runs (12 s). Words in the prompt trigger the error paths: `FAIL`, `MODERATION`, `RESCHEDULE` (back to PENDING once), `FLAKY` (a 503 while polling), `BROKEN` (a model with holes and flipped faces); more than 10 unfinished tasks get Meshy's `429 NoMorePendingTasks`. Switching to the real Meshy is only removing `MESHY_BASE_URL` and setting your real key.
 - **Samples:** `test/fixtures/meshes` holds small CC0 models (Kenney, Quaternius) without their textures, and broken variants made from them for the repair tests; `LICENSES.md` there says where each comes from.
 
 ## Text and SVG
@@ -359,7 +359,7 @@ Exports contain the visible parts only; hide a part to leave it out (Object tab,
 
 ## Configuration
 
-Set these in the environment, or in a `.env` file next to `package.json` (copy `.env.sample`, where every setting is commented out; git ignores every `.env` file except the sample). Values already in the environment win. The API server reads `.env` only when it starts, so restart `npm run dev` after changing it (Vite restarting itself on a `.env` change doesn't restart the API server).
+Set these in the environment, or in a `.env` file next to `package.json` (copy `.env.sample`, where every setting is commented out; git ignores every `.env` file except the sample). Values already in the environment win. The API server reads `.env` only when it starts, so restart `pnpm dev` after changing it (Vite restarting itself on a `.env` change doesn't restart the API server).
 
 | Variable | Default | |
 |---|---|---|
@@ -381,7 +381,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `JIG_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | The OpenRouter image model for AI artwork and product photos |
 | `MESHY_API_KEY` | | Turns on 3D figures (Meshy) |
 | `JIG_MESHY_MAX_PER_REPLY` | `2` | Most Meshy models (`generate_3d`) Jig may make in one reply |
-| `MESHY_BASE_URL` | `https://api.meshy.ai/openapi` | Another Meshy endpoint, e.g. the mock (`npm run mock:meshy`): `http://127.0.0.1:8790/openapi` |
+| `MESHY_BASE_URL` | `https://api.meshy.ai/openapi` | Another Meshy endpoint, e.g. the mock (`pnpm mock:meshy`): `http://127.0.0.1:8790/openapi` |
 | `JIG_IMAGE_FALLBACK` | `google/gemini-nano-banana-2.1` | Used when the image model stays busy (rate-limited upstream) after two retries; empty turns it off |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | | Instead of the key: a token and base URL of an Anthropic-compatible provider |
 | `JIG_PORT`, `JIG_WITH_BAMBU` | `8787`, `0` | Docker Compose only: the published port, and `1` to build the image with Bambu Studio |
@@ -391,7 +391,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |
 | `BLENDER_PATH` | found on `PATH` or in the default install folder | Blender executable |
-| `NODE_ENV` | | `production` serves `dist/` too (as `npm start` does with `--production`) |
+| `NODE_ENV` | | `production` serves `dist/` too (as `pnpm start` does with `--production`) |
 | `DEBUG_AGENT` | off | Print the Claude Code process's stderr |
 
 ## Claude API key
@@ -419,8 +419,8 @@ Jig's own code is free software under the GNU Affero General Public License, ver
 Other licences (for example for a hosted or closed-source use of Jig) can be had from the copyright holder: andrei@3dprogramin.io.
 
 Jig depends on packages under their own licences:
-- **`@anthropic-ai/claude-agent-sdk` and the Claude Code executable it installs** are proprietary and covered by [Anthropic's terms](https://www.anthropic.com/legal), not by Jig's licence. Install them with `npm install`; don't redistribute them (for example inside `node_modules` in an archive or image).
-- **The packages bundled into the built app** (manifold-3d, SES, three.js, React and others) are MIT or Apache-2.0. `npm run build` writes their licences to `dist/THIRD_PARTY_NOTICES.md`; keep that file with any copy of `dist/`.
+- **`@anthropic-ai/claude-agent-sdk` and the Claude Code executable it installs** are proprietary and covered by [Anthropic's terms](https://www.anthropic.com/legal), not by Jig's licence. Install them with `pnpm install`; don't redistribute them (for example inside `node_modules` in an archive or image).
+- **The packages bundled into the built app** (manifold-3d, SES, three.js, React and others) are MIT or Apache-2.0. `pnpm build` writes their licences to `dist/THIRD_PARTY_NOTICES.md`; keep that file with any copy of `dist/`.
 - **The bundled fonts** (`@fontsource`) are under the SIL Open Font License.
 - **OpenSCAD** (for `.scad` files in the chat) is GPL-2.0-or-later and not part of Jig: Jig downloads the [OpenSCAD Playground](https://github.com/openscad/openscad-playground) WebAssembly build from npm on first use (pinned version, checked against its hash) and runs it as a separate program on the server only. Its source is at [github.com/openscad/openscad](https://github.com/openscad/openscad); the libraries it comes with have their own licences.
 

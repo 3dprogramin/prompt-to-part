@@ -3,7 +3,7 @@
 // with a 64 × 64 PNG texture in four colour bands – black hair, skin, a red shirt with two tiny
 // white buttons, blue trousers – embedded in the GLB.
 //
-//   npx tsx test/fixtures/meshes/make-colour-figure.ts
+//   pnpm exec tsx test/fixtures/meshes/make-colour-figure.ts
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { encode } from 'fast-png';

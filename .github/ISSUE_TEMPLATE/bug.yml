@@ -29,7 +29,7 @@ body:
     id: run
     attributes:
       label: How you run Jig
-      options: [Docker Compose, npm start, npm run dev]
+      options: [Docker Compose, pnpm start, pnpm dev]
     validations:
       required: true
   - type: dropdown

@@ -1,4 +1,4 @@
-// UI smoke test (`npm run test:ui`): the built app in one headless Chromium against a throwaway
+// UI smoke test (`pnpm test:ui`): the built app in one headless Chromium against a throwaway
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
 // Docker container or your Claude API credit. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
@@ -10,7 +10,7 @@
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
 // resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
-// Needs Playwright's Chromium (`npx playwright install chromium` once).
+// Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
