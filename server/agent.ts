@@ -30,7 +30,7 @@ import type { ParamValues } from '../shared/types';
 import { CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes } from '../shared/meshes';
 import { describeImport, meshDir } from './meshes';
 import { meshyClient } from './meshy';
-import { MODEL_FILE, toolPolicy } from './generation/toolPolicy';
+import { MODEL_FILE, SCAD_DIR, toolPolicy } from './generation/toolPolicy';
 import { currentModelContext, IMAGE_TYPES, Inbox, recapOf, steering } from './generation/messages';
 import { describeToolInput, detail, lastSentence, readText, TOOL_LABELS } from './generation/activity';
 import { askFirstNote } from './generation/notes';
@@ -69,6 +69,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const authProblem = claudeAuthProblem();
   if (authProblem) { emit({ type: 'error', message: authProblem }); return; }
   emit({ type: 'live', text: 'Jig is starting…' });
+  // Stop before Claude starts (the steps below can take a while: a render, OpenSCAD): end the reply
+  // as a Stop during the query does, without starting it.
+  const stopped = () => abort.signal.aborted;
   const ws = workspaceDir(req.designId);
   const file = path.join(ws, MODEL_FILE);
   await mkdir(ws, { recursive: true });
@@ -135,6 +138,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
   await printerLoaded().catch(() => undefined);
   const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());
+  if (stopped()) return;
   const { server: cad, state, newUserMessage } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
     pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
@@ -146,6 +150,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     printBase,
     // The user's print settings (follow-ups on a finished version send them in renderValues).
     printProfile: typeof pictureValues[PRINT_KEY] === 'string' ? pictureValues[PRINT_KEY] : undefined,
+    signal: abort.signal,
   });
 
   const content: Exclude<SDKUserMessage['message']['content'], string> = [];
@@ -156,7 +161,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 
   // Follow-ups: show Claude exactly what the user is looking at before they describe the change.
   if (isFollowUp) {
-    const view = await currentModelContext(req, emit);
+    const view = await currentModelContext(req, emit, undefined, abort.signal);
+    if (stopped()) return;
     content.push(...view.content);
     parts.push(...view.notes);
   }
@@ -169,17 +175,18 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 
   // OpenSCAD files: saved in the workspace (render_scad renders them, in later messages too) and
   // rendered now, so Claude sees what they make before rebuilding them as a Jig script.
-  const scadDir = path.join(ws, 'scad');
+  const scadDir = path.join(ws, SCAD_DIR);
   const attachedScad = parseScadFiles(req.scad) ?? [];
   const earlierScad = (await readdir(scadDir).catch(() => [] as string[])).filter((n) => n.endsWith('.scad') && !attachedScad.some((f) => f.name === n));
   for (const f of attachedScad) {
+    if (stopped()) return;
     await mkdir(scadDir, { recursive: true });
     await writeFile(path.join(scadDir, f.name), f.source);
     emit({ type: 'live', text: `Rendering ${f.name} with OpenSCAD…` });
     emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Rendering ${f.name} with OpenSCAD…` } });
     const source = f.source.length <= 40_000 ? `Its source:\n\`\`\`openscad\n${f.source}\n\`\`\`` : `Its source is long (${f.source.length} characters): Read ${path.join(scadDir, f.name)}.`;
     try {
-      const r = await runScad(f.source, undefined, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+      const r = await runScad(f.source, undefined, (text) => emit({ type: 'step', step: { kind: 'status', text } }), abort.signal);
       if (r.png) {
         content.push({ type: 'text', text: `OPENSCAD FILE ${f.name} – what OpenSCAD makes of it at its default values (views as in render_model; grid ${r.gridStep} mm):` });
         content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
@@ -187,6 +194,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       } else emit({ type: 'step', step: { kind: 'tool', ok: false, text: `${f.name}: OpenSCAD made no 3D model`, detail: formatScadReport(r) } });
       parts.push(`OpenSCAD file attached: ${f.name} (saved as ${path.join(scadDir, f.name)}).\n${formatScadReport(r)}\n${source}`);
     } catch (e) {
+      if (stopped()) return;
       emit({ type: 'step', step: { kind: 'tool', ok: false, text: `${f.name}: ${(e as Error).message}` } });
       parts.push(`OpenSCAD file attached: ${f.name} (saved as ${path.join(scadDir, f.name)}). OpenSCAD couldn't run it here (${(e as Error).message}), so there is no picture of it.\n${source}`);
     }
@@ -230,6 +238,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     : `SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
   parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : attachedMeshes.length ? '(no text – show the attached mesh as a printable model)' : '(no text – work from the reference images)')}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
+  if (stopped()) return;
 
   const env = claudeEnv();
 

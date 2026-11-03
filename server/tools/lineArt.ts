@@ -24,7 +24,7 @@ export function lineArtTools({ base, emit, drawImage, readModel, v }: ToolContex
     const code = await readModel();
     if (!code) return null;
     try {
-      const r = await geometry.evaluate(code, v(), 'draft');
+      const r = await geometry.evaluate(code, v(), 'draft', lineArt.signal);
       const la = r.ok ? r.parts.find((p) => p.lineArt?.frames.some((f) => f.name === name))?.lineArt : undefined;
       const f = la?.frames.find((x) => x.name === name);
       return f && la ? { k: f.k, k0: f.k0 ?? f.k, lineWidth: la.lineWidth } : null;

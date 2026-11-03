@@ -68,8 +68,10 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   printBase?: Required<PrintSettings>;
   /** The user's own print settings (PRINT_KEY, as JSON), which weigh the parts in the tipping check too. */
   printProfile?: string;
+  /** The generation's abort signal: Stop drops or kills its geometry jobs and OpenSCAD runs. */
+  signal?: AbortSignal;
 } = {}) {
-  const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst } = extra;
+  const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst, signal } = extra;
   const drawImage = extra.image ?? requestImage;
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
@@ -94,7 +96,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         const code = await readModel();
         if (code == null) return noFile;
         try {
-          const r = await geometry.evaluate(code, v(values));
+          const r = await geometry.evaluate(code, v(values), undefined, signal);
           const report = formatReport(r);
           emit({ type: 'step', step: { kind: 'tool', ok: r.ok, text: r.ok ? oneLine(r) : `Error: ${r.error.message}${r.error.line ? ` (line ${r.error.line})` : ''}` } });
           return { content: [{ type: 'text', text: report }], isError: !r.ok };
@@ -107,7 +109,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
         const code = await readModel();
         if (code == null) return noFile;
         try {
-          const r = await geometry.render(code, v(values));
+          const r = await geometry.render(code, v(values), signal);
           if (!r.ok || !r.png) {
             const report = formatReport(r);
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: r.ok ? 'Nothing to render' : `Error: ${r.error.message}` } });
@@ -145,7 +147,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: `No attached OpenSCAD file named ${name}.` }], isError: true };
         }
         try {
-          const r = await runScad(source, values, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+          const r = await runScad(source, values, (text) => emit({ type: 'step', step: { kind: 'status', text } }), signal);
           if (!r.png) {
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: `${scadFileName(name)}: OpenSCAD made no 3D model` } });
             return { content: [{ type: 'text', text: formatScadReport(r) }], isError: true };
@@ -190,12 +192,12 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           };
         }
         try {
-          const r = await geometry.evaluate(code, v());
+          const r = await geometry.evaluate(code, v(), undefined, signal);
           if (!r.ok || !r.parts.length) {
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: 'Submit rejected: defaults fail' } });
             return { content: [{ type: 'text', text: `Rejected – the default parameters do not produce a valid model:\n${formatReport(r)}` }], isError: true };
           }
-          const s = await geometry.stress(code, base);
+          const s = await geometry.stress(code, base, signal);
           if (s.failures.length && !force) {
             emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Stress test: ${s.failures.length} slider extreme(s) fail` } });
             return {
@@ -211,7 +213,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           try {
             // The user's print settings weigh the parts too (only here: they don't change the shape).
             const weighWith = extra.printProfile ? { ...base, [PRINT_KEY]: extra.printProfile } : base;
-            const t = await geometry.stability({ code, extra: weighWith, poses, printBase: extra.printBase ?? printDefaultsFor(printer()), nozzle: printer().nozzle, upright: tipping?.upright });
+            const t = await geometry.stability({ code, extra: weighWith, poses, printBase: extra.printBase ?? printDefaultsFor(printer()), nozzle: printer().nozzle, upright: tipping?.upright }, signal);
             const loadsLine = t.loads.length ? `\nLoads: ${t.loads.join(', ')}` : '';
             const detail = t.poses.map(formatPose).join('\n') + loadsLine;
             const failing = t.poses.filter((p) => !p.ok);
@@ -259,7 +261,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
               if (v && !def.options.some((o) => o.value === v)) return reject(`"${v}" is not an option of "${assembly.layoutParam}" (${def.options.map((o) => o.value).join(', ')}).`);
             }
             // The animated assembly needs a sequence returned from build() in the assembled layout.
-            const asm = await geometry.evaluate(code, v({ [assembly.layoutParam]: assembly.assembledValue }));
+            const asm = await geometry.evaluate(code, v({ [assembly.layoutParam]: assembly.assembledValue }), undefined, signal);
             if (!asm.ok) return reject(`The assembled layout fails: ${asm.error.message}`);
             if (!asm.assembly.length) {
               return reject('build() must also return an assembly sequence – assembly: [{ label, parts: [partNames], from?: [dx,dy,dz], rotate?: { axis, degrees, center? } }, …] – so the user can watch it being put together. Parts that never appear in a step are the base (already in place).');
@@ -269,7 +271,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
             const shots: [string, string | undefined][] = [['Assembled', assembly.assembledValue], ['Exploded view', assembly.explodedValue]];
             for (const [label, value] of shots) {
               if (!value) continue;
-              const shot = await geometry.iso(code, v({ [assembly.layoutParam]: value }));
+              const shot = await geometry.iso(code, v({ [assembly.layoutParam]: value }), signal);
               if (!shot.ok || !shot.png) return reject(`Rendering the ${label.toLowerCase()} layout failed: ${shot.ok ? 'no geometry' : shot.error.message}`);
               pictures.push({ label, png: shot.png });
             }

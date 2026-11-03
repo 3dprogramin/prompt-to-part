@@ -13,8 +13,9 @@ type UserContent = Exclude<SDKUserMessage['message']['content'], string>[number]
  * A follow-up's view of the model: the user's screenshot (currentView) and a four-view render at
  * their settings (renderValues), each only when the request brings it. Without either ("Send my
  * view" off, an approval of concept pictures, or no model on screen) Claude is told so instead.
+ * `signal` (the generation's) aborting drops the render.
  */
-export async function currentModelContext(req: GenerateRequest, emit: (e: AgentEvent) => void, render = (code: string, values: ParamValues) => geometry.render(code, values)): Promise<{ content: UserContent[]; notes: string[] }> {
+export async function currentModelContext(req: GenerateRequest, emit: (e: AgentEvent) => void, render = (code: string, values: ParamValues, signal?: AbortSignal) => geometry.render(code, values, signal), signal?: AbortSignal): Promise<{ content: UserContent[]; notes: string[] }> {
   const content: UserContent[] = [];
   const notes: string[] = [];
   const view = req.currentView && IMAGE_TYPES.has(req.currentView.mediaType) ? req.currentView : undefined;
@@ -32,7 +33,7 @@ export async function currentModelContext(req: GenerateRequest, emit: (e: AgentE
   }
   if (req.renderValues) {
     try {
-      const r = await render(req.code!, req.renderValues);
+      const r = await render(req.code!, req.renderValues, signal);
       if (r.ok && r.png) {
         content.push({ type: 'text', text: `CURRENT MODEL – four-view render at the user's exact current settings (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP; grid ${r.gridStep} mm):` });
         content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
