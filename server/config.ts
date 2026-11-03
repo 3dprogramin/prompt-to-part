@@ -30,7 +30,7 @@ export function claudeViaOpenRouter(): boolean {
 export function claudeAuthProblem(): string | null {
   const mode = process.env.JIG_AUTH?.trim();
   if (mode && mode !== 'api-key') {
-    return 'Jig no longer runs on a Claude subscription (JIG_AUTH=subscription in .env): set ANTHROPIC_API_KEY or OPENROUTER_API_KEY, remove JIG_AUTH and restart Jig. See "Claude API key" in the README.';
+    return `Jig no longer runs on a Claude subscription (JIG_AUTH=${mode}): set ANTHROPIC_API_KEY or OPENROUTER_API_KEY, remove JIG_AUTH and restart Jig. See "Claude API key" in the README.`;
   }
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.OPENROUTER_API_KEY) return null;
   return 'Jig has no Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart Jig. See "Claude API key" in the README.';

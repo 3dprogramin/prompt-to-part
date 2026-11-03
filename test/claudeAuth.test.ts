@@ -25,6 +25,8 @@ test('an old JIG_AUTH=subscription is refused, even next to an OpenRouter key', 
     assert.match(problem, /ANTHROPIC_API_KEY or OPENROUTER_API_KEY/);
     assert.match(problem, /remove JIG_AUTH/);
   });
+  // A typo is refused too, and the message names the actual value.
+  withEnv({ JIG_AUTH: 'apikey', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.match(claudeAuthProblem() ?? '', /\(JIG_AUTH=apikey\)/));
   // The default value is fine.
   withEnv({ JIG_AUTH: 'api-key', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.equal(claudeAuthProblem(), null));
 });

@@ -471,8 +471,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     if (abort.signal.aborted) return;
     const msg = (e as Error).message ?? String(e);
     // The session may be gone, or the API refuses its history (e.g. a session started with another
-    // provider): retry once in a fresh session, with a
-    // recap of the conversation so Claude knows what came before.
+    // provider): retry once in a fresh session, with a recap of the conversation so Claude knows
+    // what came before.
     if (req.sessionId && !gotOutput && !limitHit && !(e instanceof KeyRefusedError) && /session|conversation|invalid .*request/i.test(msg)) {
       emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
       try {
