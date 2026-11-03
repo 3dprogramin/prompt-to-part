@@ -46,7 +46,7 @@ export function Starters(p: { artworkModel: string | null; meshy: boolean; claud
         })}
       </div>
       {!p.claudeProblem && (
-        <button className="link-btn more-ideas" disabled={busy} onClick={more}>{busy ? 'Thinking…' : 'Give me 4 new ideas'}</button>
+        <button className="more-ideas" disabled={busy} onClick={more}>{busy ? 'Thinking…' : 'Give me 4 new ideas'}</button>
       )}
       {error && <p className="small dim">{error}</p>}
     </>
