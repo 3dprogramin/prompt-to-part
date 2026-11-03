@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
 import { COMMON_FILAMENTS, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, type FilamentLookup, type LibraryFilament } from '../../shared/filaments';
+import { siteName } from '../../shared/sources';
 import { api, lookupFilament } from '../lib/api';
 import { Icon } from './Icon';
 import { NumBox } from './NumBox';
@@ -316,12 +317,13 @@ function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: LayerTone
 function LookupNote({ r }: { r: FilamentLookup }) {
   const [label, trust] = CONFIDENCE[r.confidence] ?? CONFIDENCE.estimate;
   const src = (r.filament as LibraryFilament).source;
-  const link = src && /^https?:\/\//.test(src) ? src : undefined;
+  // Only a valid web address is a link (a bad one like "https://" would throw here and blank Jig).
+  const site = siteName(src);
   return (
     <div className="layertone-lookup small" role="status">
       <span className={`src-kind ${trust}`}>{label}</span>
       <span>TD <span className="mono">{r.filament.td} mm</span>{r.filament.brand ? ` · ${r.filament.brand} ${r.filament.name}` : ''}</span>
-      {link ? <a href={link} target="_blank" rel="noopener noreferrer">{new URL(link).hostname.replace(/^www\./, '')}</a> : src ? <span className="dim">{src}</span> : null}
+      {site ? <a href={src} target="_blank" rel="noopener noreferrer">{site}</a> : src ? <span className="dim">{src}</span> : null}
       {r.note && <span className="dim">{r.note}</span>}
     </div>
   );

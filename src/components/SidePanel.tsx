@@ -34,7 +34,7 @@ import { tokenize } from '../lib/highlight';
 import { bambuProjectSupported, printer, fitProblem, profileName, shortName, type PrinterSetup } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { stabilityLines, type StabilityReport } from '../../shared/stability';
-import { pageKey, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
+import { siteName, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
 
 type Tab = 'object' | 'decorate' | 'print' | 'code';
 
@@ -641,15 +641,15 @@ function Sources({ list }: { list: DimensionSource[] }) {
       <ul className="sources">
         {sorted.map((s, i) => {
           const kind = SOURCE_KINDS[s.kind];
-          const link = pageKey(s.url) ? s.url : undefined;
+          const site = siteName(s.url);
           return (
             <li key={i}>
               <span className={`src-kind ${kind.trust}`} title={kind.hint}>{kind.label}</span>
               <div className="src-meta">
                 <div>{s.dimension}: <span className="mono">{s.value}</span></div>
-                {link && (
+                {site && (
                   <div className="small">
-                    <a href={link} target="_blank" rel="noopener noreferrer">{new URL(link).hostname.replace(/^www\./, '')}</a>
+                    <a href={s.url} target="_blank" rel="noopener noreferrer">{site}</a>
                     {WEB_KINDS.includes(s.kind) && !s.opened && <span className="dim" title="Jig cited this page without opening it (e.g. from a search result)"> · not opened by Jig</span>}
                   </div>
                 )}

@@ -39,6 +39,15 @@ export function pageKey(url: string | undefined): string | null {
   return `${u.hostname.toLowerCase().replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}${u.search}`;
 }
 
+/** The site of a web URL as a link shows it ("raspberrypi.com"); null if it is not a valid http(s) URL. */
+export function siteName(url: string | undefined): string | null {
+  if (!url) return null;
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname) return null;
+  return u.hostname.toLowerCase().replace(/^www\./, '');
+}
+
 /** Why Claude's list of sources can't be accepted, or null. */
 export function sourcesProblem(list: DimensionSource[]): string | null {
   for (const s of list) {
