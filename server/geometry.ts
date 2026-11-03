@@ -80,9 +80,10 @@ export function bundleWorker(name: string): string {
 function getWorker(): Worker {
   if (worker) return worker;
   const w = spawnWorker();
-  // The worker dying mid-job (uncaught error, abort) counts as a crash, so the job is retried.
-  const crashAll = (error: string) => {
-    for (const [id, p] of pending) if (p.worker === w) { pending.delete(id); p.resolve({ error, crashed: true }); }
+  // The worker dying mid-job (uncaught error, abort) counts as a crash, so the job is retried,
+  // unless it ran out of memory (`oom`), which a retry would only repeat.
+  const crashAll = (error: string, oom = false) => {
+    for (const [id, p] of pending) if (p.worker === w) { pending.delete(id); p.resolve({ error, crashed: true, oom }); }
   };
   w.on('message', (msg: Reply & { id: number } | { fontReq: number; font: string } | { meshReq: number; url: string }) => {
     if ('fontReq' in msg) {
@@ -106,10 +107,22 @@ function getWorker(): Worker {
     p.resolve(msg);
   });
   w.on('error', (e: Error) => { if (worker === w) worker = null; crashAll(e.message); });
-  w.on('exit', (code, signal) => { if (worker === w) worker = null; crashAll(`Geometry worker exited (${signal ?? `code ${code}`})`); });
+  w.on('exit', (code, signal) => {
+    if (worker === w) worker = null;
+    if (diedOfOom(code, signal)) crashAll('The script ran out of memory (more than 2 GB): build less at once (fewer segments, smaller loops, no huge arrays).', true);
+    else crashAll(`Geometry worker exited (${signal ?? `code ${code}`})`);
+  });
   worker = w;
   jobsOnWorker = 0;
   return w;
+}
+
+/**
+ * How a worker that ran out of JavaScript heap ends: V8 prints "JavaScript heap out of memory" and
+ * aborts the process (SIGABRT; exit code 134 where no signal is reported).
+ */
+export function diedOfOom(code: number | null, signal: NodeJS.Signals | null): boolean {
+  return signal === 'SIGABRT' || code === 134;
 }
 
 function dropWorker(w: Worker) {

@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatReport, geometry } from '../server/geometry';
+import { diedOfOom, formatReport, geometry } from '../server/geometry';
 
 // The locked-down geometry process the agent's tools use (server/geometry.ts).
 after(() => geometry.stop()); // the worker process would keep the event loop alive
@@ -79,4 +79,12 @@ test('upright turns a part printed on its side', async () => {
   assert.ok(up.poses[0].com[2] > 25 && up.poses[0].com[2] < 35, JSON.stringify(up));
   assert.ok(flat.poses[0].com[2] < 10, JSON.stringify(flat));
   assert.ok(up.poses[0].edgeMm < 6, JSON.stringify(up));
+});
+
+test('a worker killed by running out of JavaScript heap counts as out of memory (not retried)', () => {
+  assert.equal(diedOfOom(null, 'SIGABRT'), true);
+  assert.equal(diedOfOom(134, null), true);
+  assert.equal(diedOfOom(null, 'SIGTERM'), false);
+  assert.equal(diedOfOom(1, null), false);
+  assert.equal(diedOfOom(0, null), false);
 });
