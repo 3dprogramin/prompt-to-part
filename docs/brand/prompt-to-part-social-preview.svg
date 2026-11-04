@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
-  <!-- GitHub social preview source. Render: rsvg-convert -w 1280 -h 640 jig-social-preview.svg -o jig-social-preview.png -->
+  <!-- GitHub social preview source. Render: rsvg-convert -w 1280 -h 640 prompt-to-part-social-preview.svg -o prompt-to-part-social-preview.png -->
   <defs>
     <radialGradient id="glow" cx="22%" cy="50%" r="60%">
       <stop offset="0" stop-color="#1f2126"/>

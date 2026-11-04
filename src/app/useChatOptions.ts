@@ -19,7 +19,7 @@ export function useChatOptions(design: Design) {
   // Model, effort and web search per design, in memory only: every new design (and every reload)
   // starts with Opus, High effort and web search on.
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
-  // The starting model and effort come from the server's settings (JIG_MODEL, JIG_EFFORT).
+  // The starting model and effort come from the server's settings (PTP_MODEL, PTP_EFFORT).
   const [chatDefaults, setChatDefaults] = useState<ChatOptions>(DEFAULT_CHAT);
   // What kind of design it is (line art, LayerTone…), from its code: shown by its name.
   const kind = useMemo(() => designKind(design.code, design.values),

@@ -57,7 +57,7 @@ async function blendOne(req: BlendRequest): Promise<Buffer> {
   if (!blender) throw new Error('Blender was not found on this computer');
   if (blender.problem) throw new Error(blender.problem);
   const bin = blenderPath()!;
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'jig-blend-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ptp-blend-'));
   try {
     const parts = await Promise.all(req.parts.map(async (p, i) => {
       await writeFile(path.join(dir, `p${i}.pos`), Buffer.from(p.positions, 'base64'));

@@ -35,20 +35,20 @@ test("Bambu Studio's slice info: time, total and per-filament grams", () => {
   assert.throws(() => parseSliceInfo('<config/>'), /no print time/);
 });
 
-test("Claude's price answer is read and checked, in JIG_CURRENCY", () => {
-  const before = process.env.JIG_CURRENCY;
-  process.env.JIG_CURRENCY = 'eur';
+test("Claude's price answer is read and checked, in PTP_CURRENCY", () => {
+  const before = process.env.PTP_CURRENCY;
+  process.env.PTP_CURRENCY = 'eur';
   try {
     assert.deepEqual(parseSuggestion('Here: {"price": 45, "low": 35, "high": 60, "reasoning": "Small, quick print."}'),
       { price: 45, low: 35, high: 60, reasoning: 'Small, quick print.', currency: 'EUR' });
   } finally {
-    if (before === undefined) delete process.env.JIG_CURRENCY; else process.env.JIG_CURRENCY = before;
+    if (before === undefined) delete process.env.PTP_CURRENCY; else process.env.PTP_CURRENCY = before;
   }
   assert.throws(() => parseSuggestion('About 40 lei.'), /had no price/);
   assert.throws(() => parseSuggestion('{"price": "a lot"}'), /had no price/);
 });
 
-test('the currency: any ISO code from JIG_CURRENCY, typical starting prices in a few', () => {
+test('the currency: any ISO code from PTP_CURRENCY, typical starting prices in a few', () => {
   assert.equal(parseCurrency(' ron '), 'RON');
   assert.equal(parseCurrency('US'), null);
   assert.equal(parseCurrency(undefined), null);

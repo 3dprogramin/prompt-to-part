@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Report a security problem
-    url: https://github.com/3dprogramin/jig/blob/main/SECURITY.md
+    url: https://github.com/3dprogramin/prompt-to-part/blob/main/SECURITY.md
     about: Please email security problems instead of opening a public issue.

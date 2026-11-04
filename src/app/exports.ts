@@ -106,7 +106,7 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
         setNotice({ text: 'Not exported: every part is hidden in the viewer.', level: 'warning', details: false });
         return;
       }
-      // design.jig.json is the design as the server stores it (what Import designs… reads): the
+      // design.ptp.json is the design as the server stores it (what Import designs… reads): the
       // latest changes are saved first. Should that fail, this tab's copy is written instead.
       setExportStage('design');
       if (isUnsaved(design.id)) await saveNow(design).catch(() => {});

@@ -30,7 +30,7 @@ const RECYCLE_AFTER = 300;
 // The real path: the permission model checks resolved paths, so a symlinked node_modules (a git
 // worktree sharing another checkout's) would otherwise be unreadable to the workers.
 export const NODE_MODULES = realpathSync(path.join(ROOT, 'node_modules'));
-const CACHE = path.join(NODE_MODULES, '.cache', 'jig');
+const CACHE = path.join(NODE_MODULES, '.cache', 'prompt-to-part');
 const major = Number(process.versions.node.split('.')[0]);
 // The flag lost its "experimental" prefix in Node 22.13 and 23.5.
 export const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';

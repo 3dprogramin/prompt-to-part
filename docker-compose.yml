@@ -2,35 +2,35 @@
 # README). Settings and secrets come from .env (copy .env.sample).
 #
 # prompt-to-part has no login by default: anyone who can reach its port can use your API keys. It is
-# therefore published on this computer only (127.0.0.1). JIG_BIND=0.0.0.0 in .env publishes it on
-# every interface (e.g. to try it from a phone; add this computer's address to JIG_HOSTS): then set
-# JIG_PASSWORD in .env as well (the browser asks for it once), and only on a network you trust.
-name: jig
+# therefore published on this computer only (127.0.0.1). PTP_BIND=0.0.0.0 in .env publishes it on
+# every interface (e.g. to try it from a phone; add this computer's address to PTP_HOSTS): then set
+# PTP_PASSWORD in .env as well (the browser asks for it once), and only on a network you trust.
+name: prompt-to-part
 
 services:
-  jig:
+  app:
     build:
       context: .
       args:
         # 1 adds Bambu Studio for Cost tab slicing and 3MF print settings (larger image, amd64 only).
-        WITH_BAMBU: ${JIG_WITH_BAMBU:-0}
+        WITH_BAMBU: ${PTP_WITH_BAMBU:-0}
         # 1 adds Blender for .blend export (larger image, amd64 only).
-        WITH_BLENDER: ${JIG_WITH_BLENDER:-0}
-    image: jig:local
+        WITH_BLENDER: ${PTP_WITH_BLENDER:-0}
+    image: prompt-to-part:local
     env_file: .env
     # These win over .env, which may still hold a local install's paths.
     environment:
       # The app checks that requests name its own port, so the container listens on the published one.
-      PORT: ${JIG_PORT:-8787}
-      JIG_HOST: 0.0.0.0
-      JIG_DATA: /data
-      # Where the port is published, so the app can warn when it is reachable without JIG_PASSWORD.
-      JIG_PUBLISHED: ${JIG_BIND:-127.0.0.1}
+      PORT: ${PTP_PORT:-8787}
+      PTP_HOST: 0.0.0.0
+      PTP_DATA: /data
+      # Where the port is published, so the app can warn when it is reachable without PTP_PASSWORD.
+      PTP_PUBLISHED: ${PTP_BIND:-127.0.0.1}
       CLAUDE_CONFIG_DIR: /home/node/.claude
       # With the Bambu Studio user folder mounted below: your own printer presets in the printer list.
       # BAMBU_STUDIO_USER_DIR: /bambu-user
     ports:
-      - "${JIG_BIND:-127.0.0.1}:${JIG_PORT:-8787}:${JIG_PORT:-8787}"
+      - "${PTP_BIND:-127.0.0.1}:${PTP_PORT:-8787}:${PTP_PORT:-8787}"
     volumes:
       # Designs, chat images, workspaces, the Bambu template and slicer data, cost settings.
       - data:/data
@@ -50,8 +50,8 @@ services:
       - /tmp:size=2g
       - /home/node:uid=1000,gid=1000,mode=0700
     # Limits for the whole container (prompt-to-part, Claude Code, OpenSCAD, Bambu Studio, Blender), so a runaway
-    # job can't take the computer down with it. JIG_MEM_LIMIT in .env raises the memory limit.
-    mem_limit: ${JIG_MEM_LIMIT:-8g}
+    # job can't take the computer down with it. PTP_MEM_LIMIT in .env raises the memory limit.
+    mem_limit: ${PTP_MEM_LIMIT:-8g}
     pids_limit: 512
     cap_drop: [ALL]
     security_opt:

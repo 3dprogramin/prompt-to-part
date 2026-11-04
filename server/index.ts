@@ -6,13 +6,13 @@ import { sweepDataDir } from './sweep';
 
 geometry.warmup();
 // Leftovers of a crash (a half-restored backup, temp files, workspaces of designs never saved).
-void sweepDataDir().then(({ removed }) => { if (removed.length) console.log(`[jig] Removed ${removed.length} leftover file(s) from the data folder`); }, (e) => console.warn('[sweep]', (e as Error).message));
+void sweepDataDir().then(({ removed }) => { if (removed.length) console.log(`[prompt-to-part] Removed ${removed.length} leftover file(s) from the data folder`); }, (e) => console.warn('[sweep]', (e as Error).message));
 createApp().listen(PORT, HOST, () => {
   console.log(`prompt-to-part server on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
-  // In Docker the container listens on 0.0.0.0 and JIG_PUBLISHED (JIG_BIND, set by docker-compose.yml) says
+  // In Docker the container listens on 0.0.0.0 and PTP_PUBLISHED (PTP_BIND, set by docker-compose.yml) says
   // where it is published: only that tells whether other computers can reach it.
-  const exposed = process.env.JIG_PUBLISHED?.trim() || HOST;
-  if (!PASSWORD && !isLoopback(exposed)) console.warn(`[jig] Listening on ${exposed} without JIG_PASSWORD: anyone who can reach port ${PORT} can use prompt-to-part and your API keys. Set JIG_PASSWORD in .env.`);
+  const exposed = process.env.PTP_PUBLISHED?.trim() || HOST;
+  if (!PASSWORD && !isLoopback(exposed)) console.warn(`[prompt-to-part] Listening on ${exposed} without PTP_PASSWORD: anyone who can reach port ${PORT} can use prompt-to-part and your API keys. Set PTP_PASSWORD in .env.`);
 });
 
 // Docker stops the container with SIGTERM (and kills it 10 s later): running replies are ended

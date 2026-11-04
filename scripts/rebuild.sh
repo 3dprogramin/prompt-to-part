@@ -8,8 +8,8 @@
 #   scripts/rebuild.sh --now    rebuild without waiting
 set -euo pipefail
 cd "$(dirname "$0")/.."
-CONTAINER=${JIG_CONTAINER:-jig-jig-1}
-WAIT_S=${JIG_REBUILD_WAIT:-1800}
+CONTAINER=${PTP_CONTAINER:-prompt-to-part-app-1}
+WAIT_S=${PTP_REBUILD_WAIT:-1800}
 
 busy() {
   docker top "$CONTAINER" -eo args 2>/dev/null | grep -Eiq 'claude|bambu'

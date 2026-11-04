@@ -120,7 +120,7 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
       const cost = meshyCredits(color);
       if (state.meshyCalls >= max) {
         emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: not making "${a.name}" – at most ${max} model${max === 1 ? '' : 's'} per reply` } });
-        return refuse(`Refused – ${max ? `you have already had Meshy make ${state.meshyCalls} model${state.meshyCalls === 1 ? '' : 's'} in this reply, the most allowed per reply` : 'Meshy models are turned off (JIG_MESHY_MAX_PER_REPLY=0)'}. Stop calling generate_3d: build the rest (bases, scenery, props) in the script, or end your reply and ask the user whether to make "${a.name}" with Meshy – it would cost ${cost} Meshy credits${color ? ' (in colour)' : ''}. Their next message gets a fresh allowance.`);
+        return refuse(`Refused – ${max ? `you have already had Meshy make ${state.meshyCalls} model${state.meshyCalls === 1 ? '' : 's'} in this reply, the most allowed per reply` : 'Meshy models are turned off (PTP_MESHY_MAX_PER_REPLY=0)'}. Stop calling generate_3d: build the rest (bases, scenery, props) in the script, or end your reply and ask the user whether to make "${a.name}" with Meshy – it would cost ${cost} Meshy credits${color ? ' (in colour)' : ''}. Their next message gets a fresh allowance.`);
       }
       // The slot is taken now (calls may run side by side) and given back if no task was started.
       state.meshyCalls++;

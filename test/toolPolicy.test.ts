@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { publicPage, publicUrl, toolPolicy } from '../server/agent';
 
-const ws = path.resolve('/tmp/jig-test/workspaces/abc12345');
+const ws = path.resolve('/tmp/ptp-test/workspaces/abc12345');
 const file = path.join(ws, 'model.js');
 
 test('only the design\'s own model.js can be read and written', async () => {

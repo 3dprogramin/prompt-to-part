@@ -44,7 +44,7 @@ export function planProject(o: { base: string; blend: boolean; images: string[];
   const files: PlannedFile[] = [
     { path: 'model.js', kind: 'model', label: 'script' },
     { path: 'values.json', kind: 'values', label: 'values' },
-    { path: 'design.jig.json', kind: 'design', label: 'design' },
+    { path: 'design.ptp.json', kind: 'design', label: 'design' },
     { path: `${o.base}.stl`, kind: 'stl', label: 'STL' },
   ];
   // Before the 3MF: its worker borrows the meshes while it runs.
@@ -178,7 +178,7 @@ export function projectReadme(i: ReadmeInfo): string {
   const about: Record<string, string> = {
     'model.js': 'the model script (JavaScript)',
     'values.json': 'the parameter values',
-    'design.jig.json': 'the whole prompt-to-part design: chat, versions and values',
+    'design.ptp.json': 'the whole prompt-to-part design: chat, versions and values',
   };
   for (const f of i.files.filter((p) => !p.includes('/') && p !== 'README.md')) {
     const what = about[f] ?? (f.endsWith('.stl') ? `${i.parts.length > 1 ? 'all parts' : 'the model'} as one mesh`

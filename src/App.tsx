@@ -106,7 +106,7 @@ export default function App() {
     const onDrop = (e: DragEvent) => {
       if (!isFiles(e)) return;
       e.preventDefault();
-      window.dispatchEvent(new CustomEvent('jig-drop-files', { detail: [...e.dataTransfer!.files] }));
+      window.dispatchEvent(new CustomEvent('ptp-drop-files', { detail: [...e.dataTransfer!.files] }));
       setLeftOpen(true);
     };
     window.addEventListener('dragover', onOver);

@@ -9,12 +9,12 @@ process.env.VITE_APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).
 const API = `http://127.0.0.1:${process.env.API_PORT ?? 8787}`;
 // Forward slashes: the deny globs below don't match Windows backslashes.
 const slash = (p: string) => p.replace(/\\/g, '/');
-// The repo's own data/ is hidden even when JIG_DATA points elsewhere (it may still hold designs).
-const DATA_DIRS = [...new Set([path.resolve('data'), path.resolve(process.env.JIG_DATA ?? 'data')].map(slash))];
+// The repo's own data/ is hidden even when PTP_DATA points elsewhere (it may still hold designs).
+const DATA_DIRS = [...new Set([path.resolve('data'), path.resolve(process.env.PTP_DATA ?? 'data')].map(slash))];
 
 /** Designs live in ./data, inside Vite's root: never serve them as static files. */
 const hideData = (): Plugin => ({
-  name: 'jig-hide-data',
+  name: 'ptp-hide-data',
   configureServer(server) {
     server.middlewares.use((req, res, next) => {
       // Decoded and normalised, so /%64ata/…, /./data/… and /src/../data/… are caught too.
@@ -38,7 +38,7 @@ function notices(): { collect: Plugin; write: Plugin } {
   const packages = new Map<string, string>();
   let outDir = 'dist';
   const collect: Plugin = {
-    name: 'jig-notices-collect',
+    name: 'ptp-notices-collect',
     generateBundle(_, bundle) {
       for (const chunk of Object.values(bundle)) {
         if (chunk.type !== 'chunk') continue;
@@ -50,7 +50,7 @@ function notices(): { collect: Plugin; write: Plugin } {
     },
   };
   const write: Plugin = {
-    name: 'jig-notices-write',
+    name: 'ptp-notices-write',
     apply: 'build',
     configResolved(c) { outDir = path.resolve(c.root, c.build.outDir); },
     closeBundle() {

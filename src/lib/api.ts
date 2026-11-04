@@ -11,8 +11,8 @@ import { trimActivity } from './activity';
 
 export type { AgentEvent, FontEntry } from '../../shared/api';
 
-/** Every write to the API carries X-Jig: the server refuses writes without it (see server/index.ts). */
-export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Jig': '1' };
+/** Every write to the API carries X-PTP: the server refuses writes without it (see server/index.ts). */
+export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-PTP': '1' };
 
 /** A failed API call: the server's message, the HTTP status and the response body. */
 export class HttpError extends Error {
@@ -23,7 +23,7 @@ export class HttpError extends Error {
 
 const UNREACHABLE = "Can't reach the prompt-to-part server: is it running?";
 
-/** fetch() that adds X-Jig to writes and turns a network failure or an error status into an HttpError. */
+/** fetch() that adds X-PTP to writes and turns a network failure or an error status into an HttpError. */
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const write = !!init.method && init.method !== 'GET';
   let r: Response;

@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 // Its own data folder, and no Bambu Studio on PATH (the built-in printer list).
-const root = mkdtempSync(path.join(os.tmpdir(), 'jig-printer-test-'));
+const root = mkdtempSync(path.join(os.tmpdir(), 'ptp-printer-test-'));
 const dataDir = path.join(root, 'data');
-process.env.JIG_DATA = dataDir;
+process.env.PTP_DATA = dataDir;
 process.env.PATH = '';
 delete process.env.BAMBU_STUDIO_PATH;
 const { activePrinter, loadPrinterSetting, savePrinterSetting } = await import('../server/printerSetting');

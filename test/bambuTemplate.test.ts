@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import os from 'node:os';
 import path from 'node:path';
 
-const root = mkdtempSync(path.join(os.tmpdir(), 'jig-template-test-'));
+const root = mkdtempSync(path.join(os.tmpdir(), 'ptp-template-test-'));
 const dataDir = path.join(root, 'data');
-process.env.JIG_DATA = dataDir;
+process.env.PTP_DATA = dataDir;
 const { bambuTemplate, cachedPrintDefaults, templateFile } = await import('../server/bambu');
 const { DEFAULT_PRINTER, BUILTIN_PRINTERS } = await import('../shared/printer');
 after(() => rmSync(root, { recursive: true, force: true }));

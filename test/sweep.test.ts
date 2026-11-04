@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync }
 import os from 'node:os';
 import path from 'node:path';
 
-const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-sweep-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-sweep-test-'));
+process.env.PTP_DATA = dataDir;
 const { sweepDataDir } = await import('../server/sweep');
 after(() => rmSync(dataDir, { recursive: true, force: true }));
 

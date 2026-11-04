@@ -31,7 +31,7 @@ export { endGenerations } from './routes/generate';
 export interface AppOptions {
   /** Port the server listens on: requests must name it in their Host header. */
   port?: number;
-  /** Names it answers to besides localhost and 127.0.0.1 (JIG_HOSTS). */
+  /** Names it answers to besides localhost and 127.0.0.1 (PTP_HOSTS). */
   hosts?: string[];
   /** Runs a generation (tests pass a stand-in instead of Claude). */
   generate?: typeof runGeneration;
@@ -47,22 +47,22 @@ export interface AppOptions {
   image?: typeof requestImage;
   /** Checks what the app runs Claude on (tests pass a stand-in: the real one calls the provider). */
   connection?: typeof checkConnection;
-  /** The password every request must carry (JIG_PASSWORD), or '' for none. */
+  /** The password every request must carry (PTP_PASSWORD), or '' for none. */
   password?: string;
-  /** Most replies at once, over all designs (JIG_MAX_GENERATIONS). */
+  /** Most replies at once, over all designs (PTP_MAX_GENERATIONS). */
   maxGenerations?: number;
 }
 
 export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
   const app = express();
 
-  // With JIG_PASSWORD, every page and API call needs it (HTTP Basic auth): the Host and Origin checks
+  // With PTP_PASSWORD, every page and API call needs it (HTTP Basic auth): the Host and Origin checks
   // below only stop browsers on other sites, not another device on the network calling the API.
   if (password) app.use(requirePassword(password));
 
   // Only the app's own pages may use the API. The Host check defeats DNS rebinding (a website whose
   // domain is re-pointed at 127.0.0.1), the Origin check refuses every other site, including pages
-  // on other local ports, and requiring the X-Jig header on writes means a plain cross-site form or
+  // on other local ports, and requiring the X-PTP header on writes means a plain cross-site form or
   // beacon can never change anything. In development the Vite proxy (vite.config.ts) passes requests
   // from the app's own page on with the API's origin and leaves every other origin as it is.
   const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', ...hosts].map((h) => `${h}:${port}`));
@@ -71,7 +71,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
     if (!LOCAL_HOSTS.has(req.headers.host ?? '')) return void res.status(421).json({ error: 'Unexpected Host header' });
     const origin = req.headers.origin;
     if (origin && !LOCAL_ORIGINS.has(origin)) return void res.status(403).json({ error: 'Cross-origin request refused' });
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['x-jig'] !== '1') return void res.status(403).json({ error: 'Missing X-Jig header' });
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['x-ptp'] !== '1') return void res.status(403).json({ error: 'Missing X-PTP header' });
     next();
   });
   // Docker's healthcheck: only that the server answers (it needs no password).
@@ -133,8 +133,8 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
 
   const dist = path.join(ROOT, 'dist');
   if (PRODUCTION) {
-    if (!existsSync(path.join(dist, 'index.html'))) console.warn('[jig] dist/ is missing: run `pnpm build` first; only the API is served.');
-    else if (newestSource() > statSync(path.join(dist, 'index.html')).mtimeMs) console.warn('[jig] dist/ is older than the source code: run `pnpm build` to serve the current app.');
+    if (!existsSync(path.join(dist, 'index.html'))) console.warn('[prompt-to-part] dist/ is missing: run `pnpm build` first; only the API is served.');
+    else if (newestSource() > statSync(path.join(dist, 'index.html')).mtimeMs) console.warn('[prompt-to-part] dist/ is older than the source code: run `pnpm build` to serve the current app.');
     // Built files under assets/ have a content hash in their name: a new build gets new names.
     app.use('/assets', express.static(path.join(dist, 'assets'), { immutable: true, maxAge: '1y' }));
     app.use(express.static(dist));

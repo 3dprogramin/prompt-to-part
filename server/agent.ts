@@ -42,7 +42,7 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 
 /** The environment for the Claude Code process the Agent SDK starts. */
 export function claudeEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'jig/1.0' };
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'prompt-to-part/1.0' };
   // Claude runs on the key (or token and base URL) only, never on a CLI login or an OAuth token left
   // in the environment; without a key nothing runs (claudeAuthProblem).
   delete env.CLAUDE_CODE_OAUTH_TOKEN;

@@ -7,8 +7,8 @@ import path from 'node:path';
 
 // The API with a password and room for one reply at a time (as in api.test.ts: a free port, its
 // own data folder and a stand-in for Claude).
-const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-limits-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-limits-test-'));
+process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'sk-test';
 // Quiet: Express logs the uploads this test cuts off unless NODE_ENV is test.
 process.env.NODE_ENV = 'test';
@@ -30,7 +30,7 @@ after(() => { server.close(); rmSync(dataDir, { recursive: true, force: true });
 const A = `http://127.0.0.1:${port}`;
 const basic = (user: string, pass: string) => `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
 const AUTH = { Authorization: basic('anyone', 's3cret') };
-const W = { ...AUTH, 'Content-Type': 'application/json', 'X-Jig': '1' };
+const W = { ...AUTH, 'Content-Type': 'application/json', 'X-PTP': '1' };
 
 test('the password: checked in constant time, any user name', () => {
   assert.equal(passwordMatches(basic('', 's3cret'), 's3cret'), true);
@@ -41,17 +41,17 @@ test('the password: checked in constant time, any user name', () => {
   assert.equal(passwordMatches(undefined, 's3cret'), false);
   assert.equal(passwordMatches('Bearer s3cret', 's3cret'), false);
   for (const h of ['127.0.0.1', 'localhost', '::1', '[::1]', '127.1.2.3']) assert.equal(isLoopback(h), true, h);
-  for (const h of ['0.0.0.0', '192.168.1.20', '::', 'jig.lan']) assert.equal(isLoopback(h), false, h);
+  for (const h of ['0.0.0.0', '192.168.1.20', '::', 'ptp.lan']) assert.equal(isLoopback(h), false, h);
 });
 
-test('with JIG_PASSWORD every page and API call needs it, but the healthcheck does not', async () => {
+test('with PTP_PASSWORD every page and API call needs it, but the healthcheck does not', async () => {
   for (const p of ['/api/designs', '/api/capabilities', '/api/backup', '/', '/assets/x.js']) {
     const r = await fetch(`${A}${p}`);
     assert.equal(r.status, 401, p);
     assert.match(r.headers.get('www-authenticate') ?? '', /^Basic realm="prompt-to-part"/);
   }
   assert.equal((await fetch(`${A}/api/designs`, { headers: { Authorization: basic('anyone', 'wrong') } })).status, 401);
-  assert.equal((await fetch(`${A}/api/designs/test-lim-00000001`, { method: 'DELETE', headers: { 'X-Jig': '1' } })).status, 401);
+  assert.equal((await fetch(`${A}/api/designs/test-lim-00000001`, { method: 'DELETE', headers: { 'X-PTP': '1' } })).status, 401);
   assert.equal((await fetch(`${A}/api/designs`, { headers: AUTH })).status, 200);
   assert.deepEqual(await (await fetch(`${A}/api/health`)).json(), { ok: true });
 });
@@ -77,13 +77,13 @@ test('a slice or .blend export: one running and one waiting, the next is told to
     // Two uploads still under way (their bodies never finish) hold both places.
     const open: ClientRequest[] = [];
     for (let i = 0; i < 2; i++) {
-      const r = request({ host: '127.0.0.1', port, path: route, method: 'POST', headers: { ...AUTH, 'X-Jig': '1', 'Content-Type': type, 'Content-Length': 100_000_000 } });
+      const r = request({ host: '127.0.0.1', port, path: route, method: 'POST', headers: { ...AUTH, 'X-PTP': '1', 'Content-Type': type, 'Content-Length': 100_000_000 } });
       r.on('error', () => {});
       r.write(Buffer.alloc(1000));
       open.push(r);
     }
     await new Promise((r) => setTimeout(r, 100));
-    const third = await fetch(`${A}${route}`, { method: 'POST', headers: { ...AUTH, 'X-Jig': '1', 'Content-Type': type }, body: 'x' });
+    const third = await fetch(`${A}${route}`, { method: 'POST', headers: { ...AUTH, 'X-PTP': '1', 'Content-Type': type }, body: 'x' });
     assert.equal(third.status, 429, route);
     assert.match((await third.json()).error, busy);
     // When they go, there is room again (an empty body is then refused as such).
@@ -91,7 +91,7 @@ test('a slice or .blend export: one running and one waiting, the next is told to
     let status = 429;
     for (let i = 0; i < 50 && status === 429; i++) {
       await new Promise((r) => setTimeout(r, 20));
-      status = (await fetch(`${A}${route}`, { method: 'POST', headers: { ...AUTH, 'X-Jig': '1', 'Content-Type': type }, body: type === 'application/json' ? '{}' : '' })).status;
+      status = (await fetch(`${A}${route}`, { method: 'POST', headers: { ...AUTH, 'X-PTP': '1', 'Content-Type': type }, body: type === 'application/json' ? '{}' : '' })).status;
     }
     assert.equal(status, 400, route);
   }

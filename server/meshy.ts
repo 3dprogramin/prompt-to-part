@@ -16,11 +16,11 @@ export const MAX_DOWNLOAD = 100 * 1024 * 1024;
 /** Longest prompt Meshy takes. */
 export const MAX_MESHY_PROMPT = 800;
 export { MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits } from '../shared/meshes';
-/** Most generate_3d calls in one reply (JIG_MESHY_MAX_PER_REPLY); the user's next message gets a fresh allowance. */
+/** Most generate_3d calls in one reply (PTP_MESHY_MAX_PER_REPLY); the user's next message gets a fresh allowance. */
 export const MESHY_MAX_PER_REPLY = 2;
 export const meshyMaxPerReply = () => {
-  const n = Number(process.env.JIG_MESHY_MAX_PER_REPLY);
-  return process.env.JIG_MESHY_MAX_PER_REPLY?.trim() && Number.isInteger(n) && n >= 0 ? n : MESHY_MAX_PER_REPLY;
+  const n = Number(process.env.PTP_MESHY_MAX_PER_REPLY);
+  return process.env.PTP_MESHY_MAX_PER_REPLY?.trim() && Number.isInteger(n) && n >= 0 ? n : MESHY_MAX_PER_REPLY;
 };
 
 export type MeshyKind = 'text-to-3d' | 'image-to-3d';

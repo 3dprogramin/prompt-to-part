@@ -193,7 +193,7 @@ export async function bambuTemplate(p: Printer = printer()): Promise<BambuTempla
     job = (async () => {
       const bin = await findBambuBinary();
       if (!bin) throw new Error('Bambu Studio was not found on this computer');
-      const work = await mkdtemp(path.join(os.tmpdir(), 'jig-bambu-'));
+      const work = await mkdtemp(path.join(os.tmpdir(), 'ptp-bambu-'));
       try {
         for (const { kind, name, preset } of presets) {
           const out = { ...preset };

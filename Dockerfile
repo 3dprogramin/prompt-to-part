@@ -91,10 +91,10 @@ WORKDIR /app
 # a slow DNS server would otherwise hold up every file read and stall the whole server.
 ENV NODE_ENV=production \
     UV_THREADPOOL_SIZE=16 \
-    JIG_HOST=0.0.0.0 \
+    PTP_HOST=0.0.0.0 \
     PORT=8787 \
-    JIG_DATA=/data \
-    JIG_DOCKER=1 \
+    PTP_DATA=/data \
+    PTP_DOCKER=1 \
     CLAUDE_CONFIG_DIR=/home/node/.claude
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

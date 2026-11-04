@@ -132,10 +132,10 @@ export interface Capabilities {
   artwork: string | null;
   /** 3D figures from Meshy can be made (MESHY_API_KEY set). */
   meshy: boolean;
-  /** The chat's starting model and effort (JIG_MODEL, JIG_EFFORT). */
+  /** The chat's starting model and effort (PTP_MODEL, PTP_EFFORT). */
   model: string;
   effort: string;
-  /** The currency costs are in (JIG_CURRENCY). */
+  /** The currency costs are in (PTP_CURRENCY). */
   currency: string;
 }
 

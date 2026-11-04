@@ -1,7 +1,7 @@
 // What this app can do and runs on: capabilities, Meshy credits, the Claude connection, dictation and Bambu Studio.
 import express from 'express';
 import type { Capabilities, SpeechToken } from '../../shared/api';
-import { claudeAuthProblem, defaultEffort, defaultModel, jigCurrency } from '../config';
+import { claudeAuthProblem, defaultEffort, defaultModel, appCurrency } from '../config';
 import { blenderInfo } from '../blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from '../bambu';
 import { printerLoaded } from '../printerSetting';
@@ -26,7 +26,7 @@ export function registerSystemRoutes(app: express.Express, { connection }: { con
   app.get('/api/capabilities', async (_req, res) => {
     await printerLoaded().catch(() => undefined);
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: jigCurrency() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: appCurrency() } satisfies Capabilities);
   });
 
   // The Meshy account's credits, for the 3D figure button (free to ask; asked at most once a minute).

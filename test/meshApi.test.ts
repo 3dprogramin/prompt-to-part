@@ -9,8 +9,8 @@ import type { AgentEvent, MeshUpload } from '../shared/api';
 import type { MeshEntry } from '../shared/meshes';
 
 // The API with its own data folder (the geometry process reads the mesh files from it).
-const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-mesh-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-mesh-test-'));
+process.env.PTP_DATA = dataDir;
 const { createApp } = await import('../server/app');
 const { geometry, formatReport } = await import('../server/geometry');
 const { cadTools } = await import('../server/cadTools');
@@ -28,7 +28,7 @@ after(() => { server.close(); mock.close(); geometry.stop(); rmSync(dataDir, { r
 
 const A = `http://127.0.0.1:${port}`;
 const fixture = (name: string) => readFileSync(path.join(import.meta.dirname, 'fixtures', 'meshes', name));
-const upload = (id: string, name: string, body: Uint8Array) => fetch(`${A}/api/designs/${id}/meshes?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-Jig': '1', 'Content-Type': 'application/octet-stream' }, body: new Uint8Array(body) });
+const upload = (id: string, name: string, body: Uint8Array) => fetch(`${A}/api/designs/${id}/meshes?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-PTP': '1', 'Content-Type': 'application/octet-stream' }, body: new Uint8Array(body) });
 const ID = 'test-mesh-00000001';
 
 test('a mesh file is imported, repaired and stored with the design', async () => {
@@ -75,23 +75,23 @@ test('uploads are checked', async () => {
   assert.equal(sheet.status, 422);
   assert.match((await sheet.json()).error, /sheet\.stl: The mesh encloses no volume/);
   assert.equal((await upload(ID, 'junk.glb', Buffer.from('not a model'))).status, 422);
-  // Writes need X-Jig, like every other write.
+  // Writes need X-PTP, like every other write.
   assert.equal((await fetch(`${A}/api/designs/${ID}/meshes?name=a.stl`, { method: 'POST', body: fixture('pug.stl') })).status, 403);
   for (const name of ['../x.bin', 'abc.bin', `${'0'.repeat(32)}.exe`]) assert.notEqual((await fetch(`${A}/api/designs/${ID}/meshes/${encodeURIComponent(name)}`)).status, 200, name);
 });
 
 test('a design started from a version gets its own copies; deleting a design deletes its meshes', async () => {
   const u = await (await upload('test-mesh-00000002', 'fox.glb', fixture('fox.glb'))).json() as MeshUpload;
-  const copy = await fetch(`${A}/api/designs/test-mesh-00000003/meshes/copy`, { method: 'POST', headers: { 'X-Jig': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ from: 'test-mesh-00000002' }) });
+  const copy = await fetch(`${A}/api/designs/test-mesh-00000003/meshes/copy`, { method: 'POST', headers: { 'X-PTP': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ from: 'test-mesh-00000002' }) });
   assert.equal(copy.status, 200);
   assert.equal((await copy.json()).copied, 3);
   assert.equal((await fetch(A + u.entry.file.replace('00000002', '00000003'))).status, 200);
-  const del = await fetch(`${A}/api/designs/test-mesh-00000002`, { method: 'DELETE', headers: { 'X-Jig': '1' } });
+  const del = await fetch(`${A}/api/designs/test-mesh-00000002`, { method: 'DELETE', headers: { 'X-PTP': '1' } });
   assert.equal(del.status, 200);
   assert.equal((await fetch(A + u.entry.file)).status, 404);
   assert.equal((await fetch(A + u.entry.file.replace('00000002', '00000003'))).status, 200);
   assert.equal((await upload('test-mesh-00000002', 'fox.glb', fixture('fox.glb'))).status, 410);
-  const bad = await fetch(`${A}/api/designs/test-mesh-00000003/meshes/copy`, { method: 'POST', headers: { 'X-Jig': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ from: '../etc' }) });
+  const bad = await fetch(`${A}/api/designs/test-mesh-00000003/meshes/copy`, { method: 'POST', headers: { 'X-PTP': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ from: '../etc' }) });
   assert.equal(bad.status, 400);
 });
 

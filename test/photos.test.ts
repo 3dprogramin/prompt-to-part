@@ -331,7 +331,7 @@ test('a shop photo says what its shot shows', () => {
 });
 
 test('a larger picture is asked for as image_size; a model that refuses it draws at its default size', async () => {
-  const saved = { fetch: globalThis.fetch, key: process.env.OPENROUTER_API_KEY, fallback: process.env.JIG_IMAGE_FALLBACK };
+  const saved = { fetch: globalThis.fetch, key: process.env.OPENROUTER_API_KEY, fallback: process.env.PTP_IMAGE_FALLBACK };
   const sent: Record<string, unknown>[] = [];
   const picture = { choices: [{ message: { images: [{ image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] } }], usage: { cost: 0.1 } };
   let refuse = false;
@@ -344,7 +344,7 @@ test('a larger picture is asked for as image_size; a model that refuses it draws
   }) as typeof fetch;
   try {
     process.env.OPENROUTER_API_KEY = 'sk-or-test';
-    process.env.JIG_IMAGE_FALLBACK = '';
+    process.env.PTP_IMAGE_FALLBACK = '';
     await requestImage('a cup', '1:1', undefined);
     assert.deepEqual(sent, [{ aspect_ratio: '1:1' }], 'the default size unless asked');
     sent.length = 0;
@@ -367,7 +367,7 @@ test('a larger picture is asked for as image_size; a model that refuses it draws
     }
   } finally {
     globalThis.fetch = saved.fetch;
-    for (const [k, v] of [['OPENROUTER_API_KEY', saved.key], ['JIG_IMAGE_FALLBACK', saved.fallback]] as const) {
+    for (const [k, v] of [['OPENROUTER_API_KEY', saved.key], ['PTP_IMAGE_FALLBACK', saved.fallback]] as const) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }

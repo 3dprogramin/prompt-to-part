@@ -123,8 +123,8 @@ test('the frame, the bar, the sign\'s text and the pegs take paint; their top la
   // Name sign: its raised text (1 mm on the 3 mm bar) is coloured, its own height only.
   const sign = await withFonts(() => {
     const { strokes } = along('sign', 16);
-    const r = build(strokes, '2', `${opts('sign')}, text: 'JIG'`).parts;
-    return { plain: build([], undefined, `${opts('sign')}, text: 'JIG'`).parts, r };
+    const r = build(strokes, '2', `${opts('sign')}, text: 'PTP'`).parts;
+    return { plain: build([], undefined, `${opts('sign')}, text: 'PTP'`).parts, r };
   }, loadFontBuffers);
   const col = sign.r[1];
   assert.ok(near(col.bbox.max[2], 4) && near(col.bbox.min[2], 2.6), `sign red z ${col.bbox.min[2]}..${col.bbox.max[2]}`);

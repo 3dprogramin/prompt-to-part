@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { claudeEnv } from '../server/agent';
 import { claudeAuthProblem } from '../server/config';
 
-const KEYS = ['JIG_AUTH', 'JIG_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
+const KEYS = ['PTP_AUTH', 'PTP_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
 
 /** Runs `fn` with only these of the app's auth variables set, then puts the environment back. */
 function withEnv(vars: Record<string, string>, fn: () => void) {
@@ -18,17 +18,17 @@ function withEnv(vars: Record<string, string>, fn: () => void) {
   }
 }
 
-test('an old JIG_AUTH=subscription is refused, even next to an OpenRouter key', () => {
-  withEnv({ JIG_AUTH: 'subscription', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', OPENROUTER_API_KEY: 'sk-or-test' }, () => {
+test('an old PTP_AUTH=subscription is refused, even next to an OpenRouter key', () => {
+  withEnv({ PTP_AUTH: 'subscription', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', OPENROUTER_API_KEY: 'sk-or-test' }, () => {
     const problem = claudeAuthProblem() ?? '';
     assert.match(problem, /no longer runs on a Claude subscription/);
     assert.match(problem, /ANTHROPIC_API_KEY or OPENROUTER_API_KEY/);
-    assert.match(problem, /remove JIG_AUTH/);
+    assert.match(problem, /remove PTP_AUTH/);
   });
   // A typo is refused too, and the message names the actual value.
-  withEnv({ JIG_AUTH: 'apikey', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.match(claudeAuthProblem() ?? '', /\(JIG_AUTH=apikey\)/));
+  withEnv({ PTP_AUTH: 'apikey', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.match(claudeAuthProblem() ?? '', /\(PTP_AUTH=apikey\)/));
   // The default value is fine.
-  withEnv({ JIG_AUTH: 'api-key', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.equal(claudeAuthProblem(), null));
+  withEnv({ PTP_AUTH: 'api-key', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.equal(claudeAuthProblem(), null));
 });
 
 test('a subscription token never reaches Claude Code', () => {

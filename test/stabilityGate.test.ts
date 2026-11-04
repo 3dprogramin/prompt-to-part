@@ -8,7 +8,7 @@ import { geometry } from '../server/geometry';
 import type { AgentEvent } from '../shared/api';
 
 // submit_model's tipping check, driven as the Agent SDK calls the tools.
-const dir = mkdtempSync(path.join(os.tmpdir(), 'jig-stability-gate-'));
+const dir = mkdtempSync(path.join(os.tmpdir(), 'ptp-stability-gate-'));
 after(() => { geometry.stop(); rmSync(dir, { recursive: true, force: true }); });
 
 type Result = { content: { type: string; text?: string }[]; isError?: boolean };

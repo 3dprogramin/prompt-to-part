@@ -2,7 +2,7 @@
 
 ## Run prompt-to-part on your own computer only
 
-prompt-to-part has no login. Anyone who can reach its port can use your API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `pnpm start` listens there too. Keep it that way: don't expose it to the internet or put it behind a public proxy. To use it from a phone, only open it on a network you trust (`JIG_BIND` and `JIG_HOSTS` in `.env`).
+prompt-to-part has no login. Anyone who can reach its port can use your API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `pnpm start` listens there too. Keep it that way: don't expose it to the internet or put it behind a public proxy. To use it from a phone, only open it on a network you trust (`PTP_BIND` and `PTP_HOSTS` in `.env`).
 
 ## Run it in Docker
 
@@ -10,7 +10,7 @@ Use Docker Compose for everyday use (the README's quick start). Without Docker, 
 
 ## What prompt-to-part protects against
 
-Model scripts are written by Claude from your prompts, photos and web pages, so prompt-to-part treats them as untrusted code (see *Sandbox* in the README): they run in an SES compartment, in a separate Node process that can't read your files, start programs or reach the network. Attached meshes are imported and repaired in the same locked-down process, and OpenSCAD files run in a separate worker of their own. The API answers only the app's own pages (host and origin checks, and an `X-Jig` header on writes), against DNS rebinding and cross-site requests.
+Model scripts are written by Claude from your prompts, photos and web pages, so prompt-to-part treats them as untrusted code (see *Sandbox* in the README): they run in an SES compartment, in a separate Node process that can't read your files, start programs or reach the network. Attached meshes are imported and repaired in the same locked-down process, and OpenSCAD files run in a separate worker of their own. The API answers only the app's own pages (host and origin checks, and an `X-PTP` header on writes), against DNS rebinding and cross-site requests.
 
 ## Reporting a vulnerability
 

@@ -37,7 +37,7 @@ export function slicedProject(project: Uint8Array): Promise<Record<string, Uint8
 async function slice(project: Uint8Array): Promise<Record<string, Uint8Array>> {
   const bin = await findBambuBinary();
   if (!bin) throw new Error('Bambu Studio was not found on this computer');
-  const work = await mkdtemp(path.join(os.tmpdir(), 'jig-slice-'));
+  const work = await mkdtemp(path.join(os.tmpdir(), 'ptp-slice-'));
   try {
     const input = path.join(work, 'project.3mf'), out = path.join(work, 'out');
     await writeFile(input, project);

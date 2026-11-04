@@ -1,4 +1,4 @@
-// The optional password (JIG_PASSWORD): HTTP Basic auth on every page and API call, so the
+// The optional password (PTP_PASSWORD): HTTP Basic auth on every page and API call, so the
 // browser's own prompt asks for it once and then sends it with every fetch and EventSource.
 import type express from 'express';
 import { createHash, timingSafeEqual } from 'node:crypto';

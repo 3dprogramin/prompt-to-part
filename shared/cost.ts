@@ -5,7 +5,7 @@ import { DEFAULT_PRINTER } from './printer';
 import type { ParamValues } from './types';
 import type { PrintProfile } from './print';
 
-/** Costs are in US dollars unless the server says otherwise (JIG_CURRENCY). */
+/** Costs are in US dollars unless the server says otherwise (PTP_CURRENCY). */
 export const DEFAULT_CURRENCY = 'USD';
 
 /** An ISO 4217 currency code (USD, EUR, RON…), upper-cased, or null when it isn't one. */

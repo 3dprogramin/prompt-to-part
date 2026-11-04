@@ -7,7 +7,7 @@ import { TEMP_TAG } from '../../shared/tags';
 import { cleanFilter, tagCounts, type DesignFilter } from '../lib/designList';
 import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
-import { JigMark } from './JigMark';
+import { AppMark } from './AppMark';
 import { DesignsMenu, KindIcon } from './DesignsMenu';
 import { DesignTagsButton } from './Tags';
 import { DesignTabs, type DesignTab } from './DesignTabs';
@@ -93,7 +93,7 @@ export function TopBar(p: Props) {
     <header className="topbar">
       {/* Real links (logo and New), so they can be opened in a new tab. */}
       <a className="brand" href="/" title={newTitle} onClick={newHere}>
-        <span className="logo"><JigMark /></span> <span className="brand-name">prompt-to-part</span>
+        <span className="logo"><AppMark /></span> <span className="brand-name">prompt-to-part</span>
       </a>
       <span className="app-version" title="prompt-to-part version">v{import.meta.env.VITE_APP_VERSION}</span>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
@@ -112,7 +112,7 @@ export function TopBar(p: Props) {
         <button
           className="btn save-error"
           onClick={p.onRetrySave}
-          title={`Your latest changes are not saved: ${p.saveError}. ${/X-Jig/.test(p.saveError) ? 'This page is older than the server – reload it.' : 'Click to try again.'}`}
+          title={`Your latest changes are not saved: ${p.saveError}. ${/X-PTP/.test(p.saveError) ? 'This page is older than the server – reload it.' : 'Click to try again.'}`}
         >
           <Icon name="alert" size={13} /> <span className="btn-label">Not saved – retry</span>
         </button>

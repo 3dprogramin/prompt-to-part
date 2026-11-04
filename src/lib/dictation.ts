@@ -14,7 +14,7 @@ const BLOCK_SECONDS = 0.1;
 const FINAL_WAIT_MS = 2500;
 
 // Passes the microphone's samples from the audio thread to this page.
-const WORKLET = `registerProcessor('jig-mic', class extends AudioWorkletProcessor {
+const WORKLET = `registerProcessor('ptp-mic', class extends AudioWorkletProcessor {
   process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
 });`;
 
@@ -111,7 +111,7 @@ export async function startDictation(onText: (text: string) => void, onError: (m
     const workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
     await ctx.audioWorklet.addModule(workletUrl).finally(() => URL.revokeObjectURL(workletUrl));
     source = ctx.createMediaStreamSource(stream);
-    node = new AudioWorkletNode(ctx, 'jig-mic');
+    node = new AudioWorkletNode(ctx, 'ptp-mic');
     node.port.onmessage = (ev: MessageEvent<Float32Array>) => {
       pending.push(ev.data);
       pendingLength += ev.data.length;

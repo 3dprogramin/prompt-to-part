@@ -57,11 +57,11 @@ button:disabled { cursor: default; opacity: 0.45; }
 .brand:hover { color: #fff; }
 .app-version { font-family: var(--mono); font-size: 11px; color: var(--text-3); margin-left: -6px; }
 .logo { display: grid; place-items: center; width: 26px; height: 26px; }
-.jig-mark-layer { fill: var(--accent); transition: fill .15s; }
-.jig-mark-chevron { stroke: var(--accent); transition: stroke .15s; }
-.jig-mark-top { fill: #f5dfae; }
-.brand:hover .jig-mark-layer { fill: var(--accent-2); }
-.brand:hover .jig-mark-chevron { stroke: var(--accent-2); }
+.app-mark-layer { fill: var(--accent); transition: fill .15s; }
+.app-mark-chevron { stroke: var(--accent); transition: stroke .15s; }
+.app-mark-top { fill: #f5dfae; }
+.brand:hover .app-mark-layer { fill: var(--accent-2); }
+.brand:hover .app-mark-chevron { stroke: var(--accent-2); }
 .design-name { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 8px; flex: 0 1 auto; width: calc(var(--name-chars, 16) * 0.62em + 20px); min-width: 120px; max-width: clamp(160px, 30vw, 420px); font-weight: 500; text-overflow: ellipsis; }
 @supports (field-sizing: content) { .design-name { field-sizing: content; width: auto; } }
 .design-name:hover { border-color: var(--line); }

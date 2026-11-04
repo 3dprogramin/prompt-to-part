@@ -45,27 +45,31 @@ function backupPath(name: string): BackupPath | null {
   return null;
 }
 
-/** The design file of a project folder ("Export project…"), zipped with or without the folder itself. */
-const PROJECT_DESIGN = /^(?:[^/]+\/)?design\.jig\.json$/;
+/**
+ * The design file of a project folder ("Export project…"), zipped with or without the folder itself.
+ * design.jig.json is its name in projects exported before the rename to prompt-to-part.
+ */
+const PROJECT_DESIGN = /^(?:[^/]+\/)?design\.(?:ptp|jig)\.json$/;
+const isDesignFile = (name: string) => name === 'design.ptp.json' || name === 'design.jig.json';
 
 /**
  * The folder a zipped project's files are in ('' or '<name>/'), or null when the zip isn't one
- * project: it must hold exactly one design.jig.json, at the top or in one folder.
+ * project: it must hold exactly one design.ptp.json (or the older design.jig.json), at the top or in one folder.
  */
 function projectRoot(names: string[]): string | null {
   const found = names.filter((n) => PROJECT_DESIGN.test(n));
-  return found.length === 1 ? found[0].slice(0, -'design.jig.json'.length) : null;
+  return found.length === 1 ? found[0].slice(0, found[0].lastIndexOf('/') + 1) : null;
 }
 
 /**
- * What a path in a zipped project is: design.jig.json, images/<image> and meshes/<file> are its
+ * What a path in a zipped project is: design.ptp.json, images/<image> and meshes/<file> are its
  * design, with the same checks as in a backup; the rest (model.js, STL, 3MF, README…) is for people
- * and is never read or written ('other'). The design's id comes from design.jig.json (id '').
+ * and is never read or written ('other'). The design's id comes from design.ptp.json (id '').
  */
 function projectPath(name: string, root: string): BackupPath | { kind: 'other' } {
   if (!name.startsWith(root)) return { kind: 'other' };
   const p = name.slice(root.length).split('/');
-  if (p.length === 1 && p[0] === 'design.jig.json') return { kind: 'design', id: '' };
+  if (p.length === 1 && isDesignFile(p[0])) return { kind: 'design', id: '' };
   if (p.length === 2 && p[0] === 'images' && IMAGE_NAME.test(p[1])) return { kind: 'file', id: '', sub: '', name: p[1] };
   if (p.length === 2 && p[0] === 'meshes' && MESH_FILE.test(p[1])) return { kind: 'file', id: '', sub: 'meshes', name: p[1] };
   return { kind: 'other' };
@@ -94,7 +98,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
     }
     const d = new Date();
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="jig-designs-${day}.zip"`, 'Cache-Control': 'no-store' });
+    res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="prompt-to-part-designs-${day}.zip"`, 'Cache-Control': 'no-store' });
     try {
       await writeZip(files, res);
     } catch (e) {
@@ -149,7 +153,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       const out: BackupImport = { imported: [], skipped: [], settings: [] };
       for (const [key, { json, files }] of designs) {
         if (!json) continue; // images or meshes without their design
-        const label = key || 'design.jig.json';
+        const label = key || 'design.ptp.json';
         let d: unknown;
         try {
           d = JSON.parse(Buffer.from(await json.read()).toString('utf8'));

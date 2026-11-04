@@ -7,8 +7,8 @@ import path from 'node:path';
 import { FILAMENT_LIBRARY, matchFilament, normalizeFilamentText, searchFilaments } from '../shared/filaments';
 
 // The server reads its data folder when loaded: a folder of its own, and a stand-in for Claude.
-const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-filaments-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-filaments-test-'));
+process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'sk-test';
 const { lookupFilament, parseLookup } = await import('../server/filaments');
 const { createApp } = await import('../server/app');
@@ -114,7 +114,7 @@ server.on('request', createApp({
 }));
 after(() => { server.close(); rmSync(dataDir, { recursive: true, force: true }); });
 
-const post = (body: unknown) => fetch(`http://127.0.0.1:${port}/api/filaments/lookup`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(body) });
+const post = (body: unknown) => fetch(`http://127.0.0.1:${port}/api/filaments/lookup`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' }, body: JSON.stringify(body) });
 
 test('the lookup route checks what it is sent', async () => {
   for (const body of [{}, { brand: 'eSUN' }, { name: 'Red' }, { brand: 1, name: 'Red' }, { brand: 'eSUN', name: ['Red'] }, { brand: ' ', name: 'Red' }, { brand: 'eSUN', name: 'x'.repeat(121) }, { brand: 'x'.repeat(61), name: 'Red' }]) {
@@ -167,7 +167,7 @@ test('without Claude, only library filaments can be looked up', async () => {
 });
 
 const mineUrl = () => `http://127.0.0.1:${port}/api/filaments/mine`;
-const putMine = (body: unknown) => fetch(mineUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(body) });
+const putMine = (body: unknown) => fetch(mineUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' }, body: JSON.stringify(body) });
 
 test('my filaments: checked, saved in the data folder, read back', async () => {
   assert.deepEqual(await (await fetch(mineUrl())).json(), { filaments: [] });

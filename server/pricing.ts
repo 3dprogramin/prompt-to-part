@@ -2,7 +2,7 @@
 import { printer } from '../shared/printer';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
-import { claudeAuthProblem, jigCountry, jigCurrency } from './config';
+import { claudeAuthProblem, appCountry, appCurrency } from './config';
 import { duration, money } from '../shared/cost';
 import type { PriceRequest, PriceSuggestion } from '../shared/api';
 
@@ -19,8 +19,8 @@ function describe(r: PriceRequest): string {
     `Parts: ${r.parts}${r.colours > 1 ? `, ${r.colours} filament colours (AMS)` : ''}`,
     `Material: PLA, ${r.grams.toFixed(1)} g (Bambu Studio slice, supports and purge included)`,
     `Print time: ${duration(r.seconds)} on the ${printer().name} (Bambu Studio estimate)`,
-    `Filament cost: ${r.filamentCost != null ? money(r.filamentCost, jigCurrency()) : 'unknown (no filament price set)'}`,
-    `Electricity cost: ${r.electricityCost != null ? money(r.electricityCost, jigCurrency()) : 'unknown (the printer\'s power hasn\'t been measured)'}`,
+    `Filament cost: ${r.filamentCost != null ? money(r.filamentCost, appCurrency()) : 'unknown (no filament price set)'}`,
+    `Electricity cost: ${r.electricityCost != null ? money(r.electricityCost, appCurrency()) : 'unknown (the printer\'s power hasn\'t been measured)'}`,
   ];
   return lines.filter(Boolean).join('\n');
 }
@@ -32,7 +32,7 @@ export function parseSuggestion(text: string): PriceSuggestion {
   const o = JSON.parse(m[0]) as Record<string, unknown>;
   const price = Number(o.price), low = Number(o.low ?? o.price), high = Number(o.high ?? o.price);
   if (![price, low, high].every((n) => Number.isFinite(n) && n >= 0)) throw new Error('The answer had no price');
-  return { price, low: Math.min(low, price), high: Math.max(high, price), reasoning: String(o.reasoning ?? '').slice(0, 1000), currency: jigCurrency() };
+  return { price, low: Math.min(low, price), high: Math.max(high, price), reasoning: String(o.reasoning ?? '').slice(0, 1000), currency: appCurrency() };
 }
 
 export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
@@ -45,7 +45,7 @@ export async function suggestPrice(r: PriceRequest): Promise<PriceSuggestion> {
     for await (const msg of query({
       prompt: `${describe(r)}\n\nSuggest the selling price.`,
       options: {
-        systemPrompt: prompt(jigCurrency(), jigCountry()),
+        systemPrompt: prompt(appCurrency(), appCountry()),
         model: 'sonnet',
         tools: [],
         maxTurns: 1,

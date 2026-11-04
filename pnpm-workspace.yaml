@@ -1,4 +1,4 @@
-# pnpm settings for Jig (a single package, not a workspace of several).
+# pnpm settings for prompt-to-part (a single package, not a workspace of several).
 
 # Packages in node_modules/.pnpm, inside the project: the sandboxed geometry and OpenSCAD workers
 # may only read node_modules (its real path, server/geometry.ts), so no package may resolve to a

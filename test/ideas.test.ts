@@ -81,8 +81,8 @@ const os = await import('node:os');
 const pathMod = await import('node:path');
 const { createServer } = await import('node:http');
 const { after } = await import('node:test');
-const dataDir = mkdtempSync(pathMod.join(os.tmpdir(), 'jig-ideas-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(pathMod.join(os.tmpdir(), 'ptp-ideas-test-'));
+process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'sk-test';
 const { createApp } = await import('../server/app');
 
@@ -93,7 +93,7 @@ await new Promise<void>((r) => ideasServer.listen(0, '127.0.0.1', r));
 const ideasPort = (ideasServer.address() as { port: number }).port;
 ideasServer.on('request', createApp({ port: ideasPort, ideas: async (p) => { lastPrompt = p; return reply(); } }));
 after(() => { ideasServer.close(); rmSync(dataDir, { recursive: true, force: true }); });
-const postIdeas = (body: unknown) => fetch(`http://127.0.0.1:${ideasPort}/api/ideas`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(body) });
+const postIdeas = (body: unknown) => fetch(`http://127.0.0.1:${ideasPort}/api/ideas`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' }, body: JSON.stringify(body) });
 
 test('POST /api/ideas: four ideas, topped up, in available modes', async () => {
   reply = () => '[{"text":"Moon lamp","mode":"off"}]';
@@ -159,7 +159,7 @@ test('writeIdeas: its own timeout reads as taking too long, not as an abort', as
 });
 
 test('POST /api/ideas: 503 without Claude credentials', async () => {
-  const KEYS = ['JIG_AUTH', 'JIG_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
+  const KEYS = ['PTP_AUTH', 'PTP_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
   const saved = { ...process.env };
   try {
     for (const k of KEYS) delete process.env[k];

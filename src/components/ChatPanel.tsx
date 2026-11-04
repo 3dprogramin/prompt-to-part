@@ -90,7 +90,7 @@ interface Props {
   autoBuild: AutoBuild | null;
   onBuildNow: () => void;
   onStopAutoBuild: () => void;
-  /** The server's starting model (JIG_MODEL), offered even when it is a full model ID. */
+  /** The server's starting model (PTP_MODEL), offered even when it is a full model ID. */
   defaultModel: string;
   onWebSearch: (on: boolean) => void;
 }
@@ -132,8 +132,8 @@ export function ChatPanel(p: Props) {
   // open a dropped file in place of the app.
   useEffect(() => {
     const onFiles = (e: Event) => addFiles((e as CustomEvent<File[]>).detail);
-    window.addEventListener('jig-drop-files', onFiles);
-    return () => window.removeEventListener('jig-drop-files', onFiles);
+    window.addEventListener('ptp-drop-files', onFiles);
+    return () => window.removeEventListener('ptp-drop-files', onFiles);
   });
   useEffect(() => {
     const reset = () => setDragOver(false);

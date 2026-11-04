@@ -62,7 +62,7 @@ export function makeColourFigure(): Uint8Array {
   parts.forEach((p, i) => bin.set(p, views[i].byteOffset));
   const min = [0, 1, 2].map((k) => Math.min(...pos.filter((_, i) => i % 3 === k))), max = [0, 1, 2].map((k) => Math.max(...pos.filter((_, i) => i % 3 === k)));
   const json = {
-    asset: { version: '2.0', generator: 'Jig test fixture' },
+    asset: { version: '2.0', generator: 'prompt-to-part test fixture' },
     scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1 }, indices: 2, material: 0 }] }],
     materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 1 } }],

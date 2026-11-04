@@ -9,9 +9,9 @@ import type { query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, GenerateRequest } from '../shared/api';
 import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
 
-const dataDir = mkdtempSync(path.join(tmpdir(), 'jig-stop-'));
+const dataDir = mkdtempSync(path.join(tmpdir(), 'ptp-stop-'));
 // server/config.ts reads these when it is first imported.
-process.env.JIG_DATA = dataDir;
+process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'test';
 setPrinter(DEFAULT_PRINTER);
 const { runGeneration } = await import('../server/agent');

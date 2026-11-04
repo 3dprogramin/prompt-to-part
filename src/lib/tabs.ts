@@ -10,7 +10,7 @@ export type TabMessage =
   | { type: 'running'; tab: string; id: string; on: boolean }
   | { type: 'hello'; tab: string };
 
-export const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('jig') : null;
+export const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('ptp') : null;
 
 /** Tell the other tabs (this tab's own id is added). */
 export function tell(msg: DistributiveOmit<TabMessage, 'tab'>) {

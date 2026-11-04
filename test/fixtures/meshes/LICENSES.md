@@ -1,6 +1,6 @@
 # Test meshes and their licences
 
-Small models for the mesh import tests and the mock Meshy server (`server/meshyMock.ts`). Every one is CC0 (public domain dedication) or made from a CC0 model. The `.glb` files hold the geometry only: Jig's test-fixture script copied each model's positions and triangles into a plain GLB and left out textures, materials, normals and UVs (to keep them small). They stay Y-up and unit-less, like Meshy's models.
+Small models for the mesh import tests and the mock Meshy server (`server/meshyMock.ts`). Every one is CC0 (public domain dedication) or made from a CC0 model. The `.glb` files hold the geometry only: the app's test-fixture script copied each model's positions and triangles into a plain GLB and left out textures, materials, normals and UVs (to keep them small). They stay Y-up and unit-less, like Meshy's models.
 
 | File | What | Author | Licence | Source |
 |---|---|---|---|---|
@@ -13,13 +13,13 @@ Small models for the mesh import tests and the mock Meshy server (`server/meshyM
 
 Not every Quaternius model on poly.pizza is CC0 (some are CC-BY 3.0), so each one's own page was checked.
 
-Made by Jig (CC0 as well):
+Made for prompt-to-part (CC0 as well):
 
 | File | What |
 |---|---|
 | `colour-figure.glb` | A figure turned on a lathe, with UVs and an embedded 64 × 64 PNG base colour texture in four bands (hair, skin, shirt with two tiny buttons, trousers), made by `make-colour-figure.ts`; the mock serves it for textured (coloured) models |
 
-Broken variants for the repair tests, made by Jig's fixture script from the models above (CC0 as well):
+Broken variants for the repair tests, made by the app's fixture script from the models above (CC0 as well):
 
 | File | Made from | What is wrong with it |
 |---|---|---|

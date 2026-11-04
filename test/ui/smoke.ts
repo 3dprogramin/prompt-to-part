@@ -9,7 +9,7 @@
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
 // resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
-// JIG_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
+// PTP_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,15 +21,15 @@ import path from 'node:path';
 import { chromium, type Browser, type BrowserContextOptions, type Locator, type Page } from 'playwright-core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
-const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-ui-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-ui-test-'));
+process.env.PTP_DATA = dataDir;
 process.env.NODE_ENV = 'production';
 // The stand-in for Claude needs no credentials, but the API checks them first.
 process.env.ANTHROPIC_API_KEY = 'sk-test';
-delete process.env.JIG_DOCKER;
+delete process.env.PTP_DOCKER;
 // No presets of this computer's Bambu Studio user in the printer list.
 process.env.BAMBU_STUDIO_USER_DIR = path.join(dataDir, 'no-bambu-user');
-const shots = process.env.JIG_UI_SHOTS ?? path.join(os.tmpdir(), 'jig-ui-shots');
+const shots = process.env.PTP_UI_SHOTS ?? path.join(os.tmpdir(), 'ptp-ui-shots');
 mkdirSync(shots, { recursive: true });
 
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
@@ -93,7 +93,7 @@ async function until(check: () => Promise<boolean>, what: string, ms = 15_000) {
 }
 const getDesign = async (designId: string) => (await fetch(`${A}/api/designs/${designId}`)).json();
 const putDesign = (design: Record<string, unknown>) => fetch(`${A}/api/designs/${design.id}`, {
-  method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify(design) });
+  method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' }, body: JSON.stringify(design) });
 /** The model is built: its parts listed in the Object tab, the view no longer evaluating. */
 async function built(page: Page) {
   await page.locator('.object-tree [role=treeitem]').first().waitFor();
@@ -157,14 +157,14 @@ test('a first start asks for the printer; the Print tab changes it, and the plat
     rmSync(path.join(dataDir, 'designs', 'ui-smoke-printer-1.json'), { force: true });
     rmSync(path.join(dataDir, 'designs', 'ui-smoke-printer-1'), { recursive: true, force: true });
     // The rest of the tests run with the A1 0.4 and 4 filaments.
-    await fetch(`${A}/api/printer`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' }, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
+    await fetch(`${A}/api/printer`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' }, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
   }
 });
 
 test('the app opens a design: top bar, 3D view, Print tab without an automatic slice', TEST, async () => {
   const saved = await fetch(`${A}/api/designs/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
     body: JSON.stringify({ id, name: 'Smoke cube', createdAt: 1, updatedAt: 1000, code,
       messages: [{ id: 'm1', role: 'assistant', text: 'A cube. Battery: [DJI Store (EU)](https://store.dji.com/p?vid=1).', createdAt: 1000 }], values: {}, currentVersion: 0,
       versions: [{ code, summary: 'A 20 mm cube', createdAt: 1000, source: 'manual' }] }),
@@ -232,7 +232,7 @@ test('the Designs menu exports every design as a zip and imports one', TEST, asy
   const menu = page.locator('.menu');
 
   const [download] = await Promise.all([page.waitForEvent('download'), menu.getByText('Export all designs').click()]);
-  assert.match(download.suggestedFilename(), /^jig-designs-\d{4}-\d\d-\d\d\.zip$/);
+  assert.match(download.suggestedFilename(), /^prompt-to-part-designs-\d{4}-\d\d-\d\d\.zip$/);
   const exported = unzipSync(new Uint8Array(readFileSync((await download.path())!)));
   // The printer choice is a setting the backup keeps (the first-start test saved one).
   assert.deepEqual(Object.keys(exported), ['printer.json', `designs/${id}.json`]);
@@ -251,7 +251,7 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', TEST,
   // 12 more designs (14 in all), the oldest first.
   for (let i = 1; i <= 12; i++) {
     const n = `ui-smoke-1${String(i).padStart(7, '0')}`;
-    const r = await fetch(`${A}/api/designs/${n}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    const r = await fetch(`${A}/api/designs/${n}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
       body: JSON.stringify({ id: n, name: `Cube ${i}`, createdAt: 1, updatedAt: 2000 + i, messages: [], code, values: {}, currentVersion: -1, versions: [] }) });
     assert.equal(r.status, 200, await r.text());
   }
@@ -311,9 +311,9 @@ test('Export project… downloads the design as one zip where there is no folder
   assert.equal(download.suggestedFilename(), 'Smoke cube.zip');
   const zip = readFileSync((await download.path())!);
   const files = unzipSync(new Uint8Array(zip));
-  assert.deepEqual(Object.keys(files).sort(), ['README.md', 'design.jig.json', 'model.js', 'smoke-cube.3mf', 'smoke-cube.stl', 'values.json'].map((f) => `Smoke cube/${f}`));
+  assert.deepEqual(Object.keys(files).sort(), ['README.md', 'design.ptp.json', 'model.js', 'smoke-cube.3mf', 'smoke-cube.stl', 'values.json'].map((f) => `Smoke cube/${f}`));
   assert.equal(strFromU8(files['Smoke cube/model.js']), code);
-  assert.equal(JSON.parse(strFromU8(files['Smoke cube/design.jig.json'])).id, id);
+  assert.equal(JSON.parse(strFromU8(files['Smoke cube/design.ptp.json'])).id, id);
   const readme = strFromU8(files['Smoke cube/README.md']);
   for (const want of ['# Smoke cube', 'A 20 mm cube', '20.00 × 20.00 × 20.00 mm', `prompt-to-part ${version}`, 'No `.blend` file', 'The 3MF has no print settings']) assert.ok(readme.includes(want), `README: ${want}\n${readme}`);
   await page.getByText('Exported Smoke cube.zip').waitFor();
@@ -328,7 +328,7 @@ test('Export project… downloads the design as one zip where there is no folder
 
 test('a reply saved while a reply was running shows as interrupted, with its thinking kept', TEST, async () => {
   const cut = 'ui-smoke-20000001';
-  const r = await fetch(`${A}/api/designs/${cut}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+  const r = await fetch(`${A}/api/designs/${cut}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
     body: JSON.stringify({ id: cut, name: 'Cut short', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], sessionId: 'abc',
       messages: [{ id: 'u1', role: 'user', text: 'A cube', createdAt: 1 },
         { id: 'a1', role: 'assistant', text: '', createdAt: 1, pending: true, steps: [{ kind: 'thinking', text: 'Planning a 20 mm cube' }],
@@ -346,7 +346,7 @@ test('a reply saved while a reply was running shows as interrupted, with its thi
 
 test('a reply under way goes on through a reload or a dropped connection: the page catches up with it', TEST, async () => {
   const slow = 'ui-smoke-20000002';
-  const r = await fetch(`${A}/api/designs/${slow}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+  const r = await fetch(`${A}/api/designs/${slow}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
     body: JSON.stringify({ id: slow, name: 'Slow', createdAt: 1, updatedAt: 1, code, values: {}, currentVersion: 0, versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual' }], messages: [] }) });
   assert.equal(r.status, 200, await r.text());
   const page = await newPage();
@@ -380,7 +380,7 @@ test('an enlarged product photo steps to the next and previous one (buttons, arr
   const pid = 'ui-smoke-20000003';
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
   const photos = ['table', 'shelf', 'desk'].map((scene, i) => ({ url: `${png}#${i}`, scene: 'custom', notes: scene, aspect: '4:5', prompt: scene, model: 'test/image', cost: null, createdAt: i + 1 }));
-  const r = await fetch(`${A}/api/designs/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+  const r = await fetch(`${A}/api/designs/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
     body: JSON.stringify({ id: pid, name: 'Photos', createdAt: 1, updatedAt: 1, code, values: {}, currentVersion: 0, versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual' }], messages: [], photos }) });
   assert.equal(r.status, 200, await r.text());
   const page = await newPage();
@@ -450,7 +450,7 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
   const black = palette.find((c) => c.filament.name === 'PLA Basic Black')!.filament.color;
   const figCode = `function build() { return [{ name: 'Kid', color: '${black}', shape: H.mesh('kid', { height: 50 }).translate([0, 0, 2]).add(Manifold.cylinder(2.5, 16, 16, 40)) }]; }`;
   const saved = await fetch(`${A}/api/designs/${fid}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
     body: JSON.stringify({ id: fid, name: 'Coloured kid', createdAt: 1, updatedAt: 1000, code: figCode, messages: [], currentVersion: 0,
       values: { $meshes: JSON.stringify({ kid: { file: `/api/designs/${fid}/meshes/${bin}`, triangles: mesh.indices.length / 3, size: [35, 35, 80], source: 'meshy', palette } }) },
       versions: [{ code: figCode, summary: 'A coloured kid', createdAt: 1000, source: 'manual' }] }),
@@ -518,7 +518,7 @@ test('"Print in one colour" in the Print tab: the view shows one filament, saved
 test('"Send my view" and "Wait for my OK": saved after a reload; a concept picture is built after a countdown unless stopped', TEST, async () => {
   const fid = 'ui-smoke-00000004';
   const saved = await fetch(`${A}/api/designs/${fid}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
     body: JSON.stringify({ id: fid, name: 'Knight', createdAt: 1, updatedAt: 1000, code, messages: [], values: {}, currentVersion: 0,
       versions: [{ code, summary: 'A 20 mm cube', createdAt: 1000, source: 'manual' }] }),
   });

@@ -8,9 +8,9 @@ import { createHash } from 'node:crypto';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 
 // The API on a free port with its own data folder (as in api.test.ts).
-const root = mkdtempSync(path.join(os.tmpdir(), 'jig-backup-test-'));
+const root = mkdtempSync(path.join(os.tmpdir(), 'ptp-backup-test-'));
 const dataDir = path.join(root, 'data');
-process.env.JIG_DATA = dataDir;
+process.env.PTP_DATA = dataDir;
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
 const { createApp } = await import('../server/app');
@@ -18,12 +18,12 @@ server.on('request', createApp({ port }));
 after(() => { server.close(); rmSync(root, { recursive: true, force: true }); });
 
 const A = `http://127.0.0.1:${port}`;
-const W = { 'Content-Type': 'application/json', 'X-Jig': '1' };
+const W = { 'Content-Type': 'application/json', 'X-PTP': '1' };
 const ID1 = 'test-bkp-00000001', ID2 = 'test-bkp-00000002';
 const design = (extra: Record<string, unknown> = {}) => ({ id: ID1, name: 'Hook', createdAt: 1, updatedAt: 1000, messages: [], versions: [], currentVersion: -1, code: 'x', values: {}, ...extra });
 const put = (d: { id: string; [k: string]: unknown }) => fetch(`${A}/api/designs/${d.id}`, { method: 'PUT', headers: W, body: JSON.stringify(d) });
 const getDesign = async (id: string) => (await fetch(`${A}/api/designs/${id}`)).json();
-const importZip = (zip: Uint8Array, headers: Record<string, string> = { 'X-Jig': '1' }) => fetch(`${A}/api/backup/import`, { method: 'POST', headers: { 'Content-Type': 'application/zip', ...headers }, body: Buffer.from(zip) });
+const importZip = (zip: Uint8Array, headers: Record<string, string> = { 'X-PTP': '1' }) => fetch(`${A}/api/backup/import`, { method: 'POST', headers: { 'Content-Type': 'application/zip', ...headers }, body: Buffer.from(zip) });
 const exportZip = async () => new Uint8Array(await (await fetch(`${A}/api/backup`)).arrayBuffer());
 /** Status of a GET to /api/backup with these headers (fetch() won't send some of them). */
 const statusWith = (headers: Record<string, string>) => new Promise<number>((resolve, reject) => {
@@ -52,7 +52,7 @@ test('export: every design with its images and meshes, and the settings, as one 
   const r = await fetch(`${A}/api/backup`);
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'application/zip');
-  assert.match(r.headers.get('content-disposition') ?? '', /^attachment; filename="jig-designs-\d{4}-\d\d-\d\d\.zip"$/);
+  assert.match(r.headers.get('content-disposition') ?? '', /^attachment; filename="prompt-to-part-designs-\d{4}-\d\d-\d\d\.zip"$/);
   const files = unzipSync(new Uint8Array(await r.arrayBuffer()));
   assert.deepEqual(Object.keys(files).sort(), [
     'cost.json', `designs/${ID1}.json`, `designs/${ID1}/${imageUrl.split('/').pop()}`, `designs/${ID1}/meshes/${MESH_NAME}`, `designs/${ID2}.json`, 'filaments.json',
@@ -67,7 +67,7 @@ test('export: only from the app\'s own page', async () => {
   assert.equal(await statusWith({ 'Sec-Fetch-Site': 'cross-site' }), 403);
   assert.equal(await statusWith({ 'Sec-Fetch-Site': 'same-site' }), 403);
   assert.equal(await statusWith({ 'Sec-Fetch-Site': 'same-origin' }), 200);
-  assert.equal((await importZip(zipSync({}), {})).status, 403); // no X-Jig
+  assert.equal((await importZip(zipSync({}), {})).status, 403); // no X-PTP
 });
 
 test('import into an empty data folder brings everything back; ids already here are kept', async () => {
@@ -161,7 +161,7 @@ test('a zipped project ("Export project…") brings back its design, pictures an
   const id = 'test-bkp-00000007', other = 'test-bkp-00000008';
   const IMG = `${named(PNG)}.png`;
   const project = (dir: string, extra: Zippable = {}): Uint8Array => zipSync({
-    [`${dir}design.jig.json`]: strToU8(JSON.stringify(design({ id, name: 'Project hook' }))),
+    [`${dir}design.ptp.json`]: strToU8(JSON.stringify(design({ id, name: 'Project hook' }))),
     [`${dir}images/${IMG}`]: PNG,
     [`${dir}images/picture-photo.png`]: PNG,
     [`${dir}meshes/${MESH_NAME}`]: MESH,
@@ -187,12 +187,23 @@ test('a zipped project ("Export project…") brings back its design, pictures an
   const again = await (await importZip(project(''))).json();
   assert.deepEqual(again.skipped.map((s: { id: string }) => s.id), [id]);
   // Two projects in one zip are neither a project nor a backup.
-  assert.equal((await importZip(project('a/', { 'b/design.jig.json': strToU8('{}') }))).status, 400);
+  assert.equal((await importZip(project('a/', { 'b/design.ptp.json': strToU8('{}') }))).status, 400);
   // The design's own id must be a valid one.
-  const bad = await (await importZip(zipSync({ 'x/design.jig.json': strToU8(JSON.stringify(design({ id: '../../evil' }))) }))).json();
+  const bad = await (await importZip(zipSync({ 'x/design.ptp.json': strToU8(JSON.stringify(design({ id: '../../evil' }))) }))).json();
   assert.deepEqual(bad.imported, []);
   assert.equal(bad.skipped[0].reason, 'not a complete design');
   assert.equal((await fetch(`${A}/api/designs/bad!id/files`)).status, 400);
+});
+
+test('a project exported before the rename (design.jig.json) still imports', async () => {
+  const id = 'test-bkp-00000009';
+  const r = await importZip(zipSync({
+    'Old hook/design.jig.json': strToU8(JSON.stringify(design({ id, name: 'Old hook' }))),
+    'Old hook/model.js': strToU8('x'),
+  }));
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).imported, [{ id, name: 'Old hook' }]);
+  assert.equal((await getDesign(id)).name, 'Old hook');
 });
 
 test('design tags go into a backup and come back for designs that have none here', async () => {

@@ -1,4 +1,4 @@
-# Non-manifold test: cubes touching at an edge and a corner, plus a fin. Jig test fixture (CC0)
+# Non-manifold test: cubes touching at an edge and a corner, plus a fin. prompt-to-part test fixture (CC0)
 v 0 0 0
 v 20 0 0
 v 0 20 0

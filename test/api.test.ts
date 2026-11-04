@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 // The API on a free port with its own data folder, and a stand-in for Claude.
-const dataDir = mkdtempSync(path.join(os.tmpdir(), 'jig-api-test-'));
-process.env.JIG_DATA = dataDir;
+const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-api-test-'));
+process.env.PTP_DATA = dataDir;
 // The stand-in for Claude needs no credentials, but the API checks them first.
 process.env.ANTHROPIC_API_KEY = 'sk-test';
 // Listening first and attaching the app after: the app needs the port for its Host check.
@@ -40,7 +40,7 @@ server.on('request', createApp({
 after(() => { server.close(); rmSync(dataDir, { recursive: true, force: true }); });
 
 const A = `http://127.0.0.1:${port}`;
-const W = { 'Content-Type': 'application/json', 'X-Jig': '1' };
+const W = { 'Content-Type': 'application/json', 'X-PTP': '1' };
 const design = (extra = {}) => ({ id: 'test-api-00000001', name: 't', createdAt: 1, updatedAt: 1000, messages: [], versions: [], currentVersion: -1, code: 'x', values: {}, ...extra });
 /** Status of a GET with a Host header of our choosing (fetch() always sends the real one). */
 const statusWithHost = (urlPath: string, host: string) => new Promise<number>((resolve, reject) => {
@@ -53,7 +53,7 @@ const PNG = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
 
 test('only the app\'s own pages get in', async () => {
   assert.equal(await statusWithHost('/api/designs', `evil.com:${port}`), 421);
-  // The names JIG_HOSTS adds (a phone on the network reaching this computer's address).
+  // The names PTP_HOSTS adds (a phone on the network reaching this computer's address).
   assert.equal(await statusWithHost('/api/designs', `192.168.1.20:${port}`), 200);
   assert.equal((await fetch(`${A}/api/designs`, { headers: { Origin: `http://192.168.1.20:${port}` } })).status, 200);
   assert.equal((await fetch(`${A}/api/designs`, { headers: { Origin: 'https://evil.com' } })).status, 403);

@@ -28,12 +28,12 @@ export type ProjectTarget = { kind: 'folder'; dir: FileSystemDirectoryHandle } |
 export async function chooseTarget(): Promise<ProjectTarget> {
   const pick = picker();
   if (!pick) return { kind: 'zip' };
-  return { kind: 'folder', dir: await pick({ id: 'jig-projects', mode: 'readwrite' }) };
+  return { kind: 'folder', dir: await pick({ id: 'ptp-projects', mode: 'readwrite' }) };
 }
 
 export interface ProjectSource {
   design: Design;
-  /** design.jig.json: the design as the server stores it (what Import designs… reads). */
+  /** design.ptp.json: the design as the server stores it (what Import designs… reads). */
   designJson: string;
   /** The model built at export resolution, and its visible parts. */
   result: EvalResult;

@@ -21,12 +21,12 @@ test('safe names: no characters a file system refuses, no hidden or reserved nam
 test('the file list: model files named like Export STL, .blend only with Blender, README last', () => {
   const plan = planProject({ base: 'hook', blend: true, images: ['a.png'], meshes: ['b.bin', 'b.stl'], pictures: ['photo', 'Photo', 'a/b'] });
   assert.deepEqual(plan.map((f) => f.path), [
-    'model.js', 'values.json', 'design.jig.json', 'hook.stl', 'hook.blend', 'hook.3mf', 'images/a.png',
+    'model.js', 'values.json', 'design.ptp.json', 'hook.stl', 'hook.blend', 'hook.3mf', 'images/a.png',
     'images/picture-photo.png', 'images/picture-Photo-2.png', 'images/picture-a-b.png', 'meshes/b.bin', 'meshes/b.stl', 'README.md',
   ]);
   assert.equal(plan.find((f) => f.kind === '3mf')?.label, '3MF');
   assert.deepEqual(planProject({ base: 'x', blend: false, images: [], meshes: [], pictures: [] }).map((f) => f.path),
-    ['model.js', 'values.json', 'design.jig.json', 'x.stl', 'x.3mf', 'README.md']);
+    ['model.js', 'values.json', 'design.ptp.json', 'x.stl', 'x.3mf', 'README.md']);
 });
 
 test('parameter rows and print settings that differ from the profile', () => {
@@ -53,7 +53,7 @@ test('README: name, summary, size, parameters, print settings, sources, files an
     sources: [{ dimension: 'Screw', value: 'Ø 4 mm', kind: 'official', url: 'https://example.com/screw' }],
     meshes: { fox: { file: `/api/designs/x/meshes/${'ab'.repeat(16)}.bin`, triangles: 12000, size: [30, 20, 40], source: 'upload', original: 'fox.stl' } },
     check: 'No problems found', bambuProject: false,
-    files: ['model.js', 'values.json', 'design.jig.json', 'hook.stl', 'hook.3mf', 'images/a.png', 'meshes/b.bin', 'README.md'],
+    files: ['model.js', 'values.json', 'design.ptp.json', 'hook.stl', 'hook.3mf', 'images/a.png', 'meshes/b.bin', 'README.md'],
     notes: ['No `.blend` file: Blender is not installed on the computer prompt-to-part runs on.'],
     problems: ['`hook.blend`: Blender stopped'],
   };

@@ -20,7 +20,7 @@ const ENGINE = {
   integrity: 'sha512-y9xoInvFz7WhkA/3izy3C6MwCeQ7xPvxQNg42bhlYsz8GdUdGschpJ7DhAn0nwZuJeILECujS/z8kDT/IbI0kw==',
 };
 /** Inside node_modules, the only place the worker may read. */
-export const ENGINE_DIR = path.join(NODE_MODULES, '.cache', 'jig', `openscad-${ENGINE.version}`);
+export const ENGINE_DIR = path.join(NODE_MODULES, '.cache', 'prompt-to-part', `openscad-${ENGINE.version}`);
 const MAX_DOWNLOAD = 100 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
 
