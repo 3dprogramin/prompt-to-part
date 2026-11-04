@@ -12,7 +12,7 @@ CONTAINER=${PTP_CONTAINER:-prompt-to-part-app-1}
 WAIT_S=${PTP_REBUILD_WAIT:-1800}
 
 busy() {
-  docker top "$CONTAINER" -eo args 2>/dev/null | grep -Eiq 'claude|bambu'
+  docker top "$CONTAINER" -eo pid,args 2>/dev/null | grep -Eiq 'claude|bambu'
 }
 
 case "${1:-}" in
