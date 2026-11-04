@@ -344,6 +344,23 @@ test('a reply saved while a reply was running shows as interrupted, with its thi
   await page.close();
 });
 
+test('a stopped reply says so at the end of its work, as in the chat', TEST, async () => {
+  const id = 'ui-smoke-20000009';
+  const r = await fetch(`${A}/api/designs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },
+    body: JSON.stringify({ id, name: 'Stopped', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [],
+      messages: [{ id: 'u1', role: 'user', text: 'A mask', createdAt: 1 },
+        { id: 'a1', role: 'assistant', text: '', createdAt: 1, error: 'Stopped.', steps: [{ kind: 'thinking', text: 'Planning the mask' }],
+          activity: [{ kind: 'thinking', text: 'Planning the mask outline', at: 5 }] }] }) });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  await page.goto(`${A}/?design=${id}`);
+  await page.locator('.bubble.error', { hasText: 'Stopped.' }).waitFor();
+  await page.locator('.think-link').click();
+  await page.locator('.activity-panel .act-end', { hasText: 'Stopped.' }).waitFor();
+  assert.equal((await page.locator('.activity-panel .act-step').last().innerText()).trim(), 'Stopped.');
+  await page.close();
+});
+
 test('a reply under way goes on through a reload or a dropped connection: the page catches up with it', TEST, async () => {
   const slow = 'ui-smoke-20000002';
   const r = await fetch(`${A}/api/designs/${slow}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1' },

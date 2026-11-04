@@ -11,6 +11,8 @@ import { tokenizeMore, type LiveTokens, type Token } from '../lib/highlight';
 interface Props {
   items: ActivityItem[];
   live: boolean;
+  /** How the reply ended when it didn't finish ("Stopped.", an API error): shown last, as in the chat. */
+  error?: string;
   /** Screen position to open at (beside the chat, level with the line that opened it). */
   at: { left: number; top: number };
   pinned: boolean;
@@ -44,7 +46,7 @@ const maxHeightAt = (top: number) => Math.max(MIN_H, Math.min(window.innerHeight
  * Drag the header to move it (anywhere, e.g. over the 3D view) and the corner to resize it; a
  * double-click on the header puts it back beside the chat.
  */
-export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover, onImage }: Props) {
+export function ActivityPanel({ items, live, error, at, pinned, onPin, onClose, onHover, onImage }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const beside = (): Placement => {
@@ -112,6 +114,12 @@ export function ActivityPanel({ items, live, at, pinned, onPin, onClose, onHover
       <div className="activity-body" ref={scroller} onScroll={onScroll}>
         {!items.length && <div className="dim">{live ? 'Starting…' : 'Nothing was recorded for this reply.'}</div>}
         {items.map((it, i) => <Item key={i} it={it} streaming={live && i === items.length - 1} duration={it.kind === 'thinking' ? blockDuration(items, i) : undefined} onImage={onImage} />)}
+        {!live && error && (
+          <div className="act-step status bad act-end" role="status">
+            <span className="act-time" />
+            <div className="act-step-body"><span><Icon name="alert" size={13} /> {error}</span></div>
+          </div>
+        )}
       </div>
       {!follow && (
         <button className="activity-jump" onClick={() => setFollow(true)}>

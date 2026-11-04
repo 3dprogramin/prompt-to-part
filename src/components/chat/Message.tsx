@@ -88,6 +88,7 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
         <ActivityPanel
           items={activity}
           live={live}
+          error={m.error}
           onImage={onImage}
           at={think.at}
           pinned={think.mode === 'pinned'}

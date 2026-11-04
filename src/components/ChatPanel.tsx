@@ -517,6 +517,7 @@ export function ChatPanel(p: Props) {
         <ActivityPanel
           items={followedItems()}
           live={followed.id === liveId}
+          error={followed.error}
           onImage={openLightbox}
           at={besideChatTop()}
           pinned
