@@ -1,5 +1,5 @@
 import type { Design, DesignSummary, Vec3 } from '../../shared/types';
-import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, MeshyBalance, PriceRequest, PriceSuggestion, PrinterInfo } from '../../shared/api';
+import type { AgentEvent, BackupImport, BambuTemplate, Capabilities, Connection, DesignFiles, FontEntry, GenerateRequest, ImageData, MeshUpload, MeshyBalance, ModelsResponse, PriceRequest, PriceSuggestion, PrinterInfo } from '../../shared/api';
 import type { PrinterSetup } from '../../shared/printer';
 import type { CostSettings, SliceStats } from '../../shared/cost';
 import type { FilamentLookup } from '../../shared/filaments';
@@ -104,6 +104,8 @@ export const api = {
   },
   capabilities: () => getJson<Capabilities>('/api/capabilities'),
   connection: (fresh = false) => getJson<Connection>(`/api/connection${fresh ? '?fresh=1' : ''}`),
+  /** OpenRouter's models for the model menu (only when Claude runs through OpenRouter). */
+  models: () => getJson<ModelsResponse>('/api/models'),
   /** The Meshy account's credits (only when the server has a Meshy key). */
   meshyBalance: () => getJson<MeshyBalance>('/api/meshy/balance'),
   /** The Bambu Studio project template (built from the user's Bambu Studio the first time: minutes). */

@@ -1,7 +1,8 @@
 // What this app can do and runs on: capabilities, Meshy credits, the Claude connection, dictation and Bambu Studio.
 import express from 'express';
-import type { Capabilities, SpeechToken } from '../../shared/api';
-import { claudeAuthProblem, defaultEffort, defaultModel, appCurrency } from '../config';
+import type { Capabilities, ModelsResponse, SpeechToken } from '../../shared/api';
+import { claudeAuthProblem, claudeViaOpenRouter, defaultEffort, defaultModel, appCurrency } from '../config';
+import { openRouterModels } from '../openRouterModels';
 import { blenderInfo } from '../blend';
 import { bambuTemplate, bambuVersion, cachedPrintDefaults } from '../bambu';
 import { printerLoaded } from '../printerSetting';
@@ -22,11 +23,11 @@ function speechLanguages(): Pick<SpeechToken, 'language' | 'secondaryLanguages'>
   return { language: valid(language) ? language : undefined, secondaryLanguages: secondary };
 }
 
-export function registerSystemRoutes(app: express.Express, { connection }: { connection: typeof checkConnection }) {
+export function registerSystemRoutes(app: express.Express, { connection, models }: { connection: typeof checkConnection; models: () => ReturnType<typeof openRouterModels> }) {
   app.get('/api/capabilities', async (_req, res) => {
     await printerLoaded().catch(() => undefined);
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: appCurrency() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: appCurrency(), openRouterModels: claudeViaOpenRouter() } satisfies Capabilities);
   });
 
   // The Meshy account's credits, for the 3D figure button (free to ask; asked at most once a minute).
@@ -37,6 +38,17 @@ export function registerSystemRoutes(app: express.Express, { connection }: { con
       res.json((await cachedBalance(c)) satisfies MeshyBalance);
     } catch (e) {
       res.status(502).json({ error: (e as Error).message });
+    }
+  });
+
+  // The model menu's choice when Claude runs through OpenRouter: every model there that can run the
+  // app. With an Anthropic key the menu has Claude's own models only, so there is no list.
+  app.get('/api/models', async (_req, res) => {
+    if (!claudeViaOpenRouter()) return void res.status(404).json({ error: 'The model list is only there when the app runs on an OpenRouter key' });
+    try {
+      res.json({ models: await models() } satisfies ModelsResponse);
+    } catch (e) {
+      res.status(502).json({ error: `Couldn't load OpenRouter's models: ${(e as Error).message}` });
     }
   });
 

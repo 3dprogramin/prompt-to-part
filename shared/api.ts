@@ -137,7 +137,30 @@ export interface Capabilities {
   effort: string;
   /** The currency costs are in (PTP_CURRENCY). */
   currency: string;
+  /** Claude runs through OpenRouter, so the model menu offers OpenRouter's models (GET /api/models). */
+  openRouterModels: boolean;
 }
+
+/** A model on OpenRouter that can run the app (tools, text in and out), for the model menu. */
+export interface OpenRouterModel {
+  id: string;
+  /** Without the provider in front ("DeepSeek V4.1 Flash"). */
+  name: string;
+  /** As OpenRouter writes it ("DeepSeek: DeepSeek V4.1 Flash"). */
+  fullName: string;
+  /** When OpenRouter added it (Unix seconds). */
+  created: number;
+  contextLength: number | null;
+  /** USD per token. */
+  pricing: { prompt: number; completion: number; cacheRead: number; cacheWrite: number };
+  /** Takes pictures as input. */
+  images: boolean;
+  /** One of the menu's top models (the newest of each well-known family). */
+  featured?: boolean;
+}
+
+/** GET /api/models (only when Claude runs through OpenRouter). */
+export interface ModelsResponse { models: OpenRouterModel[] }
 
 /** GET /api/connection: what the app runs Claude on, and whether that service answers. */
 export interface Connection {

@@ -1349,3 +1349,62 @@ test('the new-design screen offers four starters with their mode, and "Give me 4
     await page.close();
   }
 });
+
+test('through OpenRouter the model menu lists its top models with prices, finds the others by search or Show more, and sends the one picked', TEST, async () => {
+  const mid = 'ui-smoke-40000001';
+  const saved = await putDesign({ id: mid, name: 'Model pick', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], messages: [] });
+  assert.equal(saved.status, 200, await saved.text());
+  const page = await newPage();
+  try {
+    const entry = (id: string, name: string, created: number, featured = false) => ({
+      id, name, fullName: `Maker: ${name}`, created, contextLength: 100000, images: false, featured,
+      pricing: { prompt: 0.000000045, completion: 0.0000005, cacheRead: 0.000000045, cacheWrite: 0.000000045 },
+    });
+    const models = [
+      entry('anthropic/claude-opus-5.5', 'Claude Opus 5.5', 30, true),
+      entry('deepseek/deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 29, true),
+      ...Array.from({ length: 25 }, (_, i) => entry(`other/model-${i}`, `Other Model ${i}`, 20 - i)),
+    ];
+    await page.route('**/api/capabilities', async (route) => { const res = await route.fetch(); await route.fulfill({ response: res, json: { ...(await res.json()), openRouterModels: true } }); });
+    await page.route('**/api/models', (route) => route.fulfill({ json: { models } }));
+    const sent: { model?: string }[] = [];
+    await page.route('**/api/generate', (route) => {
+      sent.push(route.request().postDataJSON());
+      const events = [{ type: 'done', durationMs: 900, turns: 1, submitted: false, text: 'Done.', costUsd: 0.0042 }];
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
+    });
+    await page.goto(`${A}/?design=${mid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Model pick');
+    const chip = page.getByRole('button', { name: /^Model and reasoning effort:/ });
+    await chip.click();
+    const menu = page.getByRole('menu', { name: 'Model and reasoning effort' });
+    const group = menu.getByRole('group', { name: 'Model' });
+    // The chosen alias (Opus) on top, then the two top models; the rest behind Show more.
+    await group.getByRole('menuitemradio', { name: /DeepSeek V4.1 Flash/ }).waitFor();
+    assert.equal(await group.getByRole('menuitemradio').count(), 3);
+    assert.match(await group.getByRole('menuitemradio', { name: /DeepSeek V4.1 Flash/ }).innerText(), /\$0\.045 \/ \$0\.50/);
+    await group.getByRole('menuitem', { name: 'Show more (25)' }).click();
+    assert.equal(await group.getByRole('menuitemradio').count(), 23);
+    // The search types (letters are not menu keys) and finds by every word; Down goes to the first match.
+    const search = group.getByRole('searchbox', { name: 'Search OpenRouter models' });
+    await search.click();
+    await page.keyboard.type('model 24');
+    assert.equal(await group.getByRole('menuitemradio').count(), 1);
+    await page.keyboard.press('ArrowDown');
+    assert.match(await page.evaluate(() => document.activeElement?.textContent ?? ''), /Other Model 24/);
+    await search.fill('deepseek');
+    await group.getByRole('menuitemradio', { name: /DeepSeek V4.1 Flash/ }).click();
+    await page.locator('.chat-panel').screenshot({ path: path.join(shots, '12-openrouter-models.png') });
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'detached' });
+    assert.match(await chip.getAttribute('aria-label') ?? '', /DeepSeek V4.1 Flash · High$/);
+    const box = page.locator('.chat-panel textarea');
+    await box.fill('A cube');
+    await box.press('Enter');
+    await page.locator('.msg', { hasText: 'Done.' }).waitFor();
+    assert.equal(sent[0].model, 'deepseek/deepseek-v4.1-flash');
+    assert.match(await page.locator('.msg', { hasText: 'Done.' }).innerText(), /\$0\.004/);
+  } finally {
+    await page.close();
+  }
+});

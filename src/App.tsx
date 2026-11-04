@@ -123,6 +123,8 @@ export default function App() {
   const [autoBuild, setAutoBuild] = useState<AutoBuild | null>(null);
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
   const [meshy, setMeshy] = useState(false);
+  // Claude runs through OpenRouter: the model menu offers OpenRouter's models.
+  const [openRouterModels, setOpenRouterModels] = useState(false);
   // The Meshy account's credits, shown on the 3D figure button: asked when the mode is turned on and after a reply that used Meshy.
   const [meshyCredits, setMeshyCredits] = useState<MeshyBalance | null>(null);
   const refreshMeshyCredits = () => { api.meshyBalance().then(setMeshyCredits).catch(() => {}); };
@@ -176,7 +178,7 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -661,6 +663,7 @@ export default function App() {
           onBuildNow={() => buildConcepts.current()}
           onStopAutoBuild={() => setAutoBuild(null)}
           defaultModel={chatDefaults.model}
+          openRouterModels={openRouterModels}
           hasModel={!!design.code}
           dictation={dictation}
           claudeProblem={claudeProblem}

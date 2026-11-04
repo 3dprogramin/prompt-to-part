@@ -4,7 +4,8 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { KeyRefusedError, runGeneration, steerGeneration, UsageLimitError } from '../agent';
 import type { AgentEvent, GenerateRequest, ImageData } from '../../shared/api';
-import { claudeAuthProblem, claudeKeyRefused, defaultModel, EFFORTS } from '../config';
+import { claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, defaultModel, EFFORTS } from '../config';
+import { OPENROUTER_MODEL_ID } from '../openRouterModels';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../../shared/scad';
 import { isLineArtStyle, LINE_ART_STYLES } from '../../shared/lineart';
 import { MAX_MESHES, MESH_NAME } from '../../shared/meshes';
@@ -96,7 +97,9 @@ function generateProblem(b: GenerateRequest): string | null {
   if (typeof b.prompt !== 'string' || b.prompt.length > 20000) return 'prompt must be text (up to 20,000 characters)';
   if (b.images != null && (!Array.isArray(b.images) || b.images.length > 8 || !b.images.every(isImage))) return 'up to 8 images';
   if (b.currentView != null && !isImage(b.currentView)) return 'bad currentView';
-  if (b.model != null && !MODELS.includes(b.model) && b.model !== defaultModel()) return `model must be one of ${[...new Set([...MODELS, defaultModel()])].join(', ')}`;
+  // Through OpenRouter any of its models may be chosen (the menu lists them); else Claude's.
+  const openRouterModel = claudeViaOpenRouter() && typeof b.model === 'string' && b.model.length <= 120 && OPENROUTER_MODEL_ID.test(b.model);
+  if (b.model != null && !MODELS.includes(b.model) && b.model !== defaultModel() && !openRouterModel) return `model must be one of ${[...new Set([...MODELS, defaultModel()])].join(', ')}`;
   if (b.effort != null && !EFFORTS.includes(b.effort)) return `effort must be one of ${EFFORTS.join(', ')}`;
   if (b.code != null && typeof b.code !== 'string') return 'bad code';
   if (b.sessionId != null && !/^[\w-]{1,100}$/.test(b.sessionId)) return 'bad sessionId';

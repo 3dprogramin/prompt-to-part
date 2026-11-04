@@ -17,6 +17,7 @@ import { registerDesignRoutes } from './routes/designs';
 import { registerImageRoutes } from './routes/images';
 import { registerMeshRoutes } from './routes/meshes';
 import { registerSystemRoutes } from './routes/system';
+import { openRouterModels } from './openRouterModels';
 import { registerCostRoutes } from './routes/cost';
 import { registerFilamentRoutes } from './routes/filaments';
 import { registerIdeaRoutes } from './routes/ideas';
@@ -43,6 +44,8 @@ export interface AppOptions {
   lookup?: typeof lookupFilament;
   /** Writes new starter ideas (tests pass a stand-in instead of Claude). */
   ideas?: typeof writeIdeas;
+  /** OpenRouter's models for the model menu (tests pass a stand-in instead of the network). */
+  models?: typeof openRouterModels;
   /** Asks the image model for a picture (tests pass a stand-in). */
   image?: typeof requestImage;
   /** Checks what the app runs Claude on (tests pass a stand-in: the real one calls the provider). */
@@ -53,7 +56,7 @@ export interface AppOptions {
   maxGenerations?: number;
 }
 
-export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, models = openRouterModels, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
   const app = express();
 
   // With PTP_PASSWORD, every page and API call needs it (HTTP Basic auth): the Host and Origin checks
@@ -120,7 +123,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   registerDesignRoutes(app, ctx);
   registerImageRoutes(app, ctx, { image, sceneWriter });
   registerMeshRoutes(app, ctx);
-  registerSystemRoutes(app, { connection });
+  registerSystemRoutes(app, { connection, models: () => models() });
   registerCostRoutes(app, ctx, { suggest });
   registerPrinterRoutes(app, ctx);
   // The saved printer becomes the server's current one (the AI's instructions, validation, templates).

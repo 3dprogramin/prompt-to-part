@@ -894,7 +894,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .model-group-head { padding: 5px 8px 3px 28px; font: 600 9.5px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
 .mode-menu.model-menu button { align-items: center; padding: 5px 10px 5px 6px; }
 .model-menu .mode-check { padding-top: 0; }
-.model-menu button.on > span:last-child { color: var(--accent-2); font-weight: 500; }
+/* Through OpenRouter: a wider menu, the model list searchable and scrolling within it. */
+.mode-menu.model-menu.openrouter { width: 440px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.model-menu .model-search { display: block; width: calc(100% - 8px); margin: 2px 4px 4px; padding: 5px 8px; font-size: 12px; }
+.model-menu .model-list { max-height: min(300px, 50vh); overflow-y: auto; overscroll-behavior: contain; }
+.mode-menu.model-menu button > .model-row-text { flex: 1; min-width: 0; }
+.mode-menu.model-menu button > .model-row-text > .model-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: inherit; color: inherit; }
+.mode-menu.model-menu button.on > .model-row-text > .model-row-name { color: var(--accent-2); font-weight: 500; }
+.mode-menu.model-menu button > .model-row-text > .model-price { font: 10.5px var(--mono); color: var(--text-3); white-space: nowrap; }
+.model-menu .model-note { padding: 6px 10px 6px 28px; font-size: 11.5px; color: var(--text-3); }
+.model-menu .model-note.error { color: var(--text-2); }
+.mode-menu.model-menu .model-note button { display: inline; width: auto; padding: 0 2px; color: var(--accent-2); text-decoration: underline; }
+.mode-menu.model-menu button.model-more { padding-left: 28px; font-size: 11.5px; color: var(--text-2); }
 /* The options button (gear, count of what is on) and its menu of switches, pushed to the right of the toolbar. */
 .composer-tools .options-wrap { margin-left: auto; }
 .web-toggle.options-btn { position: relative; width: 30px; }

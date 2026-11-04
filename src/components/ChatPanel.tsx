@@ -92,6 +92,8 @@ interface Props {
   onStopAutoBuild: () => void;
   /** The server's starting model (PTP_MODEL), offered even when it is a full model ID. */
   defaultModel: string;
+  /** Claude runs through OpenRouter: the model menu offers OpenRouter's models. */
+  openRouterModels?: boolean;
   onWebSearch: (on: boolean) => void;
 }
 
@@ -448,7 +450,7 @@ export function ChatPanel(p: Props) {
           <div className={`composer-tools ${p.generating && hasDraft ? 'crowded' : ''}`}>
             <button className="icon-btn" title="Attach photos, SVG, OpenSCAD (.scad) or 3D models (STL, 3MF, OBJ, GLB)" aria-label="Attach photos, SVG, OpenSCAD files or 3D models" onClick={() => fileInput.current?.click()}><Icon name="paperclip" /></button>
             <input ref={fileInput} type="file" accept="image/*,.svg,.scad,.stl,.3mf,.obj,.glb,.gltf" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
-            <ModelMenu model={p.model} effort={p.effort} defaultModel={p.defaultModel} onModel={p.onModel} onEffort={p.onEffort} />
+            <ModelMenu model={p.model} effort={p.effort} defaultModel={p.defaultModel} openRouter={!!p.openRouterModels} onModel={p.onModel} onEffort={p.onEffort} />
             {/* 3D figure and Line art modes: the picture mode button with a ▾ for the mode's options
                 (the figure's Colour, Wait for my OK and credits; the line art's style). */}
             <span className="mode-split">

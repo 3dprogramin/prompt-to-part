@@ -11,6 +11,7 @@ import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
+import { openRouterModels, priceUsage, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
@@ -456,7 +457,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         if (msg.subtype !== 'success') {
           emit({ type: 'error', message: `Agent stopped: ${msg.subtype}${'errors' in msg && msg.errors?.length ? ` – ${msg.errors.join('; ')}` : ''}` });
         }
-        const sessionCostUsd = msg.total_cost_usd;
+        const sessionCostUsd = await sessionCost(msg);
         // (A total below the earlier one means Claude Code started this session's count from zero.)
         const costUsd = sessionCostUsd === undefined || costBase === undefined ? undefined : sessionCostUsd >= costBase ? sessionCostUsd - costBase : sessionCostUsd;
         emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Finished in ${formatDuration(msg.duration_ms)} · ${msg.num_turns} turns${costUsd !== undefined ? ` · ${formatCost(costUsd)}` : ''}` } });
@@ -501,3 +502,17 @@ export class UsageLimitError extends Error {}
 
 /** A reply that failed because the Claude API refused the app's API key or token (the message says which). */
 export class KeyRefusedError extends Error {}
+
+/**
+ * The session's cost so far. Through OpenRouter it is priced at OpenRouter's rates per model, as
+ * Claude Code prices only Claude models (another one it would guess at a Claude price); without the
+ * list, or with an Anthropic key, Claude Code's own total.
+ */
+async function sessionCost(msg: { total_cost_usd?: number; modelUsage?: Record<string, UsageEntry> }): Promise<number | undefined> {
+  if (!claudeViaOpenRouter() || !msg.modelUsage || !Object.keys(msg.modelUsage).length) return msg.total_cost_usd;
+  try {
+    return priceUsage(msg.modelUsage, await openRouterModels());
+  } catch {
+    return msg.total_cost_usd;
+  }
+}
