@@ -10,7 +10,7 @@ import type { RawModel } from '../server/openRouterModels';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-models-test-'));
 process.env.PTP_DATA = dataDir;
-const { menuModels, priceUsage, openRouterModels, forgetOpenRouterModels } = await import('../server/openRouterModels');
+const { menuModels, priceUsage, openRouterModels, forgetOpenRouterModels, modelIsTextOnly, withoutPictures, PICTURE_LEFT_OUT } = await import('../server/openRouterModels');
 const { formatCost } = await import('../shared/duration');
 
 const model = (id: string, created: number, extra: Partial<RawModel> = {}): RawModel => ({
@@ -133,4 +133,18 @@ test('with an Anthropic key: no list, and only Claude\'s models', async () => {
     assert.equal(res.status, 200);
     await res.text();
   });
+});
+
+test('a model that takes no pictures: known from the list, its pictures swapped for a note', async () => {
+  forgetOpenRouterModels();
+  const fake = (async () => new Response(JSON.stringify({ data: RAW }))) as typeof fetch;
+  assert.equal(await modelIsTextOnly('some/text-only', fake), true);
+  assert.equal(await modelIsTextOnly('moonshotai/kimi-k3', fake), false);
+  assert.equal(await modelIsTextOnly('opus', fake), false, 'an alias is Claude');
+  assert.equal(await modelIsTextOnly('some/not-listed', fake), false, 'unknown: pictures are sent');
+  forgetOpenRouterModels();
+  assert.equal(await modelIsTextOnly('some/text-only', (async () => { throw new Error('offline'); }) as typeof fetch), false, 'no list: pictures are sent');
+  forgetOpenRouterModels();
+  const content = [{ type: 'text', text: 'Front:' }, { type: 'image', data: 'x', mimeType: 'image/png' }];
+  assert.deepEqual(withoutPictures(content), [{ type: 'text', text: 'Front:' }, { type: 'text', text: PICTURE_LEFT_OUT }]);
 });

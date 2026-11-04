@@ -902,6 +902,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .mode-menu.model-menu button > .model-row-text > .model-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: inherit; color: inherit; }
 .mode-menu.model-menu button.on > .model-row-text > .model-row-name { color: var(--accent-2); font-weight: 500; }
 .mode-menu.model-menu button > .model-row-text > .model-price { font: 10.5px var(--mono); color: var(--text-3); white-space: nowrap; }
+.model-no-pictures { color: var(--accent-2); }
 .model-menu .model-note { padding: 6px 10px 6px 28px; font-size: 11.5px; color: var(--text-3); }
 .model-menu .model-note.error { color: var(--text-2); }
 .mode-menu.model-menu .model-note button { display: inline; width: auto; padding: 0 2px; color: var(--accent-2); text-decoration: underline; }

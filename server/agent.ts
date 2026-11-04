@@ -11,7 +11,7 @@ import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
 import { claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
-import { openRouterModels, priceUsage, type UsageEntry } from './openRouterModels';
+import { modelIsTextOnly, openRouterModels, priceUsage, withoutPictures, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
@@ -140,6 +140,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   await printerLoaded().catch(() => undefined);
   const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());
   if (stopped()) return;
+  // An OpenRouter model that takes no pictures: they are left out of what it gets (or the request fails).
+  const textOnly = claudeViaOpenRouter() && await modelIsTextOnly(req.model);
   const { server: cad, state, newUserMessage } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
     pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
@@ -148,6 +150,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
     lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
     askFirst: req.askFirst !== false,
+    textOnly,
     printBase,
     // The user's print settings (follow-ups on a finished version send them in renderValues).
     printProfile: typeof pictureValues[PRINT_KEY] === 'string' ? pictureValues[PRINT_KEY] : undefined,
@@ -254,13 +257,17 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const run = async (resume?: string, recap?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
       // A fresh session after one that couldn't be continued starts with what was said before.
-      yield { type: 'user', message: { role: 'user', content: recap ? [{ type: 'text', text: recap }, ...content] : content }, parent_tool_use_id: null };
+      const first = recap ? [{ type: 'text' as const, text: recap }, ...content] : content;
+      yield { type: 'user', message: { role: 'user', content: textOnly ? [{ type: 'text', text: TEXT_ONLY_NOTE }, ...withoutPictures(first)] : first }, parent_tool_use_id: null };
       // Then whatever the user sends meanwhile; Claude Code reads each at Claude's next step.
-      yield* inbox.drain();
+      for await (const m of inbox.drain()) {
+        const c = m.message.content;
+        yield textOnly && Array.isArray(c) ? { ...m, message: { ...m.message, content: withoutPictures(c) } } : m;
+      }
     }
     let prompts = 0; // user messages Claude Code has read in this run (the first is the request itself)
     // Exactly what goes to Claude, for the activity panel.
-    const pictures = content.filter((c) => c.type === 'image').length;
+    const pictures = textOnly ? 0 : content.filter((c) => c.type === 'image').length;
     const sentText = [recap, ...content.flatMap((c) => (c.type === 'text' ? [c.text] : []))].filter(Boolean).join('\n\n');
     emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
     let finalText = '';
@@ -483,7 +490,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // The session may be gone, or the API refuses its history (e.g. a session started with another
     // provider): retry once in a fresh session, with a recap of the conversation so Claude knows
     // what came before.
-    if (req.sessionId && !gotOutput && !limitHit && !(e instanceof KeyRefusedError) && /session|conversation|invalid .*request/i.test(msg)) {
+    if (req.sessionId && !gotOutput && !limitHit && !(e instanceof KeyRefusedError) && /session|conversation|invalid .*request|image input/i.test(msg)) {
       emit({ type: 'step', step: { kind: 'status', text: 'The previous conversation can\'t be continued – starting a fresh one with a summary of it.' } });
       try {
         await run(undefined, recapOf(req.history));
@@ -496,6 +503,9 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     if (steering.get(req.designId)?.inbox === inbox) steering.delete(req.designId);
   }
 }
+
+/** What a model that takes no pictures is told first. */
+const TEXT_ONLY_NOTE = 'This model cannot take pictures, so none are sent: attached photos, renders and drawings arrive as a short note instead. Rely on the text reports (sizes, parts, volumes, warnings) of evaluate_model and render_model, and ask the user to describe what a picture shows when you need it.';
 
 /** A reply that failed because a Claude usage limit is reached. */
 export class UsageLimitError extends Error {}

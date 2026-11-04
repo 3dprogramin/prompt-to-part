@@ -11,7 +11,7 @@ const EFFORTS = [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' 
 /** How many more models "Show more" adds (and a search shows at first). */
 const PAGE = 20;
 
-interface Item { id: string; label: string; price?: string }
+interface Item { id: string; label: string; price?: string; textOnly?: boolean }
 
 /** The model and reasoning effort in one chip ("Opus 5.5 · High"), both chosen in its menu. */
 export function ModelMenu({ model, effort, defaultModel, openRouter = false, onModel, onEffort }: { model: string; effort: string; defaultModel: string; openRouter?: boolean; onModel: (m: string) => void; onEffort: (e: string) => void }) {
@@ -40,7 +40,7 @@ export function ModelMenu({ model, effort, defaultModel, openRouter = false, onM
   const shown = found ? found.slice(0, PAGE + more) : [...featured, ...rest.slice(0, more)];
   const left = found ? found.length - shown.length : rest.length - more;
   const current = !found && !shown.some((x) => x.id === model) ? [{ id: model, label: modelName }] : [];
-  const orItems: Item[] = [...current, ...shown.map((x) => ({ id: x.id, label: x.name, price: perMillion(x) }))];
+  const orItems: Item[] = [...current, ...shown.map((x) => ({ id: x.id, label: x.name, price: perMillion(x), textOnly: !x.images }))];
 
   // Left and Right go between the two lists (to the chosen item); the other keys as in any menu.
   // In the search box the keys type, except Down (to the first model) and Tab.
@@ -62,11 +62,11 @@ export function ModelMenu({ model, effort, defaultModel, openRouter = false, onM
   // Choosing keeps the menu open (to set the other one too); choosing the chosen item again closes it.
   const pick = (cur: string, id: string, set: (id: string) => void) => (id === cur ? m.close() : set(id));
   const rows = (items: Item[], cur: string, set: (id: string) => void) => items.map((x) => (
-    <button key={x.id} role="menuitemradio" aria-checked={x.id === cur} className={x.id === cur ? 'on' : ''} onClick={() => pick(cur, x.id, set)} title={x.price ? `${x.id}: ${x.price} per million tokens (in / out)` : undefined}>
+    <button key={x.id} role="menuitemradio" aria-checked={x.id === cur} className={x.id === cur ? 'on' : ''} onClick={() => pick(cur, x.id, set)} title={x.price ? `${x.id}: ${x.price} per million tokens (in / out)${x.textOnly ? '. Takes no pictures: it can\'t see its renders, attached photos or drawings' : ''}` : undefined}>
       <span className="mode-check" aria-hidden>{x.id === cur && <Icon name="check" size={13} />}</span>
       <span className="model-row-text">
         <span className="model-row-name">{x.label}</span>
-        {x.price && <span className="model-price">{x.price}</span>}
+        {x.price && <span className="model-price">{x.price}{x.textOnly && <span className="model-no-pictures"> · no pictures</span>}</span>}
       </span>
     </button>
   ));

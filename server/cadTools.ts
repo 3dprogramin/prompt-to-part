@@ -20,6 +20,7 @@ import { artworkTools, pictureTools } from './tools/pictures';
 import { lineArtTools } from './tools/lineArt';
 import { meshyTools } from './tools/meshy';
 import { questionTools } from './tools/questions';
+import { withoutPictures } from './openRouterModels';
 
 const sourcesSchema = z.array(z.object({
   dimension: z.string().max(120).describe('What the value is, e.g. "PCB size", "Mounting holes", "USB-C port centre"'),
@@ -64,6 +65,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   image?: typeof requestImage;
   /** "Ask first" is on: ask_questions is there. */
   askFirst?: boolean;
+  /** The model takes no pictures: the tools' renders and pictures reach it as a note instead. */
+  textOnly?: boolean;
   /** The print baseline (the chosen printer's profile), for weighing parts in the tipping check. */
   printBase?: Required<PrintSettings>;
   /** The user's own print settings (PRINT_KEY, as JSON), which weigh the parts in the tipping check too. */
@@ -88,10 +91,13 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   // Code of model.js at the last successful render: submit requires the current file to have been looked at.
   let renderedCode: string | null = null;
 
+  // A model that takes no pictures gets a note in place of each one (an image would fail the request).
+  const forModel = <T extends { handler: (...a: never[]) => Promise<{ content: { type: string }[] }> }>(tools: T[]): T[] =>
+    extra.textOnly ? tools.map((t) => ({ ...t, handler: async (...a: Parameters<T['handler']>) => { const r = await t.handler(...a); return { ...r, content: withoutPictures(r.content) }; } })) : tools;
   const server = createSdkMcpServer({
     name: 'cad',
     version: '1.0.0',
-    tools: [
+    tools: forModel([
       tool('evaluate_model', 'Run model.js with the given (or default) parameter values. Returns errors with line numbers, or bounding boxes, volumes, connected-piece counts, dimension callouts and warnings.', { values: valuesSchema }, async ({ values }) => {
         const code = await readModel();
         if (code == null) return noFile;
@@ -292,7 +298,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
           return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
         }
       }),
-    ],
+    ]),
   });
   return { server, state, newUserMessage };
 }

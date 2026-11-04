@@ -127,3 +127,25 @@ export function priceUsage(usage: Record<string, UsageEntry>, models: OpenRouter
 
 /** A model ID as OpenRouter writes them ("deepseek/deepseek-v4.1-flash", "~deepseek/deepseek-flash-latest"). */
 export const OPENROUTER_MODEL_ID = /^~?[a-z0-9][\w.-]*\/[\w.:~-]+$/;
+
+/** What a text-only model gets instead of a picture. */
+export const PICTURE_LEFT_OUT = '[Picture left out: this model cannot take pictures.]';
+
+/**
+ * Whether the reply runs on an OpenRouter model that takes no pictures (its list entry has no image
+ * input). False for Claude's aliases, for a model missing from the list and when the list can't load.
+ */
+export async function modelIsTextOnly(id: string | undefined, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (!id || !OPENROUTER_MODEL_ID.test(id)) return false;
+  try {
+    const m = (await openRouterModels(fetchImpl)).find((x) => x.id === id);
+    return !!m && !m.images;
+  } catch {
+    return false;
+  }
+}
+
+/** The content with every picture replaced by a short note, for a model that takes none. */
+export function withoutPictures<T extends { type: string }>(content: T[]): T[] {
+  return content.map((c) => (c.type === 'image' ? ({ type: 'text', text: PICTURE_LEFT_OUT } as unknown as T) : c));
+}
