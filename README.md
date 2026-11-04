@@ -35,7 +35,7 @@ Open http://localhost:8787 and describe what you want to print. Your designs liv
 |---|---|
 | Stop the app | `docker compose down` |
 | Start it again | `docker compose up -d` |
-| Update to the latest version | `git pull && docker compose up -d --build` |
+| Update to the latest version | `git pull && scripts/rebuild.sh` (waits until no reply is running) |
 | See what it is doing | `docker compose logs -f app` |
 | Use another port | `PTP_PORT=8000` in `.env`, then `docker compose up -d` |
 
@@ -54,7 +54,7 @@ Worth adding to `.env` too:
 - `PTP_WITH_BAMBU=1` to build Bambu Studio into the image, for slicing, cost and 3MF print settings.
 - `MESHY_API_KEY` for sculpted 3D figures.
 
-prompt-to-part has no login: anyone who can reach it can use your keys, so Docker publishes it on this computer only. Keep it that way.
+prompt-to-part has no login: anyone who can reach it can use your keys, so Docker publishes it on this computer only. To open it from other devices, set a password first (see [Docker](#docker)).
 
 ## What it costs
 
@@ -77,18 +77,9 @@ So most designs cost $0.15 to $0.40, and one that has to fit a real product, wit
 
 ## Docker
 
-Docker (with Compose v2) is the recommended way to run prompt-to-part: a single container serves the app and its API (the production build, as `pnpm start` does), walled off from the rest of your computer (see [Why Docker](#why-docker)).
+The [Quick start](#quick-start) gets it running; this is everything after that. A single container serves the app and its API (the production build, as `pnpm start` does). The image is built on your computer: it installs the app's dependencies with `pnpm install --frozen-lockfile` (Claude Code among them) and never contains `.env`, `data/` or any credentials.
 
-```sh
-cp .env.sample .env        # then fill it in (see below)
-docker compose up -d --build
-```
-
-Then open http://localhost:8787. The image is built on your computer: it installs the app's dependencies with `pnpm install --frozen-lockfile` (Claude Code among them) and never contains `.env`, `data/` or any credentials.
-
-prompt-to-part has no login by default, so whoever can reach its port can use your API keys. Compose therefore publishes it on `127.0.0.1` only. To reach it from other devices (`PTP_BIND=0.0.0.0` and this computer's address in `PTP_HOSTS`), also set `PTP_PASSWORD` in `.env`: the browser then asks for it once (any user name). It is plain HTTP, so only on a network you trust, or behind an HTTPS reverse proxy. Don't publish the image to a registry either (it contains Claude Code and, with the Bambu option, Bambu Studio, which are not prompt-to-part's to redistribute). `PTP_PORT` in `.env` changes the port (default 8787); the container then listens on that port too, because prompt-to-part only answers requests addressed to its own port.
-
-With API keys in `.env`, Docker works as it is.
+**Ports and other devices.** prompt-to-part has no login by default, so whoever can reach its port can use your API keys. Compose therefore publishes it on `127.0.0.1` only. To reach it from other devices (`PTP_BIND=0.0.0.0` and this computer's address in `PTP_HOSTS`), also set `PTP_PASSWORD` in `.env`: the browser then asks for it once (any user name). It is plain HTTP, so only on a network you trust, or behind an HTTPS reverse proxy. Don't publish the image to a registry either (it contains Claude Code and, with the Bambu option, Bambu Studio, which are not prompt-to-part's to redistribute). `PTP_PORT` in `.env` changes the port (default 8787); the container then listens on that port too, because prompt-to-part only answers requests addressed to its own port.
 
 **Data.** Everything the app keeps is in three named volumes, so it survives rebuilds and `docker compose down`:
 
@@ -116,7 +107,7 @@ docker compose restart app
 
 The Bambu template is rebuilt by the container's Bambu Studio when its version differs. Claude sessions are not moved: a design's next message starts a fresh session with a summary of the conversation.
 
-**Updating:** `git pull && pnpm run rebuild`: it waits until no reply is being generated (and no Bambu Studio slice runs), rebuilds with `docker compose up -d --build` and waits until the app is healthy again (`--check` only says whether it is busy, `--now` skips the wait). Old images can then be removed with `docker image prune`.
+**Updating:** `git pull && scripts/rebuild.sh` (or `pnpm run rebuild`): it waits until no reply is being generated (and no Bambu Studio slice runs), rebuilds with `docker compose up -d --build` and waits until the app is healthy again (`--check` only says whether it is busy, `--now` skips the wait). Old images can then be removed with `docker image prune`.
 
 **Logs:** `docker compose logs -f app` (add `DEBUG_AGENT=1` to `.env` to include Claude Code's own output). `docker compose ps` shows whether the container is healthy.
 
