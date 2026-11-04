@@ -1,9 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Jig mark for light backgrounds: darker amber, dark top layer. -->
-  <rect fill="#1d1a14" x="22" y="4" width="30" height="8" rx="3"/>
-  <g fill="#c4861c">
-    <rect x="36" y="14" width="16" height="8" rx="3"/><rect x="36" y="24" width="16" height="8" rx="3"/>
-    <rect x="8" y="34" width="12" height="8" rx="3"/><rect x="36" y="34" width="16" height="8" rx="3"/>
-    <rect x="8" y="44" width="44" height="8" rx="3"/><rect x="14" y="54" width="32" height="8" rx="3"/>
-  </g>
+  <!-- prompt-to-part mark for light backgrounds. -->
+  <path d="M12 17L28 32L12 47" fill="none" stroke="#c4861c" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="34" y="29" width="20" height="5" rx="1.5" fill="#ecc77f"/>
+  <g fill="#c4861c"><rect x="34" y="36" width="20" height="5" rx="1.5"/><rect x="34" y="43" width="20" height="5" rx="1.5"/></g>
 </svg>
