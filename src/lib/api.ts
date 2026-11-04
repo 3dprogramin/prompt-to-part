@@ -21,7 +21,7 @@ export class HttpError extends Error {
   }
 }
 
-const UNREACHABLE = "Can't reach the Jig server – is it running?";
+const UNREACHABLE = "Can't reach the prompt-to-part server: is it running?";
 
 /** fetch() that adds X-Jig to writes and turns a network failure or an error status into an HttpError. */
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -135,11 +135,11 @@ export const api = {
   fontData: (id: string) => getJson<{ files: string[] }>(`/api/fonts/data?id=${encodeURIComponent(id)}`),
 };
 
-/** A filament's colour and TD: from Jig's library, or found on the web by Claude (can take a minute). */
+/** A filament's colour and TD: from the app's library, or found on the web by Claude (can take a minute). */
 export const lookupFilament = (brand: string, name: string): Promise<FilamentLookup> =>
   getJson<FilamentLookup>('/api/filaments/lookup', { method: 'POST', body: JSON.stringify({ brand, name }) });
 
-/** Four new starter ideas from Jig, different from the `shown` ones. */
+/** Four new starter ideas, different from the `shown` ones. */
 export const newIdeas = (shown: string[]): Promise<Idea[]> => getJson<{ ideas: Idea[] }>('/api/ideas', { method: 'POST', body: JSON.stringify({ shown }) }).then((r) => r.ideas);
 
 /** A message for the reply Claude is working on; false when no reply is running (queue it instead). */

@@ -1,5 +1,5 @@
 // Splitting a flat piece bigger than the bed into pieces that each fit it (line art first; reliefs,
-// signs and plaques can use it the same way). The model is cut along seams Jig picks on a pixel
+// signs and plaques can use it the same way). The model is cut along seams the app picks on a pixel
 // grid of the piece: each seam is the cheapest path through a band around an ideal straight cut,
 // where crossing a line costs a lot (more in fine detail), running close to one a little, and
 // leaving the ideal cut a little too. Vertical seams run the whole height; the horizontal ones are

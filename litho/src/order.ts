@@ -20,7 +20,7 @@ export interface OrderSettings {
   mm: [number, number];
   /** The part of the attached photo used, as fractions of it. */
   crop: Rect;
-  /** Jig's lithophane options (shared/lithophane), resolution excepted: the production page picks it. */
+  /** prompt-to-part's lithophane options (shared/lithophane), resolution excepted: the production page picks it. */
   litho: LithophaneOptions;
 }
 
@@ -51,7 +51,7 @@ export function decodeOrder(raw: unknown): OrderSettings | null {
   if (!inUnit || !(w > 0) || !(h > 0) || x + w > 1.0001 || y + h > 1.0001) return null;
   let litho: LithophaneOptions;
   try {
-    // Checked by Jig's own resolver; out-of-range values are clamped there too.
+    // Checked by prompt-to-part's own resolver; out-of-range values are clamped there too.
     const r = resolveLithoOptions(s.litho);
     litho = { width: r.width, minThickness: r.minThickness, maxThickness: r.maxThickness, border: r.border, shape: r.shape, angle: r.angle, stand: r.stand, gamma: r.gamma, invert: r.invert };
   } catch { return null; }

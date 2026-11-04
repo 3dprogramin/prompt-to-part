@@ -1,4 +1,4 @@
-// A chat message: the user's words, pictures and files, or Jig's reply with its steps, activity,
+// A chat message: the user's words, pictures and files, or the AI's reply with its steps, activity,
 // renders, assembly pictures and the version it made.
 import { useEffect, useRef, useState } from 'react';
 import type { AgentStep, ChatMessage, DesignVersion } from '../../../shared/types';
@@ -20,7 +20,7 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
   followed: boolean; onFollow: (on: boolean) => void;
   /** Its question card can be answered (the newest reply, not answered yet); `answerBlocked`: not just now. */
   onAnswer?: (answers: string[][]) => void; answerBlocked: boolean;
-  /** The card sends Jig's picks if nobody answers in time (it arrived in this window); `answerHold`: the user is typing. */
+  /** The card sends the suggested picks if nobody answers in time (it arrived in this window); `answerHold`: the user is typing. */
   answerCountdown: boolean; answerHold: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -57,7 +57,7 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
       setThink(null);
       onFollow(!followed);
     },
-    title: 'Hover to watch everything Jig is doing, click to pin it open',
+    title: 'Hover to watch every step as it happens, click to pin it open',
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = all;
@@ -75,7 +75,7 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
           {!live && <span className={`chev ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>}
         </button>
         {(live || hasActivity) && (
-          <button className="link think-link" title="Show everything Jig did for this reply: thinking, code, tool calls and results"
+          <button className="link think-link" title="Show everything done for this reply: thinking, code, tool calls and results"
             onClick={(e) => {
               if (live || followed) { setThink(null); onFollow(!followed); return; }
               setThink(think?.mode === 'pinned' ? null : { mode: 'pinned', at: besideChat(e.currentTarget) });

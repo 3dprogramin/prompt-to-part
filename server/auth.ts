@@ -22,7 +22,7 @@ export function passwordMatches(header: string | undefined, password: string): b
 export function requirePassword(password: string): express.RequestHandler {
   return (req, res, next) => {
     if (req.path === HEALTH_PATH || passwordMatches(req.headers.authorization, password)) return next();
-    res.set('WWW-Authenticate', 'Basic realm="Jig", charset="UTF-8"').status(401).type('text/plain').send('Jig needs its password.');
+    res.set('WWW-Authenticate', 'Basic realm="prompt-to-part", charset="UTF-8"').status(401).type('text/plain').send('prompt-to-part needs its password.');
   };
 }
 

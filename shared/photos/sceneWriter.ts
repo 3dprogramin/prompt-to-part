@@ -73,7 +73,7 @@ export function writtenPlace(scene: string): 'wall' | 'hand' | 'surface' {
 /** Claude's random scene, cleaned up: one phrase, no quotes or final full stop. */
 export function parseWrittenScene(text: string): string {
   const s = text.trim().replace(/^["'“”]+|["'“”]+$/g, '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
-  if (!s) throw new Error('Jig did not write a scene');
+  if (!s) throw new Error('No scene came back');
   return s.slice(0, MAX_SCENE_CHARS);
 }
 

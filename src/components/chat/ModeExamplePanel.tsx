@@ -1,5 +1,5 @@
 // A closer look at one picture mode's example, opened from its card in the picture mode menu:
-// the print (and the picture it came from), the request that was typed and what Jig made.
+// the print (and the picture it came from), the request that was typed and what came out.
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../Icon';
@@ -22,7 +22,7 @@ export function ModeExamplePanel({ mode, example, label, icon, unavailable, onUs
   useEffect(() => { (unavailable ? close.current : first.current)?.focus(); }, []);
   const source = example.source;
   const big = showSource && source ? source.src : example.image ?? example.thumb;
-  const alt = showSource && source ? source.caption : `What Jig made for: ${example.request}`;
+  const alt = showSource && source ? source.caption : `What came out for: ${example.request}`;
   // The panel is in a portal but its React events still bubble to the menu: keys and presses stay
   // here (the menu would move its cards, close on Tab or close on a press "outside" it). Escape goes
   // on to the window, where the layers send it to this panel only.
@@ -61,7 +61,7 @@ export function ModeExamplePanel({ mode, example, label, icon, unavailable, onUs
             </div>
             <div className="mx-label">The request</div>
             <p className="mx-request">{example.request}</p>
-            <div className="mx-label">What Jig made</div>
+            <div className="mx-label">What came out</div>
             <ul className="mx-facts">{example.facts.map((f) => <li key={f}>{f}</li>)}</ul>
             <div className="mx-actions">
               <button ref={first} className="btn primary" disabled={!!unavailable} title={unavailable} onClick={onUse}>Use {label}</button>

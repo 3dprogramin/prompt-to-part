@@ -1,5 +1,5 @@
 // AI artwork for designs that need real illustration (people, characters, animals, scenes): an
-// image model on OpenRouter draws it in a few flat, print-friendly colours, and Jig traces each
+// image model on OpenRouter draws it in a few flat, print-friendly colours, and the app traces each
 // colour into polygons – an SVG drawing that model scripts use with H.svg, like an attached one.
 import jpeg from 'jpeg-js';
 import { decode as decodePng } from 'fast-png';
@@ -47,7 +47,7 @@ const GREYS: Record<number, string[]> = {
   6: ['#111111', '#3a3a3a', '#636363', '#8c8c8c', '#b8b8b8', '#f2f2f2'],
 };
 
-/** The prompt the image model gets: Jig's print rules around Claude's subject, colours and look. */
+/** The prompt the image model gets: the app's print rules around Claude's subject, colours and look. */
 export function artworkPrompt(r: ArtworkRequest): string {
   const colors = r.colors?.length ? r.colors : GREYS[Math.min(6, Math.max(2, r.tones ?? 4))];
   const palette = r.colors?.length
@@ -81,7 +81,7 @@ export async function generateArtwork(name: string, r: ArtworkRequest, signal?: 
  */
 export async function requestImage(prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal, onStatus?: (text: string) => void, size?: ImageSize): Promise<{ image: { data: string; mediaType: string }; model: string; cost: number | null }> {
   const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('AI pictures need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.');
+  if (!key) throw new Error('AI pictures need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart prompt-to-part.');
   // When the model is busy upstream (rate-limited for everyone, or down for a moment): wait and
   // retry, then try the fallback model.
   const models = [...new Set([imageModel(), fallbackImageModel()].filter(Boolean))];
@@ -120,7 +120,7 @@ async function requestOnce(key: string, model: string, prompt: string, aspect: s
     : prompt;
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'Jig' },
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'prompt-to-part' },
     body: JSON.stringify({ model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], image_config: { aspect_ratio: aspect, ...(size ? { image_size: size } : {}) } }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
   });
@@ -166,7 +166,7 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
   ].filter(Boolean).join('\n');
 }
 
-/** How the subjects sit in the picture for each line-art style (Jig adds the bar, frame or base itself). */
+/** How the subjects sit in the picture for each line-art style (the app adds the bar, frame or base itself). */
 const LINE_ART_COMPOSITION: Record<LineArtStyle, string> = {
   outline: 'one connected, silhouette-like drawing of the subject, readable from its outline alone',
   keyholder: 'the subjects side by side as in the request, all standing on ONE straight, horizontal ground line across the very bottom of the picture (wheels and feet resting on it), neighbouring subjects touching or slightly overlapping; each subject shown whole, top to bottom – a person head to feet, a vehicle down to its wheels – never cut off at the knees or the waist; nothing below the line',
@@ -180,7 +180,7 @@ const LINE_ART_COMPOSITION: Record<LineArtStyle, string> = {
 export const LINE_ART_WIDTH: Record<LineArtStyle, number> = { outline: 200, keyholder: 240, framed: 200, medallion: 180, sign: 220, stand: 150 };
 
 /**
- * The prompt for line art (generate_line_art): Jig's house style – bold, simplified black line art
+ * The prompt for line art (generate_line_art): the house style, bold, simplified black line art
  * on white, like a laser-cut metal sign or a vinyl decal, that joins into ONE piece, so a shop's
  * designs look alike – around the subject, composed for the style (a key holder's subjects stand
  * on one ground line, a framed one fills the picture, …). The line weight and the detail suit the
@@ -293,7 +293,7 @@ export function conceptPrompt(subject: string): string {
  * The prompt that paints a grey concept picture (attached as the reference) for a coloured figure:
  * the same picture, painted like a collectible figurine in `palette` (each "colour: the parts in it",
  * at most 4) under soft light, so Meshy's texture holds the paint colours rather than light and shade.
- * Meshy textures the model from it; Jig reduces the colours to at most 4 filaments afterwards.
+ * Meshy textures the model from it; the app reduces the colours to at most 4 filaments afterwards.
  */
 export function paintPrompt(subject: string, palette?: PlannedColor[]): string {
   const colours = palette?.length
@@ -329,7 +329,7 @@ export function decodeImage(buf: Buffer): Raster {
     }
     return { width: p.width, height: p.height, data };
   }
-  throw new Error('The image model returned a picture format Jig can\'t read (only PNG and JPEG)');
+  throw new Error('The image model returned a picture format that can\'t be read (only PNG and JPEG)');
 }
 
 const hex = (c: number[]) => '#' + c.map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0')).join('');

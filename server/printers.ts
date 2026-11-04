@@ -8,7 +8,7 @@ import { bambuUserDirs, bambuVersion, readPreset, resolvePreset, systemProfilesD
 
 const first = (v: unknown): unknown => (Array.isArray(v) ? v[0] : v);
 
-/** A resolved machine preset as a Printer, or null if it lacks what Jig needs. */
+/** A resolved machine preset as a Printer, or null if it lacks what the app needs. */
 function toPrinter(r: Record<string, unknown>, id: string, custom: boolean): Printer | null {
   const nozzle = Number(first(r.nozzle_diameter)), height = Number(r.printable_height), model = r.printer_model;
   const area = (Array.isArray(r.printable_area) ? r.printable_area : []).map((p) => String(p).split('x').map(Number)).filter((p) => p.length === 2 && p.every(Number.isFinite));

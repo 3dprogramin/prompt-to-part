@@ -48,7 +48,7 @@ export function to3mf(parts: PartMesh[], title: string, oneColour: string | null
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
 <metadata name="Title">${esc(title)}</metadata>
-<metadata name="Application">Jig</metadata>
+<metadata name="Application">prompt-to-part</metadata>
 <resources><m:colorgroup id="1">${palette.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>${resources}</resources>
 <build>${build}</build>
 </model>`;
@@ -108,7 +108,7 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
     // So does a coloured mesh's painting (Bambu Studio's paint_color). In one colour there are neither.
     const layerTone = !threeMf.oneColour && parts.some((p) => p.layerColors?.length || p.paint);
-    // A printer Jig can't make the Bambu project for (two nozzles): a plain 3MF, without print settings.
+    // A printer with no Bambu project yet (two nozzles): a plain 3MF, without print settings.
     const print = bambuProjectSupported() ? threeMf.print : null;
     if (!print && !layerTone) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
     const tpl = print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);

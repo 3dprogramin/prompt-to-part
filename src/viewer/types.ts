@@ -20,7 +20,7 @@ export interface ViewerOptions {
   oneColour?: string | null;
   /** The part selected in the Object tab: highlighted. */
   selectedPart?: string | null;
-  /** Line art: where Jig joined loose ends to another line, and the ends it left loose (LineArtInfo.joins, .loose). */
+  /** Line art: where loose ends were joined to another line, and the ends it left loose (LineArtInfo.joins, .loose). */
   showJoins?: boolean;
 }
 

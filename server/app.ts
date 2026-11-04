@@ -45,7 +45,7 @@ export interface AppOptions {
   ideas?: typeof writeIdeas;
   /** Asks the image model for a picture (tests pass a stand-in). */
   image?: typeof requestImage;
-  /** Checks what Jig runs Claude on (tests pass a stand-in: the real one calls the provider). */
+  /** Checks what the app runs Claude on (tests pass a stand-in: the real one calls the provider). */
   connection?: typeof checkConnection;
   /** The password every request must carry (JIG_PASSWORD), or '' for none. */
   password?: string;
@@ -60,11 +60,11 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   // below only stop browsers on other sites, not another device on the network calling the API.
   if (password) app.use(requirePassword(password));
 
-  // Only Jig's own pages may use the API. The Host check defeats DNS rebinding (a website whose
+  // Only the app's own pages may use the API. The Host check defeats DNS rebinding (a website whose
   // domain is re-pointed at 127.0.0.1), the Origin check refuses every other site, including pages
   // on other local ports, and requiring the X-Jig header on writes means a plain cross-site form or
   // beacon can never change anything. In development the Vite proxy (vite.config.ts) passes requests
-  // from Jig's own page on with the API's origin and leaves every other origin as it is.
+  // from the app's own page on with the API's origin and leaves every other origin as it is.
   const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', ...hosts].map((h) => `${h}:${port}`));
   const LOCAL_ORIGINS = new Set([...LOCAL_HOSTS].map((h) => `http://${h}`));
   app.use('/api', (req, res, next) => {

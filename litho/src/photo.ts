@@ -1,5 +1,5 @@
 // Photos in the browser: a file → a downscaled canvas (the photo the widget works from and attaches
-// to the order), and a crop of it → Jig's LayerToneImage (8-bit brightness) for the lithophane.
+// to the order), and a crop of it → prompt-to-part's LayerToneImage (8-bit brightness) for the lithophane.
 import { toLayerToneImage, type LayerToneImage } from '../../shared/layertone';
 import type { Rect } from './crop';
 

@@ -3,7 +3,7 @@ import { binaryStl } from '../../shared/stl';
 
 /** Binary STL of one or more parts (merged into one file). */
 export function toBinaryStl(parts: PartMesh[], name = 'model'): Blob {
-  return new Blob([binaryStl(parts, `Jig - ${name}`)], { type: 'model/stl' });
+  return new Blob([binaryStl(parts, `prompt-to-part - ${name}`)], { type: 'model/stl' });
 }
 
 export function download(blob: Blob, filename: string) {
@@ -76,7 +76,7 @@ export function dataUrlToImage(url: string): { mediaType: string; data: string }
 
 /**
  * A random id (a version 4 UUID). crypto.randomUUID exists on secure pages only (https, localhost):
- * Jig opened at this computer's network address, e.g. from a phone, is plain http.
+ * The app opened at this computer's network address, e.g. from a phone, is plain http.
  */
 export function uid(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();

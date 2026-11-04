@@ -180,7 +180,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
 
   await page.goto(`${A}/?design=${id}`);
   await page.waitForFunction(() => (document.querySelector('.design-name') as HTMLInputElement | null)?.value === 'Smoke cube');
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   assert.equal(await page.locator('.app-version').textContent(), `v${version}`);
   assert.equal(await page.locator('a.btn', { hasText: 'New' }).getAttribute('href'), '/');
   await page.locator('.conn-chip', { hasText: 'OpenRouter API · $12.34' }).waitFor();
@@ -215,7 +215,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await page.getByRole('searchbox', { name: 'Search scenes' }).fill('christmas');
   assert.equal(await scenes.count(), 4, 'the three Christmas scenes and Your idea');
   await page.getByRole('searchbox', { name: 'Search scenes' }).fill('');
-  // Your idea: a few words in the notes box, which Jig writes out when a photo is made.
+  // Your idea: a few words in the notes box, which is written out when a photo is made.
   await scenes.filter({ hasText: 'Your idea…' }).click();
   await page.getByRole('textbox', { name: 'Your idea for the scene' }).waitFor();
   await page.screenshot({ path: path.join(shots, '2-scenes.png') });
@@ -227,7 +227,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
 test('the Designs menu exports every design as a zip and imports one', TEST, async () => {
   const page = await newPage();
   await page.goto(`${A}/?design=${id}`);
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   await page.getByRole('button', { name: 'Designs' }).click();
   const menu = page.locator('.menu');
 
@@ -257,7 +257,7 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', TEST,
   }
   const page = await newPage();
   await page.goto(`${A}/?design=${id}`);
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   await page.getByRole('button', { name: 'Designs' }).click();
   const menu = page.locator('.menu');
   await menu.getByText('Load more (4 more)').waitFor();
@@ -290,7 +290,7 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', TEST,
   await menu.getByText('No design\'s name contains “no such design”').waitFor();
   await search.fill('cube 11');
   await search.press('Enter');
-  await page.waitForFunction(() => document.title === 'Jig - Cube 11');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Cube 11');
   assert.equal(await menu.count(), 0, 'the menu closes');
   await page.close();
 });
@@ -305,7 +305,7 @@ test('Export project… downloads the design as one zip where there is no folder
     await route.fulfill({ response, json: { ...await response.json(), blender: null, blenderProblem: null, bambu: null } });
   });
   await page.goto(`${A}/?design=${id}`);
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   await page.getByRole('button', { name: 'More export formats' }).click();
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Export project…/ }).click()]);
   assert.equal(download.suggestedFilename(), 'Smoke cube.zip');
@@ -315,7 +315,7 @@ test('Export project… downloads the design as one zip where there is no folder
   assert.equal(strFromU8(files['Smoke cube/model.js']), code);
   assert.equal(JSON.parse(strFromU8(files['Smoke cube/design.jig.json'])).id, id);
   const readme = strFromU8(files['Smoke cube/README.md']);
-  for (const want of ['# Smoke cube', 'A 20 mm cube', '20.00 × 20.00 × 20.00 mm', `Jig ${version}`, 'No `.blend` file', 'The 3MF has no print settings']) assert.ok(readme.includes(want), `README: ${want}\n${readme}`);
+  for (const want of ['# Smoke cube', 'A 20 mm cube', '20.00 × 20.00 × 20.00 mm', `prompt-to-part ${version}`, 'No `.blend` file', 'The 3MF has no print settings']) assert.ok(readme.includes(want), `README: ${want}\n${readme}`);
   await page.getByText('Exported Smoke cube.zip').waitFor();
   await page.screenshot({ path: path.join(shots, '5-project.png') });
 
@@ -326,7 +326,7 @@ test('Export project… downloads the design as one zip where there is no folder
   await page.close();
 });
 
-test('a reply saved while Jig was working shows as interrupted, with its thinking kept', TEST, async () => {
+test('a reply saved while a reply was running shows as interrupted, with its thinking kept', TEST, async () => {
   const cut = 'ui-smoke-20000001';
   const r = await fetch(`${A}/api/designs/${cut}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Jig': '1' },
     body: JSON.stringify({ id: cut, name: 'Cut short', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], sessionId: 'abc',
@@ -336,7 +336,7 @@ test('a reply saved while Jig was working shows as interrupted, with its thinkin
   assert.equal(r.status, 200, await r.text());
   const page = await newPage();
   await page.goto(`${A}/?design=${cut}`);
-  await page.locator('.bubble.interrupted', { hasText: 'Interrupted – Jig stopped before finishing' }).waitFor();
+  await page.locator('.bubble.interrupted', { hasText: 'Interrupted: the reply stopped before finishing' }).waitFor();
   await page.locator('.think-link').click();
   await page.locator('.activity-panel', { hasText: 'chamfered edges' }).waitFor();
   assert.equal(await page.locator('.chat-panel textarea').isEnabled(), true);
@@ -385,7 +385,7 @@ test('an enlarged product photo steps to the next and previous one (buttons, arr
   assert.equal(r.status, 200, await r.text());
   const page = await newPage();
   await page.goto(`${A}/?design=${pid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Photos');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Photos');
   await page.getByRole('button', { name: 'Product photos' }).click();
   await page.locator('.ph-thumb').first().click();
   const count = page.locator('.lightbox-count');
@@ -401,7 +401,7 @@ test('an enlarged product photo steps to the next and previous one (buttons, arr
 
 test('3D figure mode shows the Meshy credits left on its button', TEST, async () => {
   const page = await newPage();
-  // As if Jig had a Meshy key; the balance is a stand-in (the real one would ask Meshy).
+  // As if the app had a Meshy key; the balance is a stand-in (the real one would ask Meshy).
   await page.route('**/api/capabilities', async (route) => {
     const response = await route.fetch();
     await route.fulfill({ response, json: { ...await response.json(), meshy: true } });
@@ -409,7 +409,7 @@ test('3D figure mode shows the Meshy credits left on its button', TEST, async ()
   let asked = 0;
   await page.route('**/api/meshy/balance', (route) => { asked++; return route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200, monthly_resets_at: 1795034540000 } }); });
   await page.goto(`${A}/?design=${id}`);
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   assert.equal(await page.locator('.mode-credits').count(), 0);
   await page.getByRole('button', { name: /^Picture mode:/ }).click();
   await page.getByRole('menuitemradio', { name: /3D figure/ }).click();
@@ -458,7 +458,7 @@ test('a coloured figure: its filaments in the Object tab, the STL hint says the 
   assert.equal(saved.status, 200, await saved.text());
   const page = await newPage();
   await page.goto(`${A}/?design=${fid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Coloured kid');
   const rows = page.locator('.mesh-colors-row');
   await rows.first().waitFor();
   assert.equal(await rows.count(), 4);
@@ -495,7 +495,7 @@ test('"Print in one colour" in the Print tab: the view shows one filament, saved
   const fid = 'ui-smoke-00000003';
   const page = await newPage();
   await page.goto(`${A}/?design=${fid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Coloured kid');
   await page.getByRole('tab', { name: /Print/ }).click();
   const toggle = page.getByRole('checkbox', { name: 'Print in one colour' });
   assert.equal(await toggle.isChecked(), false);
@@ -506,7 +506,7 @@ test('"Print in one colour" in the Print tab: the view shows one filament, saved
   // Saved with the design (autosave), so it is still on after a reload, and Export ▸ 3MF… follows it.
   await until(async () => (await getDesign(fid)).values?.$oneColour === true, 'the switch is saved with the design');
   await page.reload();
-  await page.waitForFunction(() => document.title === 'Jig - Coloured kid');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Coloured kid');
   await page.getByRole('tab', { name: /Print/ }).click();
   assert.equal(await page.getByRole('checkbox', { name: 'Print in one colour' }).isChecked(), true);
   await page.getByRole('button', { name: 'More export formats' }).click();
@@ -524,7 +524,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   });
   assert.equal(saved.status, 200, await saved.text());
   const page = await newPage();
-  // As if Jig had a Meshy key and an image model; the replies are stand-ins: a concept picture, or
+  // As if the app had a Meshy key and an image model; the replies are stand-ins: a concept picture, or
   // (for an approval) a short answer.
   await page.route('**/api/capabilities', async (route) => {
     const response = await route.fetch();
@@ -544,15 +544,15 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
     return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
   });
   await page.goto(`${A}/?design=${fid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Knight');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Knight');
   // The toggles are rows of the options menu (the sliders button): open it before each look.
   const view = page.getByRole('menuitemcheckbox', { name: 'Send my view' });
   const askFirst = page.getByRole('menuitemcheckbox', { name: 'Ask first' });
   const openOptions = () => page.getByRole('button', { name: /^Options:/ }).click();
   await openOptions();
   assert.equal(await view.getAttribute('aria-checked'), 'true');
-  assert.match(await view.getAttribute('title') ?? '', /what you mean by "this"/);
-  // Ask first: on by default, every mode; off, Jig is told to pick defaults.
+  assert.match(await view.getAttribute('title') ?? '', /so "this" is clear/);
+  // Ask first: on by default, every mode; off, the model is told to pick defaults.
   assert.equal(await askFirst.getAttribute('aria-checked'), 'true');
   assert.match(await askFirst.getAttribute('title') ?? '', /at most 5/);
   await page.keyboard.press('Escape');
@@ -577,7 +577,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   await askFirst.click();
   await page.keyboard.press('Escape');
   await page.reload();
-  await page.waitForFunction(() => document.title === 'Jig - Knight');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Knight');
   await openOptions();
   assert.equal(await view.getAttribute('aria-checked'), 'false');
   assert.equal(await askFirst.getAttribute('aria-checked'), 'false');
@@ -647,7 +647,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   // At the chat's narrowest (240 px) the composer's controls still fit one row, as icons.
   await page.evaluate(() => localStorage.setItem('sidebarWidthsUser', JSON.stringify({ left: 240 })));
   await page.reload();
-  await page.waitForFunction(() => document.title === 'Jig - Knight');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Knight');
   await figureMode();
   const bar = await page.locator('.composer-bar').boundingBox();
   assert.ok(bar && bar.height < 36, `one row (${bar?.height} px high)`);
@@ -656,7 +656,7 @@ test('"Send my view" and "Wait for my OK": saved after a reload; a concept pictu
   await page.close();
 });
 
-test('Ask first: Jig\'s questions come as a card of options with its pick preselected; the answers go as the next message, and the card stays read-only after a reload', TEST, async () => {
+test('Ask first: the questions come as a card of options with its pick preselected; the answers go as the next message, and the card stays read-only after a reload', TEST, async () => {
   const qid = 'ui-smoke-30000001';
   const saved = await putDesign({ id: qid, name: 'Phone stand', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], messages: [] });
   assert.equal(saved.status, 200, await saved.text());
@@ -678,21 +678,21 @@ test('Ask first: Jig\'s questions come as a card of options with its pick presel
     return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
   });
   await page.goto(`${A}/?design=${qid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Phone stand');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Phone stand');
   const box = page.locator('.chat-panel textarea');
   await box.fill('A phone stand');
   await box.press('Enter');
-  const card = page.getByRole('form', { name: "Jig's questions" });
+  const card = page.getByRole('form', { name: "Questions" });
   await card.waitFor();
   assert.equal(sent[0].askFirst, true);
-  // Jig's pick is chosen and marked.
+  // The suggested pick is chosen and marked.
   const held = card.getByRole('radiogroup', { name: 'Which way is the phone held?' });
   assert.ok(await held.getByRole('radio', { name: /^Landscape/ }).isChecked());
   assert.ok(!await held.getByRole('radio', { name: /^Portrait/ }).isChecked());
-  assert.match(await held.locator('.q-chip.on').innerText(), /Landscape\s*Jig's pick/);
+  assert.match(await held.locator('.q-chip.on').innerText(), /Landscape\s*Suggested/);
   assert.ok(await card.getByRole('group', { name: 'What should it hold too?' }).getByRole('checkbox', { name: /^Charging cable slot/ }).isChecked());
-  // A card that just arrived counts down to sending Jig's picks.
-  assert.match(await card.getByRole('timer').innerText(), /Sending Jig's picks in \d+ s/);
+  // A card that just arrived counts down to sending the suggested picks.
+  assert.match(await card.getByRole('timer').innerText(), /Sending the suggested picks in \d+ s/);
   await card.screenshot({ path: path.join(shots, '13-questions.png') });
   // At a narrow chat (320 px) the chips wrap inside the card.
   await page.evaluate(() => localStorage.setItem('sidebarWidthsUser', JSON.stringify({ left: 320 })));
@@ -733,7 +733,7 @@ test('Ask first: Jig\'s questions come as a card of options with its pick presel
   await page.close();
 });
 
-test('Ask first: a question card nobody touches sends Jig\'s picks after its countdown; a click on it stops the countdown', TEST, async () => {
+test('Ask first: a question card nobody touches sends the suggested picks after its countdown; a click on it stops the countdown', TEST, async () => {
   const qid = 'ui-smoke-30000002';
   const saved = await putDesign({ id: qid, name: 'Hook', createdAt: 1, updatedAt: 1, code: '', values: {}, currentVersion: -1, versions: [], messages: [] });
   assert.equal(saved.status, 200, await saved.text());
@@ -753,11 +753,11 @@ test('Ask first: a question card nobody touches sends Jig\'s picks after its cou
     return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') });
   });
   await page.goto(`${A}/?design=${qid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Hook');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Hook');
   const box = page.locator('.chat-panel textarea');
   await box.fill('A desk hook');
   await box.press('Enter');
-  const card = page.getByRole('form', { name: "Jig's questions" });
+  const card = page.getByRole('form', { name: "Questions" });
   await card.waitFor();
   await card.getByRole('timer').waitFor();
   await page.clock.fastForward(61_000);
@@ -776,7 +776,7 @@ test('Ask first: a question card nobody touches sends Jig\'s picks after its cou
   await page.close();
 });
 
-test('on a computer the prompt box has the focus as Jig opens and after New, ready for a paste; on a phone it does not (no keyboard popping up)', TEST, async () => {
+test('on a computer the prompt box has the focus as the app opens and after New, ready for a paste; on a phone it does not (no keyboard popping up)', TEST, async () => {
   const page = await newPage();
   await page.goto(`${A}/?design=${id}`);
   await page.locator('.chat-panel textarea').waitFor();
@@ -797,7 +797,7 @@ test('on a computer the prompt box has the focus as Jig opens and after New, rea
 test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded one the 3D view beside a pane', TEST, async () => {
   const page = await newPage(PHONE);
   await page.goto(`${A}/?design=${id}`);
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   await page.locator('.app.layout-phone').waitFor();
   const noSideScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth);
   assert.ok(await noSideScroll(), 'no horizontal scroll');
@@ -828,14 +828,14 @@ test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded 
   assert.ok(await noSideScroll(), 'no horizontal scroll');
   // The tab is remembered.
   await page.reload();
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   assert.equal(await tab('Panel').getAttribute('aria-selected'), 'true');
   await page.context().close();
 
   // Unfolded (the inner screen): the 3D view always, beside the chat or the side panel.
   const big = await newPage({ viewport: { width: 880, height: 1000 }, isMobile: true, hasTouch: true });
   await big.goto(`${A}/?design=${id}`);
-  await big.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await big.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   await big.locator('.app.layout-split').waitFor();
   assert.equal(await big.getByRole('tab', { name: '3D', exact: true }).count(), 0);
   for (const name of ['Chat', 'Panel']) {
@@ -857,14 +857,14 @@ test('a phone shows one panel at a time, picked in the bottom tabs; an unfolded 
 
 test('on a phone the picture mode menu fits the screen and every mode can be picked; Line art has its style ▾', TEST, async () => {
   const page = await newPage(PHONE);
-  // As if Jig had a Meshy key and an image model, so every mode is offered and can be chosen.
+  // As if the app had a Meshy key and an image model, so every mode is offered and can be chosen.
   await page.route('**/api/capabilities', async (route) => {
     const response = await route.fetch();
     await route.fulfill({ response, json: { ...await response.json(), meshy: true, artwork: 'Image model' } });
   });
   await page.route('**/api/meshy/balance', (route) => route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200 } }));
   await page.goto(`${A}/?design=${id}`);
-  await page.waitForFunction(() => document.title === 'Jig - Smoke cube');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   await page.locator('.app.layout-phone').waitFor();
   const inView = async (what: string, el: Locator) => {
     const b = await el.boundingBox();
@@ -907,7 +907,7 @@ test('a part\'s filament: its swatch opens the picker at the panel\'s width, a p
   assert.equal(r.status, 200, await r.text());
   const page = await newPage();
   await page.goto(`${A}/?design=${pid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Two parts');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Two parts');
   await built(page);
   const swatch = page.getByRole('button', { name: 'Filament of Lid', exact: true });
   const background = () => swatch.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -945,7 +945,7 @@ test('Shop photos makes a set of 5 square 2K photos, each from its own render, w
   const r = await putDesign({ id: pid, name: 'Home wall plaque', createdAt: 1, updatedAt: 1, code: plaque, values: {}, messages: [], currentVersion: 0,
     versions: [{ code: plaque, summary: 'A wall plaque', createdAt: 1, source: 'manual' }] });
   assert.equal(r.status, 200, await r.text());
-  // As if Jig had an OpenRouter key; the image model is the stand-in.
+  // As if the app had an OpenRouter key; the image model is the stand-in.
   const savedKey = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = 'sk-or-test';
   try {
@@ -953,7 +953,7 @@ test('Shop photos makes a set of 5 square 2K photos, each from its own render, w
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${A}/?design=${pid}`);
-    await page.waitForFunction(() => document.title === 'Jig - Home wall plaque');
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Home wall plaque');
     await built(page);
     const view = page.locator('.viewer-host canvas').first();
     const before = await view.screenshot();
@@ -1035,7 +1035,7 @@ test('sale sizes: S / M / L suggested, one shown and resized alone, sliced one a
       await route.fulfill({ json: { seconds: 1800 * n, grams: 10 * n, filaments: [{ color: '#2f6f8f', grams: 10 * n }] } });
     });
     await page.goto(`${A}/?design=${pid}`);
-    await page.waitForFunction(() => document.title === 'Jig - Sized wall plaque');
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Sized wall plaque');
     await built(page);
 
     // Three sizes around its own 120 mm width, each built for real: the face scales, 6 mm thick.
@@ -1145,7 +1145,7 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${A}/?design=${lid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Painted frame');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Painted frame');
   await built(page);
   await page.getByRole('tab', { name: /Print/ }).click();
   await page.getByRole('button', { name: 'Edit drawing' }).click();
@@ -1244,7 +1244,7 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   assert.deepEqual(errors, []);
 });
 
-test('Edit drawing selects an area and clears the hand edits there only: shown as Jig made it, then built so', TEST, async () => {
+test('Edit drawing selects an area and clears the hand edits there only: shown as the app made it, then built so', TEST, async () => {
   const { drawingFingerprint } = await import('../../shared/lineart');
   const cid = 'ui-smoke-0000000a';
   const box = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
@@ -1260,7 +1260,7 @@ test('Edit drawing selects an area and clears the hand edits there only: shown a
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${A}/?design=${cid}`);
-  await page.waitForFunction(() => document.title === 'Jig - Cleared frame');
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Cleared frame');
   await built(page);
   await page.getByRole('tab', { name: /Print/ }).click();
   await page.locator('.lineart-edit-row', { hasText: '2 hand edits' }).waitFor();
@@ -1298,7 +1298,7 @@ test('Edit drawing selects an area and clears the hand edits there only: shown a
   await select();
   await page.screenshot({ path: path.join(shots, '20-lineart-select.png') });
   await here.click();
-  // Once the piece as Jig made it is known, the left line is gone from the view, the frame's top line there as it was.
+  // Once the piece as the app made it is known, the left line is gone from the view, the frame's top line there as it was.
   await editor.locator('.la-ed-note', { hasText: 'Working out the piece' }).waitFor({ state: 'detached' });
   const at = (x: number, y: number) => over.evaluate((c: HTMLCanvasElement, [px, py]: number[]) => {
     const k = c.width / c.getBoundingClientRect().width;
@@ -1323,7 +1323,7 @@ test('Edit drawing selects an area and clears the hand edits there only: shown a
   assert.deepEqual(errors, []);
 });
 
-test('the new-design screen offers four starters with their mode, and "Give me 4 new ideas" swaps them for Jig\'s', TEST, async () => {
+test('the new-design screen offers four starters with their mode, and "Give me 4 new ideas" swaps them for new ones', TEST, async () => {
   // Ideas in the picture modes need an image model (a key), as the starters do.
   const savedKey = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = 'sk-or-test';

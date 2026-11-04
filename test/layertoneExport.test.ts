@@ -155,7 +155,7 @@ test('Bambu project: next to other objects, a LayerTone print gets height ranges
 });
 
 // ---------------------------------------------------------------------------
-// Slicing with the user's Bambu Studio (skipped without it, or before Jig has built its template).
+// Slicing with the user's Bambu Studio (skipped without it, or before the app has built its template).
 // ---------------------------------------------------------------------------
 
 const TEMPLATE = path.join(DATA_DIR, 'bambu', 'template.json');
@@ -187,7 +187,7 @@ function filamentCommands(gcode: string): { tool: string[]; pause: number[] } {
   return { tool, pause };
 }
 
-test('Bambu Studio slices the filament changes on the intended layers', { skip: !canSlice && 'needs Bambu Studio and its Jig template' }, async () => {
+test('Bambu Studio slices the filament changes on the intended layers', { skip: !canSlice && 'needs Bambu Studio and its prompt-to-part template' }, async () => {
   const realTpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
   // The engine's relief, with its own print settings.
   const r = evaluateScript(ENGINE_SCRIPT, ENGINE_VALUES, 'draft');

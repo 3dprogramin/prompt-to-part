@@ -16,7 +16,7 @@ import { defaultsFromTemplate, type PrintSettings } from '../shared/print';
 import { findExecutable, installDirs } from './which';
 
 const run = promisify(execFile);
-/** The one template of Jig before printers could be chosen: the A1 0.4's. */
+/** The one template the app had before printers could be chosen: the A1 0.4's. */
 const LEGACY_CACHE = path.join(DATA_DIR, 'bambu', 'template.json');
 
 /** Where a printer's template is cached: data/bambu/templates/<preset name as a slug>.json. */
@@ -181,7 +181,7 @@ const pending = new Map<string, Promise<BambuTemplate>>();
 
 /** The printer's project template: cached, or built now (minutes) when there is none, or Bambu Studio or the presets changed. */
 export async function bambuTemplate(p: Printer = printer()): Promise<BambuTemplate> {
-  // Bambu Studio 2.8's command line fails to slice Jig's projects on two-nozzle printers.
+  // Bambu Studio 2.8's command line fails to slice the app's projects on two-nozzle printers.
   if (p.extruders > 1) throw new Error(`The Bambu Studio project isn't supported for the ${p.name} yet (two nozzles): export a plain 3MF and set it up in Bambu Studio`);
   const presets = await printerPresets(p);
   const version = (await bambuVersion()) ?? 'unknown', hash = presetHash(presets);

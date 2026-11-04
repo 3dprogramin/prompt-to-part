@@ -14,12 +14,12 @@ export const lookOf = (x: { scene: string; variant?: SceneVariant; sceneText?: s
   : x.variant && x.variant !== 1 && SCENE_VARIANTS.includes(x.variant) ? { variant: x.variant, ...(x.variant === 'random' && x.sceneText ? { sceneText: x.sceneText } : {}) } : {};
 /** A photo's sub-scene in words: "Sub-scene 2: Scandinavian, warm white", the random scene written for it, or the idea's. */
 export const lookTitle = (ph: { scene: string; variant?: SceneVariant; sceneText?: string }) => {
-  if (ph.scene === IDEA_SCENE) return ph.sceneText ? `Written out by Jig: ${ph.sceneText}` : 'Your idea as you wrote it (Jig couldn\'t write it out)';
+  if (ph.scene === IDEA_SCENE) return ph.sceneText ? `Written out: ${ph.sceneText}` : 'Your idea as you wrote it (it couldn\'t be written out)';
   if (ph.scene === CUSTOM_SCENE) return 'Your idea as you wrote it (Improve your idea was off)';
   const v = lookOf(ph).variant;
   return !v ? undefined : v === 'random' ? `Random setting: ${ph.sceneText ?? `one the image model invented (${sceneKind(ph.scene)})`}` : `Sub-scene ${v}: ${variantName(ph.scene, v)}`;
 };
-/** A random sub-scene's setting or the idea written out, by Claude; none (the image model invents it, or gets the idea as written) when Jig can't reach Claude. */
+/** A random sub-scene's setting or the idea written out, by Claude; none (the image model invents it, or gets the idea as written) when Claude can't be reached. */
 export const writeScene = (scene: string, size?: Vec3, idea?: SceneIdea) => api.photoScene(scene, size, idea).catch(() => undefined);
 /** A photo's name: its scene, or for a shop set's photo its shot; and the sale size it shows. */
 export const photoLabel = (scene: string, shop?: string, size?: string) => { const s = shopShot(shop); return (s ? `Shop · ${SHOP_SHOT_LABELS[s]}` : sceneLabel(scene)) + (size ? ` · ${size}` : ''); };

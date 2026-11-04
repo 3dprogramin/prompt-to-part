@@ -3,7 +3,7 @@
 import type { Vec3 } from '../types';
 import { sceneById, SHOP_SCENE } from './scenes';
 
-/** The camera of the render a photo is made from (Viewer.photo): Jig's own angles; 'current' is the view's. */
+/** The camera of the render a photo is made from (Viewer.photo): the app's own angles; 'current' is the view's. */
 export type PhotoCamera = 'angle' | 'face' | 'front' | 'top' | 'detail';
 
 // Shop photos: one click makes a set of listing photos for one product, all square at 2K (Shopify

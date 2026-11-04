@@ -1,5 +1,5 @@
 // What the host page configures (sizes, prices, Shopify variants, thicknesses) and how a size
-// preset becomes Jig's lithophane options. Plain data and arithmetic, no DOM: the unit tests and the
+// preset becomes prompt-to-part's lithophane options. Plain data and arithmetic, no DOM: the unit tests and the
 // production page use it as it is.
 import type { LithophaneOptions, LithophaneShape } from '../../shared/lithophane';
 import type { Lang } from './i18n';
@@ -74,7 +74,7 @@ export const DEFAULT_CONFIG: LithoConfig = {
   photoMaxSide: 2400,
 };
 
-/** A Bambu Lab A1's build volume bounds what can be printed in one piece (standing up); the shop widget has no Jig printer setting. */
+/** A Bambu Lab A1's build volume bounds what can be printed in one piece (standing up); the shop widget has no prompt-to-part printer setting. */
 const MAX_SIDE_MM = 250;
 
 const num = (v: unknown, def: number, lo: number, hi: number) => {
@@ -126,7 +126,7 @@ export const shapesOf = (c: LithoConfig): LithophaneShape[] => SHAPES.filter((s)
 // Size → lithophane
 // ---------------------------------------------------------------------------
 
-/** What a size preset prints: Jig's options, the outer size and the picture's proportions. */
+/** What a size preset prints: prompt-to-part's options, the outer size and the picture's proportions. */
 export interface SizeGeometry {
   options: LithophaneOptions;
   /** Outer size, mm: width × height as it stands (lamp: diameter × height). */
@@ -135,7 +135,7 @@ export interface SizeGeometry {
   picture: [number, number];
 }
 
-/** A size preset (turned to `orient`) as Jig's lithophane options; `gamma` from the brightness slider. */
+/** A size preset (turned to `orient`) as prompt-to-part's lithophane options; `gamma` from the brightness slider. */
 export function sizeGeometry(size: SizePreset, orient: Orientation, c: LithoConfig, gamma = 1): SizeGeometry {
   const B = c.border, common = { minThickness: c.minThickness, maxThickness: c.maxThickness, border: B, gamma };
   if (size.shape === 'cylinder') {

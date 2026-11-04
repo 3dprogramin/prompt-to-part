@@ -23,7 +23,7 @@ export function registerCostRoutes(app: express.Express, { json }: RouteContext,
     res.json(s);
   });
   // Slices run one after another (server/slicer.ts): one running and one waiting at most.
-  app.post('/api/slice', oneAtATime('Jig is busy slicing another model. Try again in a moment.'), express.raw({ type: 'application/octet-stream', limit: '300mb' }), async (req, res) => {
+  app.post('/api/slice', oneAtATime('Busy slicing another model. Try again in a moment.'), express.raw({ type: 'application/octet-stream', limit: '300mb' }), async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !req.body.length) return void res.status(400).json({ error: 'Send the Bambu Studio project (.3mf) as the body' });
     try {
       res.json(await sliceProject(req.body));

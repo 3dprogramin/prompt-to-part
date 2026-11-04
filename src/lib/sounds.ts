@@ -1,4 +1,4 @@
-// Short chimes made on the fly (no sound files): one when Jig needs you (questions to answer,
+// Short chimes made on the fly (no sound files): one when you are needed (questions to answer,
 // concept pictures to approve, an error), another when a reply has finished.
 
 export type Cue = 'attention' | 'done';

@@ -31,9 +31,9 @@ export function lineArtTools({ base, emit, drawImage, readModel, v }: ToolContex
     } catch { return null; }
   };
   return [
-    ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in Jig's house style – bold, simplified black lines on white, like a laser-cut metal sign, that join into one piece, drawn with a line weight and detail for the piece's width – traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
+    ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in the app's house style (bold, simplified black lines on white, like a laser-cut metal sign, that join into one piece, drawn with a line weight and detail for the piece's width), traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10-20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
       name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "bike-and-car"; an existing name is replaced'),
-      subject: z.string().min(10).max(2000).describe('What to draw – content only: the subject(s) left to right, their view and pose, and the features that make them recognisable (e.g. "a sport motorbike on the left and a 1967 Ford Mustang fastback on the right, both in side view facing right"). Not how to draw it (line weight, how many lines, a simple face, solid or outlined areas): Jig\'s house style sets that, the same for every design. With edit: the change to make'),
+      subject: z.string().min(10).max(2000).describe('What to draw, content only: the subject(s) left to right, their view and pose, and the features that make them recognisable (e.g. "a sport motorbike on the left and a 1967 Ford Mustang fastback on the right, both in side view facing right"). Not how to draw it (line weight, how many lines, a simple face, solid or outlined areas): the house style sets that, the same for every design. With edit: the change to make'),
       style: z.enum(LINE_ART_STYLES).optional().describe(`The piece it is drawn for, which sets the composition (default "${lineArt.style}", the user's menu): ${LINE_ART_STYLES.map((s) => `${s} = ${LINE_ART_STYLE_INFO[s].desc.toLowerCase()}`).join('; ')}`),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 16:9 for keyholder, sign and stand, else 1:1); 16:9 or 21:9 for a key holder with several subjects side by side, 3:4 or 4:5 for a standing figure'),
       look: z.string().max(400).optional().describe('A different line style, only when the user asks for one (e.g. "thin elegant single-line drawing", "bold comic outlines")'),
@@ -101,7 +101,7 @@ export function lineArtTools({ base, emit, drawImage, readModel, v }: ToolContex
       if (!url) return { content: [{ type: 'text', text: lineArt.references.length ? `The user attached ${lineArt.references.length} image${lineArt.references.length > 1 ? 's' : ''} to this message: image must be 1–${lineArt.references.length}.` : 'The user attached no images to this message.' }], isError: true };
       try {
         const m = /^data:image\/(png|jpeg);base64,(.+)$/s.exec(url);
-        if (!m) throw new Error(`Attached image ${a.image} isn't a PNG or JPEG picture, the only kinds Jig can trace.`);
+        if (!m) throw new Error(`Attached image ${a.image} isn't a PNG or JPEG picture, the only kinds that can be traced.`);
         const traced = traceLineArt(decodeImage(Buffer.from(m[2], 'base64')), a.name);
         storeLineArt(a.name, traced);
         emit({ type: 'step', step: { kind: 'tool', ok: true, text: `Traced attached image ${a.image} as line art "${a.name}" (${traced.points.toLocaleString('en')} points)` } });
@@ -125,5 +125,5 @@ function nearestAspect(aspect: number): (typeof ASPECTS)[number] {
 
 /** What Claude is told when a line-art drawing is stored. */
 function lineArtReady(name: string, aspect: number, style: LineArtStyle) {
-  return `Line art "${name}" is ready for H.lineart("${name}", { style: '${style}', width, thickness, lineWidth, … }) (${aspect.toFixed(3)} times as wide as high; its white is open). Check the piece with render_model: the report's line-art line says how many bridges Jig had to add and how many specks it dropped.`;
+  return `Line art "${name}" is ready for H.lineart("${name}", { style: '${style}', width, thickness, lineWidth, … }) (${aspect.toFixed(3)} times as wide as high; its white is open). Check the piece with render_model: the report's line-art line says how many bridges the app had to add and how many specks it dropped.`;
 }

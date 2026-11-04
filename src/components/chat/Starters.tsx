@@ -5,7 +5,7 @@ import { Icon } from '../Icon';
 import { IMAGE_MODES, type ImageMode } from './PictureModeMenus';
 
 /** The new-design screen's starter ideas, each marked with the picture mode it uses, and a link
- *  that asks Jig for four new ones. */
+ *  that asks for four new ones. */
 export function Starters(p: { artworkModel: string | null; meshy: boolean; claudeProblem: string | null; onPick: (mode: ImageMode, text: string, onScreen: string[]) => void }) {
   const artwork = !!p.artworkModel;
   const [ideas, setIdeas] = useState<Idea[]>(() => pickStarters(ideaModes({ artwork, meshy: p.meshy })));
@@ -14,7 +14,7 @@ export function Starters(p: { artworkModel: string | null; meshy: boolean; claud
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  // What this setup can do changed (a model or key arrived): new starters, unless Jig's own are shown.
+  // What this setup can do changed (a model or key arrived): new starters, unless the AI's own are shown.
   useEffect(() => {
     if (!fetched) setIdeas(pickStarters(ideaModes({ artwork, meshy: p.meshy })));
   }, [artwork, p.meshy]); // eslint-disable-line react-hooks/exhaustive-deps

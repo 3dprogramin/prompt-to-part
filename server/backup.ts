@@ -26,7 +26,7 @@ const ENTRY_OVERHEAD = 30 + 16 + 46;
  */
 export function unpackProblem(total: number, zipBytes: number, free: number | null): string | null {
   const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
-  if (total > UNPACK_FLOOR + UNPACK_RATIO * zipBytes) return `This zip would unpack to ${gb(total)}, far more than a Jig backup of its size holds`;
+  if (total > UNPACK_FLOOR + UNPACK_RATIO * zipBytes) return `This zip would unpack to ${gb(total)}, far more than a prompt-to-part backup of its size holds`;
   if (free !== null && total > free - KEEP_FREE_BYTES) return `This backup needs ${gb(total)} of disk space and only ${gb(Math.max(0, free - KEEP_FREE_BYTES))} can be used`;
   return null;
 }
@@ -105,12 +105,12 @@ export interface ZipEntry {
   read(): Promise<Uint8Array>;
 }
 
-/** Problem with a zip file itself: not a zip, damaged, or a kind Jig doesn't read. */
+/** Problem with a zip file itself: not a zip, damaged, or a kind the app doesn't read. */
 export class ZipError extends Error {}
 
 /**
  * The entries of a zip file on disk, from its central directory; each is read on demand. Only
- * stored and deflated entries, no encryption or ZIP64 (Jig's own backups never use them).
+ * stored and deflated entries, no encryption or ZIP64 (the app's own backups never use them).
  */
 export async function openZip(file: string, maxEntries: number): Promise<{ entries: ZipEntry[]; close: () => Promise<void> }> {
   const fh = await open(file);
@@ -144,7 +144,7 @@ export async function openZip(file: string, maxEntries: number): Promise<{ entri
       p += 46 + nameLen + extraLen + commentLen;
       if (p > cd.length) throw new ZipError('The zip file is damaged');
       if (flags & 1) throw new ZipError(`${name} is encrypted`);
-      if (method !== 0 && method !== 8) throw new ZipError(`${name} uses a compression method Jig can't read`);
+      if (method !== 0 && method !== 8) throw new ZipError(`${name} uses a compression method that can't be read`);
       // Stored data is as long as the file; deflate never grows it by more than a fraction.
       if (method === 0 ? compressed !== size : compressed > size + size / 8 + 1024) throw new ZipError(`${name} is damaged`);
       entries.push({

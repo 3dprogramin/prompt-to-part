@@ -77,7 +77,7 @@ export function PhotosPanel(p: Props) {
   const [camera, setCamera] = useState<'best' | 'current'>(() => load('photoCamera', 'best'));
   useEffect(() => store('photoAspect', aspect), [aspect]);
   useEffect(() => store('photoCamera', camera), [camera]);
-  // Your idea: Jig writes it out in detail (on) or it goes to the image model as written (off, the 'custom' scene).
+  // Your idea: written out in detail (on) or it goes to the image model as written (off, the 'custom' scene).
   const [improve, setImprove] = useState<boolean>(() => load('photoImprove', true));
   useEffect(() => store('photoImprove', improve), [improve]);
   // A wall photo's render with a light switch beside the piece at true size, so the photo keeps its scale.
@@ -121,7 +121,7 @@ export function PhotosPanel(p: Props) {
   const suggested = useMemo(() => (lithophane ? BACKLIT_SCENE : suggestScene(about, size ?? undefined)), [about, size, lithophane]);
   const choice = scenes[p.designId] ?? { scene: suggested, notes: '', variant: 1 as SceneVariant };
   const setChoice = (patch: Partial<typeof choice>) => setScenes((s) => ({ ...s, [p.designId]: { ...choice, ...patch } }));
-  // Your idea: written out by Jig before the photo is asked for (idea), or as written (custom).
+  // Your idea: written out in detail before the photo is asked for (idea), or as written (custom).
   const own = choice.scene === IDEA_SCENE || choice.scene === CUSTOM_SCENE;
   const idea = own && improve;
   const custom = own && !improve;
@@ -483,7 +483,7 @@ export function PhotosPanel(p: Props) {
       const sz = sizeName(ph.saleSize) ? `-${slug(sizeName(ph.saleSize)!)}` : '';
       download(blob, shop ? `${slug(p.designName)}${sz}-shop-${SHOP_ORDER[shop]}-${shop}-${n}.${ext}` : `${slug(p.designName)}${sz}-${slug(sceneLabel(ph.scene))}-${n}.${ext}`);
     } catch {
-      setError('The photo could not be downloaded – is the Jig server running?');
+      setError('The photo could not be downloaded: is the prompt-to-part server running?');
     }
   };
 
@@ -493,7 +493,7 @@ export function PhotosPanel(p: Props) {
         <div className="vp-title" id={`${id}-title`}><Icon name="camera" size={13} /> Product photos</div>
         <button className="icon-btn" onClick={p.onClose} title="Close (Esc)" aria-label="Close product photos"><Icon name="x" size={14} /></button>
       </div>
-      {!p.imageModel && <div className="bad-note small" role="note">Product photos need an image model: set OPENROUTER_API_KEY in .env and restart Jig.</div>}
+      {!p.imageModel && <div className="bad-note small" role="note">Product photos need an image model: set OPENROUTER_API_KEY in .env and restart prompt-to-part.</div>}
 
       <ScenePicker id={id} allScenes={allScenes} setAllScenes={setAllScenes} sceneQuery={sceneQuery} setSceneQuery={setSceneQuery} q={q} shownScenes={shownScenes} pickScene={pickScene}
         choice={choice} setChoice={setChoice} suggested={suggested} preset={preset} own={own} idea={idea} custom={custom} improve={improve} setImprove={setImprove} />
@@ -508,7 +508,7 @@ export function PhotosPanel(p: Props) {
         <span className="ph-label" id={`${id}-camera`}>Camera</span>
         <div className="seg" role="radiogroup" aria-labelledby={`${id}-camera`}>
           <button role="radio" aria-checked={camera === 'best'} className={camera === 'best' ? 'on' : ''} onClick={() => setCamera('best')}
-            title="A product angle Jig picks (wall art face-on)">Best angle</button>
+            title="A product angle picked for you (wall art face-on)">Best angle</button>
           <button role="radio" aria-checked={camera === 'current'} className={camera === 'current' ? 'on' : ''} onClick={() => setCamera('current')}
             title="The angle you turned the 3D view to">Current view</button>
         </div>

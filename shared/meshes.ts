@@ -200,17 +200,17 @@ export function encodeMesh(m: MeshData, header: Record<string, unknown> = {}): U
 
 export function decodeMesh(bytes: Uint8Array): MeshData & { header: Record<string, unknown> } {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (bytes.length < 8 || dv.getUint32(0, true) !== MAGIC) throw new Error('Not a Jig mesh file');
+  if (bytes.length < 8 || dv.getUint32(0, true) !== MAGIC) throw new Error('Not a prompt-to-part mesh file');
   const hl = dv.getUint32(4, true);
   const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + hl))) as Record<string, unknown>;
   const nv = Number(header.vertices), nt = Number(header.triangles);
   const start = 8 + hl;
   const colored = header.colors === 'rgb';
-  if (!Number.isInteger(nv) || !Number.isInteger(nt) || start + nv * 12 + nt * 12 + (colored ? pad4(nt * 3) : 0) !== bytes.length) throw new Error('Damaged Jig mesh file');
+  if (!Number.isInteger(nv) || !Number.isInteger(nt) || start + nv * 12 + nt * 12 + (colored ? pad4(nt * 3) : 0) !== bytes.length) throw new Error('Damaged mesh file');
   // Copied: the views must be aligned, and the caller may keep the buffer.
   const positions = new Float32Array(bytes.slice(start, start + nv * 12).buffer);
   const indices = new Uint32Array(bytes.slice(start + nv * 12, start + nv * 12 + nt * 12).buffer);
-  for (let i = 0; i < indices.length; i++) if (indices[i] >= nv) throw new Error('Damaged Jig mesh file');
+  for (let i = 0; i < indices.length; i++) if (indices[i] >= nv) throw new Error('Damaged mesh file');
   const colors = colored ? bytes.slice(start + nv * 12 + nt * 12, start + nv * 12 + nt * 12 + nt * 3) : undefined;
   return { positions, indices, ...(colors ? { colors } : {}), header };
 }

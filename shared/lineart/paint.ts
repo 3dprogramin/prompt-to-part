@@ -33,7 +33,7 @@ const FILL_HELD = 0.05;
 const FILL_SEAL = 0.0002;
 
 /**
- * Erasing and filling by hand on the lines `lineCs` (mm, after Jig's clean-up), in stroke order:
+ * Erasing and filling by hand on the lines `lineCs` (mm, after the clean-up), in stroke order:
  * an erase takes away everything under it; a fill adds what under it is still empty (off the lines,
  * what was filled before and the bar or frame `anchor`; inside `region`, a split piece's), without
  * bits narrower than MIN_PAINT, so it never covers a line. Filled material that ends up touching

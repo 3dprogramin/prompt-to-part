@@ -1,4 +1,4 @@
-# Builds a .blend from Jig meshes. Run headless:
+# Builds a .blend from prompt-to-part meshes. Run headless:
 #   blender -b --factory-startup --python blender_export.py -- <input_dir> <output.blend>
 import json
 import math
@@ -112,7 +112,7 @@ if dims:
 if man.get("code"):
     txt = bpy.data.texts.new("model.js")
     txt.write(man["code"])
-info = bpy.data.texts.new("Jig.txt")
+info = bpy.data.texts.new("prompt-to-part.txt")
 info.write(json.dumps({"name": man["name"], "parameters": man.get("params", {})}, indent=2, ensure_ascii=False))
 
 bpy.ops.wm.save_as_mainfile(filepath=out, compress=True)

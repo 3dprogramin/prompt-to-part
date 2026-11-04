@@ -5,7 +5,7 @@ import { claudeAuthProblem } from '../server/config';
 
 const KEYS = ['JIG_AUTH', 'JIG_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
 
-/** Runs `fn` with only these of Jig's auth variables set, then puts the environment back. */
+/** Runs `fn` with only these of the app's auth variables set, then puts the environment back. */
 function withEnv(vars: Record<string, string>, fn: () => void) {
   const saved = { ...process.env };
   try {
@@ -33,7 +33,7 @@ test('an old JIG_AUTH=subscription is refused, even next to an OpenRouter key', 
 
 test('a subscription token never reaches Claude Code', () => {
   withEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test' }, () => {
-    assert.match(claudeAuthProblem() ?? '', /no Claude API key/, 'a token alone is not an API key');
+    assert.match(claudeAuthProblem() ?? '', /No Claude API key/, 'a token alone is not an API key');
     assert.equal(claudeEnv().CLAUDE_CODE_OAUTH_TOKEN, undefined);
   });
   withEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', OPENROUTER_API_KEY: 'sk-or-test' }, () => {

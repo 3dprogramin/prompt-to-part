@@ -39,7 +39,7 @@ test('attached files: safe names, limits', () => {
   assert.equal(parseScadFiles('nope'), null);
 });
 
-// Needs the OpenSCAD engine, which Jig downloads the first time a .scad file is attached.
+// Needs the OpenSCAD engine, which the app downloads the first time a .scad file is attached.
 test('OpenSCAD renders a file with its parameters (needs the downloaded engine)', { skip: !engineInstalled() }, async () => {
   const r = await runScad('/* [Size] */\nw = 10; // [5:1:50]\ncolor("red") cube([w, 5, 2]);\ncolor("blue") translate([0, 10, 0]) cube(3);\necho("hi");', { w: 20 });
   assert.ok(r.ok && r.png);

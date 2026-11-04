@@ -292,7 +292,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
   return report.length > MAX_REPORT ? `${report.slice(0, MAX_REPORT)}\n… report cut at ${MAX_REPORT} characters` : report;
 }
 
-/** A line-art part in one line: style, drawings, size, lines, what Jig fixed and the key holder's pegs; split, the pieces (on the first). */
+/** A line-art part in one line: style, drawings, size, lines, what the app fixed and the key holder's pegs; split, the pieces (on the first). */
 export function lineArtLine(a: LineArtInfo): string {
   const g = (n: number) => String(+n.toFixed(1));
   if (a.paintedIn) return `Lines of the line art the user coloured ${a.paintedIn.name ?? a.paintedIn.color} (${a.paintedIn.color}) in Edit drawing: printed in that filament, as one piece with the rest`;
@@ -306,7 +306,7 @@ export function lineArtLine(a: LineArtInfo): string {
   return a.split ? `${line}${splitLines(a.split, g)}` : line;
 }
 
-/** A split line art: the grid, each piece (size, what Jig fixed on it alone, dovetails, its name), the seams and joints. */
+/** A split line art: the grid, each piece (size, what the app fixed on it alone, dovetails, its name), the seams and joints. */
 function splitLines(sp: NonNullable<LineArtInfo['split']>, g: (n: number) => string): string {
   const bed = printer().bed[0];
   const pieces = sp.pieces.map((p) => {
@@ -315,6 +315,6 @@ function splitLines(sp: NonNullable<LineArtInfo['split']>, g: (n: number) => str
   }).join('');
   const crossings = sp.seams.reduce((n, m) => n + m.crossings, 0);
   const apart = sp.pieces.filter((p) => /[a-z]$/.test(p.label)).map((p) => p.label);
-  return `\n    Split into ${sp.pieces.length} pieces (${sp.spec === 'auto' ? 'Auto' : sp.spec}: ${sp.cols} column${sp.cols > 1 ? 's' : ''} × ${sp.rows} row${sp.rows > 1 ? 's' : ''}), each on its own plate; Jig's clean-up ran on each piece alone (the counts above are totals):${pieces}`
+  return `\n    Split into ${sp.pieces.length} pieces (${sp.spec === 'auto' ? 'Auto' : sp.spec}: ${sp.cols} column${sp.cols > 1 ? 's' : ''} × ${sp.rows} row${sp.rows > 1 ? 's' : ''}), each on its own plate; the clean-up ran on each piece alone (the counts above are totals):${pieces}`
     + `\n      The seams cut ${crossings} line${crossings === 1 ? '' : 's'} of the drawing (they meet end to end, no joint); ${sp.joints.length} dovetail${sp.joints.length === 1 ? '' : 's'} on the bar or frame${sp.joints.length ? ` (${sp.joints.map((j) => `${j.tab}→${j.socket}`).join(', ')})` : ''}${sp.noJoint.length ? `; no dovetail at ${sp.noJoint.length} crossing${sp.noJoint.length > 1 ? 's' : ''}: ${[...new Set(sp.noJoint.map((j) => j.why))].join('; ')}` : ''}${apart.length ? `; ${apart.join(', ')} ${apart.length > 1 ? 'are bits' : 'is a bit'} of a square too far from the rest to bridge, so a piece of its own` : ''}`;
 }

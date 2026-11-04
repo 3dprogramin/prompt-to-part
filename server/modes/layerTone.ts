@@ -24,7 +24,7 @@ function layerTonePrompt(pictures: boolean, mine: LayerToneFilament[] = []) {
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   return `# LayerTone mode
 LayerTone mode is ON: the user wants a LayerTone filament painting – a picture printed flat as a thin relief, where stacked filaments swapped at set layer heights show through each other by their TD, so brightness comes from height.
-- Call this feature LayerTone in your replies (that is its name in Jig; never use another product's name for it).
+- Call this feature LayerTone in your replies (that is its name in this app; never use another product's name for it).
 - Build it with H.layertone(picture, { width, maxHeight, baseHeight, border, gamma, invert, filaments }) → { shape, layerColors, print }. Return it as one part so its print settings (0.08 mm layers over a 0.16 mm first layer, 100 % infill) are used:
     const params = { width: { label: 'Picture width', value: ${maxPiece()}, min: 40, max: ${maxPiece()}, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
     function build(p) { return { name: 'Picture', ...H.layertone('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
@@ -36,11 +36,11 @@ ${loads > 1
   - More than ${loads} only when really needed: each extra filament means a pause and a manual spool swap. If you go above ${loads}, say so in your final message and why.`
     : `  - The user's printer has no AMS: every filament after the first is a pause and a manual spool swap. Use 2 for a classic black-and-white print, more only when the picture really needs it, and say in your final message how many swaps it takes.`}
   - Black at the bottom and white on top is the most common choice, not a rule: pick colours that suit the subject (skin tones, sky, a brown or grey mid-tone, a team colour…), dark at the bottom to light at the top unless the picture calls for something else.
-  - Prefer filaments from Jig's library below (their TDs are known); colours marked * have an estimated TD – mention those. Use the library's exact name, brand, colour and TD.
+  - Prefer filaments from the library below (their TDs are known); colours marked * have an estimated TD: mention those. Use the library's exact name, brand, colour and TD.
   - First version: pass them to H.layertone({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_layertone, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.
-- Jig's filament library (brand line: colour #hex TD; * = estimated TD):
+- The filament library (brand line: colour #hex TD; * = estimated TD):
 ${FILAMENT_LINES}
-${mine.length ? `- The user's own filaments, saved in Jig (name (brand) #hex TD). The user has these: prefer them over the library when they fit the picture, and use their exact name, brand, colour and TD:
+${mine.length ? `- The user's own filaments, saved in the app (name (brand) #hex TD). The user has these: prefer them over the library when they fit the picture, and use their exact name, brand, colour and TD:
 ${myFilamentLines(mine)}
 ` : ''}- Height: the top filament needs enough thickness to show its colour. With a translucent one (TD above ~3 mm, e.g. Jade White 5.9) use a maxHeight around 2.4 mm so the highlights get bright; the panel's simulated print shows the result.
 - Filaments, their order, TDs and swap layers live in the LayerTone setup: the user edits it in the LayerTone panel, you edit it with set_layertone – the same thing, and it wins over the script's filaments/swaps. Once the model exists, change filaments, order and swaps with set_layertone (the script keeps the picture and sizes). Swaps are the layers where each filament after the first starts, counted from the bed (layer 0 = the 0.16 mm first layer, layer n starts at 0.16 + (n − 1) × 0.08 mm), or "auto". The evaluate_model/render_model report lists the stack actually used. A script may also pass swaps: [...] to H.layertone as its own default.
@@ -58,7 +58,7 @@ export const layerTone: PromptMode = {
     const setup = typeof pictureValues[LAYERTONE_KEY] === 'string' ? pictureValues[LAYERTONE_KEY] : null;
     return [
       ...(isFollowUp ? [setup ? `The LayerTone setup (the user's panel; set_layertone changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_layertone changes that).'] : []),
-      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`,
+      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`,
     ];
   },
 };

@@ -62,7 +62,7 @@ const geo = new GeometryClient();
 export default function App() {
   const [design, setDesign] = useState<Design>(newDesign);
   // The browser tab names the open design.
-  useEffect(() => { document.title = design.name.trim() ? `Jig - ${design.name.trim()}` : 'Jig'; }, [design.name]);
+  useEffect(() => { document.title = design.name.trim() ? `prompt-to-part - ${design.name.trim()}` : 'prompt-to-part'; }, [design.name]);
   const currentId = useRef(design.id);
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
@@ -99,7 +99,7 @@ export default function App() {
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
   const { leftOpen, setLeftOpen, rightOpen, setRightOpen, setUserWidths, widths, workspace, resize } = useSidebars();
   // Photos dropped anywhere go to the chat; the browser must never open a dropped file in place of
-  // Jig (that would also stop a running generation).
+  // the app (that would also stop a running generation).
   useEffect(() => {
     const isFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
     const onOver = (e: DragEvent) => { if (isFiles(e)) e.preventDefault(); };
@@ -278,7 +278,7 @@ export default function App() {
       // A bare URL (new tab) starts a fresh design; ?design=<id> reopens that one.
       const last = new URLSearchParams(location.search).get('design');
       if (last) {
-        // It replaces the blank design Jig opens with, unless the user has moved on by then (opened
+        // It replaces the blank design the app opens with, unless the user has moved on by then (opened
         // or started another design, or sent a message in this one).
         const blankId = currentId.current;
         const isLatest = opening.current.begin();
@@ -750,7 +750,7 @@ export default function App() {
           } : null}
           onLayout={(v) => layoutKey && onValue(layoutKey, v)}
           emptyState={generating
-            ? <div className="empty-inner"><span className="spinner big" /><p>Jig is designing your model…</p></div>
+            ? <div className="empty-inner"><span className="spinner big" /><p>Designing your model…</p></div>
             : <div className="empty-inner"><Icon name="cube" size={44} /><p>Describe an object or drop reference photos in the chat to start.</p></div>}
         />
         <SidePanel

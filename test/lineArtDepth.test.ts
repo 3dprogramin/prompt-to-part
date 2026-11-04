@@ -50,7 +50,7 @@ test('colour depth: parsed, the top layers cut to the print\'s layers, the TD se
   assert.deepEqual(filamentTd({ color: '#123456', name: 'Mine', td: 0.7 }), { td: 0.7, known: true }, 'the user\'s own TD');
   const guess = filamentTd({ color: '#ff0000' });
   assert.equal(guess.known, false);
-  assert.ok(guess.td > 1 && guess.td < 6, `a red Jig doesn't know: ${guess.td}`);
+  assert.ok(guess.td > 1 && guess.td < 6, `an unknown red: ${guess.td}`);
   assert.ok(filamentTd({ color: '#fafafa' }).td > filamentTd({ color: '#101010' }).td, 'white lets more through than black');
 });
 
@@ -158,7 +158,7 @@ test('filament changes: a change on each layer a colour is on, the estimate from
 const TEMPLATE = path.join(DATA_DIR, 'bambu', 'template.json');
 const canSlice = !!(await findBambuBinary()) && existsSync(TEMPLATE);
 
-test('Bambu Studio: the top 3 layers in red change filament 3 times, through the piece 10; the estimate near the slice', { skip: !canSlice && 'needs Bambu Studio and its Jig template' }, async () => {
+test('Bambu Studio: the top 3 layers in red change filament 3 times, through the piece 10; the estimate near the slice', { skip: !canSlice && 'needs Bambu Studio and its prompt-to-part template' }, async () => {
   const tpl = JSON.parse(readFileSync(TEMPLATE, 'utf8'));
   const slice = async (depth?: string) => {
     const r = build(depth ? [paint(0.49, -0.3, 0.3)] : [], depth);

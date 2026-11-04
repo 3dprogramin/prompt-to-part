@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Jig: the built app and its API on one port (`pnpm start`). See "Docker" in the README.
+# prompt-to-part: the built app and its API on one port (`pnpm start`). See "Docker" in the README.
 #
 # Build arguments:
 #   WITH_BAMBU=1   adds Bambu Studio's command line (Cost tab slicing, 3MF print settings); about
@@ -102,7 +102,7 @@ COPY package.json pnpm-lock.yaml tsconfig.json index.html vite.config.ts LICENSE
 COPY server ./server
 COPY shared ./shared
 COPY src ./src
-# The volumes' mount points, owned by the user Jig runs as: designs and the Bambu template (/data),
+# The volumes' mount points, owned by the user the app runs as: designs and the Bambu template (/data),
 # Claude Code's sessions (CLAUDE_CONFIG_DIR) and the OpenSCAD engine plus the bundled workers
 # (node_modules/.cache, the only place the sandboxed workers may read besides node_modules).
 RUN mkdir -p /data /home/node/.claude node_modules/.cache \

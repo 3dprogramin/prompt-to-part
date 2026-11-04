@@ -147,7 +147,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
   app.delete('/api/designs/:id', async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
-    if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'Jig is working on this design – stop it first.' });
+    if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'This design is being worked on: stop it first.' });
     await serially(id, async () => {
       deleted.add(id);
       await rm(designFile(id), { force: true });

@@ -12,7 +12,7 @@ export type Seam = 'aligned' | 'nearest' | 'back' | 'random';
 export type WallOrder = 'inner-outer' | 'outer-inner' | 'inner-outer-inner';
 export type FuzzySkin = 'none' | 'external' | 'all';
 
-/** Bambu Studio's values for the settings whose names differ from Jig's. */
+/** Bambu Studio's values for the settings whose names differ from the app's. */
 const IRONING: Record<Ironing, string> = { off: 'no ironing', top: 'top', topmost: 'topmost', solid: 'solid' };
 const WALL_ORDER: Record<WallOrder, string> = { 'inner-outer': 'inner wall/outer wall', 'outer-inner': 'outer wall/inner wall', 'inner-outer-inner': 'inner-outer-inner wall' };
 export const SEAMS: Seam[] = ['aligned', 'nearest', 'back', 'random'];

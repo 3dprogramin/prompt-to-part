@@ -13,7 +13,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
-    console.error('Jig crashed while drawing the page', error, info.componentStack);
+    console.error('prompt-to-part crashed while drawing the page', error, info.componentStack);
   }
 
   render() {
@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
     return (
       <div className="crash" role="alert">
         <div className="crash-panel">
-          <h1>Something went wrong in Jig</h1>
+          <h1>Something went wrong in prompt-to-part</h1>
           <p className="dim">Reload the page to carry on. Saved designs are kept; a change made in the last moment may not be.</p>
           <pre className="crash-error">{error.message || String(error)}</pre>
           <button className="btn primary" onClick={() => location.reload()}>Reload</button>

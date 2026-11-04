@@ -1,4 +1,4 @@
-// A generation: Jig's request to Claude (Claude Code through the Agent SDK) with the CAD tools, and
+// A generation: the app's request to Claude (Claude Code through the Agent SDK) with the CAD tools, and
 // its stream of events for the page. The tool policy, the messages around the request and the
 // activity panel's text are in generation/.
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -68,7 +68,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   };
   const authProblem = claudeAuthProblem();
   if (authProblem) { emit({ type: 'error', message: authProblem }); return; }
-  emit({ type: 'live', text: 'Jig is starting…' });
+  emit({ type: 'live', text: 'Starting…' });
   // Stop before Claude starts (the steps below can take a while: a render, OpenSCAD): end the reply
   // as a Stop during the query does, without starting it.
   const stopped = () => abort.signal.aborted;
@@ -78,7 +78,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   if (req.code?.trim()) await writeFile(file, req.code);
   else await rm(file, { force: true });
 
-  // Pages Claude actually read in this generation (WebFetch calls Jig allowed), by pageKey().
+  // Pages Claude actually read in this generation (WebFetch calls the app allowed), by pageKey().
   const opened = new Set<string>();
   // Drawings attached in the chat: every check and render of the script can use them (H.svg).
   const drawings = parseDrawings(req.drawings);
@@ -174,7 +174,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
 
   // OpenSCAD files: saved in the workspace (render_scad renders them, in later messages too) and
-  // rendered now, so Claude sees what they make before rebuilding them as a Jig script.
+  // rendered now, so Claude sees what they make before rebuilding them as a model script.
   const scadDir = path.join(ws, SCAD_DIR);
   const attachedScad = parseScadFiles(req.scad) ?? [];
   const earlierScad = (await readdir(scadDir).catch(() => [] as string[])).filter((n) => n.endsWith('.scad') && !attachedScad.some((f) => f.name === n));
@@ -200,7 +200,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     }
   }
   if (attachedScad.length) {
-    parts.push('Jig runs model scripts, not OpenSCAD: build model.js so it reproduces the OpenSCAD design, then apply what the user asks. Keep its Customizer parameters as params (same names, defaults, ranges, steps, groups and captions; options become select, free text becomes text) and each color() as its own part, unless the user says otherwise. Compare your script with the original as you go: render_scad shows the OpenSCAD file at any parameter values, render_model your script.');
+    parts.push('This app runs model scripts, not OpenSCAD: build model.js so it reproduces the OpenSCAD design, then apply what the user asks. Keep its Customizer parameters as params (same names, defaults, ranges, steps, groups and captions; options become select, free text becomes text) and each color() as its own part, unless the user says otherwise. Compare your script with the original as you go: render_scad shows the OpenSCAD file at any parameter values, render_model your script.');
   }
   // Each mode's notes (modes/), in MODES order.
   const turn: TurnContext = { req, isFollowUp, pictureValues, drawings, refs, layerToneImages, newPictures, meshes, concepts, attachedMeshes, references, images: artworkAvailable(), lineArtStyle };
@@ -216,7 +216,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     if (png) {
       content.push({ type: 'text', text: `MESH FILE ${entry.original ?? name} attached by the user – as imported (top-left ISO, top-right FRONT, bottom-left RIGHT, bottom-right TOP):` });
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: png.toString('base64') } });
-      emit({ type: 'step', step: { kind: 'render', verbose: true, text: `Jig got a render of ${entry.original ?? name}`, image: `data:image/png;base64,${png.toString('base64')}`, detail: describeImport(name, entry) } });
+      emit({ type: 'step', step: { kind: 'render', verbose: true, text: `Sent a render of ${entry.original ?? name}`, image: `data:image/png;base64,${png.toString('base64')}`, detail: describeImport(name, entry) } });
     }
     parts.push(`The user attached a mesh file. ${describeImport(name, entry)}`);
   }
@@ -261,11 +261,11 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     // Exactly what goes to Claude, for the activity panel.
     const pictures = content.filter((c) => c.type === 'image').length;
     const sentText = [recap, ...content.flatMap((c) => (c.type === 'text' ? [c.text] : []))].filter(Boolean).join('\n\n');
-    emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
+    emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent the request${pictures ? ` with ${pictures} picture${pictures > 1 ? 's' : ''}` : ''}${recap ? ' and a summary of the earlier conversation' : ''}`, detail: detail(sentText, 30000) } });
     let finalText = '';
     // API keys: Claude Code's cost estimate is a running total for the session, and a continued
     // session starts from what it had cost before, so the reply's own cost is the difference (unknown
-    // when the design doesn't know the earlier total, e.g. a session from before Jig kept it).
+    // when the design doesn't know the earlier total, e.g. a session from before the app kept it).
     const costBase = resume ? req.sessionCostUsd : 0;
     const q = runQuery({
       prompt: messages(),
@@ -294,7 +294,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         },
         settingSources: [],
         includePartialMessages: true,
-        // Claude Code echoes each user message when Claude reads it: how Jig knows a message sent mid-reply arrived.
+        // Claude Code echoes each user message when Claude reads it: how the app knows a message sent mid-reply arrived.
         extraArgs: { 'replay-user-messages': null },
         maxTurns: 60,
         resume,
@@ -334,11 +334,11 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     for await (const msg of q) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         emit({ type: 'session', sessionId: msg.session_id });
-        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig is using ${msg.model} · ${resume ? 'continuing the previous conversation' : 'new conversation'}` } });
-        pushLive('Waiting for Jig…');
+        emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Using ${msg.model} · ${resume ? 'continuing the previous conversation' : 'new conversation'}` } });
+        pushLive('Waiting for a reply…');
       } else if (msg.type === 'stream_event') {
         const ev = msg.event;
-        if (ev.type === 'message_start') pushLive('Jig is responding…');
+        if (ev.type === 'message_start') pushLive('Responding…');
         else if (ev.type === 'content_block_start') {
           const cb = ev.content_block as { type: string; name?: string };
           block = { type: cb.type, name: cb.name, chars: 0, text: '' };
@@ -410,8 +410,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
         if (prompts++ > 0) {
           inbox.read++;
           newUserMessage();
-          emit({ type: 'step', step: { kind: 'status', verbose: true, text: 'Jig read your message' } });
-          pushLive('Jig is reading your message…');
+          emit({ type: 'step', step: { kind: 'status', verbose: true, text: 'Your message was read' } });
+          pushLive('Reading your message…');
         }
       } else if (msg.type === 'user') {
         // Tool results: everything Claude gets back goes to the activity panel (the CAD tools also
@@ -426,14 +426,14 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
             // (Pictures come back as placeholder lines naming a local file; the panel shows them as renders.)
             const text = (typeof c.content === 'string' ? c.content : blocks.map((x) => ('text' in x ? x.text : '')).filter(Boolean).join('\n')).replace(/^\[Image[^\]\n]*\]\n?/gm, '').trim();
             const images = blocks.filter((x) => x.type === 'image').length;
-            const got = `Jig got the result of ${label}${images ? ` (with ${images} picture${images > 1 ? 's' : ''})` : ''}`;
+            const got = `Sent the result of ${label}${images ? ` (with ${images} picture${images > 1 ? 's' : ''})` : ''}`;
             if (name.startsWith('mcp__cad__')) emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
             else if (c.is_error) emit({ type: 'step', step: { kind: 'tool', ok: false, verbose: true, text: `${label} failed: ${text.slice(0, 200)}`, detail: detail(text) } });
             else if (name === 'Write' || name === 'Edit') emit({ type: 'step', step: { kind: 'tool', ok: true, text: 'model.js', edit: { file: 'model.js', ...(edits.get(c.tool_use_id) ?? { added: 0, removed: 0 }) } } });
             else emit({ type: 'step', step: { kind: 'status', verbose: true, text: got, detail: detail(text) } });
           }
         }
-        pushLive('Jig is reading the results…');
+        pushLive('Reading the results…');
       } else if (msg.type === 'system' && msg.subtype === 'api_retry') {
         // A refused key won't start working on a retry: stop at once and say which key to check
         // (Claude Code would otherwise retry it for minutes).
@@ -499,5 +499,5 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
 /** A reply that failed because a Claude usage limit is reached. */
 export class UsageLimitError extends Error {}
 
-/** A reply that failed because the Claude API refused Jig's API key or token (the message says which). */
+/** A reply that failed because the Claude API refused the app's API key or token (the message says which). */
 export class KeyRefusedError extends Error {}

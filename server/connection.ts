@@ -1,4 +1,4 @@
-// What Jig runs Claude on (OpenRouter, Anthropic API, a custom provider) and whether that service answers,
+// What the app runs Claude on (OpenRouter, Anthropic API, a custom provider) and whether that service answers,
 // for the chip in the top bar. Checked at most once a minute; no check costs a request to the model.
 import type { Connection } from '../shared/api';
 import { claudeAuthProblem, claudeViaOpenRouter } from './config';

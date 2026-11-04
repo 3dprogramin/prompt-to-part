@@ -203,7 +203,7 @@ test('the colours follow the triangles through a script: cut, moved, joined with
   assert.equal(at(25, 30), 'PLA Basic Red');
   // The other part has no coloured mesh: one colour.
   assert.equal(r.parts[1].paint, undefined);
-  // Five filaments in the design: Jig and the user are told.
+  // Five filaments in the design: the app and the user are told.
   assert.ok(modelWarnings(r).some((w) => /needs 6 filaments.*Bambu Lab A1 loads 4 at once/.test(w)), modelWarnings(r).join('\n'));
   // Two AMS (8 slots): no warning; no AMS: each extra filament is swapped by hand.
   setPrinter({ ...DEFAULT_PRINTER, filaments: 8 });

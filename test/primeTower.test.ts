@@ -57,7 +57,7 @@ test('prime tower: beside the model, clear of it, also when the model is big', a
 const TEMPLATE = [templateFile(DEFAULT_PRINTER), path.join(DATA_DIR, 'bambu', 'template.json')].find((f) => existsSync(f)) ?? '';
 const canSlice = !!(await findBambuBinary()) && !!TEMPLATE;
 
-test('Bambu Studio slices a big two-colour plaque with its prime tower', { skip: !canSlice && 'needs Bambu Studio and its Jig template' }, async () => {
+test('Bambu Studio slices a big two-colour plaque with its prime tower', { skip: !canSlice && 'needs Bambu Studio and its prompt-to-part template' }, async () => {
   const realTpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
   const sliced = await slicedProject(new Uint8Array(await toBambuProject(plaque(160, 218, ['#ffffff', '#000000']), 't', realTpl, { print: null }).arrayBuffer()));
   const objects = (JSON.parse(strFromU8(sliced['Metadata/plate_1.json'])) as { bbox_objects: { name: string; bbox: number[] }[] }).bbox_objects;

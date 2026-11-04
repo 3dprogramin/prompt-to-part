@@ -50,7 +50,7 @@ test('sizeGeometry: outer size minus the frame is the picture; portrait turns it
   assert.deepEqual(port.outer, [100, 150]);
   assert.deepEqual(port.picture, [94, 144]);
   assert.equal(port.options.gamma, 0.8);
-  // Jig's mesh makes the picture's height from the image's proportions: the crop's aspect is picture[0] / picture[1].
+  // The app's mesh makes the picture's height from the image's proportions: the crop's aspect is picture[0] / picture[1].
   const r = resolveLithoOptions(land.options);
   assert.equal(r.width + 2 * r.border, 150);
   const lamp = sizeGeometry({ id: 'l', shape: 'cylinder', width: 100, height: 150 }, 'portrait', c);

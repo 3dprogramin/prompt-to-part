@@ -1,5 +1,5 @@
-// The 3D preview: Jig's lithophane mesh in three.js, turned with a finger or the mouse. With the
-// light on it glows by per-vertex colours (Jig's backlit model, as Jig's own viewer shows it); with
+// The 3D preview: prompt-to-part's lithophane mesh in three.js, turned with a finger or the mouse. With the
+// light on it glows by per-vertex colours (prompt-to-part's backlit model, as its own viewer shows it); with
 // the light off it is plain white PLA whose relief shows in the room's light.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -25,7 +25,7 @@ export class LithoView {
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.setClearColor(0x000000, 0);
     container.appendChild(this.renderer.domElement);
-    // Jig's lithophane stands on z = 0 with Z up, the picture facing −Y.
+    // prompt-to-part's lithophane stands on z = 0 with Z up, the picture facing −Y.
     this.camera.up.set(0, 0, 1);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
@@ -38,7 +38,7 @@ export class LithoView {
     this.scene.add(key);
 
     // Light on: the colours glow (emissive) with a little shading so the relief still reads; matte,
-    // as a glossy highlight would turn the dark areas grey. As Jig's viewer does for lithophanes.
+    // as a glossy highlight would turn the dark areas grey. As prompt-to-part's viewer does for lithophanes.
     this.lit = new THREE.MeshStandardMaterial({ color: new THREE.Color().setScalar(0.12), roughness: 1, metalness: 0, vertexColors: true });
     this.lit.onBeforeCompile = (s) => {
       s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\n\ttotalEmissiveRadiance += vColor.rgb * 0.95;\n#endif');
@@ -49,12 +49,12 @@ export class LithoView {
     this.observer.observe(container);
   }
 
-  /** Shows a lithophane mesh (Jig's lithophaneMesh: x, y, z, thickness per vertex). */
+  /** Shows a lithophane mesh (prompt-to-part's lithophaneMesh: x, y, z, thickness per vertex). */
   setMesh(mesh: { vertProperties: Float32Array; triVerts: Uint32Array }, r: LithoResolved) {
     const V = mesh.vertProperties, n = V.length / 4;
     const pos = new Float32Array(n * 3), thick = new Float32Array(n);
     for (let i = 0; i < n; i++) { pos[i * 3] = V[i * 4]; pos[i * 3 + 1] = V[i * 4 + 1]; pos[i * 3 + 2] = V[i * 4 + 2]; thick[i] = V[i * 4 + 3]; }
-    // Jig's colours are sRGB; three.js reads a colour attribute as linear.
+    // prompt-to-part's colours are sRGB; three.js reads a colour attribute as linear.
     const colors = lithoVertexColors(thick, r).map(toLinear);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));

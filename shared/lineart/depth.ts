@@ -17,7 +17,7 @@ export const MIN_COLOUR_LAYERS = 2;
 /**
  * A filament's TD (transmission distance, mm: LayerTone's model, where t mm of it hides
  * 1 - e^(-3t/TD) of what is under it, 95 % at t = TD): its own (the user's filaments), the library's,
- * or for one Jig doesn't know the middle TD of the library's filaments of its colour (light colours
+ * or for one the app doesn't know the middle TD of the library's filaments of its colour (light colours
  * let more through); `known` says which.
  */
 export function filamentTd(f: PartFilament): { td: number; known: boolean } {
@@ -79,7 +79,7 @@ export function colourBands(p: LineArtPaint, c: LineArtPaint['colours'][number],
 
 /**
  * What filament changes cost, measured on an A1 (AMS lite) with Bambu Studio 2.8's slicer on line
- * art in Bambu PLA Basic from Jig's 3MF (2 and 4 mm thick, 3 to 15 changes, a line or the frame
+ * art in Bambu PLA Basic from the app's 3MF (2 and 4 mm thick, 3 to 15 changes, a line or the frame
  * coloured; within about 10 % of the slice): each change (cutting, loading, the flush into the prime
  * tower), each layer of the prime tower (built from the bed up to the last change, a change or not),
  * and starting the tower.

@@ -3,7 +3,7 @@ import type { Design } from '../../shared/types';
 import { channel, TAB_ID, tell, type TabMessage } from '../lib/tabs';
 
 /**
- * Keeps this tab in step with Jig's other tabs: their saves and deletes arrive through `onSaved`
+ * Keeps this tab in step with the app's other tabs: their saves and deletes arrive through `onSaved`
  * and `onDeleted`, and the designs they are generating are returned (id → last heartbeat). This
  * tab's generations are announced every few seconds, so a closed tab's ones are forgotten.
  */

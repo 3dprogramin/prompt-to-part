@@ -1,7 +1,7 @@
-# Jig in Docker: `docker compose up -d --build`, then open http://localhost:8787 (see "Docker" in the
+# prompt-to-part in Docker: `docker compose up -d --build`, then open http://localhost:8787 (see "Docker" in the
 # README). Settings and secrets come from .env (copy .env.sample).
 #
-# Jig has no login by default: anyone who can reach its port can use your API keys. It is
+# prompt-to-part has no login by default: anyone who can reach its port can use your API keys. It is
 # therefore published on this computer only (127.0.0.1). JIG_BIND=0.0.0.0 in .env publishes it on
 # every interface (e.g. to try it from a phone; add this computer's address to JIG_HOSTS): then set
 # JIG_PASSWORD in .env as well (the browser asks for it once), and only on a network you trust.
@@ -20,11 +20,11 @@ services:
     env_file: .env
     # These win over .env, which may still hold a local install's paths.
     environment:
-      # Jig checks that requests name its own port, so the container listens on the published one.
+      # The app checks that requests name its own port, so the container listens on the published one.
       PORT: ${JIG_PORT:-8787}
       JIG_HOST: 0.0.0.0
       JIG_DATA: /data
-      # Where the port is published, so Jig can warn when it is reachable without JIG_PASSWORD.
+      # Where the port is published, so the app can warn when it is reachable without JIG_PASSWORD.
       JIG_PUBLISHED: ${JIG_BIND:-127.0.0.1}
       CLAUDE_CONFIG_DIR: /home/node/.claude
       # With the Bambu Studio user folder mounted below: your own printer presets in the printer list.
@@ -49,7 +49,7 @@ services:
     tmpfs:
       - /tmp:size=2g
       - /home/node:uid=1000,gid=1000,mode=0700
-    # Limits for the whole container (Jig, Claude Code, OpenSCAD, Bambu Studio, Blender), so a runaway
+    # Limits for the whole container (prompt-to-part, Claude Code, OpenSCAD, Bambu Studio, Blender), so a runaway
     # job can't take the computer down with it. JIG_MEM_LIMIT in .env raises the memory limit.
     mem_limit: ${JIG_MEM_LIMIT:-8g}
     pids_limit: 512

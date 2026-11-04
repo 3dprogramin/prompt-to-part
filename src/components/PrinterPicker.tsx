@@ -1,4 +1,4 @@
-// Which printer the user has and how many filaments it loads at once: asked on Jig's first start,
+// Which printer the user has and how many filaments it loads at once: asked on the first start,
 // changed from the Print tab. The list is the user's Bambu Studio: every Bambu Lab printer and
 // nozzle, and the printer presets they saved there themselves.
 import { useEffect, useMemo, useState } from 'react';
@@ -68,7 +68,7 @@ export function PrinterDialog({ info, onSave, onCancel }: Props) {
       <div className="modal printer-dialog" role="dialog" aria-modal="true" aria-labelledby="printer-title" onClick={(e) => e.stopPropagation()}>
         <h3 id="printer-title">{first ? 'Which printer do you have?' : 'Printer'}</h3>
         <p>{first
-          ? 'Jig designs for it: what fits its bed, which details its nozzle can print, and the Bambu Studio project it exports. You can change it later in the Print tab.'
+          ? 'Designs are made for it: what fits its bed, which details its nozzle can print, and the Bambu Studio project it exports. You can change it later in the Print tab.'
           : 'Every design follows it: the plate, the checks, the AI\'s instructions and the Bambu Studio project.'}</p>
         <div className="printer-fields">
           <label>
@@ -102,7 +102,7 @@ export function PrinterDialog({ info, onSave, onCancel }: Props) {
         {chosen && (
           <p className="dim small printer-summary">
             {chosen.bed[0]} × {chosen.bed[1]} × {chosen.height} mm, {chosen.nozzle} mm nozzle, {chosen.structure === 'bedslinger' ? 'bed-slinger' : 'CoreXY'}
-            {chosen.extruders > 1 && <><br />Two nozzles: Jig can't make its Bambu Studio project yet, so it exports a plain 3MF (no print settings or cost).</>}
+            {chosen.extruders > 1 && <><br />Two nozzles: no Bambu Studio project for it yet, so it exports a plain 3MF (no print settings or cost).</>}
             {!chosen.presets && <><br />Bambu Studio isn't installed here, so there is no Bambu Studio project or cost.</>}
           </p>
         )}

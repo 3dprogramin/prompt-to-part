@@ -1,7 +1,7 @@
 // A stand-in for Meshy's API (https://docs.meshy.ai), for tests and for using generate_3d without
 // spending credits: the same paths, auth, status sequence (PENDING → IN_PROGRESS with progress →
 // SUCCEEDED), Retry-After, errors and expiring asset links, serving the sample models in
-// test/fixtures/meshes. Jig talks to it like to Meshy: MESHY_BASE_URL=http://127.0.0.1:8790/openapi
+// test/fixtures/meshes. The app talks to it like to Meshy: MESHY_BASE_URL=http://127.0.0.1:8790/openapi
 // and any MESHY_API_KEY starting with msy_.
 //
 //   pnpm mock:meshy             (port 8790, or MESHY_MOCK_PORT; MESHY_MOCK_SECONDS for the run time)

@@ -1,5 +1,5 @@
 // OpenSCAD for .scad files attached in the chat. The engine (the OpenSCAD Playground's WebAssembly
-// build, with its fonts and libraries such as BOSL2 and MCAD) is GPL software and not part of Jig:
+// build, with its fonts and libraries such as BOSL2 and MCAD) is GPL software and not part of prompt-to-part:
 // it is downloaded from npm the first time it is needed, checked against a pinned hash, and run in
 // a separate locked-down process (server/openscad-worker.ts), on this server only, never sent to
 // the browser.

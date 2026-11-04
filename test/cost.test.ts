@@ -44,8 +44,8 @@ test("Claude's price answer is read and checked, in JIG_CURRENCY", () => {
   } finally {
     if (before === undefined) delete process.env.JIG_CURRENCY; else process.env.JIG_CURRENCY = before;
   }
-  assert.throws(() => parseSuggestion('About 40 lei.'), /did not answer/);
-  assert.throws(() => parseSuggestion('{"price": "a lot"}'), /did not answer/);
+  assert.throws(() => parseSuggestion('About 40 lei.'), /had no price/);
+  assert.throws(() => parseSuggestion('{"price": "a lot"}'), /had no price/);
 });
 
 test('the currency: any ISO code from JIG_CURRENCY, typical starting prices in a few', () => {

@@ -39,7 +39,7 @@ export interface SliceStats {
  * "Print in one colour"): a result with another key is out of date.
  */
 export function costKey(code: string, values: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string, printerId: string): string {
-  // The A1 0.4 (Jig's printer before it could be chosen) keeps the old key, so slices saved then stay valid.
+  // The A1 0.4 (the app's printer before it could be chosen) keeps the old key, so slices saved then stay valid.
   return JSON.stringify(printerId === DEFAULT_PRINTER.id ? [code, values, hiddenParts, userPrint, oneColour] : [code, values, hiddenParts, userPrint, oneColour, printerId]);
 }
 

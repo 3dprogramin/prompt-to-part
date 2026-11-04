@@ -1,6 +1,6 @@
 // <litho-preview>: the customer-facing lithophane preview. A photo goes in (file, drop or camera),
 // the customer frames it, picks a shape and size, and sees it lit from behind and as a 3D object,
-// all in the browser with Jig's lithophane code (shared/lithophane.ts). On a Shopify product page
+// all in the browser with prompt-to-part's lithophane code (shared/lithophane.ts). On a Shopify product page
 // it fills the product form, so the choices and the photo travel with the order (shopify.ts).
 //
 // Attributes: lang ("ro" default, "en"), config (JSON, see config.ts), variants (Liquid's

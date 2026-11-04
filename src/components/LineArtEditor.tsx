@@ -22,15 +22,15 @@ interface Props {
   error: string | null;
   onEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
   onClose: () => void;
-  /** The piece built without any hand edits (as Jig made it), shown where edits are cleared. */
+  /** The piece built without any hand edits (as the AI made it), shown where edits are cleared. */
   original: () => Promise<(PartMesh & { lineArt: LineArtInfo; paints?: { color: string; from: number; to: number }[] }) | null | undefined>;
 }
 
 /**
- * The Edit drawing brush: the piece large and straight on, to draw lines on (they go through Jig's
+ * The Edit drawing brush: the piece large and straight on, to draw lines on (they go through the app's
  * clean-up like the drawing's own), paint the lines, frame, bar, text or pegs in another filament
  * (as deep as LINEART_DEPTH_KEY says; a line can be drawn in one too), fill where the piece has
- * nothing yet (inside an outline, in a filament too) or erase (also what Jig drew there). The strokes are a draft,
+ * nothing yet (inside an outline, in a filament too) or erase (also what the AI drew there). The strokes are a draft,
  * drawn over the piece, until Done (or Escape) saves them in the design at once (LINEART_EDITS_KEY,
  * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft.
  */
@@ -59,7 +59,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
 
   const [tool, setTool] = useState<Tool>('draw');
   const [widths, setWidths] = useState(() => ({ draw: round(clamp(la.lineWidth, WIDTH.draw.min, WIDTH.draw.max), 1), erase: 3, paint: 3, fill: FILL_WIDTH, clear: 10 }));
-  // The brush's shape, for every brush but Draw (a line is drawn round: Jig draws it again at the line width).
+  // The brush's shape, for every brush but Draw (a line is drawn round: it is drawn again at the line width).
   const [shape, setShape] = useState<'round' | 'square'>('round');
   const square = shape === 'square' && tool !== 'draw';
   // The filament lines are drawn and painted in (null: the piece's own), and the picker for another.
@@ -73,7 +73,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   const [panning, setPanning] = useState(false);
   // This session's strokes, drawn over the piece (it is built only when the editor closes).
   const [shown, setShown] = useState<ShownStroke[]>([]);
-  // The piece as Jig made it, for where edits are cleared: this one when it has no hand edits, else
+  // The piece as the AI made it, for where edits are cleared: this one when it has no hand edits, else
   // built (once) as soon as there is something to clear.
   const [built, setBuilt] = useState<ReturnType<typeof pieceImage> | 'building' | 'failed'>(null);
   const clearing = selection.length > 0 || shown.some((st) => st.mode === 'clear');
@@ -185,7 +185,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     for (const st of strokes) {
       if (st.mode === 'draw') { strokeOn(out, st, st.color ?? INK); strokeOn(ink, st, INK); }
       else if (st.mode === 'clear') {
-        // Cleared: the piece as Jig made it there, over the strokes before (once it is known).
+        // Cleared: the piece as the AI made it there, over the strokes before (once it is known).
         if (!own) continue;
         // Its ink, then the paper with it in (as one, so its soft edge shows no seam).
         const brushed = (under: string, op: GlobalCompositeOperation) => {
@@ -266,7 +266,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     } else if (live && live.mode !== 'clear') stroke(live);
     // The area selected to clear edits in (with the stroke adding to it), see-through: drawn whole
     // off screen, so where strokes cross it is no darker. Where edits were cleared shows so too
-    // until the piece as Jig made it is known.
+    // until the piece as the AI made it is known.
     const sel = [...n.selection, ...(live?.mode === 'clear' ? [live] : []), ...(n.own ? [] : n.shown.filter((st) => st.mode === 'clear'))];
     if (sel.length) {
       const S = (selLayer.current ??= document.createElement('canvas'));
@@ -411,7 +411,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     const fil = n.tool !== 'erase' && n.filament ? n.filament : undefined;
     const stroke: LineArtStroke = {
       mode: n.tool,
-      // In the drawing's units (it stays put when the piece is resized), the width as Jig builds it (before the scale),
+      // In the drawing's units (it stays put when the piece is resized), the width as it is built (before the scale),
       // and the mm per drawing unit now (`k`): resized, the stroke is as wide on the drawing as it was drawn.
       width: round(n.width / n.scale, 3),
       k: round(f.k / n.scale, 6),
@@ -466,7 +466,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
 
   /**
    * Clear edits here: on each drawing, its hand edits under the selection taken back (a restore
-   * stroke per selection stroke, after them), so there the piece is as Jig made it again.
+   * stroke per selection stroke, after them), so there the piece is as the AI made it again.
    */
   const clearHere = () => {
     const n = now.current;
@@ -649,7 +649,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
           )}
           {error && <div className="la-ed-note warn"><Icon name="alert" size={13} /> The model didn't build: {error}</div>}
           {note && <div className="la-ed-note">{note}</div>}
-          {clearing && built === 'building' && <div className="la-ed-note"><span className="spinner" /> Working out the piece as Jig made it, to show where edits are cleared…</div>}
+          {clearing && built === 'building' && <div className="la-ed-note"><span className="spinner" /> Working out the piece without your edits, to show where they are cleared…</div>}
           {clearing && built === 'failed' && la.edits > 0 && <div className="la-ed-note">Where edits are cleared shows once built (Done).</div>}
         </div>
         <div className="la-ed-scale" aria-label={`Scale: the bar is ${barMm} mm`}>

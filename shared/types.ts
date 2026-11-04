@@ -119,7 +119,7 @@ export interface PartMesh {
   lithophane?: LithophaneSource;
   /** The script's colour, when the user picked another filament for the part (PART_COLORS_KEY). */
   scriptColor?: string;
-  /** Line-art part (H.lineart): its style, drawings, size and what Jig fixed (bridges, dropped specks). */
+  /** Line-art part (H.lineart): its style, drawings, size and what the app fixed (bridges, dropped specks). */
   lineArt?: LineArtInfo;
   /** The build plate the part prints on (1, 2…; a big piece split into pieces puts each on its own); unset: plate 1 with the rest. */
   plate?: number;
@@ -238,14 +238,14 @@ export interface ChatMessage {
    */
   activity?: ActivityItem[];
   /**
-   * Jig was still working on this reply when it was saved (saves run every few seconds while it
+   * This reply was still being worked on when it was saved (saves run every few seconds while it
    * works). Still set when nothing is working on it: the reply was interrupted (the server restarted
    * before it ended, or a page reload found it gone); the final save of a reply that ended clears it.
    */
   pending?: boolean;
   /** The server's run of this pending reply and how many of its events this copy has (a page opened later catches up from there). */
   run?: { id: string; seen: number };
-  /** "Ask first": the questions Jig asked in this reply (ask_questions), shown as a card of options. */
+  /** "Ask first": the questions asked in this reply (ask_questions), shown as a card of options. */
   questions?: ChatQuestion[];
   /** What the user chose on that card, per question (the options' words or their own); unset until sent from it. */
   answers?: string[][];

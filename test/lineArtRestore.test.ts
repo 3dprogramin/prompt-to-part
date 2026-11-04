@@ -41,7 +41,7 @@ test('restore strokes: parsed without a filament, kept when the drawing is redra
   assert.notDeepEqual(pic(left), pic([]));
 });
 
-test('restore: under it the piece is as Jig made it, elsewhere the edits stay, later strokes apply', () => {
+test('restore: under it the piece is as the app made it, elsewhere the edits stay, later strokes apply', () => {
   const plain = build([]).parts;
   // All of the left half's edits taken back: as with no edits at all, in one filament.
   const none = build([...left, clearLeft]).parts;
@@ -61,7 +61,7 @@ test('restore: under it the piece is as Jig made it, elsewhere the edits stay, l
   close(after[0].volume, drawn[0].volume, 'drawn again');
 });
 
-test('restore on a split piece: each piece as Jig made it', async () => {
+test('restore on a split piece: each piece as the app made it', async () => {
   const opts = "style: 'outline', width: 400, split: 'auto'";
   const plain = await withFonts(() => build([], opts), loadFontBuffers);
   // (1 unit = 200 mm here: the 50 mm brush in four passes.)

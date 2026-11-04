@@ -3,7 +3,7 @@ import { BACKLIT_SCENE, CLOSEUP_SCENE, sceneById, SHOP_SCENE } from './scenes';
 
 // Sub-scenes: each preset in 4 looks. 1 is the preset's own scene; 2 and 3 the same kind of place in
 // another style; 'random' a fresh one of that kind, written by Claude for each new photo (or, when
-// Jig can't reach Claude, invented by the image model). A wall scene still gives a wide free stretch
+// the app can't reach Claude, invented by the image model). A wall scene still gives a wide free stretch
 // of wall, a hanging one branches, a studio a clean backdrop, the others a flat surface.
 export const SCENE_VARIANTS = [1, 2, 3, 'random'] as const;
 export type SceneVariant = (typeof SCENE_VARIANTS)[number];

@@ -31,14 +31,14 @@ export function parseLineArtSize(raw: unknown): { width?: number; height?: numbe
   const width = ok(m[1]), height = ok(m[2]);
   return width || height ? { ...(width ? { width } : {}), ...(height ? { height } : {}) } : undefined;
 }
-/** The longest join (bridge) Jig may add inside a split piece, mm, as the user set it in the Print tab; beyond it, a bit becomes a piece of its own. */
+/** The longest join (bridge) the app may add inside a split piece, mm, as the user set it in the Print tab; beyond it, a bit becomes a piece of its own. */
 export const LINEART_JOIN_KEY = '$lineartJoin';
 export const DEFAULT_SPLIT_JOIN = 30;
 export function parseLineArtJoin(raw: unknown): number | undefined {
   const v = Number(raw);
   return raw != null && raw !== '' && Number.isFinite(v) && v >= 5 && v <= 300 ? v : undefined;
 }
-/** How far Jig reaches to join a loose line's end to another line (joinEnds), mm, as the user set it in the Print tab; 0 = off (the drawing as traced). */
+/** How far the app reaches to join a loose line's end to another line (joinEnds), mm, as the user set it in the Print tab; 0 = off (the drawing as traced). */
 export const LINEART_ENDS_KEY = '$lineartEnds';
 export const DEFAULT_JOIN_ENDS = 8;
 /** The most joins, and loose ends, a part keeps where they are (LineArtInfo.joins, .loose). */

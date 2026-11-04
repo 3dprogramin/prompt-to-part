@@ -78,7 +78,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
         <button className="btn ghost small" disabled={!printerInfo} onClick={() => setChoosing(true)}>Change</button>
       </div>
       {printerInfo?.missing && <div className="small warn-note" role="alert">Your saved printer wasn't found in Bambu Studio; using the Bambu Lab A1 until you pick another.</div>}
-      {printer().extruders > 1 && <div className="dim small">Two nozzles: Jig can't make its Bambu Studio project yet, so print settings stay out of the export.</div>}
+      {printer().extruders > 1 && <div className="dim small">Two nozzles: no Bambu Studio project for it yet, so print settings stay out of the export.</div>}
       {choosing && printerInfo && <PrinterDialog info={printerInfo} onCancel={() => setChoosing(false)} onSave={async (s) => { await onPrinter(s); setChoosing(false); }} />}
       <div className="pp-profile">
         <b>PLA · {profileName()}</b>

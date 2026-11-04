@@ -85,12 +85,12 @@ test('Claude\'s answers are checked', () => {
   assert.deepEqual(ok, {
     filament: { brand: 'Polymaker', line: 'PolyTerra PLA', name: 'PolyTerra PLA Charcoal Black', color: '#1a1a1a', td: 0.4, source: 'https://filamentcolors.xyz/swatch/1/' },
     confidence: 'similar',
-    note: 'Found on the web, not in Jig\'s library: Measured swatch.',
+    note: 'Found on the web, not in the built-in library: Measured swatch.',
   });
   const est = parseLookup('{"color": "#ffffff", "td": 4, "match": "estimate", "note": "From similar whites."}', q);
   assert.equal(est.confidence, 'estimate');
   assert.equal(est.filament.name, q.name);
-  assert.equal(est.filament.source, 'estimate by Jig');
+  assert.equal(est.filament.source, 'AI estimate');
   const bad = (text: string) => assert.throws(() => parseLookup(text, q));
   bad('no idea');
   bad('{"color": "white", "td": 4, "match": "estimate"}');

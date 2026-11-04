@@ -471,7 +471,7 @@ export class Viewer {
   }
 
   /**
-   * Line art: where Jig joined a loose end to another line (a stroke over the join, a dot at the
+   * Line art: where a loose end was joined to another line (a stroke over the join, a dot at the
    * loose end) and the ends it left loose (dots in a warning colour), drawn on top of each piece.
    */
   private drawJoins() {

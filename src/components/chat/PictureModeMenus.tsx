@@ -14,15 +14,15 @@ import { useChipMenu } from './useChipMenu';
 export type ImageMode = NonNullable<GenerateRequest['imageMode']>;
 
 export const IMAGE_MODES: { mode: ImageMode; label: string; short?: string; icon: string; desc: (meshy: boolean) => string; hint: (artworkModel: string | null, meshy: boolean) => string }[] = [
-  { mode: 'off', label: '3D model', short: '3D model', icon: 'cube', desc: () => 'Everything modelled in 3D', hint: () => 'Jig models people, characters and animals as 3D objects.' },
-  { mode: 'artwork', label: 'AI artwork', short: 'Artwork', icon: 'palette', desc: () => 'Flat colour layers for reliefs and signs', hint: (m) => `Jig has ${m ?? 'an image model'} draw the subject – a person, an animal, a scene or an object – as flat artwork first, then turns it into colour layers for wall art, reliefs and signs.` },
-  { mode: 'layertone', label: 'LayerTone', short: 'LayerTone', icon: 'layers', desc: () => 'A picture painted by stacked filaments', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture and Jig makes one' : ''}; set the filaments in the Print tab.` },
-  { mode: 'lithophane', label: 'Lithophane', short: 'Lithophane', icon: 'lamp', desc: () => 'A photo that glows lit from behind', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one and Jig makes it' : ''}.` },
-  { mode: 'lineart', label: 'Line art', short: 'Line art', icon: 'lineart', desc: () => 'One-piece wall cut-outs and key holders', hint: (art) => `A drawing cut out as one flat piece in one colour, about 2 mm thick with 1 mm lines, to hang with tape: a car and a motorbike on a key-holder bar, a figure in a frame, a name sign. Attach an SVG or a picture${art ? ', or describe it and Jig draws it' : ''}; pick the style in its ▾ menu.` },
+  { mode: 'off', label: '3D model', short: '3D model', icon: 'cube', desc: () => 'Everything modelled in 3D', hint: () => 'People, characters and animals are modelled as 3D objects.' },
+  { mode: 'artwork', label: 'AI artwork', short: 'Artwork', icon: 'palette', desc: () => 'Flat colour layers for reliefs and signs', hint: (m) => `The subject (a person, an animal, a scene or an object) is drawn by ${m ?? 'an image model'} as flat artwork first, then turned into colour layers for wall art, reliefs and signs.` },
+  { mode: 'layertone', label: 'LayerTone', short: 'LayerTone', icon: 'layers', desc: () => 'A picture painted by stacked filaments', hint: (art) => `A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through. Attach a photo${art ? ', or describe the picture to have one made' : ''}; set the filaments in the Print tab.` },
+  { mode: 'lithophane', label: 'Lithophane', short: 'Lithophane', icon: 'lamp', desc: () => 'A photo that glows lit from behind', hint: (art) => `A photo in white PLA, thick where it is dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades. Attach a photo${art ? ', or describe one to have it made' : ''}.` },
+  { mode: 'lineart', label: 'Line art', short: 'Line art', icon: 'lineart', desc: () => 'One-piece wall cut-outs and key holders', hint: (art) => `A drawing cut out as one flat piece in one colour, about 2 mm thick with 1 mm lines, to hang with tape: a car and a motorbike on a key-holder bar, a figure in a frame, a name sign. Attach an SVG or a picture${art ? ', or describe it to have it drawn' : ''}; pick the style in its ▾ menu.` },
   { mode: 'figure', label: '3D figure', short: 'Figure', icon: 'figure', desc: (meshy) => (meshy ? 'A sculpted AI mesh · Meshy credits' : 'Needs a Meshy API key'), hint: (art, meshy) => (!meshy
-    ? 'Needs a Meshy API key: set MESHY_API_KEY in .env and restart Jig.'
-    : art ? 'Jig draws a concept picture of the person, character or animal for you to approve, then Meshy sculpts it as a real 3D model (1–3 min, Meshy credits); or attach a photo. Jig adds the base, name or mount. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.'
-    : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1–3 min, Meshy credits); Jig adds the base, name or mount. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.') },
+    ? 'Needs a Meshy API key: set MESHY_API_KEY in .env and restart prompt-to-part.'
+    : art ? 'A concept picture of the person, character or animal is drawn for you to approve, then Meshy sculpts it as a real 3D model (1-3 min, Meshy credits); or attach a photo. The base, name or mount are added for you. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.'
+    : 'Meshy sculpts a real 3D model of a person, character or animal from your description or an attached photo (1-3 min, Meshy credits); the base, name or mount are added for you. Turn on Colour in its ▾ menu for a figure in up to 4 filaments.') },
 ];
 
 /** The palette button: what Claude does with pictures for this design (until you reload). */
@@ -46,7 +46,7 @@ export function FigureMenu({ color, onColor, waitForOk, onWaitForOk, credits }: 
           <div role="menu" aria-label="3D figure options">
             <button role="menuitemcheckbox" aria-checked={color} className={color ? 'on' : ''} onClick={() => onColor(!color)}
               title={color
-                ? `Colour (${meshColorBudget()} filaments) is on: Jig draws the concept in grey (the shape) and then paints it (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to ${meshColorBudget()} filaments with the AMS – you pick them in the Object tab. Click for one colour.`
+                ? `Colour (${meshColorBudget()} filaments) is on: the concept is drawn in grey (the shape) and then painted (the colours), Meshy builds the shape and paints the model from them (${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), and it prints in up to ${meshColorBudget()} filaments with the AMS; you pick them in the Object tab. Click for one colour.`
                 : `Colour (${meshColorBudget()} filaments): make the figure in colour, printed in up to ${meshColorBudget()} filaments with the AMS (${MESHY_CREDITS_PER_COLOR_MODEL} Meshy credits a model instead of ${MESHY_CREDITS_PER_MODEL}).`}>
               <span className="mode-check" aria-hidden>{color && <Icon name="check" size={13} />}</span>
               <span className="mode-icon" aria-hidden><span className={`figure-color-dots ${color ? 'on' : ''}`}><i /><i /><i /><i /></span></span>
@@ -57,8 +57,8 @@ export function FigureMenu({ color, onColor, waitForOk, onWaitForOk, credits }: 
             {waitForOk != null && (
               <button role="menuitemcheckbox" aria-checked={waitForOk} className={waitForOk ? 'on' : ''} onClick={() => onWaitForOk(!waitForOk)}
                 title={waitForOk
-                  ? `Wait for my OK is on: Jig draws a concept picture of the figure and waits for you to approve it before Meshy builds it. Click to have it built by itself ${AUTO_BUILD_SECONDS} s after the picture, unless you stop it or type a change (${MESHY_CREDITS_PER_MODEL} Meshy credits a figure, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour).`
-                  : `Wait for my OK is off: ${AUTO_BUILD_SECONDS} s after Jig draws a concept picture, Meshy builds it (${MESHY_CREDITS_PER_MODEL} credits, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour) unless you click Stop or type a change. Click to approve each picture yourself.`}>
+                  ? `Wait for my OK is on: a concept picture of the figure is drawn and waits for your OK before Meshy builds it. Click to have it built by itself ${AUTO_BUILD_SECONDS} s after the picture, unless you stop it or type a change (${MESHY_CREDITS_PER_MODEL} Meshy credits a figure, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour).`
+                  : `Wait for my OK is off: ${AUTO_BUILD_SECONDS} s after the concept picture is drawn, Meshy builds it (${MESHY_CREDITS_PER_MODEL} credits, ${MESHY_CREDITS_PER_COLOR_MODEL} in colour) unless you click Stop or type a change. Click to approve each picture yourself.`}>
                 <span className="mode-check" aria-hidden>{waitForOk && <Icon name="check" size={13} />}</span>
                 <span className="mode-icon" aria-hidden><Icon name={waitForOk ? 'hand' : 'timer'} size={16} /></span>
                 <span><b>Wait for my OK</b><span>{waitForOk
@@ -175,7 +175,7 @@ export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineA
       </button>
       {open && (
         <div className="mode-menu picture-menu" role="menu" aria-label="Picture mode" ref={menu} onKeyDown={onKey}>
-          <div className="mode-grid-head" aria-hidden><b>What should Jig make?</b><span>Click a card to pick it</span></div>
+          <div className="mode-grid-head" aria-hidden><b>What should we make?</b><span>Click a card to pick it</span></div>
           <div className="mode-grid" role="none">
             {modes.map((m) => {
               const off = unavailable(m.mode);
@@ -187,7 +187,7 @@ export function ImageModeMenu({ mode, artworkModel, meshy, credits, color, lineA
                     <span className="mode-thumb" aria-hidden>{ex.thumb ? <img src={ex.thumb} alt="" /> : <Icon name={m.icon} size={28} />}</span>
                     <span className="mode-card-text"><b><Icon name={m.icon} size={14} /> {m.label}{m.mode === 'off' && <i className="mode-default">Default</i>}</b><span>{m.desc(meshy)}</span></span>
                   </button>
-                  <button className="mode-example" tabIndex={-1} aria-label={`Example of ${m.label}`} title={`Example of ${m.label}: what Jig made for one request`}
+                  <button className="mode-example" tabIndex={-1} aria-label={`Example of ${m.label}`} title={`Example of ${m.label}: what came out for one request`}
                     onClick={(e) => { e.stopPropagation(); showExample(m.mode, e.currentTarget); }}>
                     <Icon name="eye" size={11} /> Example
                   </button>

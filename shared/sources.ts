@@ -8,7 +8,7 @@ export const SOURCE_KINDS = {
   distributor: { short: 'distributor', label: 'Distributor', trust: 'high', hint: 'A datasheet or listing from an authorised distributor or a reputable retailer' },
   user: { short: 'from you', label: 'From you', trust: 'high', hint: 'A number, link or photo you gave in the chat' },
   community: { short: 'community', label: 'Community', trust: 'medium', hint: "A forum or Q&A post, a wiki or blog, or someone else's 3D model" },
-  memory: { short: 'from memory', label: "Jig's memory", trust: 'medium', hint: 'From memory, not looked up in this conversation' },
+  memory: { short: 'from memory', label: 'From memory', trust: 'medium', hint: 'From memory, not looked up in this conversation' },
   social: { short: 'social media', label: 'Social media', trust: 'low', hint: 'An Instagram, TikTok, YouTube or X post' },
   estimate: { short: 'estimated', label: 'Estimate', trust: 'low', hint: 'Guessed, or judged from a photo' },
 } as const satisfies Record<string, { short: string; label: string; trust: Trust; hint: string }>;
@@ -26,7 +26,7 @@ export interface DimensionSource {
   value: string;
   kind: SourceKind;
   url?: string;
-  /** Jig saw Claude open this page (WebFetch) while working on the design. */
+  /** The app saw Claude open this page (WebFetch) while working on the design. */
   opened?: boolean;
 }
 

@@ -48,7 +48,7 @@ interface Props {
   cost: ReturnType<typeof useCost>;
   /** Where the real-world dimensions of the shown version came from (Claude's report). */
   sources?: DimensionSource[];
-  /** The tipping check of Jig's version the shown model is based on. */
+  /** The tipping check of the version the shown model is based on. */
   stability?: StabilityReport;
   result: EvalResult | null;
   lastGood: EvalResult | null;
@@ -650,7 +650,7 @@ function Sources({ list }: { list: DimensionSource[] }) {
                 {site && (
                   <div className="small">
                     <a href={s.url} target="_blank" rel="noopener noreferrer">{site}</a>
-                    {WEB_KINDS.includes(s.kind) && !s.opened && <span className="dim" title="Jig cited this page without opening it (e.g. from a search result)"> · not opened by Jig</span>}
+                    {WEB_KINDS.includes(s.kind) && !s.opened && <span className="dim" title="Cited without being opened (e.g. from a search result)"> · not opened</span>}
                   </div>
                 )}
               </div>

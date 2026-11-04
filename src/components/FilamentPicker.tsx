@@ -260,7 +260,7 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
         <button className="btn ghost" disabled={!name || lookup?.busy} onClick={() => void look()} title="Find this filament's TD and colour (library and the web)">
           {lookup?.busy ? <><span className="spinner" /> Looking up…</> : 'Look up TD'}
         </button>
-        <button className="btn ghost" disabled={!name || saved?.busy} onClick={() => void save()} title="Keep it in My filaments, to pick in any design (Jig prefers them too)">
+        <button className="btn ghost" disabled={!name || saved?.busy} onClick={() => void save()} title="Keep it in My filaments, to pick in any design (suggestions prefer them too)">
           {saved?.ok ? <><Icon name="check" size={13} /> Saved</> : value.original ? 'Save changes' : 'Save as mine'}
         </button>
         <span className="spacer" />
@@ -317,7 +317,7 @@ function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: LayerTone
 function LookupNote({ r }: { r: FilamentLookup }) {
   const [label, trust] = CONFIDENCE[r.confidence] ?? CONFIDENCE.estimate;
   const src = (r.filament as LibraryFilament).source;
-  // Only a valid web address is a link (a bad one like "https://" would throw here and blank Jig).
+  // Only a valid web address is a link (a bad one like "https://" would throw here and blank the app).
   const site = siteName(src);
   return (
     <div className="layertone-lookup small" role="status">

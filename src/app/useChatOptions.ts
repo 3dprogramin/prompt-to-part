@@ -34,14 +34,14 @@ export function useChatOptions(design: Design) {
     setChatOpts((o) => ({ ...o, [design.id]: { ...(o[design.id] ?? chatStart), ...patch } }));
   };
   // Chat switches kept for this browser: "Wait for my OK" (3D figure mode: you approve each concept
-  // picture; off, it is built after a countdown) and "Send my view" (follow-ups bring Jig your view).
+  // picture; off, it is built after a countdown) and "Send my view" (follow-ups bring the AI your view).
   const [waitForOk, setWaitForOk] = useState<boolean>(() => load('waitForOk', true));
   useEffect(() => store('waitForOk', waitForOk), [waitForOk]);
   const waitForOkRef = useRef(waitForOk);
   waitForOkRef.current = waitForOk;
   const [sendView, setSendView] = useState<boolean>(() => load('sendView', true));
   useEffect(() => store('sendView', sendView), [sendView]);
-  // "Ask first": Jig asks the few questions it can't answer itself before it builds (all modes).
+  // "Ask first": the AI asks the few questions it can't answer itself before it builds (all modes).
   const [askFirst, setAskFirst] = useState<boolean>(() => load('askFirst', true));
   useEffect(() => store('askFirst', askFirst), [askFirst]);
   const [sounds, setSounds] = useState<boolean>(() => load('sounds', true));

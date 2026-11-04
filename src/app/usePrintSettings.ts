@@ -1,4 +1,4 @@
-// The print settings: Jig's suggestions in the script, the user's own ($print), Print in one colour,
+// The print settings: the AI's suggestions in the script, the user's own ($print), Print in one colour,
 // how many differ from the profile, and which parts print with supports or a brim.
 import { useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';

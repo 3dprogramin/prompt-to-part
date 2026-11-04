@@ -27,7 +27,7 @@ type BackupPath =
   | { kind: 'file'; id: string; sub: '' | 'meshes'; name: string };
 
 /**
- * What a path in a backup zip is, or null for anything a Jig backup never holds. Every part is
+ * What a path in a backup zip is, or null for anything a backup never holds. Every part is
  * checked against the stored names' own patterns, so no path can lead out of the data folder.
  */
 function backupPath(name: string): BackupPath | null {
@@ -78,7 +78,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
   // Bambu caches are left out (they are made again when needed).
   app.get('/api/backup', async (req, res) => {
     // A GET, so it can be a plain download link; another site's page could then start one (with an
-    // <img>, say), though never read it. Only Jig's own page, the address bar or a non-browser may.
+    // <img>, say), though never read it. Only the app's own page, the address bar or a non-browser may.
     const site = req.headers['sec-fetch-site'];
     if (site && site !== 'same-origin' && site !== 'none') return void res.status(403).json({ error: 'Cross-site request refused' });
     const files: ZipSource[] = Object.keys(BACKUP_SETTINGS).map((name) => ({ name, file: path.join(DATA_DIR, name), compress: true }));
@@ -90,7 +90,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       for (const n of await readdir(meshDir(id)).catch(() => [] as string[])) if (MESH_FILE.test(n)) files.push({ name: `designs/${id}/meshes/${n}`, file: path.join(meshDir(id), n), compress: false });
     }
     if (await zipSizeBound(files) > MAX_ZIP_BYTES) {
-      return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up Jig\'s data folder instead (see "Docker" in the README).' });
+      return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in the README).' });
     }
     const d = new Date();
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -131,7 +131,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       let unpacked = 0;
       for (const entry of zip.entries) {
         const p = root === null ? backupPath(entry.name) : projectPath(entry.name, root);
-        if (!p) throw new ZipError(`Not a Jig backup: it holds "${entry.name.slice(0, 100)}"`);
+        if (!p) throw new ZipError(`Not a prompt-to-part backup: it holds "${entry.name.slice(0, 100)}"`);
         if (p.kind === 'folder' || p.kind === 'other') continue;
         if (entry.size > BACKUP_LIMITS[p.kind === 'file' ? (p.sub ? 'mesh' : 'image') : p.kind]) throw new ZipError(`${entry.name} is too large`);
         unpacked += entry.size;

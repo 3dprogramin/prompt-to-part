@@ -1,5 +1,5 @@
 // The shop owner's production page: the order's photo and its `_litho` settings → the print-ready
-// lithophane at full resolution, as STL and 3MF, with the print settings Jig recommends for it
+// lithophane at full resolution, as STL and 3MF, with the print settings prompt-to-part recommends for it
 // (lithoPrint). It embeds the same <litho-preview> the customer used, so the framing can be checked
 // (and adjusted) before the files are made.
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
@@ -27,7 +27,7 @@ function build(el: LithoPreviewElement, resolution: number): Built | null {
   const r = resolveLithoOptions({ ...order.litho, resolution }, 'high');
   const c = order.crop;
   const rect = { x: c.x * photo.width, y: c.y * photo.height, w: c.w * photo.width, h: c.h * photo.height };
-  // Two photo pixels per grid cell: Jig's sampler averages them, so nothing is lost.
+  // Two photo pixels per grid cell: prompt-to-part's sampler averages them, so nothing is lost.
   const longMm = Math.max(r.width, (r.width * rect.h) / rect.w);
   const image = cropImage(photo, rect, Math.min(6000, Math.ceil((2 * longMm) / resolution)));
   const mesh = lithophaneMesh(image, r);

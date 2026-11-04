@@ -17,13 +17,13 @@ interface Options {
   onGone: (id: string) => void;
 }
 
-/** While Jig works on a design (many changes a second), it is saved this often (ms). */
+/** While a design is being worked on (many changes a second), it is saved this often (ms). */
 const RUNNING_SAVE_MS = 5000;
 
 /**
  * Saving designs: each design is saved about half a second after its last change (its own timer,
- * so opening another design right after a change still saves it), and every few seconds while Jig
- * works on it, so a server restart or a reload keeps most of the reply. Saves of one design run one
+ * so opening another design right after a change still saves it), and every few seconds while it
+ * is being worked on, so a server restart or a reload keeps most of the reply. Saves of one design run one
  * after another, each based on the revision the last one produced. Failed saves are kept per
  * design ("Not saved – retry"), a save conflict adopts the newer copy, and closing the page with
  * unsaved changes or a running generation asks first.
@@ -105,7 +105,7 @@ export function useDesignSaving({ setDesign, currentId, runningRef, onSaved, onA
   }, [saveOnce]);
 
   /**
-   * Save a design about half a second after its last change; while Jig works on it, at most every
+   * Save a design about half a second after its last change; while it is being worked on, at most every
    * RUNNING_SAVE_MS (the timer isn't pushed back by each change). The timer saves the newest copy.
    */
   const saveSoon = useCallback((d: Design) => {

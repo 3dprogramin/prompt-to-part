@@ -1,6 +1,6 @@
 import type { GenerateRequest } from './api';
 
-/** Starter ideas for the new-design screen, and the parsing of Jig's "Give me 4 new ideas" answer. */
+/** Starter ideas for the new-design screen, and the parsing of the model's "Give me 4 new ideas" answer. */
 
 export type IdeaMode = NonNullable<GenerateRequest['imageMode']>;
 export interface Idea { text: string; mode: IdeaMode }
@@ -72,14 +72,14 @@ export function cleanIdeaText(s: string): string {
 
 const MODE_IDEA_HINTS: Record<IdeaMode, string> = {
   off: 'Everything modelled in 3D: useful objects, holders, boxes, parts, and people, characters and animals as 3D objects.',
-  artwork: 'Jig has an image model draw the subject (a person, an animal, a scene or an object) as flat artwork, then turns it into colour layers for wall art, reliefs and signs.',
+  artwork: 'An image model draws the subject (a person, an animal, a scene or an object) as flat artwork, then it is turned into colour layers for wall art, reliefs and signs.',
   layertone: 'A picture printed flat as a thin relief, painted by stacked filaments that let the ones below show through.',
   lithophane: 'A photo-like picture in white PLA, thick where dark and thin where bright, that glows lit from behind: night lights, frames, lamp shades.',
   lineart: 'A drawing cut out as one flat piece in one colour, about 2 mm thick with 1 mm lines, to hang with tape: key-holder bars, figures in a frame, name signs.',
-  figure: 'A sculpted 3D model of a person, character or animal from a description; Jig adds the base, name or mount.',
+  figure: 'A sculpted 3D model of a person, character or animal from a description, with the base, name or mount added.',
 };
 
-export const IDEAS_SYSTEM_PROMPT = `You suggest starting ideas for someone new to Jig, an app that designs things for 3D printing in PLA from a description.
+export const IDEAS_SYSTEM_PROMPT = `You suggest starting ideas for someone new to prompt-to-part, an app that designs things for 3D printing in PLA from a description.
 A good idea shows off what its mode can do, is concrete, has a size, and is one line under ${MAX_IDEA_CHARS} characters, written the way the user would type it into the chat (for example "A mountain lake at dawn with pine trees, about 15 cm wide").
 Never use long dashes; use a plain hyphen, a comma or a colon.
 Answer with ONLY a JSON array, nothing before or after it: [{"text": "...", "mode": "off" | "artwork" | "layertone" | "lithophane" | "lineart" | "figure"}]. Use only the modes you are told are allowed.`;
@@ -110,9 +110,9 @@ function arrayEnd(text: string, from: number): number {
   return -1;
 }
 
-/** Jig's answer as ideas: the first JSON array, only entries for allowed modes, cleaned, distinct, at most 4. */
+/** The model's answer as ideas: the first JSON array, only entries for allowed modes, cleaned, distinct, at most 4. */
 export function parseIdeas(text: string, modes: IdeaMode[]): Idea[] {
-  const fail = () => new Error('Jig did not come up with ideas');
+  const fail = () => new Error('No ideas came back');
   const start = text.indexOf('[');
   const end = start < 0 ? -1 : arrayEnd(text, start);
   if (end < 0) throw fail();

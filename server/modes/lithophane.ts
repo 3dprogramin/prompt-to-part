@@ -10,7 +10,7 @@ Lithophane mode is ON: the user wants a lithophane – a photo printed in white 
     function build(p) { return { name: 'Lithophane', ...H.lithophane('photo-1', { width: p.width, minThickness: p.minThickness, maxThickness: p.maxThickness, border: p.border, stand: p.stand }) }; }
 - The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first (aspect to suit the shape, e.g. 21:9 or 16:9 for a cylinder, 4:3 or 3:4 for a panel).' : '; without one, ask the user to attach a photo.'}
 - Options (mm): width = the picture's width (curved: along the arc; cylinder: the circumference, Ø = width / π); its height follows the picture. minThickness (bright, default 0.8; not below 0.6) and maxThickness (dark, default 3); border = a solid frame at maxThickness (default 3; a cylinder gets it top and bottom); shape 'flat' (default), 'curved' (angle in degrees, default 120) or 'cylinder'; stand = depth of a foot along the bottom so it stands on a shelf (0 = none; 15–25 for a panel); gamma (< 1 lifts the shadows), invert.
-- Thickness follows the light through PLA (Beer–Lambert), not a straight line: Jig maps it so the lit panel shows the photo's tones evenly. Don't build the relief yourself.
+- Thickness follows the light through PLA (Beer-Lambert), not a straight line: the app maps it so the lit panel shows the photo's tones evenly. Don't build the relief yourself.
 - Sensible defaults by use:
   - Night light / shelf picture: flat, 80–120 mm wide, 0.8–3 mm, frame 3 mm, stand 20 (LED tea light or strip behind it).
   - Photo frame or window panel: flat, 100–180 mm wide, 0.8–3 mm, frame 4–5 mm, no stand (it goes in a frame or hangs in the window; a hanging hole through the frame is fine).
@@ -29,6 +29,6 @@ export const lithophane: PromptMode = {
   system: (o) => (o.lithophane ? lithophanePrompt(o.lithophane.pictures) : ''),
   turnNotes: ({ layerToneImages, newPictures, images }) => {
     const names = Object.keys(layerToneImages);
-    return [`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (Jig has no image model without OPENROUTER_API_KEY).')}`];
+    return [`Lithophane mode is on: make this a lithophane with H.lithophane (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.lithophane: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`];
   },
 };

@@ -43,7 +43,7 @@ interface Runtime {
 }
 
 let runtime: Runtime | null = null;
-/** Whether a handle's embind record is as Jig created it (set by initRuntime). */
+/** Whether a handle's embind record is as the app created it (set by initRuntime). */
 let intactHandle: (h: object) => boolean = () => true;
 
 // A WebAssembly trap (out-of-bounds access, unreachable, abort) can leave the wasm heap
@@ -95,7 +95,7 @@ export function initRuntime(wasm: ManifoldToplevel): void {
   const isHandle = (x: unknown): x is { delete(): void } => typeof x === 'object' && x !== null && handleProto.isPrototypeOf(x);
   // embind keeps each object's heap pointer and reference count in its own record ($$), which has to
   // stay writable for delete(). A script that rewrote it could make a call read or write another
-  // object's memory, or free one twice. Each handle's record is remembered when Jig first sees it and
+  // object's memory, or free one twice. Each handle's record is remembered when the app first sees it and
   // checked before every call and before the delete in cleanup().
   const born = new WeakMap<object, { rec: any; ptr: unknown; count: any }>();
   const adopt = (h: any) => {

@@ -8,7 +8,7 @@ import { printer } from '../../shared/printer';
 import { ideaModes, ideasPrompt, parseIdeas, topUp } from '../../shared/ideas';
 import type { RouteContext } from './store';
 
-const IDEAS_FAILED = "Jig couldn't come up with ideas. Try again.";
+const IDEAS_FAILED = "Couldn't come up with ideas. Try again.";
 
 export function registerIdeaRoutes(app: express.Express, { json }: RouteContext, { ideas }: { ideas: typeof writeIdeas }) {
   app.post('/api/ideas', json('8kb'), async (req, res) => {

@@ -17,7 +17,7 @@ export function useModelLayout({ design, shown, editingLineArt, quality, geo }: 
   const splitArt = !!shownLineArt?.lineArt.split;
   // The editor draws on the whole piece: a split one put back together.
   const editorPart = useMemo(() => (editingLineArt ? assembledLineArt(shown) : undefined), [editingLineArt, shown]);
-  // The line art as Jig made it, without the hand edits: the editor shows it where edits are cleared.
+  // The line art as the AI made it, without the hand edits: the editor shows it where edits are cleared.
   const lineArtOriginal = useCallback(async () => {
     const { [LINEART_EDITS_KEY]: _edits, ...values } = design.values;
     return assembledLineArt((await geo.evaluate(design.code, values, quality)).result ?? null);

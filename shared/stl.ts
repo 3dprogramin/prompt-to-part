@@ -1,4 +1,4 @@
-// Binary STL in plain JavaScript (no DOM): Jig's STL export and the lithophane widget's production
+// Binary STL in plain JavaScript (no DOM): the app's STL export and the lithophane widget's production
 // files are written the same way.
 
 /** A triangle mesh: xyz per vertex, three vertex indices per triangle. */

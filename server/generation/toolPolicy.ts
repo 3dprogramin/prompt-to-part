@@ -21,18 +21,18 @@ export function toolPolicy(ws: string, webSearch: boolean, resolve = resolveHost
     if (['Read', 'Write', 'Edit'].includes(name)) {
       const target = path.resolve(ws, String(input.file_path ?? ''));
       if (target === file) return null;
-      // Jig saves attached .scad files here under a cleaned-up name; Claude may only read them.
+      // The app saves attached .scad files here under a cleaned-up name; Claude may only read them.
       if (name === 'Read' && path.dirname(target) === scadDir && target.endsWith('.scad')) return null;
       return name === 'Read' ? `Only ${file} and the .scad files in ${scadDir} may be read.` : `Only ${file} may be changed.`;
     }
     if (name.startsWith('mcp__cad__')) return null;
     if (webSearch && name === 'WebSearch') return null;
-    // A page Claude reads could tell it to fetch a local address (Jig's own API, a router), so local
+    // A page Claude reads could tell it to fetch a local address (the app's own API, a router), so local
     // and private addresses are never fetched. It could also tell it to put the design into a
     // public URL; that can't be told apart from a normal fetch, which is why web search can be
     // turned off per design.
     if (webSearch && name === 'WebFetch') return await publicPage(input.url, resolve) ? null : 'Only public http(s) web pages can be fetched.';
-    return 'Tool not available in Jig.';
+    return 'Tool not available here.';
   };
 }
 

@@ -1,4 +1,4 @@
-// The system prompt's reference for the script's globals: the manifold-3d API, Jig's helpers (H),
+// The system prompt's reference for the script's globals: the manifold-3d API, the app's helpers (H),
 // performance and debugging tips.
 
 export const GEOMETRY_API = `# Geometry API (manifold-3d). All objects are immutable; every method returns a new object. Never call delete().

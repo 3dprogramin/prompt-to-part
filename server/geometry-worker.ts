@@ -36,7 +36,7 @@ if (!process.permission || process.permission.has('child') || process.permission
 
 /**
  * The permission model has no network switch before Node 25, so close the network here: an
- * escaped script could otherwise call Jig's own API (which trusts local requests) or send data
+ * escaped script could otherwise call the app's own API (which trusts local requests) or send data
  * out. The low-level socket bindings are already refused by the permission model; this replaces
  * every public way to open a connection, listen, or resolve a name. IPC to the server is an
  * already-open channel and keeps working.

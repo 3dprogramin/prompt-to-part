@@ -22,7 +22,7 @@ export interface PhotoRequest {
   variant?: SceneVariant;
   /**
    * A random sub-scene's scene, or the idea written out, as written for its first photo: a change or
-   * another size keeps it. An idea without it (Jig couldn't write it out) goes in as written.
+   * another size keeps it. An idea without it (the scene couldn't be written out) goes in as written.
    */
   sceneText?: string;
   /** One of the shop set's photos (Shop photos): made at 2K, with what the shot shows in the prompt. */

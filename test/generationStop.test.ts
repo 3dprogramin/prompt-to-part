@@ -28,9 +28,9 @@ async function stoppedAt(req: GenerateRequest, at: RegExp): Promise<{ queried: b
   return { queried, events };
 }
 
-test('Stop while Jig renders the current model: no query', async () => {
+test('Stop while the app renders the current model: no query', async () => {
   const req: GenerateRequest = { designId: 'stop-test-0001', prompt: 'taller', code: 'function build() { return Manifold.cube([1, 1, 1]); }', renderValues: {} };
-  const { queried, events } = await stoppedAt(req, /capturing the current model/);
+  const { queried, events } = await stoppedAt(req, /Capturing the current model/);
   assert.equal(queried, false);
   assert.ok(!events.some((e) => e.type === 'step' && e.step.kind === 'render'), 'no render after the stop');
 });
@@ -44,6 +44,6 @@ test('Stop while OpenSCAD renders an attached file: no query, no further files',
 });
 
 test('Stop right at the start: no query', async () => {
-  const { queried } = await stoppedAt({ designId: 'stop-test-0003', prompt: 'a box' }, /starting/);
+  const { queried } = await stoppedAt({ designId: 'stop-test-0003', prompt: 'a box' }, /Starting/);
   assert.equal(queried, false);
 });

@@ -103,7 +103,7 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
       <div className="layertone-swap-mode">
         <span className="dim small">Swaps</span>
         <div className="seg" role="group" aria-label="Filament swaps">
-          <button className={manual ? '' : 'on'} aria-pressed={!manual} onClick={() => setManual(false)} title="Jig picks the layers where the filaments change, from the picture's brightness and the filaments' TD">Automatic</button>
+          <button className={manual ? '' : 'on'} aria-pressed={!manual} onClick={() => setManual(false)} title="Picks the layers where the filaments change, from the picture's brightness and the filaments' TD">Automatic</button>
           <button className={manual ? 'on' : ''} aria-pressed={manual} onClick={() => setManual(true)} title="Set the layer where each filament starts">Manual</button>
         </div>
       </div>

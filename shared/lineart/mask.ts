@@ -25,7 +25,7 @@ export interface LineArtMaskOptions {
  * The drawing `art` made printable as one piece, on grid `g`: lines redrawn at an even width (or
  * only thin ones thickened), specks dropped, and loose bits bridged to the rest and to `anchor`
  * (the bar or frame, which is not part of the result). `mask` is the whole result; `paths` the
- * centre lines of what Jig drew (thickened lines and bridges, `lineWidth` wide, in pixels), which
+ * centre lines of what the app drew (thickened lines and bridges, `lineWidth` wide, in pixels), which
  * lines 'keep' adds to the drawing as it was.
  */
 export function lineArtMask(art: Uint8Array, anchor: Uint8Array | null, g: LineArtGrid, o: LineArtMaskOptions): { mask: Uint8Array; paths: Pt[][]; bridges: number; longestBridge: number; dropped: number; closed: number; openings: number; endsJoined: number; endsFree: number; joins: Pt[][]; loose: Pt[] } {

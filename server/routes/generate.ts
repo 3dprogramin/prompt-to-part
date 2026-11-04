@@ -11,7 +11,7 @@ import { MAX_MESHES, MESH_NAME } from '../../shared/meshes';
 import { ID_RE, type RouteContext } from './store';
 
 /**
- * A reply Jig is working on, or finished a little while ago: its server-sent events so far (the
+ * A reply being worked on, or finished a little while ago: its server-sent events so far (the
  * first says which run it is) and the one page connection following it.
  */
 interface Run { id: string; events: string[]; listener: express.Response | null; done: boolean; abort: AbortController; forget?: ReturnType<typeof setTimeout>; bytes: number; doneAt?: number }
@@ -78,7 +78,7 @@ function follow(run: Run, res: express.Response, from: number) {
 const openStreams = new Set<(message: string) => void>();
 
 /**
- * The server is stopping: every running reply ends with `message` (its page shows at once that Jig
+ * The server is stopping: every running reply ends with `message` (its page shows at once that it
  * stopped, instead of waiting for the connection to drop) and Claude is stopped. Resolves when
  * they have ended, or after `waitMs`.
  */
@@ -129,7 +129,7 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
     if (!ID_RE.test(id) || typeof b.text !== 'string' || b.text.length > 20000) return void res.status(400).json({ error: 'text must be a string (up to 20,000 characters)' });
     if (b.images != null && (!Array.isArray(b.images) || b.images.length > 8 || !b.images.every(isImage))) return void res.status(400).json({ error: 'up to 8 images' });
     if (!b.text.trim() && !(b.images as unknown[] | undefined)?.length) return void res.status(400).json({ error: 'empty message' });
-    if (!steerGeneration(id, b.text, (b.images ?? []) as ImageData[])) return void res.status(409).json({ error: 'Jig is not working on this design' });
+    if (!steerGeneration(id, b.text, (b.images ?? []) as ImageData[])) return void res.status(409).json({ error: 'No reply is under way for this design' });
     res.json({ ok: true });
   });
 
@@ -142,10 +142,10 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     if (generatingDesigns.has(body.designId)) {
-      return void res.status(409).json({ error: 'Jig is already working on this design (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
+      return void res.status(409).json({ error: 'This design is already being worked on (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
     }
     if (running >= maxGenerations) {
-      return void res.status(429).json({ error: `Jig is already working on ${maxGenerations === 1 ? 'a reply' : `${maxGenerations} replies`}, the most it runs at once. Wait for one to finish, then send again.` });
+      return void res.status(429).json({ error: `${maxGenerations === 1 ? 'A reply is' : `${maxGenerations} replies are`} already under way, the most that can run at once. Wait for one to finish, then send again.` });
     }
     generatingDesigns.add(body.designId);
     running++;
@@ -209,7 +209,7 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
     const run = runs.get(req.params.id);
     const from = Number(req.query.from);
     if (!run || run.id !== req.query.run || !Number.isInteger(from) || from < 0 || from > run.events.length) {
-      return void res.status(404).json({ error: 'Jig has no such reply under way' });
+      return void res.status(404).json({ error: 'No such reply is under way' });
     }
     follow(run, res, from);
   });

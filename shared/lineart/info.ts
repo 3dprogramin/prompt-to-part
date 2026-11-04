@@ -1,4 +1,4 @@
-// Line art's options, styles and the info a line-art part carries (what Jig fixed, for the Print
+// Line art's options, styles and the info a line-art part carries (what the app fixed, for the Print
 // tab and Claude's report), checked when it comes back from a script.
 import type { Brim } from '../print';
 import { cleanFilament, type PartFilament } from '../params';
@@ -94,7 +94,7 @@ export interface LineArtOptions {
    * (LINEART_SPLIT_KEY) wins over it.
    */
   split?: SplitSpec | 'off';
-  /** Split: the longest join (bridge, mm) Jig adds inside a piece, default 30; bits farther apart become pieces of their own (a small detail is joined up to 60 mm, or this when it is more). */
+  /** Split: the longest join (bridge, mm) the app adds inside a piece, default 30; bits farther apart become pieces of their own (a small detail is joined up to 60 mm, or this when it is more). */
   splitJoin?: number;
   /** A split piece: 'print' (default: the pieces side by side to print), 'assembled' (together as on the wall) or 'exploded' (pulled apart). */
   layout?: 'print' | 'assembled' | 'exploded';
@@ -104,7 +104,7 @@ export interface LineArtOptions {
   clearance?: number;
 }
 
-/** One piece of a split line art, and what Jig fixed on it. */
+/** One piece of a split line art, and what the app fixed on it. */
 export interface LineArtPieceInfo {
   /** Row letter from the top + column number from the left, as seen from the front: A1, A2, B1… */
   label: string;
@@ -147,7 +147,7 @@ export interface LineArtSplitInfo {
   anchor: [number, number][][];
 }
 
-/** What a line-art part was made from and what Jig fixed, for the Print tab and Claude's report (PartMesh.lineArt). */
+/** What a line-art part was made from and what the app fixed, for the Print tab and Claude's report (PartMesh.lineArt). */
 export interface LineArtInfo {
   style: LineArtStyle;
   /** The drawings, left to right. */
@@ -157,7 +157,7 @@ export interface LineArtInfo {
   thickness: number;
   lineWidth: number;
   lines: 'even' | 'keep';
-  /** Bridges Jig added to join loose bits, and the longest one, mm. */
+  /** Bridges the app added to join loose bits, and the longest one, mm. */
   bridges: number;
   longestBridge: number;
   /** Loose bits too small to print that were dropped. */
@@ -166,10 +166,10 @@ export interface LineArtInfo {
   closed: number;
   /** Openings of the drawing at all (at least minIsland big), to judge `closed` by. */
   openings: number;
-  /** Loose lines and branches (held at one point only) Jig joined to a nearby line, and those left loose (nothing within joinEnds). */
+  /** Loose lines and branches (held at one point only) the app joined to a nearby line, and those left loose (nothing within joinEnds). */
   endsJoined: number;
   endsFree: number;
-  /** How far Jig reached to join them (joinEnds as used, before the design's scale), mm; 0: joining off. */
+  /** How far the app reached to join them (joinEnds as used, before the design's scale), mm; 0: joining off. */
   joinEnds?: number;
   /**
    * Where: each join from the loose end to the point of the line it joined, and the loose ends left

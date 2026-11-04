@@ -14,7 +14,7 @@ import { Icon } from './Icon';
 import { SCALE_KEY } from '../../shared/params';
 import { load, store } from '../lib/storage';
 
-/** A line-art part (H.lineart): its style, drawings and what Jig fixed. */
+/** A line-art part (H.lineart): its style, drawings and what was fixed. */
 type LineArtPart = PartMesh & { lineArt: LineArtInfo };
 
 /** The first part of the model that is line art (not one of its colours), if any. */
@@ -232,7 +232,7 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
         </div>
       )}
       {sp && (
-        <label className="lineart-split-row small" title="The longest join Jig adds inside a piece to hold a bit of the drawing to the rest. Longer joins mean fewer loose pieces but visible struts on the wall.">
+        <label className="lineart-split-row small" title="The longest join added inside a piece to hold a bit of the drawing to the rest. Longer joins mean fewer loose pieces but visible struts on the wall.">
           <span className="dim">Longest join</span>
           <span className="lineart-split-grid">
             <NumBox value={join} min={5} max={300} label="Longest join, mm" onCommit={(v) => onValue(LINEART_JOIN_KEY, String(v))} />
@@ -272,7 +272,7 @@ function SplitSection({ la, result, values, onValue }: { la: LineArtInfo; result
             title={lock ? 'Proportions locked: changing one side changes the other. Click to set width and height separately' : 'Width and height set separately (the drawing is fitted inside, never stretched). Click to keep the proportions'}
             aria-label={lock ? 'Unlock the proportions' : 'Lock the proportions'}><Icon name={lock ? 'link' : 'unlink'} size={13} /></button>
           <NumBox value={+sh.toFixed(1)} min={20} max={MAX_LINEART_SIZE} label={lock ? 'Height of the whole piece (the width follows)' : 'Height of the whole piece'} onCommit={(v) => setSize(lock ? v * ratio : sw, v)} />
-          {userSize && <button className="icon-btn" title="Back to the size Jig chose" aria-label="Back to the size Jig chose" onClick={() => onValue(LINEART_SIZE_KEY, '')}><Icon name="restore" size={12} /></button>}
+          {userSize && <button className="icon-btn" title="Back to the suggested size" aria-label="Back to the suggested size" onClick={() => onValue(LINEART_SIZE_KEY, '')}><Icon name="restore" size={12} /></button>}
         </span>
       </div>
       {!sp && mode === 'off' && (w > bed || h > printer().bed[1]) && (
@@ -402,12 +402,12 @@ function LooseEnds({ la, values, onValue, onShowJoins }: { la: LineArtInfo; valu
         </label>
         <span className="lineart-split-grid">
           {on && <NumBox value={reach} min={1} max={50} label="How far a loose end reaches to join a line" onCommit={(v) => onValue(LINEART_ENDS_KEY, String(Math.max(1, Math.round(v * 2) / 2)))} />}
-          {user != null && <button className="icon-btn" title="Back to the reach Jig chose" aria-label="Back to the reach Jig chose" onClick={() => onValue(LINEART_ENDS_KEY, '')}><Icon name="restore" size={12} /></button>}
+          {user != null && <button className="icon-btn" title="Back to the suggested reach" aria-label="Back to the suggested reach" onClick={() => onValue(LINEART_ENDS_KEY, '')}><Icon name="restore" size={12} /></button>}
         </span>
       </div>
       <span className="dim small">A line that hangs by one end is joined to the nearest line within this distance, so nothing lifts off the wall. Off: the drawing exactly as traced; loose ends may need a dot of glue.</span>
       {(la.endsJoined > 0 || la.endsFree > 0) && (
-        <label className="switch small" title="A join Jig added that is not in the drawing can be erased with Edit drawing">
+        <label className="switch small" title="An added join that is not in the drawing can be erased with Edit drawing">
           <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
           <span className="track" />
           <span className="switch-label">Show in the 3D view: <span className="lineart-key join" /> joined{la.endsFree > 0 && <>, <span className="lineart-key loose" /> loose</>}</span>
@@ -418,7 +418,7 @@ function LooseEnds({ la, values, onValue, onShowJoins }: { la: LineArtInfo; valu
 }
 
 /**
- * Print tab, Line art section: the drawing(s) the piece was made from, what Jig fixed (bridges,
+ * Print tab, Line art section: the drawing(s) the piece was made from, what was fixed (bridges,
  * dropped specks) and how to print and hang it. Sizes are the script's sliders (Parameters).
  */
 export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, onShowJoins }: Props) {
@@ -487,7 +487,7 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
         <dt>Bridges</dt>
         <dd className={loose ? 'warn' : ''}>
           {la.bridges ? <><span className="mono">{la.bridges}</span> added, longest <span className="mono">{mm(la.longestBridge)}</span></> : 'none needed'}
-          {loose && <span className="lineart-why"><Icon name="alert" size={12} /> ask Jig for a more connected drawing</span>}
+          {loose && <span className="lineart-why"><Icon name="alert" size={12} /> ask for a more connected drawing</span>}
         </dd>
         <dt>Specks</dt><dd>{la.dropped ? <><span className="mono">{la.dropped}</span> dropped (too small to print)</> : 'none dropped'}</dd>
         {(la.fillsLoose ?? 0) > 0 && (
@@ -497,12 +497,12 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
         <dd className={la.endsFree && la.joinEnds !== 0 ? 'warn' : ''}>
           {la.endsJoined ? <><span className="mono">{la.endsJoined}</span> joined to a nearby line</> : la.endsFree ? null : 'none dangling'}
           {la.endsFree > 0 && la.joinEnds === 0 && <span className="lineart-why">{la.endsFree} held at one point only, left as drawn (Join loose ends is off): a dot of glue holds them</span>}
-          {la.endsFree > 0 && la.joinEnds !== 0 && <span className="lineart-why"><Icon name="alert" size={12} /> {la.endsFree} still held at one point only: they can lift off the wall; ask Jig to redraw with every line ending on another</span>}
+          {la.endsFree > 0 && la.joinEnds !== 0 && <span className="lineart-why"><Icon name="alert" size={12} /> {la.endsFree} still held at one point only: they can lift off the wall; ask for a redraw with every line ending on another</span>}
         </dd>
         <dt>Detail</dt>
         <dd className={blotchy ? 'warn' : ''}>
           {la.closed ? <><span className="mono">{la.closed}</span> of <span className="mono">{la.openings}</span> gaps between lines closed up</> : 'every gap between lines kept'}
-          {blotchy && <span className="lineart-why"><Icon name="alert" size={12} /> too fine for this size: ask Jig for a bolder, simpler drawing, or make it larger</span>}
+          {blotchy && <span className="lineart-why"><Icon name="alert" size={12} /> too fine for this size: ask for a bolder, simpler drawing, or make it larger</span>}
         </dd>
         {la.hooks > 0 && <><dt>Pegs</dt><dd className="mono">{la.hooks}</dd></>}
         {colours.length > 0 && (

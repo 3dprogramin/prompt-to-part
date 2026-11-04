@@ -35,7 +35,7 @@ test('the startup sweep removes only old leftovers of their exact patterns', asy
     file('cost.json.0b8f3c1e-2d4a-4b6c-9e1f-3a5b7c9d1e2d.tmp', hoursAgo(0.5)),
     file('cost.json', hoursAgo(2)),
     file('notes.tmp', hoursAgo(2)),
-    file(`other/x.${UUID}.tmp`, hoursAgo(2)), // not a folder Jig writes temp files in
+    file(`other/x.${UUID}.tmp`, hoursAgo(2)), // not a folder the app writes temp files in
     file('designs/design-00000001.json', old),
     file(`designs/design-00000001/${'a'.repeat(32)}.png`, old),
   ];

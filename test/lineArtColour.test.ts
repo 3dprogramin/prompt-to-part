@@ -154,7 +154,7 @@ test('3MF: the coloured lines are parts of the one object, each with its filamen
 const TEMPLATE = path.join(DATA_DIR, 'bambu', 'template.json');
 const canSlice = !!(await findBambuBinary()) && existsSync(TEMPLATE);
 
-test('Bambu Studio slices coloured line art: every filament used, the swaps on each layer', { skip: !canSlice && 'needs Bambu Studio and its Jig template' }, async () => {
+test('Bambu Studio slices coloured line art: every filament used, the swaps on each layer', { skip: !canSlice && 'needs Bambu Studio and its prompt-to-part template' }, async () => {
   const r = build([paint(0.49, -0.3, 0.3, red)]);
   const sliced = await slicedProject(new Uint8Array(await toBambuProject(r.parts, 't', JSON.parse(readFileSync(TEMPLATE, 'utf8')), { print: { ai: r.print, user: {} } }).arrayBuffer()));
   const info = strFromU8(sliced['Metadata/slice_info.config']);

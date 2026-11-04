@@ -48,7 +48,7 @@ export interface GenerateRequest {
   askFirst?: boolean;
   /** SVG drawings attached in the chat (name → drawing): model scripts use them with H.svg(name). */
   drawings?: Record<string, SvgDrawing>;
-  /** OpenSCAD files attached in the chat: Claude rebuilds them as Jig scripts. */
+  /** OpenSCAD files attached in the chat: Claude rebuilds them as model scripts. */
   scad?: ScadFile[];
   /** Let Claude have artwork drawn by an image model (off unless turned on; needs OPENROUTER_API_KEY). Superseded by imageMode. */
   artwork?: boolean;
@@ -139,7 +139,7 @@ export interface Capabilities {
   currency: string;
 }
 
-/** GET /api/connection: what Jig runs Claude on, and whether that service answers. */
+/** GET /api/connection: what the app runs Claude on, and whether that service answers. */
 export interface Connection {
   via: 'openrouter' | 'anthropic' | 'custom' | 'none';
   ok: boolean;
@@ -149,7 +149,7 @@ export interface Connection {
   credit?: number;
 }
 
-/** GET /api/meshy/balance: the Meshy account's credits (404 when Jig has no Meshy key). */
+/** GET /api/meshy/balance: the Meshy account's credits (404 when no Meshy key is set). */
 export interface MeshyBalance {
   /** Credits left in all. */
   balance: number;

@@ -2,7 +2,7 @@
 
 A drop-in web component, `<litho-preview>`, for a shop that sells photo lithophanes: the customer uploads a photo and straight away sees how the lithophane will look, lit from behind and as a 3D object they can turn. Everything runs in the customer's browser, with no server, no AI and no tokens, and the photo stays on their device until they order. On a Shopify product page the widget adds the customer's choices and the photo to the order. The same code gives the shop the print-ready STL and 3MF for each order (the [production page](#production-page-shop-only)).
 
-It reuses Jig's lithophane engine (`shared/lithophane.ts`): the same Beer–Lambert thickness mapping, backlit colours, mesh and print settings as a lithophane designed in Jig. The widget contains no shop name and no "Jig".
+It reuses prompt-to-part's lithophane engine (`shared/lithophane.ts`): the same Beer-Lambert thickness mapping, backlit colours, mesh and print settings as a lithophane designed in prompt-to-part. The widget contains no shop name and no app name.
 
 - **Customer flow:** upload (file picker, drag and drop, or the phone camera) → **Frame** (shape, size, portrait/landscape, drag and pinch to pan and zoom, a brightness slider) → **Lit** (the backlit simulation) and **3D** (three.js, turned with a finger or the mouse), both with a *light on / off* switch. The live price follows the size. Photo tips appear when a picture is likely to print badly: too dark, too bright, low contrast, or too few pixels for the size.
 - **Shapes:** flat panel, curved panel (an arc, 120° by default) and lamp (a full cylinder, with the frame along the top and bottom only).
@@ -24,7 +24,7 @@ pnpm build:litho   # → dist-litho/
 | `index.html` | A demo page, with a stand-in product form that shows what would be sent. It loads `litho-preview.js` exactly as a theme does. |
 | `production.html` + `assets/` | The shop's production page. Don't upload it to the theme. |
 
-Jig's own `pnpm build` and `dist/` are unaffected.
+prompt-to-part's own `pnpm build` and `dist/` are unaffected.
 
 ## Component API
 
@@ -75,7 +75,7 @@ How it carries the order: Shopify keeps **line item properties** (inputs named `
 | `Fotografie` | the photo: a JPEG of at most 2400 px, typically 0.3–1.5 MB | customer and shop (a link) |
 | `_litho` | `{"v":1,"size":"flat-10x15",…,"crop":{…},"litho":{…}}` | the shop. The leading `_` marks it private, and themes and checkout hide it from the customer. |
 
-`_litho` is everything the production page needs to rebuild exactly what the customer saw: the size, the orientation, the crop as fractions of the attached photo, and Jig's lithophane options. Property names follow the widget's language (`Shape` / `Size` / `Photo` in English); `_litho` never changes. The widget also sets the form to `multipart/form-data`, selects the size's variant (the form's `id` input), and **holds back "Add to cart" until there is a photo**, showing a message instead.
+`_litho` is everything the production page needs to rebuild exactly what the customer saw: the size, the orientation, the crop as fractions of the attached photo, and the app's lithophane options. Property names follow the widget's language (`Shape` / `Size` / `Photo` in English); `_litho` never changes. The widget also sets the form to `multipart/form-data`, selects the size's variant (the form's `id` input), and **holds back "Add to cart" until there is a photo**, showing a message instead.
 
 Steps (Dawn and other Online Store 2.0 themes):
 
@@ -128,10 +128,10 @@ None of this could be tried without a store. It follows Shopify's documented beh
 1. Paste the order's `_litho` value (with or without the `_litho:` in front).
 2. Choose the order's photo (download it from the order's *Fotografie* link).
 3. The customer's framing appears in the same widget, where you can check it or adjust it.
-4. Pick the detail (0.2 mm by default, or 0.15 / 0.3 mm), then **Build full resolution**, then **Download STL** / **Download 3MF**. The files are named after the order number, shape and size. The page shows the size, triangle count and Jig's recommended print settings (`lithoPrint`): white PLA standing upright, 0.12 mm layers, 100 % zig-zag infill, walls enough to fill the panel solid, and a brim unless it has a foot; a lamp puts the seam at the back. It also shows the printing note.
+4. Pick the detail (0.2 mm by default, or 0.15 / 0.3 mm), then **Build full resolution**, then **Download STL** / **Download 3MF**. The files are named after the order number, shape and size. The page shows the size, triangle count and the app's recommended print settings (`lithoPrint`): white PLA standing upright, 0.12 mm layers, 100 % zig-zag infill, walls enough to fill the panel solid, and a brim unless it has a foot; a lamp puts the seam at the back. It also shows the printing note.
 
 The 3MF is a plain core-spec file (one object, millimetres) that Bambu Studio, PrusaSlicer and Cura open. The print settings aren't embedded, so set them from the page. A manual order (no `_litho`) works too: load a photo and frame it on the page.
 
 ## Code
 
-`litho/src/`: `element.ts` (the component), `config.ts` (sizes, prices, variants), `crop.ts` (framing), `order.ts` (`_litho`), `tips.ts`, `lit.ts` (lit/unlit flat preview), `view3d.ts` (three.js), `photo.ts` (decode, downscale, crop), `shopify.ts` (the form bridge), `production.ts`, `i18n.ts` and `styles.ts`. From Jig it uses `shared/lithophane.ts`, `shared/layertone.ts` (picture helpers) and `shared/stl.ts` (the STL writer, shared with Jig's export). Unit tests are in `test/litho.test.ts`.
+`litho/src/`: `element.ts` (the component), `config.ts` (sizes, prices, variants), `crop.ts` (framing), `order.ts` (`_litho`), `tips.ts`, `lit.ts` (lit/unlit flat preview), `view3d.ts` (three.js), `photo.ts` (decode, downscale, crop), `shopify.ts` (the form bridge), `production.ts`, `i18n.ts` and `styles.ts`. From prompt-to-part it uses `shared/lithophane.ts`, `shared/layertone.ts` (picture helpers) and `shared/stl.ts` (the STL writer, shared with the app's export). Unit tests are in `test/litho.test.ts`.

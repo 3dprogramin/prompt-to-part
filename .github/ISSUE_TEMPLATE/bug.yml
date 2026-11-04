@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Jig doesn't work as it should
+description: Something in prompt-to-part doesn't work as it should
 labels: [bug]
 body:
   - type: textarea
@@ -11,7 +11,7 @@ body:
   - type: textarea
     id: request
     attributes:
-      label: What you asked Jig for
+      label: What you asked for
       description: The prompt, and any photo, SVG or model you attached (if you can share it). For a generation, the reply's steps help too (click the step line, or *activity*).
   - type: textarea
     id: screenshot
@@ -21,21 +21,21 @@ body:
   - type: input
     id: version
     attributes:
-      label: Jig version
+      label: prompt-to-part version
       description: Shown next to the logo, e.g. v0.1.0
     validations:
       required: true
   - type: dropdown
     id: run
     attributes:
-      label: How you run Jig
+      label: How you run prompt-to-part
       options: [Docker Compose, pnpm start, pnpm dev]
     validations:
       required: true
   - type: dropdown
     id: claude
     attributes:
-      label: How Jig runs Claude
+      label: How prompt-to-part runs Claude
       options: [Anthropic API key, OpenRouter key, Another provider]
   - type: input
     id: system

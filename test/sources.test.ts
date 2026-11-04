@@ -15,7 +15,7 @@ test('a page is the same with or without https, www., a trailing slash or a frag
 test('siteName: the site of a valid web link, null (never a throw) for anything else', () => {
   assert.equal(siteName('https://www.Prusa3D.com/product/x#y'), 'prusa3d.com');
   assert.equal(siteName('http://example.org'), 'example.org');
-  // A bad source like "https://" used to throw while drawing the filament picker and blank Jig.
+  // A bad source like "https://" used to throw while drawing the filament picker and blank the app.
   for (const bad of ['https://', 'http://', 'https:// spaces', 'javascript:alert(1)', 'file:///etc/passwd', 'Prusament datasheet', '', undefined]) {
     assert.equal(siteName(bad), null, String(bad));
   }

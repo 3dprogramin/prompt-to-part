@@ -61,7 +61,7 @@ test('export: every design with its images and meshes, and the settings, as one 
   assert.equal(JSON.parse(Buffer.from(files[`designs/${ID2}.json`]).toString()).name, 'Box');
 });
 
-test('export: only from Jig\'s own page', async () => {
+test('export: only from the app\'s own page', async () => {
   assert.equal(await statusWith({ Host: `evil.com:${port}` }), 421);
   assert.equal(await statusWith({ Origin: 'https://evil.com' }), 403);
   assert.equal(await statusWith({ 'Sec-Fetch-Site': 'cross-site' }), 403);
@@ -117,7 +117,7 @@ test('import: paths outside the backup\'s layout refuse the whole zip', async ()
   ]) {
     const r = await importZip(zipSync({ ...good, [bad]: strToU8('{}') }));
     assert.equal(r.status, 400, bad);
-    assert.match((await r.json()).error, /Not a Jig backup/, bad);
+    assert.match((await r.json()).error, /Not a prompt-to-part backup/, bad);
   }
   assert.equal(existsSync(path.join(root, 'evil.json')), false);
   assert.equal(existsSync(path.join(dataDir, 'evil.json')), false);

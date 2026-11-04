@@ -15,7 +15,7 @@ export function registerFilamentRoutes(app: express.Express, { json }: RouteCont
     if (brand.length > MAX_BRAND_CHARS || name.length > MAX_FILAMENT_NAME_CHARS) return void res.status(400).json({ error: 'Brand or filament name too long' });
     const q = { brand: brand.trim(), name: name.trim() };
     const authProblem = matchFilament(q.brand, q.name) ? null : claudeAuthProblem();
-    if (authProblem) return void res.status(503).json({ error: `This filament isn't in Jig's library, and looking it up needs Claude. ${authProblem}` });
+    if (authProblem) return void res.status(503).json({ error: `This filament isn't in the built-in library, and looking it up needs Claude. ${authProblem}` });
     try {
       res.json(await lookup(q));
     } catch (e) {

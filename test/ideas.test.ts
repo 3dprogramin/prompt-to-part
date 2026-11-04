@@ -56,8 +56,8 @@ test('parseIdeas drops unavailable modes', () => {
 test('parseIdeas drops duplicates and non-strings, caps at 4, throws without an array', () => {
   const arr = [{ text: 'A', mode: 'off' }, { text: 'a', mode: 'off' }, { text: 5, mode: 'off' }, { text: 'B', mode: 'off' }, { text: 'C', mode: 'off' }, { text: 'D', mode: 'off' }, { text: 'E', mode: 'off' }];
   assert.deepEqual(parseIdeas(JSON.stringify(arr), ['off']).map((i) => i.text), ['A', 'B', 'C', 'D']);
-  assert.throws(() => parseIdeas('no json', ['off']), /did not come up with ideas/);
-  assert.throws(() => parseIdeas('[{oops]', ['off']), /did not come up with ideas/);
+  assert.throws(() => parseIdeas('no json', ['off']), /No ideas came back/);
+  assert.throws(() => parseIdeas('[{oops]', ['off']), /No ideas came back/);
 });
 
 test('topUp fills from the starters, skipping avoided texts', () => {
@@ -115,11 +115,11 @@ test('POST /api/ideas: the prompt carries the shown ideas', async () => {
   assert.match(lastPrompt, /Tiny dragon/);
 });
 
-test('POST /api/ideas: no ideas from Jig is a 502', async () => {
+test('POST /api/ideas: no ideas is a 502', async () => {
   reply = () => 'sorry';
   const res = await postIdeas({ shown: [] });
   assert.equal(res.status, 502);
-  assert.match(((await res.json()) as { error: string }).error, /couldn't come up with ideas/);
+  assert.match(((await res.json()) as { error: string }).error, /Couldn't come up with ideas/);
 });
 
 test('POST /api/ideas: checks what it is sent', async () => {
@@ -133,7 +133,7 @@ test('POST /api/ideas: a failure is a 502 with a plain message', async () => {
   reply = () => { throw new Error('boom'); };
   const res = await postIdeas({ shown: [] });
   assert.equal(res.status, 502);
-  assert.equal(((await res.json()) as { error: string }).error, "Jig couldn't come up with ideas. Try again.");
+  assert.equal(((await res.json()) as { error: string }).error, "Couldn't come up with ideas. Try again.");
 });
 
 test('POST /api/ideas: a repeat of a shown idea is never returned as new', async () => {
@@ -146,7 +146,7 @@ test('POST /api/ideas: a repeat of a shown idea is never returned as new', async
   assert.ok(ideas.every((i) => i.text.trim().toLowerCase() !== X.toLowerCase()));
 });
 
-test('writeIdeas: its own timeout reads as Jig taking too long, not as an abort', async () => {
+test('writeIdeas: its own timeout reads as taking too long, not as an abort', async () => {
   const { writeIdeas, IDEAS_TIMEOUT_MESSAGE } = await import('../server/ideas');
   type query = typeof import('@anthropic-ai/claude-agent-sdk').query;
   const run = ((a: { options: { abortController: AbortController } }) => (async function* () {

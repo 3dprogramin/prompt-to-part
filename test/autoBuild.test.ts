@@ -46,5 +46,5 @@ test('"Send my view" off: no screenshot and no four-view render in the request, 
   // On (today's behaviour): the view comes as a step with its picture.
   const on = await currentModelContext({ ...req, currentView: view }, (e) => events.push(e), render);
   assert.equal(on.content.filter((c) => c.type === 'image').length, 1);
-  assert.ok(events.some((e) => e.type === 'step' && e.step.text === 'Jig got your current view'));
+  assert.ok(events.some((e) => e.type === 'step' && e.step.text === 'Sent your current view'));
 });

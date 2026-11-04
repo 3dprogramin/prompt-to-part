@@ -1,4 +1,4 @@
-// Talking to Jig: a message sent (with what the user sees), its reply followed to its end, the
+// Talking to the AI: a message sent (with what the user sees), its reply followed to its end, the
 // answers to its questions, messages queued while it works, the concept pictures' countdown and
 // a reply still under way on the server caught up with.
 import { useEffect, useRef, useState } from 'react';
@@ -54,7 +54,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
   fullValues: () => ParamValues;
 }) {
   /**
-   * Follows Jig's reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
+   * Follows the reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
    * with one under way): its events update that design, even if another one is open by now.
    */
   const followReply = async (designId: string, asstId: string, stream: (onEvent: (ev: AgentEvent, seen: number) => void, signal: AbortSignal) => Promise<ReplyEnd>) => {
@@ -73,7 +73,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
     // Concept pictures drawn in this reply, and whether it failed (for the countdown).
     const drawn: DrawnConcept[] = [];
     let failed = false;
-    // Jig asked questions in this reply (they wait for an answer).
+    // The AI asked questions in this reply (they wait for an answer).
     let asked = false;
     let end: ReplyEnd | undefined;
     try {
@@ -129,8 +129,8 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         patchAsst((m) => ({ ...m, run: ev.type === 'run' ? { id: ev.runId, seen: count } : m.run && { ...m.run, seen: count } }));
       }, abort.signal);
       // Another page (or tab) follows the reply now and owns the design: its saves win over this note.
-      if (end === 'moved') return void patchAsst((m) => ({ ...m, live: undefined, error: 'Jig carries on with this reply in another window – reload to see it here.' }));
-      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before Jig finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
+      if (end === 'moved') return void patchAsst((m) => ({ ...m, live: undefined, error: 'This reply carries on in another window: reload to see it here.' }));
+      if (!finished) patchAsst((m) => ({ ...m, error: 'Connection to the server was lost before the reply finished (the server may have restarted). Send "continue" to pick up where it stopped.' }));
     } catch (e) {
       if (!abort.signal.aborted) patchAsst((m) => ({ ...m, error: (e as Error).message }));
       else patchAsst((m) => ({ ...m, error: 'Stopped.' }));
@@ -146,7 +146,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
       const next = autoBuildAfter({ designId, messageId: asstId, concepts: drawn, completed, error: failed, openDesignId: currentId.current,
         waitForOk: waitForOkRef.current, queued: !!queuesRef.current[designId]?.items.length, now: Date.now() });
       if (next) setAutoBuild(next);
-      // A chime: Jig needs you (questions, concept pictures to approve, an error) or the reply is done.
+      // A chime: the AI needs you (questions, concept pictures to approve, an error) or the reply is done.
       // Nothing when the user stopped it, or another window carries on with it.
       if (soundsRef.current && !abort.signal.aborted && (completed || failed)) playCue(failed || asked || drawn.length ? 'attention' : 'done');
       // A design that finished in the background is persisted, then dropped from memory (by

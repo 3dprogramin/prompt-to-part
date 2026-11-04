@@ -54,7 +54,7 @@ export function registerImageRoutes(app: express.Express, { json, imageDir, dele
     const body = req.body as PhotoRequest;
     const problem = photoProblem(body);
     if (problem) return void res.status(400).json({ error: problem });
-    if (!artworkAvailable()) return void res.status(503).json({ error: 'Product photos need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart Jig.' });
+    if (!artworkAvailable()) return void res.status(503).json({ error: 'Product photos need an OpenRouter key: set OPENROUTER_API_KEY in .env and restart prompt-to-part.' });
     if (deleted.has(id)) return void res.status(410).json({ error: 'This design was deleted' });
     // A new photo is made from the render sent; a change starts from a stored photo of this design
     // (and its render, as the product's reference).
@@ -93,7 +93,7 @@ export function registerImageRoutes(app: express.Express, { json, imageDir, dele
     try {
       const out = await image(prompt, body.aspect, references, abort.signal, undefined, body.shop ? SHOP_IMAGE_SIZE : undefined);
       const ext = IMAGE_TYPES[out.image.mediaType];
-      if (!ext) throw new Error(`The image model returned a picture format Jig can't store (${out.image.mediaType})`);
+      if (!ext) throw new Error(`The image model returned a picture format that can't be stored (${out.image.mediaType})`);
       const photo = await storeImage(id, Buffer.from(out.image.data, 'base64'), ext);
       if (render) renderUrl = photo && await storeImage(id, render, IMAGE_TYPES[body.render!.mediaType]);
       if (!photo || (render && !renderUrl)) return void res.status(410).json({ error: 'This design was deleted' });

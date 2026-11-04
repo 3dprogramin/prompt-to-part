@@ -70,12 +70,12 @@ export function someNames(names: readonly string[], max = 8): string {
 }
 
 /**
- * A bulk delete: the designs to delete, those Jig is working on (left alone: stop them first), and
+ * A bulk delete: the designs to delete, those being worked on (left alone: stop them first), and
  * the question asked once for all of them (null when there is nothing to delete).
  */
 export function deletePlan(list: readonly DesignSummary[], isRunning: (id: string) => boolean): { remove: DesignSummary[]; busy: DesignSummary[]; question: string | null } {
   const remove = list.filter((d) => !isRunning(d.id)), busy = list.filter((d) => isRunning(d.id));
-  const skip = busy.length ? `\n\nNot deleted, Jig is working on ${busy.length === 1 ? 'it' : 'them'}: ${someNames(busy.map((d) => d.name), 3)}.` : '';
+  const skip = busy.length ? `\n\nNot deleted, ${busy.length === 1 ? 'it is' : 'they are'} still being worked on: ${someNames(busy.map((d) => d.name), 3)}.` : '';
   const what = remove.length === 1 ? 'this design' : `these ${remove.length} designs`;
   const lines = remove.slice(0, 12).map((d) => `- ${d.name}`).join('\n') + (remove.length > 12 ? `\nand ${remove.length - 12} more` : '');
   return { remove, busy, question: remove.length ? `Delete ${what} permanently, with ${remove.length === 1 ? 'its' : 'their'} photos?\n\n${lines}${skip}` : null };

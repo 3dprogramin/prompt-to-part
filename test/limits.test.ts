@@ -48,7 +48,7 @@ test('with JIG_PASSWORD every page and API call needs it, but the healthcheck do
   for (const p of ['/api/designs', '/api/capabilities', '/api/backup', '/', '/assets/x.js']) {
     const r = await fetch(`${A}${p}`);
     assert.equal(r.status, 401, p);
-    assert.match(r.headers.get('www-authenticate') ?? '', /^Basic realm="Jig"/);
+    assert.match(r.headers.get('www-authenticate') ?? '', /^Basic realm="prompt-to-part"/);
   }
   assert.equal((await fetch(`${A}/api/designs`, { headers: { Authorization: basic('anyone', 'wrong') } })).status, 401);
   assert.equal((await fetch(`${A}/api/designs/test-lim-00000001`, { method: 'DELETE', headers: { 'X-Jig': '1' } })).status, 401);
@@ -62,7 +62,7 @@ test('one reply too many is refused with a plain message', async () => {
   assert.equal(first.status, 200);
   const second = await start('test-lim-00000002');
   assert.equal(second.status, 429);
-  assert.match((await second.json()).error, /Jig is already working on a reply, the most it runs at once/);
+  assert.match((await second.json()).error, /A reply is already under way, the most that can run at once/);
   // Once the first one stops, another can start.
   await fetch(`${A}/api/generate/test-lim-00000001/stop`, { method: 'POST', headers: W });
   await first.text();
@@ -73,7 +73,7 @@ test('one reply too many is refused with a plain message', async () => {
 });
 
 test('a slice or .blend export: one running and one waiting, the next is told to try again', async () => {
-  for (const [route, type, busy] of [['/api/slice', 'application/octet-stream', /busy slicing/], ['/api/export/blend', 'application/json', /busy with another \.blend/]] as const) {
+  for (const [route, type, busy] of [['/api/slice', 'application/octet-stream', /Busy slicing/], ['/api/export/blend', 'application/json', /Busy with another \.blend/]] as const) {
     // Two uploads still under way (their bodies never finish) hold both places.
     const open: ClientRequest[] = [];
     for (let i = 0; i < 2; i++) {

@@ -15,7 +15,7 @@ export function layerToneTools({ base, emit }: ToolContext) {
         td: z.number().min(0.05).max(20).describe('Transmission distance, mm'),
       })).min(1).max(maxLayerToneFilaments()).optional().describe('All filaments, bottom (printed first) → top'),
       swaps: z.union([z.array(z.number().int().min(1)).max(maxLayerToneFilaments() - 1), z.literal('auto')]).optional()
-        .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts – one ascending number per filament after the first; "auto" lets Jig choose'),
+        .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts: one ascending number per filament after the first; "auto" lets the app choose'),
       reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
     }, async (a) => {
       const now = parseLayerToneSetup(base[LAYERTONE_KEY]);

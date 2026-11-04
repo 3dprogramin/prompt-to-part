@@ -2,18 +2,18 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { choiceWords, type ChatQuestion } from '../../shared/questions';
 import { Icon } from './Icon';
 
-/** Seconds an untouched card waits before it sends Jig's picks by itself. */
+/** Seconds an untouched card waits before it sends the suggested picks by itself. */
 export const QUESTION_SECONDS = 60;
 
 /** One question's state on the card: the options chosen, and the user's own words ("Other…"). */
 interface Choice { chosen: number[]; otherOn: boolean; other: string }
 
 /**
- * "Ask first": Jig's questions under its reply, each option a chip to click, Jig's pick preselected
+ * "Ask first": the questions under the reply, each option a chip to click, the suggested pick preselected
  * and marked, plus "Other…" for the user's own words. With `onSend` (the newest reply, not answered
  * yet) it can be answered; otherwise it is read-only, showing the `answers` sent from it, if any.
  * With `countdown` (a card that just arrived in this window), nobody touching it for
- * QUESTION_SECONDS sends Jig's picks; any click on it, Keep waiting, or typing in the chat (`hold`)
+ * QUESTION_SECONDS sends the suggested picks; any click on it, Keep waiting, or typing in the chat (`hold`)
  * stops that.
  */
 export function QuestionCard({ questions, answers, onSend, disabled, countdown, hold, midway }: {
@@ -24,7 +24,7 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
   disabled?: boolean;
   countdown?: boolean;
   hold?: boolean;
-  /** Asked while building (the reply already made a version): Jig carries on after the answers. */
+  /** Asked while building (the reply already made a version): the reply carries on after the answers. */
   midway?: boolean;
 }) {
   const id = useId();
@@ -66,7 +66,7 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, [until, active]);
-  // Time's up: Jig's picks go out, unless sending is blocked just now (then the card simply waits).
+  // Time's up: the suggested picks go out, unless sending is blocked just now (then the card simply waits).
   useEffect(() => {
     if (until == null || now < until) return;
     setUntil(null);
@@ -78,7 +78,7 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
   return (
     <form
       className={`questions ${active ? '' : 'done'}`}
-      aria-label="Jig's questions"
+      aria-label="Questions"
       onSubmit={(e) => { e.preventDefault(); send(); }}
       // Enter sends from any chip or the Other box (not from the buttons, which do their own thing).
       onKeyDown={(e) => {
@@ -89,7 +89,7 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
     >
       <div className="questions-head">
         <Icon name="ask" size={14} />
-        <span>{active ? `${n === 1 ? 'A question' : `${n} questions`} before Jig ${midway ? 'carries on' : 'builds'}` : answers ? 'Your answers' : `Jig's question${n > 1 ? 's' : ''}`}</span>
+        <span>{active ? `${n === 1 ? 'A question' : `${n} questions`} before ${midway ? 'carrying on' : 'building'}` : answers ? 'Your answers' : `Question${n > 1 ? 's' : ''}`}</span>
         {!active && !answers && <span className="dim small">answered in the chat</span>}
       </div>
       {questions.map((q, i) => (
@@ -99,11 +99,11 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
             {q.options.map((o, j) => {
               const on = shown[i].chosen.includes(j);
               return (
-                <label key={j} className={`q-chip ${on ? 'on' : ''} ${j === q.pick ? 'pick' : ''}`} title={j === q.pick ? `Jig's pick${q.why ? `: ${q.why}` : ''}` : undefined}>
+                <label key={j} className={`q-chip ${on ? 'on' : ''} ${j === q.pick ? 'pick' : ''}`} title={j === q.pick ? `Suggested pick${q.why ? `: ${q.why}` : ''}` : undefined}>
                   <input className="sr-only" type={q.multi ? 'checkbox' : 'radio'} name={`${id}-${i}`} checked={on} onChange={() => choose(i, j)} />
                   {q.multi && <span className="q-box" aria-hidden>{on && <Icon name="check" size={10} />}</span>}
                   <span>{o}</span>
-                  {j === q.pick && <span className="q-pick"><Icon name="star" size={9} /> Jig's pick</span>}
+                  {j === q.pick && <span className="q-pick"><Icon name="star" size={9} /> Suggested</span>}
                 </label>
               );
             })}
@@ -126,20 +126,20 @@ export function QuestionCard({ questions, answers, onSend, disabled, countdown, 
               onChange={(e) => { touch(); set(i, { other: e.target.value }); }}
             />
           )}
-          {q.why && active && <div className="q-why">Jig's pick: {q.why}</div>}
+          {q.why && active && <div className="q-why">Suggested: {q.why}</div>}
         </fieldset>
       ))}
       {active && until != null && (
         <div className="q-countdown" role="timer" aria-live="off">
           <div className="auto-build-bar" aria-hidden><i style={{ animationDuration: `${QUESTION_SECONDS}s` }} /></div>
-          <span className="dim small">Sending Jig's picks in {left} s unless you change something</span>
+          <span className="dim small">Sending the suggested picks in {left} s unless you change something</span>
           <button type="button" className="link" onClick={touch}>Keep waiting</button>
         </div>
       )}
       {active && (
         <div className="questions-actions">
           <button type="submit" className="btn primary" disabled={!ready || disabled}
-            title={ready ? 'Send these answers to Jig (Enter)' : 'Pick an answer for every question (or type your own under Other…)'}>
+            title={ready ? 'Send these answers (Enter)' : 'Pick an answer for every question (or type your own under Other…)'}>
             <Icon name="send" size={13} /> Send answers
           </button>
           <span className="dim small">or type a reply below</span>

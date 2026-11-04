@@ -12,7 +12,7 @@ export type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke;
 /**
  * A stroke of this session on the screen (mm, the piece's XY), drawn over the piece: it is only
  * built when the editor closes with Done. `src` is the stroke as saved; `color` its filament's
- * (none: the piece's own). A 'clear' one is where edits were cleared (the piece as Jig made it shows there).
+ * (none: the piece's own). A 'clear' one is where edits were cleared (the piece as the AI made it shows there).
  * `shape` 'square': brushed with a square `width` wide.
  */
 export interface ShownStroke { mode: Tool; width: number; points: Pt[]; name?: string; src?: LineArtStroke; live?: boolean; color?: string; shape?: 'square' }
@@ -35,7 +35,7 @@ export const SELECT = ['#3d8bfd', 0.35] as const;
 export const SELECT_RING = '#1f6fe0';
 /** The seams of a piece split into pieces. */
 export const SEAM = '#2f80d1';
-/** Where Jig joined a loose end to a line, and the loose ends left (as in the 3D view). */
+/** Where a loose end was joined to a line, and the loose ends left (as in the 3D view). */
 export const JOIN = ['#ff4fd8', '#ffb020'];
 export const PAPER = '#fff';
 /** The hit-test grid: this many mm per cell at least, and at most this many cells. */
@@ -131,7 +131,7 @@ export function pieceImage(part: PartMesh & { paints?: { color: string; from: nu
 
 /**
  * A stroke stamped into the ink grid: a drawn line or a fill adds ink (all under it is ink then),
- * erasing takes it away (paint changes none), clearing puts the ink of the piece as Jig made it
+ * erasing takes it away (paint changes none), clearing puts the ink of the piece as the AI made it
  * back (`own`, when it is known).
  */
 export function stamp(m: InkMask, st: ShownStroke, own?: InkMask | null) {

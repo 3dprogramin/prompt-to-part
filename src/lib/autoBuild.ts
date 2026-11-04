@@ -43,7 +43,7 @@ export function autoBuildText(concepts: DrawnConcept[], seconds: number): string
   return `Building${what} with Meshy in ${seconds} s · ${autoBuildCredits(concepts)} credits`;
 }
 
-/** The message sent for the user: it has to read as an approval to Jig (and names the pictures when there are several). */
+/** The message sent for the user: it has to read as an approval to the AI (and names the pictures when there are several). */
 export function approvalText(concepts: DrawnConcept[]): string {
   if (concepts.length <= 1) return 'Approved – build it.';
   const names = concepts.map((c) => `"${c.name}"`);

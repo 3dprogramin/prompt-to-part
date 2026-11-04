@@ -55,7 +55,7 @@ export function EditorToolbar({ tool, setTool, filament, setFilament, coloured, 
         <button className={`la-ed-tool ${tool === 'fill' ? 'on' : ''}`} role="radio" aria-checked={tool === 'fill'} onClick={() => setTool('fill')} title="Fill (G): add material in the filament chosen, only where the piece has none (inside an outline), never over its lines">
           <Icon name="bucket" size={15} /><span className="la-ed-label">Fill</span>
         </button>
-        <button className={`la-ed-tool ${tool === 'erase' ? 'on erase' : ''}`} role="radio" aria-checked={tool === 'erase'} onClick={() => setTool('erase')} title="Erase (E): also what Jig drew there">
+        <button className={`la-ed-tool ${tool === 'erase' ? 'on erase' : ''}`} role="radio" aria-checked={tool === 'erase'} onClick={() => setTool('erase')} title="Erase (E): the piece's own lines too">
           <Icon name="eraser" size={15} /><span className="la-ed-label">Erase</span>
         </button>
         <button className={`la-ed-tool ${tool === 'clear' ? 'on' : ''}`} role="radio" aria-checked={tool === 'clear'} onClick={() => setTool('clear')} title="Select (C): brush over where to clear the hand edits (strokes add up), then Clear edits here">
@@ -113,7 +113,7 @@ export function EditorToolbar({ tool, setTool, filament, setFilament, coloured, 
       {/* While selecting, edits are cleared only where selected. */}
       {tool === 'clear' || selection.length > 0 ? (
         <div className="la-ed-group">
-          <button className="la-ed-tool" disabled={!selection.length} onClick={clearHere} title="Take back the hand edits in the area selected: there the piece is as Jig made it (lines drawn go, erased ones come back, paint and fills go)">
+          <button className="la-ed-tool" disabled={!selection.length} onClick={clearHere} title="Take back the hand edits in the area selected: there the piece is as it was made (lines drawn go, erased ones come back, paint and fills go)">
             <Icon name="restore" size={15} /><span className="la-ed-label">Clear edits here</span>
           </button>
           {selection.length > 0 && (

@@ -7,7 +7,7 @@ import { oneAtATime, type RouteContext } from './store';
 
 export function registerExportRoutes(app: express.Express, { json }: RouteContext) {
   // One Blender export running and one waiting at most (each body can be hundreds of MB).
-  app.post('/api/export/blend', oneAtATime('Jig is busy with another .blend export. Try again in a moment.'), json('300mb'), async (req, res) => {
+  app.post('/api/export/blend', oneAtATime('Busy with another .blend export. Try again in a moment.'), json('300mb'), async (req, res) => {
     const body = req.body as BlendRequest;
     if (!body?.parts?.length) return void res.status(400).json({ error: 'no parts' });
     try {

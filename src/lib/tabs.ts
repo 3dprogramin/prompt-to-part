@@ -1,4 +1,4 @@
-// Messages between Jig's browser tabs (saves and running generations), over a BroadcastChannel.
+// Messages between the app's browser tabs (saves and running generations), over a BroadcastChannel.
 import type { Design } from '../../shared/types';
 import { uid } from './files';
 

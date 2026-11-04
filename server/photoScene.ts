@@ -31,7 +31,7 @@ export async function writeScene(id: string, size?: Vec3, idea?: SceneIdea): Pro
       },
     })) {
       if (msg.type === 'result') {
-        if (msg.subtype !== 'success') throw new Error(`Jig couldn't write a scene (${msg.subtype})`);
+        if (msg.subtype !== 'success') throw new Error(`Couldn't write a scene (${msg.subtype})`);
         text = msg.result;
       }
     }

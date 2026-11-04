@@ -212,7 +212,7 @@ export function splitPieces(o: SplitInput): SplitResult {
     const pan = f ? f.pan : anchor ? anchor.intersect(region) : null;
     const pa = f ? f.pa : dropSpecks(C, art.intersect(region), pan, o.minIsland).cs;
     let lineCs = o.lines === 'keep' ? (p.paths.length ? pa.add(new C(strokeOutlines(p.paths, lineWidth / 2, o.segs / 4), 'NonZero')) : pa) : new C(p.loops, 'EvenOdd');
-    // What Jig drew stays on the piece: a bridge or a thickened line ends at the seam.
+    // What the app drew stays on the piece: a bridge or a thickened line ends at the seam.
     lineCs = lineCs.intersect(region);
     const anc = pan && !pan.isEmpty() ? pan : null;
     // Erased and filled by hand, on this piece (a fill too, so what it holds on to is on it).
@@ -424,7 +424,7 @@ function placeLabel(d: LineArtDeps, p: { info: LineArtPieceInfo; lineCs: any; an
   return null;
 }
 
-/** The split for the Print tab, Jig's report and the editor, moved by (dx, dy) like the piece. */
+/** The split for the Print tab, the app's report and the editor, moved by (dx, dy) like the piece. */
 export function splitInfo(sp: SplitResult, spec: SplitSpec, grid: { cols: number; rows: number }, dx: number, dy: number, anchor: any, layout: LineArtSplitInfo['layout']): LineArtSplitInfo {
   const mv = ([x, y]: Pt): [number, number] => [x + dx, y + dy];
   return {

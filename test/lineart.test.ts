@@ -137,7 +137,7 @@ test('hand edits: drawn lines join, erasing has the last word, frames map the dr
   assert.equal(drawn.lineArt!.edits, 1);
   assert.equal(drawn.lineArt!.bridges, plain.bridges - 1);
   assert.equal(drawn.components, 1);
-  // Erasing across the frame bar between the wheels cuts the piece in two, whatever Jig bridged.
+  // Erasing across the frame bar between the wheels cuts the piece in two, whatever the app bridged.
   const cut = edit([{ mode: 'erase', width: 4, points: [[0, 0.25], [0, 0.4]] }]).parts[0];
   assert.equal(cut.components, 2);
   // Frames: the drawing's (−0.6, −0.1) hub centre maps into the piece where the left hub is.

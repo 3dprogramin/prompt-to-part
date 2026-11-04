@@ -1,4 +1,4 @@
-// What Jig sends Claude besides the request: the current model as the user sees it, messages sent
+// What the app sends Claude besides the request: the current model as the user sees it, messages sent
 // while Claude works (steerGeneration) and a recap of the conversation for a fresh session.
 import { type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, GenerateRequest, ImageData } from '../../shared/api';
@@ -23,13 +23,13 @@ export async function currentModelContext(req: GenerateRequest, emit: (e: AgentE
     notes.push('No picture of the current model came with this message: render_model shows it if you need to see it.');
     return { content, notes };
   }
-  emit({ type: 'live', text: 'Jig is capturing the current model…' });
+  emit({ type: 'live', text: 'Capturing the current model…' });
   const sent: string[] = [];
   if (view) {
     content.push({ type: 'text', text: 'CURRENT VIEW – the model exactly as the user sees it in the app right now (their camera angle; labels are live measurements in mm):' });
     content.push({ type: 'image', source: { type: 'base64', media_type: view.mediaType as 'image/jpeg', data: view.data } });
     sent.push('your current view');
-    emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got your current view', image: `data:${view.mediaType};base64,${view.data}` } });
+    emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Sent your current view', image: `data:${view.mediaType};base64,${view.data}` } });
   }
   if (req.renderValues) {
     try {
@@ -39,11 +39,11 @@ export async function currentModelContext(req: GenerateRequest, emit: (e: AgentE
         content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.png } });
         notes.push(`Measurements of the current model at the user's settings:\n${formatReport(r)}`);
         sent.push('a four-view render with measurements');
-        emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Jig got a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
+        emit({ type: 'step', step: { kind: 'render', verbose: true, text: 'Sent a four-view render at your settings', image: `data:image/png;base64,${r.png}`, detail: formatReport(r) } });
       }
     } catch { /* the request still works without the render */ }
   }
-  if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Jig got ${sent.join(' and ')} of the current model` } });
+  if (sent.length) emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Sent ${sent.join(' and ')} of the current model` } });
   return { content, notes };
 }
 

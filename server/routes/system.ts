@@ -1,4 +1,4 @@
-// What this Jig can do and runs on: capabilities, Meshy credits, the Claude connection, dictation and Bambu Studio.
+// What this app can do and runs on: capabilities, Meshy credits, the Claude connection, dictation and Bambu Studio.
 import express from 'express';
 import type { Capabilities, SpeechToken } from '../../shared/api';
 import { claudeAuthProblem, defaultEffort, defaultModel, jigCurrency } from '../config';
@@ -32,7 +32,7 @@ export function registerSystemRoutes(app: express.Express, { connection }: { con
   // The Meshy account's credits, for the 3D figure button (free to ask; asked at most once a minute).
   app.get('/api/meshy/balance', async (_req, res) => {
     const c = meshyClient();
-    if (!c) return void res.status(404).json({ error: 'Jig has no Meshy key (MESHY_API_KEY)' });
+    if (!c) return void res.status(404).json({ error: 'No Meshy key (MESHY_API_KEY) is set' });
     try {
       res.json((await cachedBalance(c)) satisfies MeshyBalance);
     } catch (e) {
@@ -48,7 +48,7 @@ export function registerSystemRoutes(app: express.Express, { connection }: { con
   // the microphone there without ever seeing the API key.
   app.post('/api/speech/token', async (_req, res) => {
     const key = process.env.ELEVENLABS_API_KEY;
-    if (!key) return void res.status(503).json({ error: 'Dictation needs an ElevenLabs API key: set ELEVENLABS_API_KEY (e.g. in .env) and restart Jig.' });
+    if (!key) return void res.status(503).json({ error: 'Dictation needs an ElevenLabs API key: set ELEVENLABS_API_KEY (e.g. in .env) and restart prompt-to-part.' });
     try {
       const r = await fetch('https://api.elevenlabs.io/v1/single-use-token/realtime_scribe', { method: 'POST', headers: { 'xi-api-key': key }, signal: AbortSignal.timeout(10000) });
       const body = (await r.json().catch(() => ({}))) as { token?: string; detail?: { message?: string } | string };

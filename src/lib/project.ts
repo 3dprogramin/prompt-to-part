@@ -96,7 +96,7 @@ export function printRows(ai: PrintProfile, user: PrintProfile, base: Required<P
 
 export interface ReadmeInfo {
   name: string;
-  /** When it was exported, and by which Jig. */
+  /** When it was exported, and by which prompt-to-part version. */
   date: Date;
   version: string;
   /** The exported version (1-based) of how many, and its summary. */
@@ -132,7 +132,7 @@ export function projectReadme(i: ReadmeInfo): string {
   const out: string[] = [`# ${i.name}`, ''];
   if (i.summary) out.push(i.summary.trim(), '');
   const when = `${i.date.getFullYear()}-${pad(i.date.getMonth() + 1)}-${pad(i.date.getDate())} ${pad(i.date.getHours())}:${pad(i.date.getMinutes())}`;
-  out.push(`Exported from Jig ${i.version} on ${when}${i.versions > 0 ? ` (version ${i.versionNo} of ${i.versions})` : ''}.`, '');
+  out.push(`Exported from prompt-to-part ${i.version} on ${when}${i.versions > 0 ? ` (version ${i.versionNo} of ${i.versions})` : ''}.`, '');
   if (i.size) out.push(`**Size:** ${i.size.map((v) => v.toFixed(2)).join(' × ')} mm (W × D × H)`, '');
   if (i.parts.length > 1) out.push(`**Parts:** ${i.parts.join(', ')}`, '');
   if (i.check) out.push(`**Print check:** ${i.check}`, '');
@@ -178,22 +178,22 @@ export function projectReadme(i: ReadmeInfo): string {
   const about: Record<string, string> = {
     'model.js': 'the model script (JavaScript)',
     'values.json': 'the parameter values',
-    'design.jig.json': 'the whole Jig design: chat, versions and values',
+    'design.jig.json': 'the whole prompt-to-part design: chat, versions and values',
   };
   for (const f of i.files.filter((p) => !p.includes('/') && p !== 'README.md')) {
     const what = about[f] ?? (f.endsWith('.stl') ? `${i.parts.length > 1 ? 'all parts' : 'the model'} as one mesh`
       : f.endsWith('.3mf') ? (i.bambuProject ? `a Bambu Studio project with the print settings${i.oneColour ? ', printed in one colour' : ' and colours'}` : i.oneColour ? 'the parts in one colour, for any slicer' : 'the parts with their colours, for any slicer')
         : f.endsWith('.blend') ? 'for Blender: one object per part, materials, dimensions' : '');
-    out.push(`- \`${f}\`${what ? ` – ${what}` : ''}`);
+    out.push(`- \`${f}\`${what ? ` - ${what}` : ''}`);
   }
   const images = i.files.filter((p) => p.startsWith('images/')).length;
   const meshFiles = i.files.filter((p) => p.startsWith('meshes/')).length;
-  if (images) out.push(`- \`images/\` – ${images} picture${images > 1 ? 's' : ''}: photos and drawings from the chat, Jig's renders and product photos${i.files.some((p) => p.startsWith('images/picture-')) ? '; `picture-…` are the LayerTone or lithophane pictures as the design holds them' : ''}`);
-  if (meshFiles) out.push(`- \`meshes/\` – ${meshFiles} file${meshFiles > 1 ? 's' : ''}: the imported meshes`);
+  if (images) out.push(`- \`images/\` - ${images} picture${images > 1 ? 's' : ''}: photos and drawings from the chat, the renders and product photos${i.files.some((p) => p.startsWith('images/picture-')) ? '; `picture-…` are the LayerTone or lithophane pictures as the design holds them' : ''}`);
+  if (meshFiles) out.push(`- \`meshes/\` - ${meshFiles} file${meshFiles > 1 ? 's' : ''}: the imported meshes`);
   out.push('');
   for (const n of i.notes) out.push(n, '');
 
-  out.push('## Back into Jig', '',
-    'Zip this folder (or use the zip Jig downloaded) and choose it in **Designs → Import designs…**. A design that is already in Jig is kept as it is: delete it there first to bring back this copy.', '');
+  out.push('## Back into prompt-to-part', '',
+    'Zip this folder (or use the zip that was downloaded) and choose it in **Designs → Import designs…**. A design that is already in prompt-to-part is kept as it is: delete it there first to bring back this copy.', '');
   return out.join('\n');
 }

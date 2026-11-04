@@ -9,7 +9,7 @@ interface Props {
   /** The panel shown (in the split layout, the pane beside the 3D view: chat or panel). */
   active: LayoutTab;
   onSelect: (tab: LayoutTab) => void;
-  /** Jig is working on the design: a pulsing dot on Chat while it isn't shown. */
+  /** The design is being worked on: a pulsing dot on Chat while it isn't shown. */
   working: boolean;
   /** A reply made a new version that hasn't been looked at: a dot on 3D. */
   newModel: boolean;
@@ -29,10 +29,10 @@ export function LayoutTabs({ mode, active, onSelect, working, newModel }: Props)
         const dot = t === 'chat' && working && active !== 'chat' ? 'live' : t === '3d' && newModel && active !== '3d' ? 'new' : null;
         return (
           <button key={t} role="tab" aria-selected={active === t} className={active === t ? 'on' : ''} onClick={() => onSelect(t)}
-            title={dot === 'live' ? 'Jig is working on it' : dot === 'new' ? 'A new version to look at' : undefined}>
+            title={dot === 'live' ? 'Being worked on' : dot === 'new' ? 'A new version to look at' : undefined}>
             <span className="layout-tab-icon"><Icon name={icon} size={20} />{dot && <i className={`layout-dot ${dot}`} />}</span>
             <span>{label}</span>
-            {dot && <span className="sr-only">{dot === 'live' ? ' (Jig is working)' : ' (new version)'}</span>}
+            {dot && <span className="sr-only">{dot === 'live' ? ' (being worked on)' : ' (new version)'}</span>}
           </button>
         );
       })}

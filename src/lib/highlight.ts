@@ -7,7 +7,7 @@ export interface Token { kind: TokenKind; text: string }
 const KEYWORDS = new Set(('async await break case catch class const continue debugger default delete do else export extends ' +
   'finally for function if import in instanceof let new of return static super switch this throw try typeof var void while yield').split(' '));
 const LITERALS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity']);
-/** What model scripts get from Jig (and Math, which they use everywhere). */
+/** What model scripts get from the app (and Math, which they use everywhere). */
 const GLOBALS = new Set(['H', 'Manifold', 'CrossSection', 'quality', 'Math']);
 
 const RULES: [TokenKind | 'word', RegExp][] = [

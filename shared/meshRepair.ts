@@ -65,7 +65,7 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
   const rawColors = opts.colors && raw.colors?.length === raw.indices.length ? raw.colors : undefined;
   if (opts.colors && !rawColors) repairs.push('The file has no colours: it prints in one');
   if (raw.up === 'y') {
-    // Y-up (glTF, OBJ) to Z-up: their front (+Z) becomes Jig's front (−Y).
+    // Y-up (glTF, OBJ) to Z-up: their front (+Z) becomes the app's front (−Y).
     for (let i = 0; i < pos.length; i += 3) { pos[i] = raw.positions[i]; pos[i + 1] = -raw.positions[i + 2]; pos[i + 2] = raw.positions[i + 1]; }
     repairs.push('Turned from Y-up to Z-up');
   } else pos.set(raw.positions);

@@ -52,7 +52,7 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
   };
 
   /**
-   * Delete several designs after one question that names them. Designs Jig is working on (in any
+   * Delete several designs after one question that names them. Designs being worked on (in any
    * tab) are left alone and named; each delete is the single delete's route, so one that fails
    * leaves the others deleted and is reported.
    */
@@ -60,7 +60,7 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
     const busy = (id: string) => !!running[id] || remoteRunning[id] != null;
     const plan = deletePlan(designs.filter((d) => ids.includes(d.id)), busy);
     if (!plan.question) {
-      if (plan.busy.length) setNotice({ text: `Nothing deleted: Jig is working on ${someNames(plan.busy.map((d) => d.name), 3)}. Stop it first.`, level: 'warning', details: false });
+      if (plan.busy.length) setNotice({ text: `Nothing deleted: still working on ${someNames(plan.busy.map((d) => d.name), 3)}. Stop it first.`, level: 'warning', details: false });
       return;
     }
     if (!confirm(plan.question)) return;
@@ -84,7 +84,7 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
       done++;
     }
     refreshList();
-    const skipped = plan.busy.length ? ` Left alone, Jig is working on ${someNames(plan.busy.map((x) => x.name), 3)}.` : '';
+    const skipped = plan.busy.length ? ` Left alone, still working on ${someNames(plan.busy.map((x) => x.name), 3)}.` : '';
     setNotice(failed.length
       ? { text: `Deleted ${done} of ${plan.remove.length} designs. Not deleted: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}.${skipped}`, level: 'error', details: false }
       : { text: `Deleted ${done === 1 ? 'the design' : `${done} designs`}.${skipped}`, level: skipped ? 'warning' : 'ok', details: false });

@@ -159,12 +159,12 @@ test('one colour: the cost is out of date when the switch changes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Slicing with the user's Bambu Studio (skipped without it, or before Jig has built its template).
+// Slicing with the user's Bambu Studio (skipped without it, or before the app has built its template).
 // ---------------------------------------------------------------------------
 
 const TEMPLATE = path.join(DATA_DIR, 'bambu', 'template.json');
 const canSlice = !!(await findBambuBinary()) && existsSync(TEMPLATE);
-const skip = !canSlice && 'needs Bambu Studio and its Jig template';
+const skip = !canSlice && 'needs Bambu Studio and its prompt-to-part template';
 
 /** The tool changes in the G-code, as "z:Tn". */
 function toolChanges(gcode: string): string[] {
@@ -212,9 +212,9 @@ test('Bambu Studio slices paint_color triangles with four filaments (a hand-made
   assert.ok(tools.includes('15.2:T3') && tools.some((t) => t.startsWith('5.2:')) && tools.some((t) => t.startsWith('10.2:T2')), tools.join(' '));
 });
 
-test('Bambu Studio slices Jig\'s painted cube and a coloured figure on a base with their filaments', { skip }, async () => {
+test('Bambu Studio slices the app\'s painted cube and a coloured figure on a base with their filaments', { skip }, async () => {
   const tpl = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as BambuTemplate;
-  // The cube through Jig's writer: four filaments, each band its own.
+  // The cube through the app's writer: four filaments, each band its own.
   const cube = await slicedProject(new Uint8Array(await toBambuProject([paintedCube()], 'paint', tpl, { print: null }).arrayBuffer()));
   const info = strFromU8(cube['Metadata/slice_info.config']);
   assert.deepEqual(used(info), [[1, '#FF0000', true], [2, '#00FF00', true], [3, '#0000FF', true], [4, '#FFFF00', true]]);

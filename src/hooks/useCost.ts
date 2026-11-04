@@ -14,7 +14,7 @@ import type { GeometryClient } from '../geometry/client';
 export type CostStage = 'model' | 'template' | 'slicing';
 export const STAGE_TEXT: Record<CostStage, string> = {
   model: 'Building the model at export resolution',
-  template: 'Preparing the Bambu Studio project (the first time, Jig reads your Bambu Studio profiles – this can take a few minutes)',
+  template: 'Preparing the Bambu Studio project (the first time, your Bambu Studio profiles are read: this can take a few minutes)',
   slicing: 'Bambu Studio is slicing the model',
 };
 

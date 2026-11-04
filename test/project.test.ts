@@ -54,12 +54,12 @@ test('README: name, summary, size, parameters, print settings, sources, files an
     meshes: { fox: { file: `/api/designs/x/meshes/${'ab'.repeat(16)}.bin`, triangles: 12000, size: [30, 20, 40], source: 'upload', original: 'fox.stl' } },
     check: 'No problems found', bambuProject: false,
     files: ['model.js', 'values.json', 'design.jig.json', 'hook.stl', 'hook.3mf', 'images/a.png', 'meshes/b.bin', 'README.md'],
-    notes: ['No `.blend` file: Blender is not installed on the computer Jig runs on.'],
+    notes: ['No `.blend` file: Blender is not installed on the computer prompt-to-part runs on.'],
     problems: ['`hook.blend`: Blender stopped'],
   };
   const md = projectReadme(info);
   assert.match(md, /^# Hook \| wall\n\nA wall hook\.\n/);
-  assert.match(md, /Exported from Jig 0\.0\.4 on 2026-10-18 09:05 \(version 2 of 3\)/);
+  assert.match(md, /Exported from prompt-to-part 0\.0\.4 on 2026-10-18 09:05 \(version 2 of 3\)/);
   assert.match(md, /\*\*Size:\*\* 40\.00 × 20\.50 × 60\.00 mm/);
   assert.match(md, /\*\*Parts:\*\* Body, Hook/);
   assert.match(md, /## Not exported\n\n- `hook\.blend`: Blender stopped/);
@@ -67,8 +67,8 @@ test('README: name, summary, size, parameters, print settings, sources, files an
   assert.match(md, /\| Walls \| 3 \| 2 \|/);
   assert.match(md, /- Screw: Ø 4 mm \(Official, <https:\/\/example\.com\/screw>\)/);
   assert.match(md, /- fox: from fox\.stl, 30\.0 × 20\.0 × 40\.0 mm, 12,000 triangles/);
-  assert.match(md, /- `hook\.3mf` – the parts with their colours, for any slicer/);
-  assert.match(md, /- `images\/` – 1 picture:/);
+  assert.match(md, /- `hook\.3mf` - the parts with their colours, for any slicer/);
+  assert.match(md, /- `images\/` - 1 picture:/);
   assert.match(md, /No `\.blend` file: Blender is not installed/);
   assert.match(md, /Designs → Import designs…/);
   assert.doesNotMatch(md, /Claude|HueForge/);

@@ -12,7 +12,7 @@ export interface RawMesh {
   positions: Float32Array;
   indices: Uint32Array;
   format: MeshFormat;
-  /** The file's up axis: glTF and OBJ (Meshy, Blender) are Y-up; STL and 3MF are Z-up like Jig. */
+  /** The file's up axis: glTF and OBJ (Meshy, Blender) are Y-up; STL and 3MF are Z-up like the app. */
   up: 'y' | 'z';
   /** Millimetres per file unit when the format says (3MF, glTF metres), or null when unknown. */
   mmPerUnit: number | null;
@@ -49,7 +49,7 @@ export function meshFormat(filename: string): MeshFormat | null {
 
 export function parseMeshFile(bytes: Uint8Array, filename: string, opts: ParseOptions = {}): RawMesh {
   const format = meshFormat(filename);
-  if (!format) throw new MeshFormatError(`${filename}: not a mesh file Jig reads (STL, OBJ, GLB/glTF or 3MF)`);
+  if (!format) throw new MeshFormatError(`${filename}: not a supported mesh file (STL, OBJ, GLB/glTF or 3MF)`);
   let out: RawMesh;
   if (format === 'stl') out = parseStl(bytes);
   else if (format === 'obj') out = parseObj(bytes);
@@ -237,7 +237,7 @@ function parseGltf(bytes: Uint8Array, decode?: (bytes: Uint8Array, mimeType: str
   }
   if (!json || typeof json !== 'object' || Array.isArray(json)) throw new MeshFormatError('Not a valid glTF file');
   const unsupported = (json.extensionsRequired ?? []).filter((e) => e !== 'KHR_mesh_quantization' && e !== 'KHR_materials_pbrSpecularGlossiness' && !e.startsWith('KHR_texture') && !e.startsWith('KHR_materials'));
-  if (unsupported.length) throw new MeshFormatError(`This glTF needs ${unsupported.join(', ')}, which Jig doesn't read (export it without ${/draco|meshopt/i.test(unsupported.join()) ? 'mesh compression' : 'these extensions'})`);
+  if (unsupported.length) throw new MeshFormatError(`This glTF needs ${unsupported.join(', ')}, which isn't supported (export it without ${/draco|meshopt/i.test(unsupported.join()) ? 'mesh compression' : 'these extensions'})`);
   (json.buffers ?? []).forEach((b, i) => {
     if (buffers[i] && !b.uri) return;
     const m = b.uri && /^data:[^;,]*;base64,(.*)$/.exec(b.uri);
@@ -415,7 +415,7 @@ function parse3mf(bytes: Uint8Array): RawMesh {
     let entries = 0, models = 0, total = 0;
     files = unzipSync(bytes, {
       filter: (f) => {
-        if (++entries > MAX_3MF_ENTRIES) throw new MeshFormatError(`Not a 3MF Jig reads (more than ${MAX_3MF_ENTRIES.toLocaleString('en')} files in the archive)`);
+        if (++entries > MAX_3MF_ENTRIES) throw new MeshFormatError(`Not a readable 3MF (more than ${MAX_3MF_ENTRIES.toLocaleString('en')} files in the archive)`);
         if (!/\.model$/i.test(f.name)) return false;
         total += f.originalSize;
         if (++models > MAX_3MF_MODELS || !(total <= MAX_3MF_MODEL_BYTES)) throw new MeshFormatError(`The 3MF's models are too large (over ${MAX_3MF_MODEL_BYTES / 1024 / 1024} MB unpacked)`);

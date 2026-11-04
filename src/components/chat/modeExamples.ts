@@ -1,4 +1,4 @@
-// A real Jig run for each picture mode: the request that was typed, what came out, and the
+// A real run for each picture mode: the request that was typed, what came out, and the
 // caption of its source picture. The pictures are in modeImages.ts (kept apart so tests can
 // import this file without a bundler).
 import type { ImageMode } from './PictureModeMenus';
@@ -21,7 +21,7 @@ export const MODE_TEXT: Record<ImageMode, ModeText> = {
     facts: [
       '200 × 155 mm colour relief, 8.2 mm thick',
       '4 filaments, printed in one go with the AMS',
-      'The image model draws the picture first, then Jig turns it into layers',
+      'The image model draws the picture first, then it is turned into layers',
       'Keyhole slots on the back for hanging',
     ],
   },
@@ -57,7 +57,7 @@ export const MODE_TEXT: Record<ImageMode, ModeText> = {
     request: 'a small dragon figure sitting on a rock, about 8 cm tall',
     facts: [
       'Meshy sculpted the dragon from the description (25 credits)',
-      "Jig cut off Meshy's round base and set the feet into a faceted rock",
+      "Meshy's round base was cut off and the feet set into a faceted rock",
       '80 mm tall, one solid piece',
       'Tree supports for the wings and chin',
     ],

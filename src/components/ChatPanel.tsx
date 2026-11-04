@@ -61,7 +61,7 @@ interface Props {
   claudeProblem: string | null;
   /** Claude may search the web for this design (off for every design until turned on). */
   webSearch: boolean;
-  /** What Claude does with pictures (the palette menu); `artworkModel`: the image model, null when Jig has no OpenRouter key. */
+  /** What Claude does with pictures (the palette menu); `artworkModel`: the image model, null without an OpenRouter key. */
   imageMode: ImageMode;
   artworkModel: string | null;
   /** 3D figures can be made (the server has a Meshy key). */
@@ -78,12 +78,12 @@ interface Props {
   /** 3D figure mode: concept pictures wait for the user's approval (on by default); off, they are built after a countdown. */
   waitForOk: boolean;
   onWaitForOk: (on: boolean) => void;
-  /** Follow-ups bring Jig the user's current view and a four-view render at their settings (on by default). */
+  /** Follow-ups bring the AI the user's current view and a four-view render at their settings (on by default). */
   sendView: boolean;
   onSendView: (on: boolean) => void;
   askFirst: boolean;
   onAskFirst: (on: boolean) => void;
-  /** Chimes when Jig needs you and when a reply has finished. */
+  /** Chimes when the AI needs you and when a reply has finished. */
   sounds: boolean;
   onSounds: (on: boolean) => void;
   /** The countdown under the last reply ("Wait for my OK" off), null when there is none. */
@@ -129,7 +129,7 @@ export function ChatPanel(p: Props) {
   }, [p.messages, !!p.autoBuild]);
 
   // Photos dropped anywhere in the window come here (App forwards them): never let the browser
-  // open a dropped file in place of Jig.
+  // open a dropped file in place of the app.
   useEffect(() => {
     const onFiles = (e: Event) => addFiles((e as CustomEvent<File[]>).detail);
     window.addEventListener('jig-drop-files', onFiles);
@@ -154,7 +154,7 @@ export function ChatPanel(p: Props) {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [p.designId]);
-  // On a computer the prompt box is ready to type or paste into as Jig opens, or another design does
+  // On a computer the prompt box is ready to type or paste into as the app opens, or another design does
   // (New, a tab, the Designs menu: their button gives its focus over), unless the user is typing in
   // another field. Not on touch screens, where it would pop up the keyboard.
   useEffect(() => {
@@ -233,7 +233,7 @@ export function ChatPanel(p: Props) {
   };
 
   const hasDraft = !!text.trim() || images.length > 0 || scad.length > 0 || readyMeshes.length > 0;
-  // Replies seen generating in this window: only their question cards count down to Jig's picks
+  // Replies seen generating in this window: only their question cards count down to the suggested picks
   // (one found unanswered after a reload waits for the user).
   const seenLive = useRef(new Set<string>());
   // Typing (or dictating) an answer to the concept pictures stops their countdown.
@@ -350,7 +350,7 @@ export function ChatPanel(p: Props) {
         {p.messages.length === 0 && (
           <div className="chat-intro">
             <h3>Describe what you want to print</h3>
-            <p>Jig designs a parametric model with sliders and dimensions. Attach photos of an existing object to recreate or redesign it. Mention any dimensions you need; anything you leave out, Jig picks for you.</p>
+            <p>You get a parametric model with sliders and dimensions. Attach photos of an existing object to recreate or redesign it. Mention any dimensions you need; anything you leave out is picked for you.</p>
             <Starters artworkModel={p.artworkModel} meshy={p.meshy} claudeProblem={p.claudeProblem} onPick={pickStarter} />
           </div>
         )}
@@ -373,7 +373,7 @@ export function ChatPanel(p: Props) {
         {p.queued.length > 0 && (
           <div className="queued" role="status">
             <div className="queued-head small">
-              {p.queuePaused ? 'Not sent – the reply was stopped or failed:' : 'Sends when Jig has finished:'}
+              {p.queuePaused ? 'Not sent, the reply was stopped or failed:' : 'Sends when this reply has finished:'}
               {p.queuePaused && <button className="link" onClick={p.onSendQueued}>Send now</button>}
             </div>
             {p.queued.map((q, i) => (
@@ -391,7 +391,7 @@ export function ChatPanel(p: Props) {
         {scad.length > 0 && (
           <div className="file-chips">
             {scad.map((f) => (
-              <span key={f.name} className="file-chip" title="OpenSCAD file: Jig gets its source and a render of it">
+              <span key={f.name} className="file-chip" title="OpenSCAD file: its source and a render of it are sent">
                 <Icon name="code" size={12} /> {f.name}
                 <button onClick={() => setScad(scad.filter((x) => x !== f))} aria-label={`Remove ${f.name}`}><Icon name="x" size={11} /></button>
               </span>
@@ -415,7 +415,7 @@ export function ChatPanel(p: Props) {
         {images.length > 0 && (
           <div className="attachments">
             {images.map((src, i) => (
-              <div key={i} className={`thumb ${svgShapes[src] ? 'svg' : ''}`} title={svgShapes[src] ? `${svgShapes[src].name}: Jig also gets its exact shapes` : undefined}>
+              <div key={i} className={`thumb ${svgShapes[src] ? 'svg' : ''}`} title={svgShapes[src] ? `${svgShapes[src].name}: its exact shapes are sent too` : undefined}>
                 <img src={src} alt={svgShapes[src] ? `Attached drawing ${svgShapes[src].name}` : `Attached photo ${i + 1}`} />
                 {svgShapes[src] && <span className="thumb-tag">SVG</span>}
                 <button onClick={() => setImages(images.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`}><Icon name="x" size={12} /></button>
@@ -428,7 +428,7 @@ export function ChatPanel(p: Props) {
           value={text}
           placeholder={p.hasModel ? 'Ask for changes, e.g. "make the spiral longer and add a bottle cap lifter"' : 'Describe the object… (paste or drop photos)'}
           onChange={(e) => setText(e.target.value)}
-          aria-label={p.hasModel ? 'Ask Jig for changes' : 'Describe the object'}
+          aria-label={p.hasModel ? 'Ask for changes' : 'Describe the object'}
           // Enter that confirms an input-method (IME) candidate is not a send.
           // Enter while listening only stops it (the text stays to be checked); the next Enter sends.
           onKeyDown={(e) => {
@@ -463,19 +463,19 @@ export function ChatPanel(p: Props) {
               onToggle={(key, on) => (key === 'web' ? p.onWebSearch(on) : key === 'ask' ? p.onAskFirst(on) : key === 'view' ? p.onSendView(on) : p.onSounds(on))}
               options={[
                 { key: 'web', label: 'Web search', line: 'Look up real product sizes', on: p.webSearch,
-                  title: p.webSearch ? 'Web search is on: Jig looks up exact dimensions of real products online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to let Jig search the web for exact dimensions of real products' },
+                  title: p.webSearch ? 'Web search is on: exact dimensions of real products are looked up online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to search the web for exact dimensions of real products' },
                 { key: 'ask', label: 'Ask first', line: 'A few questions when something is unclear', on: p.askFirst,
                   title: p.askFirst
-                    ? 'Ask first is on: when your request leaves an important choice open, Jig asks a few short questions (at most 5) before it builds; clear requests and small changes it just does. Click to have it pick defaults instead.'
-                    : 'Ask first is off: Jig never asks, it picks defaults and says which. Click to let it ask a few short questions first when something important is unclear.' },
+                    ? 'Ask first is on: when your request leaves an important choice open, you get a few short questions (at most 5) before the build; clear requests and small changes are just done. Click to have defaults picked instead.'
+                    : 'Ask first is off: no questions, defaults are picked and named. Click to get a few short questions first when something important is unclear.' },
                 ...(p.hasModel ? [{ key: 'view' as const, label: 'Send my view', line: 'Your 3D view with each change', on: p.sendView,
                   title: p.sendView
-                    ? 'Send my view is on: with each change you ask for, Jig gets a screenshot of your 3D view and a four-view render at your settings, so Jig sees what you mean by "this". Click to send only your words (Jig can still render the model itself).'
-                    : 'Send my view is off: Jig gets only your words (it can still render the model itself). Click to send a screenshot of your 3D view and a four-view render at your settings with each change, so Jig sees what you mean by "this".' }] : []),
-                { key: 'sounds', label: 'Sounds', line: 'A chime when Jig needs you', on: p.sounds,
+                    ? 'Send my view is on: each change you ask for also sends a screenshot of your 3D view and a four-view render at your settings, so "this" is clear. Click to send only your words (the model can still be rendered on its own).'
+                    : 'Send my view is off: only your words are sent (the model can still be rendered on its own). Click to send a screenshot of your 3D view and a four-view render at your settings with each change, so "this" is clear.' }] : []),
+                { key: 'sounds', label: 'Sounds', line: 'A chime when you are needed', on: p.sounds,
                   title: p.sounds
-                    ? 'Sounds are on: a chime when Jig needs you (questions to answer, concept pictures to approve, an error) and a softer one when a reply has finished. Click to turn them off.'
-                    : 'Sounds are off. Click for a chime when Jig needs you and when a reply has finished.' },
+                    ? 'Sounds are on: a chime when you are needed (questions to answer, concept pictures to approve, an error) and a softer one when a reply has finished. Click to turn them off.'
+                    : 'Sounds are off. Click for a chime when you are needed and when a reply has finished.' },
               ]}
             />
           </div>
@@ -484,7 +484,7 @@ export function ChatPanel(p: Props) {
             aria-label={listening === 'off' ? 'Dictate' : 'Stop dictating'}
             aria-pressed={listening !== 'off'}
             disabled={!p.dictation || listening === 'stopping'}
-            title={!p.dictation ? 'Dictation needs an ElevenLabs API key: set ELEVENLABS_API_KEY in .env and restart Jig'
+            title={!p.dictation ? 'Dictation needs an ElevenLabs API key: set ELEVENLABS_API_KEY in .env and restart prompt-to-part'
               : listening === 'off' ? 'Dictate (English or Romanian)' : 'Stop dictating (Enter or Esc); the text stays'}
             onClick={toggleListening}
           >
@@ -495,18 +495,18 @@ export function ChatPanel(p: Props) {
             ? <button className="icon-btn danger" onClick={p.onStop} title="Stop" aria-label="Stop"><Icon name="stop" /></button>
             : <button className="btn danger" onClick={p.onStop} title="Stop"><Icon name="stop" /> <span className="btn-label">Stop</span></button>)}
           {p.generating && hasDraft && (
-            <button className="icon-btn" onClick={() => void sendNow(true)} disabled={listening === 'starting'} title="Later: send when Jig has finished this reply" aria-label="Send later, when Jig has finished">
+            <button className="icon-btn" onClick={() => void sendNow(true)} disabled={listening === 'starting'} title="Later: send when this reply has finished" aria-label="Send later, when this reply has finished">
               <Icon name="clock" />
             </button>
           )}
           {(!p.generating || hasDraft) && (
             <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || importing || listening === 'starting' || (!text.trim() && !images.length && !scad.length && !readyMeshes.length)}
-              title={importing ? 'Importing the 3D model…' : p.generating ? 'Send now: Jig reads it at its next step, while it works' : p.hasModel ? 'Update' : 'Design'}>
+              title={importing ? 'Importing the 3D model…' : p.generating ? 'Send now: read at the next step, while the reply goes on' : p.hasModel ? 'Update' : 'Design'}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
           )}
         </div>
-        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">Jig is working on this design in another tab</span></div>}
+        {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">This design is being worked on in another tab</span></div>}
         {p.claudeProblem && <div className="composer-opts"><span className="bad-note" role="alert">{p.claudeProblem}</span></div>}
         {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}
         {dictationError && listening === 'off' && <div className="composer-opts"><span className="bad-note" role="alert">{dictationError}</span> <button className="link" onClick={() => setDictationError(null)}>Dismiss</button></div>}

@@ -88,7 +88,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     let x = 0, art: any = null;
     frames.length = 0;
     for (const u of units) {
-      // Hand edits first, in the drawing's unit height (so Jig's clean-up treats them like the rest).
+      // Hand edits first, in the drawing's unit height (so the clean-up treats them like the rest).
       let cs = u.cs;
       const toUnit = ([px_, py_]: Pt): Pt => [(px_ - u.bx) / u.h, (py_ - u.by) / u.h];
       for (const st of u.edits) {
@@ -225,7 +225,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     return shape;
   };
 
-  // What changes the piece's shape through Jig's clean-up (paint and the lines' filaments don't: a
+  // What changes the piece's shape through the clean-up (paint and the lines' filaments don't: a
   // new colour isn't traced again; nor do fills, added after it).
   const shapeEdits = units.map((u) => u.edits.filter((st) => st.mode !== 'paint' && st.mode !== 'fill').map(({ filament: _f, ...st }) => st));
   // Erasing and filling by hand, in stroke order, after the clean-up (mm): a clear later takes back
@@ -242,7 +242,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
   const editCount = units.reduce((n, u) => n + u.edits.filter((st) => st.mode !== 'restore').length, 0);
   // Colours: each filament's area on the piece (mm), the later stroke winning where two cross; a
   // stroke in the piece's own filament (none, or its colour) takes it back, as a clear does. A drawn line colours
-  // all of itself, also where Jig made it thicker; a fill what it added (`filled`, once the piece is
+  // all of itself, also where the app made it thicker; a fill what it added (`filled`, once the piece is
   // made), so the lines it filled up to keep their own colour (`fill`: the area's filled part).
   const baseColour = color.toLowerCase();
   const areas: { filament: PartFilament; area: any; fill?: any }[] = [];
@@ -430,9 +430,9 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
       cache.set(key, res);
       if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
     }
-    // Lines kept as drawn: the drawing itself, exactly, with what Jig drew (thickened lines, bridges) added as exact shapes.
+    // Lines kept as drawn: the drawing itself, exactly, with what the app drew (thickened lines, bridges) added as exact shapes.
     let lineCs = lines === 'keep' ? (res.paths.length ? art.add(new C(strokeOutlines(res.paths, lineWidth / 2, segs / 4), 'NonZero')) : art) : new C(res.loops, 'EvenOdd');
-    // Erasing by hand has the last word: also over what Jig drew there (a join, a bridge); filling
+    // Erasing by hand has the last word: also over what the app drew there (a join, a bridge); filling
     // by hand adds to the piece as it is then.
     for (const op of handOps) if (op.st.mode === 'erase') erased = erased ? erased.add(op.cs) : op.cs;
     const hand = handEdits(C, lineCs, anchor, handOps);
@@ -445,7 +445,7 @@ export function buildLineArt(d: LineArtDeps, source: string | string[], opts: Li
     if (colours.length) { info.components = (anchor ? lineCs.add(anchor) : lineCs).decompose().length; info.paint = paint; }
     parts = [{ name: 'Line art', shape, color, lineArt: info, colours }];
   } else {
-    // Split into pieces: Jig's clean-up runs on each piece on its own, so each holds together by
+    // Split into pieces: the clean-up runs on each piece on its own, so each holds together by
     // itself; erasing and filling by hand are applied to each piece.
     for (const op of handOps) if (op.st.mode === 'erase') erased = erased ? erased.add(op.cs) : op.cs;
     const key = JSON.stringify([names.map((n) => d.fingerprint(n)), opts.colors ?? null, style, s, aw, gap, lineWidth, lines, fill, minIsland, pieceW, pieceH, barHeight, overhang, frameWidth, padding, opts.shape ?? '', joinEnds, shapeEdits, grown, d.quality, grid, hooks, opts.text ?? '', opts.clearance ?? null, d.join ?? opts.splitJoin ?? null, maxPiece()]);

@@ -1,11 +1,11 @@
 name: Idea
-description: Something Jig could do, or do better
+description: Something prompt-to-part could do, or do better
 labels: [idea]
 body:
   - type: textarea
     id: idea
     attributes:
-      label: What would you like Jig to do?
+      label: What would you like prompt-to-part to do?
     validations:
       required: true
   - type: textarea

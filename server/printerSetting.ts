@@ -16,7 +16,7 @@ export function activePrinter(setup: PrinterSetup | null, list: Printer[]): { pr
   const filaments = clampFilaments(setup?.filaments);
   const found = setup ? list.find((p) => p.id === setup.printerId) : list.find((p) => p.id === DEFAULT_PRINTER.id);
   const p = found ?? DEFAULT_PRINTER;
-  // The built-in A1 entry (no Bambu Studio) still names its Bambu presets, as Jig always did.
+  // The built-in A1 entry (no Bambu Studio) still names its Bambu presets, as the app always did.
   const presets = p.presets ?? (p.id === DEFAULT_PRINTER.id ? DEFAULT_PRINTER.presets : null);
   return { printer: { ...p, presets, filaments }, missing: !!setup && !found };
 }
@@ -35,7 +35,7 @@ async function writeSetup(s: PrinterSetup): Promise<void> {
   await writeAtomically(PRINTER_FILE, JSON.stringify(s));
 }
 
-/** Jig was used before printers could be chosen: it has designs or a Bambu Studio template. */
+/** The app was used before printers could be chosen: it has designs or a Bambu Studio template. */
 async function existingInstall(): Promise<boolean> {
   if (existsSync(path.join(DATA_DIR, 'bambu', 'template.json'))) return true;
   return (await readdir(path.join(DATA_DIR, 'designs')).catch(() => [])).length > 0;

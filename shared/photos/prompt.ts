@@ -52,7 +52,7 @@ function shopLine(shot: ShopShot, scene: string, size: Vec3, faceOn: boolean, re
   }
 }
 
-/** The idea's scene as Jig wrote it out, and where it puts the product; none for any other scene (or an idea that went in as written). */
+/** The idea's scene as it was written out, and where it puts the product; none for any other scene (or an idea that went in as written). */
 export function writtenIdea(b: PhotoRequest): { scene: string; place: ReturnType<typeof writtenPlace> } | null {
   const scene = b.scene === IDEA_SCENE ? b.sceneText?.trim() : undefined;
   return scene ? { scene, place: writtenPlace(scene) } : null;

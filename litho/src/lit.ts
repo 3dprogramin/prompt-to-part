@@ -1,4 +1,4 @@
-// The flat preview: the panel seen face on, lit from behind (Jig's simulateLithophane, the money
+// The flat preview: the panel seen face on, lit from behind (prompt-to-part's simulateLithophane, the money
 // shot) or with the light off (white PLA, where only the relief shows, lit from the room).
 import { lithoThickness, resolveLithoOptions, simulateLithophane, type LithophaneOptions } from '../../shared/lithophane';
 import { layerToneLuma, type LayerToneImage } from '../../shared/layertone';

@@ -12,12 +12,12 @@ export const MAX_STROKE_POINTS = 2000;
 /**
  * One brush stroke on a drawing: 'draw' adds a line `width` mm wide (default: the piece's
  * lineWidth), 'erase' removes everything within width / 2 of its path (default 3 mm) – also what
- * Jig drew there, so a join or bridge can be erased; 'paint' colours the lines under it
+ * The app drew there, so a join or bridge can be erased; 'paint' colours the lines under it
  * (default 3 mm wide) in `filament`, adding nothing; 'fill' (default FILL_WIDTH wide) is the
  * opposite of paint: it adds material only where the piece has none yet (inside an outline), in
  * `filament`, never over its lines. A drawn line is in `filament` too; without one, any of them is
  * the piece's own filament (paint puts it back). 'restore' (Clear edits here) takes back the strokes
- * before it under its brush: there the piece is as Jig made it again (lines drawn go, erased ones
+ * before it under its brush: there the piece is as the app made it again (lines drawn go, erased ones
  * come back, paint and fills go). Points are in the drawing's own units (1 = its height, centred,
  * y up), so an edit stays put when the piece is resized. `shape` 'square': the brush is a square
  * `width` wide (upright in the drawing) rather than round; a drawn line is always round.
@@ -64,7 +64,7 @@ export function parseLineArtEdits(raw: unknown): LineArtEdits {
 
 /**
  * The colours of a drawing's hand edits, to keep when the edits are drawn into a new picture of it
- * (Jig changing part of the drawing): its paint strokes, and its lines as paint along them (a line
+ * (the app changing part of the drawing): its paint strokes, and its lines as paint along them (a line
  * in the piece's own filament takes the colour back there, as it did). Fills aren't in the picture
  * (drawingPicture): they stay as they are and fill the new drawing where it is empty. A clear stays
  * too, so the colours before it stay off there.

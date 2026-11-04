@@ -3,8 +3,8 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
 import { IDEAS_SYSTEM_PROMPT } from '../shared/ideas';
 
-/** Asks Jig for ideas with this prompt and returns its raw reply (parseIdeas reads it). */
-export const IDEAS_TIMEOUT_MESSAGE = 'Jig took too long to come up with ideas';
+/** Asks the model for ideas with this prompt and returns its raw reply (parseIdeas reads it). */
+export const IDEAS_TIMEOUT_MESSAGE = 'Coming up with ideas took too long';
 
 /** `timeoutMs` and `run` (the SDK's query) can be swapped in tests. */
 export async function writeIdeas(prompt: string, { timeoutMs = 30_000, run = query }: { timeoutMs?: number; run?: typeof query } = {}): Promise<string> {
@@ -28,7 +28,7 @@ export async function writeIdeas(prompt: string, { timeoutMs = 30_000, run = que
       },
     })) {
       if (msg.type === 'result') {
-        if (msg.subtype !== 'success') throw new Error(`Jig couldn't come up with ideas (${msg.subtype})`);
+        if (msg.subtype !== 'success') throw new Error(`Couldn't come up with ideas (${msg.subtype})`);
         text = msg.result;
       }
     }

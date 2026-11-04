@@ -82,13 +82,13 @@ test('picking: a click picks or drops one, a shift-click a range from the last o
   assert.deepEqual([...pickIds(['a', 'b'], new Set(['x', 'a']), 'b', null, false)].sort(), ['a', 'b']);
 });
 
-test('a bulk delete asks once, naming the designs, and leaves the ones Jig is working on', () => {
+test('a bulk delete asks once, naming the designs, and leaves the ones still being worked on', () => {
   const plan = deletePlan(list.slice(0, 3), (id) => id === 'b');
   assert.deepEqual(plan.remove.map((x) => x.id), ['a', 'c']);
   assert.deepEqual(plan.busy.map((x) => x.id), ['b']);
   assert.match(plan.question!, /^Delete these 2 designs permanently/);
   assert.match(plan.question!, /- Brad de Crăciun\n- Another test/);
-  assert.match(plan.question!, /Jig is working on it: "test cube"/);
+  assert.match(plan.question!, /still being worked on: "test cube"/);
   assert.equal(deletePlan(list.slice(1, 2), () => true).question, null);
   const many = deletePlan(Array.from({ length: 15 }, (_, i) => d(`id${i}`, `n${i}`, i)), () => false);
   assert.match(many.question!, /- n11\nand 3 more$/);

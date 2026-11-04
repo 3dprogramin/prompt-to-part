@@ -1,5 +1,5 @@
 // OpenSCAD files attached in the chat: Claude gets their source, their Customizer parameters and
-// pictures of what OpenSCAD makes of them (server/openscad.ts), and rebuilds them as a Jig script.
+// pictures of what OpenSCAD makes of them (server/openscad.ts), and rebuilds them as a model script.
 import type { Box3, PartMesh, ParamValues, Vec3 } from './types';
 import { cross, sub } from './vec3';
 

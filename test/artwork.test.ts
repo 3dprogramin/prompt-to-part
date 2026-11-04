@@ -36,7 +36,7 @@ test('artwork tracing without colours finds the tones itself (white as backgroun
   assert.ok(r.drawing.shapes[0].color! < r.drawing.shapes[1].color!, 'dark tone first');
 });
 
-test('artwork prompt: the subject inside Jig\'s print rules', () => {
+test('artwork prompt: the subject inside the print rules', () => {
   const p = artworkPrompt({ subject: 'a fox sitting in the snow', colors: ['#111111', '#e05a00', '#ffffff'] });
   assert.match(p, /Subject: a fox sitting in the snow/);
   assert.match(p, /exactly these 3 flat colours and no others: #111111, #e05a00, #ffffff/);

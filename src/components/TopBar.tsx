@@ -93,9 +93,9 @@ export function TopBar(p: Props) {
     <header className="topbar">
       {/* Real links (logo and New), so they can be opened in a new tab. */}
       <a className="brand" href="/" title={newTitle} onClick={newHere}>
-        <span className="logo"><JigMark /></span> <span className="brand-name">Jig</span>
+        <span className="logo"><JigMark /></span> <span className="brand-name">prompt-to-part</span>
       </a>
-      <span className="app-version" title="Jig version">v{import.meta.env.VITE_APP_VERSION}</span>
+      <span className="app-version" title="prompt-to-part version">v{import.meta.env.VITE_APP_VERSION}</span>
       {/* As wide as the name (CSS field-sizing, or this width where that isn't supported), so the
           version menu sits right after it. */}
       <KindIcon kind={p.kind} size={14} />
@@ -119,7 +119,7 @@ export function TopBar(p: Props) {
       )}
       {p.tabs.length > 1 && !p.compact ? <DesignTabs tabs={p.tabs} current={p.design.id} onOpen={p.onOpen} onClose={p.onCloseTab} /> : <span className="spacer" />}
       {p.tabs.filter((t) => !t.running).length > 1 && !p.compact && (
-        <button className="btn ghost close-all" onClick={p.onCloseAllTabs} title="Close all tabs (designs Jig is working on stay open; nothing is deleted)">
+        <button className="btn ghost close-all" onClick={p.onCloseAllTabs} title="Close all tabs (designs being worked on stay open; nothing is deleted)">
           <Icon name="x" size={13} /> Close all
         </button>
       )}
@@ -142,7 +142,7 @@ export function TopBar(p: Props) {
               <a className="menu-action" href="/api/backup" download title="Download every design (with its images and meshes) and your cost settings and filaments as one zip">
                 <Icon name="download" size={13} /> Export all designs
               </a>
-              <button className="menu-action" disabled={importing} onClick={() => backupInput.current?.click()} title="Add the designs from a Jig backup zip (designs already here are kept as they are)">
+              <button className="menu-action" disabled={importing} onClick={() => backupInput.current?.click()} title="Add the designs from a prompt-to-part backup zip (designs already here are kept as they are)">
                 {importing ? <span className="spinner" /> : <Icon name="restore" size={13} />} {importing ? 'Importing…' : 'Import designs…'}
               </button>
               <input ref={backupInput} type="file" accept=".zip,application/zip" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void importBackup(f); }} />
@@ -161,7 +161,7 @@ const VIA_LABEL: Record<Connection['via'], string> = {
 };
 
 /**
- * What Jig runs Claude on and whether it answers: checked on load,
+ * What the app runs Claude on and whether it answers: checked on load,
  * every 5 minutes, on click and when a generation ends.
  */
 function ConnectionChip({ generating }: { generating: number }) {
@@ -169,7 +169,7 @@ function ConnectionChip({ generating }: { generating: number }) {
   const [checking, setChecking] = useState(true);
   const check = (fresh: boolean) => {
     setChecking(true);
-    api.connection(fresh).then(setConn, (e: Error) => setConn({ via: 'none', ok: false, detail: `Jig's server didn't answer: ${e.message}` })).finally(() => setChecking(false));
+    api.connection(fresh).then(setConn, (e: Error) => setConn({ via: 'none', ok: false, detail: `The prompt-to-part server didn't answer: ${e.message}` })).finally(() => setChecking(false));
   };
   useEffect(() => {
     check(false);

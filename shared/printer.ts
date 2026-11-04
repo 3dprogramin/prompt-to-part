@@ -23,7 +23,7 @@ export interface Printer {
   origin: [number, number];
   height: number;
   structure: Structure;
-  /** Nozzles (2 on the H2D, H2D Pro, H2C and X2D): Jig's Bambu Studio project supports one so far. */
+  /** Nozzles (2 on the H2D, H2D Pro, H2C and X2D): the app's Bambu Studio project supports one so far. */
   extruders: number;
   /** Bambu Studio presets the project template is built from; null for a built-in fallback entry. */
   presets: { machine: string; process: string; filament: string } | null;
@@ -111,7 +111,7 @@ export function loadsAtOnce(p: ActivePrinter = current): string {
   return `the ${p.name} loads ${p.filaments} filament${p.filaments === 1 ? '' : 's'} at once`;
 }
 
-/** Jig can make the printer's Bambu Studio project (its presets known, one nozzle; Bambu Studio fails on two). */
+/** The app can make the printer's Bambu Studio project (its presets known, one nozzle; Bambu Studio fails on two). */
 export function bambuProjectSupported(p: Printer = current): boolean {
   return !!p.presets && p.extruders === 1;
 }

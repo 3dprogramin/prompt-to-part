@@ -51,7 +51,7 @@ const del = (id: string) => fetch(`${A}/api/designs/${id}`, { method: 'DELETE', 
 const postImage = (id: string, data: string) => fetch(`${A}/api/designs/${id}/images`, { method: 'POST', headers: W, body: JSON.stringify({ mediaType: 'image/png', data }) });
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
 
-test('only Jig\'s own pages get in', async () => {
+test('only the app\'s own pages get in', async () => {
   assert.equal(await statusWithHost('/api/designs', `evil.com:${port}`), 421);
   // The names JIG_HOSTS adds (a phone on the network reaching this computer's address).
   assert.equal(await statusWithHost('/api/designs', `192.168.1.20:${port}`), 200);
@@ -159,8 +159,8 @@ test('a server that stops ends running replies with a note, and a reply in progr
   const { endGenerations } = await import('../server/app');
   const r = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000012', prompt: 'a cube' }) });
   assert.equal(r.status, 200);
-  await endGenerations('The Jig server is restarting.');
-  assert.match(await r.text(), /data: \{"type":"error","message":"The Jig server is restarting\."\}/);
+  await endGenerations('The server is restarting.');
+  assert.match(await r.text(), /data: \{"type":"error","message":"The server is restarting\."\}/);
   // A new one starts: the first has ended.
   const again = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: 'test-api-00000012', prompt: 'a cube' }) });
   assert.equal(again.status, 200);
@@ -242,7 +242,7 @@ test('a reply refused at the usage limit says so', async () => {
   assert.deepEqual(events, [{ type: 'error', message: 'Claude usage limit reached for now. (Claude Code returned an error result: You\'ve hit your limit)' }]);
 });
 
-test('dictation tokens need the ElevenLabs key, and only Jig may ask', { skip: !!process.env.ELEVENLABS_API_KEY && 'ELEVENLABS_API_KEY is set' }, async () => {
+test('dictation tokens need the ElevenLabs key, and only the app may ask', { skip: !!process.env.ELEVENLABS_API_KEY && 'ELEVENLABS_API_KEY is set' }, async () => {
   assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).speech, false);
   const r = await fetch(`${A}/api/speech/token`, { method: 'POST', headers: W });
   assert.equal(r.status, 503);

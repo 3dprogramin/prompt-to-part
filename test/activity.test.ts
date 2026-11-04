@@ -34,7 +34,7 @@ test('a transcript over the limit keeps its newest entries', () => {
   assert.deepEqual(trimActivity(items, 1000), items);
 });
 
-test('a reply saved in progress shows as interrupted unless Jig is still working on it', () => {
+test('a reply saved in progress shows as interrupted unless it is still being worked on', () => {
   const m: ChatMessage = { id: 'a', role: 'assistant', text: '', createdAt: 1, pending: true };
   assert.equal(wasInterrupted(m, false), true);
   assert.equal(wasInterrupted(m, true), false);

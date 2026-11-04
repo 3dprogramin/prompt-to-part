@@ -18,7 +18,7 @@ interface Props {
   choice: Choice; setChoice: (patch: Partial<Choice>) => void;
   suggested: string;
   preset: PhotoScene | undefined;
-  /** Your idea is picked: written out by Jig (`idea`) or as written (`custom`). */
+  /** Your idea is picked: written out in detail (`idea`) or as written (`custom`). */
   own: boolean; idea: boolean; custom: boolean;
   improve: boolean; setImprove: Dispatch<SetStateAction<boolean>>;
 }
@@ -37,7 +37,7 @@ export function ScenePicker({ id, allScenes, setAllScenes, sceneQuery, setSceneQ
         </div>
       )}
       <div className="ph-scenes" role="radiogroup" aria-labelledby={`${id}-scene`}>
-        {[...shownScenes, { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe the scene yourself: Jig writes a few words out in detail, or (Improve your idea off) it goes to the image model as you write it' }].map((s) => (
+        {[...shownScenes, { id: IDEA_SCENE, label: 'Your idea…', icon: 'spark', hint: 'Describe the scene yourself: a few words are written out in detail, or (Improve your idea off) it goes to the image model as you write it' }].map((s) => (
           <button key={s.id} role="radio" aria-checked={s.id === IDEA_SCENE ? own : choice.scene === s.id} className={(s.id === IDEA_SCENE ? own : choice.scene === s.id) ? 'on' : ''} onClick={() => pickScene(s.id)}
             title={'hint' in s ? s.hint : s.id === suggested ? `${s.label}: suggested for this design` : s.label}>
             <Icon name={s.icon} size={18} />
@@ -69,7 +69,7 @@ export function ScenePicker({ id, allScenes, setAllScenes, sceneQuery, setSceneQ
         aria-label={own ? 'Your idea for the scene' : 'Extra details (optional)'}
         placeholder={custom ? 'Describe the scene, e.g. "on a bedside table next to a book, warm evening lamp light"' : idea ? 'A few words, e.g. "cosy cabin, snowy evening"' : 'Extra details (optional), e.g. "autumn leaves around it", "evening light"'} />
       {own && (
-        <label className="switch ph-improve" title="On: Jig writes your few words out into a detailed scene (shown on the photo). Off: the image model gets your text exactly as you wrote it.">
+        <label className="switch ph-improve" title="On: your few words are written out into a detailed scene (shown on the photo). Off: the image model gets your text exactly as you wrote it.">
           <input type="checkbox" checked={improve} onChange={(e) => setImprove(e.target.checked)} />
           <span className="track" />
           <span className="switch-label">Improve your idea</span>

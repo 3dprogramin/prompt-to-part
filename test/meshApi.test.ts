@@ -18,7 +18,7 @@ const { createMeshyMock } = await import('../server/meshyMock');
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as AddressInfo).port;
 server.on('request', createApp({ port }));
-// The mock's clock moves only when Jig waits between polls (50 ms a wait, at once): quick, and
+// The mock's clock moves only when the app waits between polls (50 ms a wait, at once): quick, and
 // every status is seen however busy the machine is.
 let clock = Date.now();
 const sleep = async (ms: number) => { clock += Math.min(ms, 50); };
@@ -95,7 +95,7 @@ test('a design started from a version gets its own copies; deleting a design del
   assert.equal(bad.status, 400);
 });
 
-test('generate_3d: Meshy (the mock) makes a model, Jig repairs and stores it, Claude gets a render', async () => {
+test('generate_3d: Meshy (the mock) makes a model, the app repairs and stores it, Claude gets a render', async () => {
   const events: AgentEvent[] = [];
   const base: Record<string, string> = {};
   const client = { key: 'msy_test', baseUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`, sleep };
@@ -132,7 +132,7 @@ test('generate_3d: Meshy (the mock) makes a model, Jig repairs and stores it, Cl
 type Tools = Record<string, { handler: (a: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[]; isError?: boolean }> }>;
 const toolsOf = (cad: { instance: unknown }) => (cad.instance as { _registeredTools: Tools })._registeredTools;
 const mockBase = () => `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`;
-/** A Meshy client on the mock that records what Jig creates (and fails a request as if offline). */
+/** A Meshy client on the mock that records what the app creates (and fails a request as if offline). */
 function recordingClient() {
   const created: { path: string; body: Record<string, unknown> }[] = [];
   const client = {
@@ -308,7 +308,7 @@ test('GET /api/meshy/balance: Meshy\'s balance, cached for a minute, asked again
     const get = async () => (await (await fetch(`${A}/api/meshy/balance`)).json()) as { balance: number; monthly_credits: number; permanent_credits: number; monthly_resets_at: number };
     const first = await get();
     assert.ok(Number.isFinite(first.balance) && Number.isFinite(first.monthly_credits) && Number.isFinite(first.permanent_credits) && first.monthly_resets_at > Date.now(), JSON.stringify(first));
-    // Spent elsewhere: the cached answer stays for a minute, unless Jig spent it (forgetBalance).
+    // Spent elsewhere: the cached answer stays for a minute, unless the app spent it (forgetBalance).
     await fetch(`${mockBase()}/v2/text-to-3d`, { method: 'POST', headers: { Authorization: 'Bearer msy_x', 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'preview', prompt: 'a cat' }) });
     assert.equal((await get()).balance, first.balance);
     forgetBalance();

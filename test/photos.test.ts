@@ -170,10 +170,10 @@ test('the photo prompt uses the chosen sub-scene; a random one as written, or in
   assert.doesNotMatch(sceneWriterPrompt('wall', () => 0), /The product is small/);
   assert.match(photoPrompt(request({ scene: 'wall', product: { name: 'Castle', size: [250, 186.6, 2.2], faceOn: true } })), /shows only about 65 cm of wall from side to side, so it fills about 38% of the width/);
   assert.equal(parseWrittenScene('  "on a slate shelf,  dim light."\n'), 'on a slate shelf, dim light');
-  assert.throws(() => parseWrittenScene(' "" '), /did not write/);
+  assert.throws(() => parseWrittenScene(' "" '), /No scene came back/);
 });
 
-test('your idea: Jig writes it out for the product (a wall piece on a plain wall), the photo keeps it; custom stays as written', () => {
+test('your idea: it is written out for the product (a wall piece on a plain wall), the photo keeps it; custom stays as written', () => {
   // What Claude is asked for: the idea, the product, the presets' style, where it goes and its size.
   const wallAsk = ideaWriterPrompt({ idea: 'cosy cabin, snowy evening', suggested: 'wall', product: 'Castle LayerTone' }, [250, 186.6, 2.2]);
   assert.match(wallAsk, /The idea: "cosy cabin, snowy evening"\.\nThe product: Castle LayerTone\./);
@@ -210,7 +210,7 @@ test('your idea: Jig writes it out for the product (a wall piece on a plain wall
   assert.match(photoPrompt(request({ scene: 'custom', notes: 'on a boat', sceneText: 'ignored' })), /SCENE: on a boat\./, 'custom goes in as written');
   // Checked like a custom scene: the idea is needed, a scene written for it is kept.
   assert.equal(photoProblem(request({ scene: 'idea', notes: 'cosy cabin', sceneText: written })), null);
-  assert.equal(photoProblem(request({ scene: 'idea', notes: 'cosy cabin' })), null, 'Jig could not write it out: the idea as written');
+  assert.equal(photoProblem(request({ scene: 'idea', notes: 'cosy cabin' })), null, 'could not write it out: the idea as written');
   assert.match(photoProblem(request({ scene: 'idea' }))!, /your idea/);
   assert.match(photoProblem(request({ scene: 'idea', notes: 'x'.repeat(601) }))!, /notes/);
   assert.match(photoProblem(request({ scene: 'idea', notes: 'cosy cabin', variant: 2 }))!, /variant/);

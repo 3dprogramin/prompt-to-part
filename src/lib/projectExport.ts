@@ -144,8 +144,8 @@ export async function exportProject(src: ProjectSource, target: ProjectTarget, o
     return { images: [], meshes: [] };
   });
   const pictures = parseLayerToneImages(design.values[LAYERTONE_IMAGES_KEY]);
-  if (!src.blender.ok) notes.push(`No \`.blend\` file: ${src.blender.why ?? 'Blender is not installed on the computer Jig runs on'}.`);
-  if (!src.bambu) notes.push('The 3MF has no print settings: Bambu Studio is not installed on the computer Jig runs on.');
+  if (!src.blender.ok) notes.push(`No \`.blend\` file: ${src.blender.why ?? 'Blender is not installed on the computer prompt-to-part runs on'}.`);
+  if (!src.bambu) notes.push('The 3MF has no print settings: Bambu Studio is not installed on the computer prompt-to-part runs on.');
   const plan = planProject({ base: src.base, blend: src.blender.ok, images: stored.images, meshes: stored.meshes, pictures: Object.keys(pictures) });
 
   const { name, sink } = target.kind === 'folder' ? await folderSink(target.dir, want) : { name: want, sink: zipSink(want, download) };

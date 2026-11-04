@@ -1,14 +1,14 @@
-// "Ask first": the questions Jig asks before it builds (ask_questions), shown as a card of clickable
+// "Ask first": the questions asked before the design is built (ask_questions), shown as a card of clickable
 // options under its reply, and the user's answers sent back as an ordinary message.
 
-/** One question of Jig's: its options, the one Jig would pick (`pick`), and whether several may be chosen. */
+/** One question: its options, the suggested one (`pick`), and whether several may be chosen. */
 export interface ChatQuestion {
   question: string;
   options: string[];
-  /** Index into `options` of Jig's own choice: preselected on the card. */
+  /** Index into `options` of the suggested option: preselected on the card. */
   pick: number;
   multi?: boolean;
-  /** Why Jig would pick it, very short. */
+  /** Why it is suggested, very short. */
   why?: string;
 }
 

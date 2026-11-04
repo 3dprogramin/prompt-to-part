@@ -148,7 +148,7 @@ export function DesignsMenu(p: Props) {
               <button className="icon-btn menu-star on" title="Star the picked designs" aria-label="Star the picked designs" onClick={() => p.onStar(ids, true)}><Icon name="star" size={13} /></button>
               <button className="icon-btn menu-star" title="Unstar the picked designs" aria-label="Unstar the picked designs" onClick={() => p.onStar(ids, false)}><Icon name="star" size={13} /></button>
               <button className={`icon-btn ${bulkTags ? 'on' : ''}`} title="Tag the picked designs" aria-label="Tag the picked designs" aria-expanded={bulkTags} onClick={() => setBulkTags(!bulkTags)}><Icon name="tag" size={13} /></button>
-              <button className="btn danger small-btn" disabled={deleting} onClick={() => void deleteMany()} title="Delete the picked designs (asks once; designs Jig is working on are left alone)">
+              <button className="btn danger small-btn" disabled={deleting} onClick={() => void deleteMany()} title="Delete the picked designs (asks once; designs being worked on are left alone)">
                 {deleting ? <span className="spinner" /> : <Icon name="trash" size={12} />} {deleting ? 'Deleting…' : `Delete ${pickedShown.length}`}
               </button>
               <button className="icon-btn" title="Pick none" aria-label="Pick none" onClick={() => pickAll(false)}><Icon name="x" size={12} /></button>

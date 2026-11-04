@@ -73,7 +73,7 @@ export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
         <div
           key={t.id}
           className={`dtab ${t.id === current ? 'on' : ''} ${t.unseen ? 'unseen' : ''}`}
-          title={`${t.name}${t.running ? ' · Jig is working on it' : t.unseen ? ' · finished, not viewed yet' : ''}`}
+          title={`${t.name}${t.running ? ' · being worked on' : t.unseen ? ' · finished, not viewed yet' : ''}`}
           onMouseDown={(e) => { if (e.button === 1 && !t.running) { e.preventDefault(); onClose(t.id); } }}
         >
           <button className="dtab-open" onClick={() => onOpen(t.id)}>
@@ -91,7 +91,7 @@ export function DesignTabs({ tabs, current, onOpen, onClose }: Props) {
       {hidden.length > 0 && (
         <div className="menu-wrap dtab-more-wrap" ref={moreWrap}>
           <button className={`dtab-more ${more ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={more} onClick={() => setMore(!more)}
-            title={`${hidden.length} more open ${hidden.length === 1 ? 'design' : 'designs'}${hidden.some((t) => t.running) ? ' · Jig is working on one' : hidden.some((t) => t.unseen) ? ' · one finished, not viewed yet' : ''}`}>
+            title={`${hidden.length} more open ${hidden.length === 1 ? 'design' : 'designs'}${hidden.some((t) => t.running) ? ' · one is being worked on' : hidden.some((t) => t.unseen) ? ' · one finished, not viewed yet' : ''}`}>
             {hidden.some((t) => t.running) ? <span className="spinner" /> : hidden.some((t) => t.unseen) ? <span className="dtab-dot" /> : null}
             +{hidden.length} <Icon name="chevron" size={11} />
           </button>

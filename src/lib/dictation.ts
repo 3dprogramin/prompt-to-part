@@ -1,6 +1,6 @@
 // Dictation: the microphone streamed to ElevenLabs' realtime speech-to-text (Scribe v2 Realtime),
 // which sends the words back as they are spoken, in the languages set on the server (English with
-// Romanian, by default in .env.sample). Jig's server hands out a single-use token, so the API key
+// Romanian, by default in .env.sample). The server hands out a single-use token, so the API key
 // never reaches this page.
 import { request } from './api';
 import type { SpeechToken } from '../../shared/api';
@@ -29,7 +29,7 @@ export interface Dictation {
  */
 export async function startDictation(onText: (text: string) => void, onError: (message: string) => void): Promise<Dictation> {
   // Browsers offer the microphone to secure pages only (https, localhost), not to plain http on a network address.
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('The browser allows the microphone only on a secure page: open Jig at localhost (or over https) to dictate.');
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('The browser allows the microphone only on a secure page: open prompt-to-part at localhost (or over https) to dictate.');
   const { token, language, secondaryLanguages } = (await (await request('/api/speech/token', { method: 'POST' })).json()) as SpeechToken;
   let stream: MediaStream;
   try {

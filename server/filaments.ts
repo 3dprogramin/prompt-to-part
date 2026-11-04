@@ -18,16 +18,16 @@ Answer with ONLY a JSON object, no other text:
 /** Parse Claude's answer for the filament asked for: the first JSON object in it, checked. */
 export function parseLookup(text: string, q: FilamentQuery): FilamentLookup {
   const m = /\{[\s\S]*\}/.exec(text);
-  if (!m) throw new Error('Jig did not find this filament');
+  if (!m) throw new Error('This filament was not found');
   const o = JSON.parse(m[0]) as Record<string, unknown>;
   const color = String(o.color ?? '').trim().toLowerCase();
   const td = Number(o.td);
   const source = String(o.source ?? '').trim();
   const match = o.match === 'exact' || o.match === 'similar' ? o.match : 'estimate';
-  if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Jig did not find the filament\'s colour');
-  if (!Number.isFinite(td) || td < 0.1 || td > 20) throw new Error('Jig did not find a usable TD for this filament');
+  if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('The filament\'s colour was not found');
+  if (!Number.isFinite(td) || td < 0.1 || td > 20) throw new Error('No usable TD was found for this filament');
   // A value read on the web names its page; only an estimate may come without one.
-  if (match !== 'estimate' && !publicUrl(source)) throw new Error('Jig did not say where the TD comes from');
+  if (match !== 'estimate' && !publicUrl(source)) throw new Error('The answer did not say where the TD comes from');
   const text200 = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : undefined);
   const note = text200(o.note);
   return {
@@ -37,11 +37,11 @@ export function parseLookup(text: string, q: FilamentQuery): FilamentLookup {
       name: text200(o.name) ?? q.name,
       color,
       td: Math.round(td * 10) / 10,
-      source: publicUrl(source) ? source.slice(0, 500) : 'estimate by Jig',
+      source: publicUrl(source) ? source.slice(0, 500) : 'AI estimate',
     },
     // A TD Claude found on the web is not checked like the library's, so it is never 'listed'.
     confidence: match === 'estimate' ? 'estimate' : 'similar',
-    note: match === 'exact' ? `Found on the web, not in Jig's library${note ? `: ${note}` : '.'}` : note,
+    note: match === 'exact' ? `Found on the web, not in the built-in library${note ? `: ${note}` : '.'}` : note,
   };
 }
 
@@ -60,7 +60,7 @@ async function askClaude(q: FilamentQuery): Promise<string> {
         maxTurns: 10,
         settingSources: [],
         permissionMode: 'default',
-        // Pages Claude reads could ask it to fetch local addresses (Jig's own API, a router): only
+        // Pages Claude reads could ask it to fetch local addresses (the app's own API, a router): only
         // public pages, as in a generation (toolPolicy).
         canUseTool: async (name, input) => {
           if (name === 'WebSearch' || (name === 'WebFetch' && await publicPage(input.url))) return { behavior: 'allow', updatedInput: input };
@@ -72,7 +72,7 @@ async function askClaude(q: FilamentQuery): Promise<string> {
       },
     })) {
       if (msg.type === 'result') {
-        if (msg.subtype !== 'success') throw new Error(`Jig couldn't look up this filament (${msg.subtype})`);
+        if (msg.subtype !== 'success') throw new Error(`Couldn't look up this filament (${msg.subtype})`);
         text = msg.result;
       }
     }
@@ -82,7 +82,7 @@ async function askClaude(q: FilamentQuery): Promise<string> {
   }
 }
 
-// Claude's answers by brand and name, kept while Jig runs (a lookup costs a web search or several).
+// Claude's answers by brand and name, kept while the app runs (a lookup costs a web search or several).
 // The promise is stored, so asking twice at once searches once; a failure is forgotten.
 const cache = new Map<string, Promise<FilamentLookup>>();
 const MAX_CACHED = 200;
