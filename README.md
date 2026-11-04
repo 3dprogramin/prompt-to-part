@@ -41,7 +41,7 @@ Open http://localhost:8787 and describe what you want to print. Your designs liv
 
 `docker compose down -v` also deletes the volumes, and with them every design: back them up first (Designs → Export all designs). More in [Docker](#docker).
 
-Without Docker: Node 22.12+ and pnpm (`npm install -g pnpm`), then `pnpm install && pnpm build && pnpm start` (see [Run](#run)). That's fine for development, but for everyday use prefer Docker.
+Without Docker: Node 22.12+ and pnpm (`npm install -g pnpm`), then `pnpm install && pnpm build && pnpm start` (see [Run without Docker](#run-without-docker)). That's fine for development, but for everyday use prefer Docker.
 
 ### Why Docker
 
@@ -75,35 +75,9 @@ prompt-to-part itself is free. You pay the AI services you use, with your own ke
 
 So most designs cost $0.15 to $0.40, and one that has to fit a real product, with web research, closer to $0.90. Claude Sonnet 5.5 (the model menu under the chat) costs about half: $0.07 for the coaster, $0.40 for the phone stand. Pictures are drawn by an image model on OpenRouter; a Meshy figure is 25 credits, 35 in colour.
 
-## Run
-
-```sh
-pnpm install
-pnpm dev          # http://localhost:5173  (API on :8787)
-pnpm dev:watch    # same, but the API server restarts on code changes (kills running generations)
-# or
-pnpm build && pnpm start   # single server on http://127.0.0.1:8787
-pnpm test         # unit and API tests (about 20 s)
-pnpm test:ui      # UI smoke test: builds, opens a design in headless Chromium (about 10 s; screenshots in PTP_UI_SHOTS)
-pnpm mock:meshy   # a stand-in for Meshy's API, for 3D figures without credits (see "3D figures with Meshy")
-pnpm typecheck
-```
-
-Or in Docker, which is safer for everyday use: see [Docker](#docker) and [Why Docker](#why-docker).
-
-Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`), [pnpm](https://pnpm.io) (the version in `package.json`'s `packageManager`; Node 26 comes without Corepack, so install it with `npm install -g pnpm`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `pnpm build` needs the dev dependencies (`pnpm install` installs them). `pnpm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
-
-Optional:
-- **Bambu Studio** (2.x) for Bambu project 3MF export, and for the printer list (every Bambu Lab printer and nozzle, and your own printer presets).
-- **Blender 4.1 or newer** for `.blend` export.
-
-Both are found on `PATH` and in their default install folders on macOS (`/Applications`) and Windows (`Program Files`). Otherwise set `BAMBU_STUDIO_PATH` / `BLENDER_PATH`. prompt-to-part is developed and tested on Linux.
-
-`pnpm dev` does not restart the API server when its code changes, because a restart kills every running generation. Restart it yourself once nothing is generating.
-
 ## Docker
 
-prompt-to-part also runs in Docker (with Compose v2), as a single container serving the app and its API (the production build, as `pnpm start` does).
+Docker (with Compose v2) is the recommended way to run prompt-to-part: a single container serves the app and its API (the production build, as `pnpm start` does), walled off from the rest of your computer (see [Why Docker](#why-docker)).
 
 ```sh
 cp .env.sample .env        # then fill it in (see below)
@@ -153,6 +127,32 @@ The Bambu template is rebuilt by the container's Bambu Studio when its version d
 **Blender (`.blend` export).** Not in the image by default, as it adds about 1 GB (a 380 MB download). To include it, set `PTP_WITH_BLENDER=1` in `.env` and run `docker compose up -d --build`. The build downloads a pinned official Blender release (5.2 LTS) from blender.org and checks it against its SHA-256; the app runs it headless. Only `linux/amd64`. To use another release (4.1 or newer), pass the build arguments `BLENDER_URL` and `BLENDER_SHA256` (see the `Dockerfile`).
 
 The container runs as a non-root user with a read-only file system (only the volumes and in-memory `/tmp` and home folder are writable), no Linux capabilities and a health check on `/api/capabilities`.
+
+## Run without Docker
+
+```sh
+pnpm install
+pnpm dev          # http://localhost:5173  (API on :8787)
+pnpm dev:watch    # same, but the API server restarts on code changes (kills running generations)
+# or
+pnpm build && pnpm start   # single server on http://127.0.0.1:8787
+pnpm test         # unit and API tests (about 20 s)
+pnpm test:ui      # UI smoke test: builds, opens a design in headless Chromium (about 10 s; screenshots in PTP_UI_SHOTS)
+pnpm mock:meshy   # a stand-in for Meshy's API, for 3D figures without credits (see "3D figures with Meshy")
+pnpm typecheck
+```
+
+This is meant for development. For everyday use prefer [Docker](#docker): without it the app and the programs it starts run as you, with access to your files (see [Why Docker](#why-docker)).
+
+Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`), [pnpm](https://pnpm.io) (the version in `package.json`'s `packageManager`; Node 26 comes without Corepack, so install it with `npm install -g pnpm`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `pnpm build` needs the dev dependencies (`pnpm install` installs them). `pnpm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
+
+Optional:
+- **Bambu Studio** (2.x) for Bambu project 3MF export, and for the printer list (every Bambu Lab printer and nozzle, and your own printer presets).
+- **Blender 4.1 or newer** for `.blend` export.
+
+Both are found on `PATH` and in their default install folders on macOS (`/Applications`) and Windows (`Program Files`). Otherwise set `BAMBU_STUDIO_PATH` / `BLENDER_PATH`. prompt-to-part is developed and tested on Linux.
+
+`pnpm dev` does not restart the API server when its code changes, because a restart kills every running generation. Restart it yourself once nothing is generating.
 
 ## How it works
 
