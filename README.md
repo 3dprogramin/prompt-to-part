@@ -14,6 +14,7 @@
 - **Checked before you print:** while it designs, it renders its model, looks at it and tries the sliders at their limits, and doesn't hand it over until those builds pass (or it explains why one can't). On every export it checks the mesh for holes, floating pieces, overhangs that need supports and walls too thin to print (see [Print settings and validation](docs/using.md#print-settings-and-validation)).
 - **Your printer:** any Bambu Lab printer and nozzle your Bambu Studio knows (A1, A1 mini, P1S, X1C, H2S…), or a printer preset you saved in Bambu Studio yourself. It asks on its first start and designs for it: what fits the bed, what the nozzle can print, how many filaments it loads at once.
 - **Ready to print:** a Bambu Studio project with the right print settings, print time, grams and cost from your own Bambu Studio, and photos of how the print will look before it exists.
+- **What to charge for it:** the Cost tab adds up the filament and electricity from your own prices, and *Suggest a price* proposes a selling price for the print, with a range and its reasoning, for the country you sell in (`PTP_COUNTRY`, `PTP_CURRENCY`). Slicing needs Bambu Studio (`PTP_WITH_BAMBU=1` in Docker); see [Cost](docs/using.md#cost).
 
 Every design stays editable: drag the sliders, type an exact size, or ask for a change in the chat.
 
