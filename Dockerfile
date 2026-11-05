@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# prompt-to-part: the built app and its API on one port (`pnpm start`). See "Docker" in the README.
+# prompt-to-part: the built app and its API on one port (`pnpm start`). See docs/running.md.
 #
 # Build arguments:
 #   WITH_BAMBU=1   adds Bambu Studio's command line (Cost tab slicing, 3MF print settings); about

@@ -94,7 +94,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       for (const n of await readdir(meshDir(id)).catch(() => [] as string[])) if (MESH_FILE.test(n)) files.push({ name: `designs/${id}/meshes/${n}`, file: path.join(meshDir(id), n), compress: false });
     }
     if (await zipSizeBound(files) > MAX_ZIP_BYTES) {
-      return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in the README).' });
+      return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in docs/running.md).' });
     }
     const d = new Date();
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

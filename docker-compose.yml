@@ -1,5 +1,5 @@
-# prompt-to-part in Docker: `docker compose up -d --build`, then open http://localhost:8787 (see "Docker" in the
-# README). Settings and secrets come from .env (copy .env.sample).
+# prompt-to-part in Docker: `docker compose up -d --build`, then open http://localhost:8787 (see docs/running.md).
+# Settings and secrets come from .env (copy .env.sample).
 #
 # prompt-to-part has no login by default: anyone who can reach its port can use your API keys. It is
 # therefore published on this computer only (127.0.0.1). PTP_BIND=0.0.0.0 in .env publishes it on
