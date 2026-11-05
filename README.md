@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/prompt-to-part-mark.svg">
+  <img src="docs/brand/prompt-to-part-mark-light-bg.svg" alt="prompt-to-part logo: a prompt sign and a block cursor made of three print layers" width="80" height="80">
+</picture>
+
 # prompt-to-part
 
 [![CI](https://github.com/3dprogramin/prompt-to-part/actions/workflows/ci.yml/badge.svg)](https://github.com/3dprogramin/prompt-to-part/actions/workflows/ci.yml) [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
