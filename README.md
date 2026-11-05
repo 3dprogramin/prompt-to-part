@@ -17,6 +17,10 @@
 
 Every design stays editable: drag the sliders, type an exact size, or ask for a change in the chat.
 
+## Check before you print
+
+An AI builds each design, and it can get things wrong: a thread or bolt hole that is slightly off, a clearance that is too tight, a size misread from a web page. Most designs come out right, and the app checks a lot by itself (print checks, a stress test with extreme slider values, a tipping check), but it can't know exactly how your part has to fit. Check the sizes that matter in the viewer, measure the real object, and for a part that has to fit something, print a small test piece first. Don't use a print for anything that carries a load or keeps someone safe without testing it yourself.
+
 ## Quick start
 
 The easiest and safest way to run prompt-to-part is Docker Compose: one command builds and starts everything, with nothing else to install, and it runs walled off from the rest of your computer (see [Why Docker](#why-docker)). You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (the `docker compose` command; Docker Desktop includes it) and an [Anthropic API key](https://platform.claude.com/settings/keys) (or an [OpenRouter](https://openrouter.ai/settings/keys) key).
