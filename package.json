@@ -1,6 +1,6 @@
 {
   "name": "prompt-to-part",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "AI-powered parametric CAD for 3D printing",
   "author": "3dprogramin <andrei@3dprogramin.io>",
