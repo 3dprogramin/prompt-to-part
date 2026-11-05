@@ -19,7 +19,7 @@ Every design stays editable: drag the sliders, type an exact size, or ask for a 
 
 ## Check before you print
 
-An AI builds each design, and it can get things wrong: a thread or bolt hole that is slightly off, a clearance that is too tight, a size misread from a web page. Most designs come out right, and the app checks a lot by itself (print checks, a stress test with extreme slider values, a tipping check), but it can't know exactly how your part has to fit. Check the sizes that matter in the viewer, measure the real object, and for a part that has to fit something, print a small test piece first. Don't use a print for anything that carries a load or keeps someone safe without testing it yourself.
+An AI builds each design, and it can get things wrong: a thread or bolt hole that is slightly off, a clearance that is too tight, a size misread from a web page. Most designs come out right, and the app checks a lot by itself (print checks, a stress test with extreme slider values, a tipping check), but it can't know exactly how your part has to fit. How often a design has a mistake depends mostly on the model you pick: the strongest ones (Claude Opus at high effort, the default) get sizes right far more often than smaller or cheaper models, which you can choose through OpenRouter. Check the sizes that matter in the viewer, measure the real object, and for a part that has to fit something, print a small test piece first. Don't use a print for anything that carries a load or keeps someone safe without testing it yourself.
 
 ## Quick start
 
