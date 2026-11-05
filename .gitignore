@@ -16,3 +16,6 @@ data/
 
 # pnpm puts its store in the root of a drive other than the home folder's
 .pnpm-store/
+
+# Internal plans and specs from AI-assisted work (kept locally, not part of the repo)
+docs/superpowers/

@@ -4,10 +4,6 @@
 
 ![prompt-to-part in 40 seconds: asked for a desk stand for a Galaxy S25 Ultra with a cable slot, it looks up the phone's size, builds a parametric stand and shows what the reply cost ($0.58); dragging the sliders changes the model live, and slicing in Bambu Studio gives the print time, grams and cost ($1.43)](docs/demo.gif)
 
-<!-- Launch videos (vault 06-PROMPT-TO-PART/launch-video.md): put the short cut (60 to 90 s, mp4 under 10 MB, dropped into GitHub's editor) here, beside or instead of the GIF, then uncomment the line below and set the YouTube link of the long tour.
-▶ **[Watch the full tour](https://www.youtube.com/watch?v=VIDEO_ID)** (3 min): web search, the four tabs and every mode.
--->
-
 ## What it makes
 
 - **Parts that fit real things:** phone and tablet stands, clips, mounts, hooks, boxes, organisers. It looks up the product's dimensions on the web, adds the clearances a print needs and tells you where every number came from.
