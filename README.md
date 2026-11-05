@@ -83,6 +83,7 @@ prompt-to-part is made by [3dprogramin](https://3dprogramin.io), a small softwar
 
 ## Documentation
 
+- **[Modes](docs/modes.md)**: What each mode makes (3D model, AI artwork, LayerTone, lithophane, line art, 3D figure), what it needs and what it costs.
 - **[Running prompt-to-part](docs/running.md)**: Docker in detail (data, backups, updates, Bambu Studio and Blender), and running it without Docker for development.
 - **[Configuration](docs/configuration.md)**: The settings in `.env` and how to connect Claude (an Anthropic key, OpenRouter or another provider).
 - **[Using prompt-to-part](docs/using.md)**: Designs and versions, the chat, the viewer, print settings, cost and export.
