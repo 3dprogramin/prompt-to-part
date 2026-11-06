@@ -41,7 +41,7 @@ pnpm test:ui             # UI smoke test in headless Chromium, when you changed 
 - **Tests:** add or update a test in `test/` for a bug fix or a new behaviour. Keep them light: small models, no long browser runs.
 - **Model scripts are untrusted code.** Changes to the sandbox (`shared/sandbox.ts`), the geometry process (`server/geometry*.ts`) or the API's checks (host, origin, `X-PTP`) need a clear reason and tests.
 - **The app is called prompt-to-part where it names itself** (title, docs, server errors), with no persona: UI text and replies don't speak as "prompt-to-part" (write "Working on it", not "prompt-to-part is working"), and filament painting is *LayerTone*.
-- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org): `feat(lineart): add a square brush`, `fix(export): keep part colours in the 3MF`, `docs: …`, `test: …`.
+- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org): `feat(lineart): add a square brush`, `fix(export): keep part colours in the 3MF`, `docs: …`, `test: …`. The changelog is built from them at each minor version, so write the subject for someone reading what changed.
 - **Update the README** when you change how something works or add a setting.
 
 ## Licence of your contribution

@@ -18,6 +18,8 @@
     "dev:watch": "concurrently -k -n server,web -c blue,green \"tsx watch --clear-screen=false server/index.ts\" \"vite\"",
     "test": "node --import tsx --test \"test/*.test.ts\"",
     "rebuild": "scripts/rebuild.sh",
+    "changelog": "pnpm dlx git-cliff@2.14.2 -o CHANGELOG.md",
+    "changelog:preview": "pnpm dlx git-cliff@2.14.2 --unreleased",
     "test:ui": "vite build && node --import tsx --test test/ui/smoke.ts",
     "mock:meshy": "tsx server/meshyMock.ts",
     "dev:litho": "vite -c litho/vite.config.ts",
