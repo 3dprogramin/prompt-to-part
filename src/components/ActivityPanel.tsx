@@ -154,7 +154,7 @@ const Item = memo(function Item({ it, streaming, duration, onImage }: { it: Acti
   const head = it.kind === 'tool' ? it.label : it.kind === 'thinking' ? 'Thinking' : 'Reply';
   return (
     <section className={`act-block ${it.kind} ${streaming ? 'streaming' : ''}`}>
-      <div className="act-head"><span className="act-time">{fmtTime(it.at)}</span> {head}{duration != null && <ThinkTime ms={duration} />}{streaming && <span className="act-cursor" />}</div>
+      <div className="act-head"><span className="act-time">{fmtTime(it.at)}</span> {head}{duration != null && <ThinkTime ms={duration} live={streaming} />}{streaming && <span className="act-cursor" />}</div>
       {it.kind === 'tool' ? <ToolBody name={it.name} fields={it.fields} /> : <Markdown text={it.text} />}
     </section>
   );
@@ -187,9 +187,10 @@ const Tokens = memo(function Tokens({ tokens }: { tokens: Token[] }) {
 });
 
 /** How long the AI thought in one thinking block (the chat's live line, each block here): set apart from the reply's own time. */
-export function ThinkTime({ ms }: { ms: number }) {
+/** `live`: the thinking is still going, so its spark spins. */
+export function ThinkTime({ ms, live }: { ms: number; live?: boolean }) {
   const s = Math.max(0, Math.floor(ms / 1000));
-  return <span className="think-time" title="Time on this thinking"><Icon name="spark" size={11} />{s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`}</span>;
+  return <span className={`think-time${live ? ' live' : ''}`} title="Time on this thinking"><Icon name="spark" size={11} />{s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`}</span>;
 }
 
 function fmtTime(ms: number) {

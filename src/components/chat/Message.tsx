@@ -101,7 +101,7 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
       {showSteps && (
         <ol className="steps">
           {groupEdits(steps).map((s, i) => <Step key={i} s={s} onImage={onImage} />)}
-          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span>{thinkingAt != null && <ThinkTime ms={elapsed - thinkingAt} />}</li>}
+          {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span>{thinkingAt != null && <ThinkTime ms={elapsed - thinkingAt} live />}</li>}
         </ol>
       )}
       {!showSteps && renders.length > 0 && (
