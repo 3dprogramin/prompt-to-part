@@ -53,7 +53,12 @@ Without Docker: Node 22.12+ and pnpm (`npm install -g pnpm`), then `pnpm install
 
 ### Why Docker
 
-prompt-to-part runs code an AI wrote and reads web pages it found, and either could be made to misbehave: a web page can carry instructions meant for the AI, and an attached file can be built to attack the program that opens it. The app has its own walls against this: Claude may only read and write the design's script and fetch public web pages (no shell, no other files), and the scripts it writes run in a locked-down sandbox with no access to your files or the network (see *Sandbox* under [How it works](docs/how-it-works.md#how-it-works)).
+prompt-to-part runs code an AI wrote and reads web pages it found, and either could be made to misbehave: a web page can carry instructions meant for the AI, and an attached file can be built to attack the program that opens it. The app has its own walls against this:
+- **Files:** Claude gets only Claude Code's Read, Write and Edit tools, and only on one file, the design's script (`model.js`). It can also read `.scad` files you attach.
+- **Web:** with web search on, it can also search the web and fetch public pages, never addresses on your computer or local network.
+- **Everything else:** it has no shell (no Bash), can't run commands and can't touch any other file. Besides that it only calls the app's own CAD tools (build, render, check).
+- **Sandbox:** the scripts it writes run in a locked-down sandbox with no access to your files or the network (see *Sandbox* under [How it works](docs/how-it-works.md#how-it-works)).
+- **Exports:** STL files and Bambu Studio projects are saved through your browser, like a download from any other website.
 
 Without Docker, though, prompt-to-part and the programs it starts (Claude Code, Bambu Studio, Blender) run as you, with access to everything your account can reach: your files, SSH keys, browser data and other projects. If anything ever gets past the app's walls, through a bug in the app, in one of those programs or a trick nobody has thought of yet, it lands there. In Docker it lands in a container that runs as an unprivileged user, with a read-only file system, no extra privileges and nothing of yours but prompt-to-part's own data and the keys in `.env`.
 
