@@ -98,7 +98,7 @@ ENV NODE_ENV=production \
     CLAUDE_CONFIG_DIR=/home/node/.claude
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY package.json pnpm-lock.yaml tsconfig.json index.html vite.config.ts LICENSE ./
+COPY package.json pnpm-lock.yaml tsconfig.json index.html vite.config.ts LICENSE NOTICE.md ./
 COPY server ./server
 COPY shared ./shared
 COPY src ./src
