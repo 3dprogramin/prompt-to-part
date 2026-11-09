@@ -9,7 +9,7 @@
 
 **Describe it. Print it.** Describe what you want to 3D print, in plain words and with photos if you have them. prompt-to-part designs a parametric model with sliders and real dimensions, checks that it prints, slices it, tells you what it costs to print and exports a ready-to-print Bambu Studio project or an STL.
 
-![prompt-to-part in 42 seconds: asked for a desk stand for a Galaxy S25 Ultra with a cable slot, it looks up the phone's size, builds a parametric stand and shows what the reply cost ($0.69); dragging a slider changes the model live, and slicing in Bambu Studio gives the print time, grams and cost](docs/demo.gif)
+![prompt-to-part in 46 seconds: asked for an articulated desk stand for a Galaxy Z Fold8 Ultra with locking hinges, it asks three quick questions, looks up the phone's size and designs the mechanism (15 minutes, sped up); the stand is shown assembled, exploded and laid out on one print plate, then put together step by step, and slicing in Bambu Studio gives the print time, grams and cost](docs/demo.gif)
 
 ## What it makes
 
