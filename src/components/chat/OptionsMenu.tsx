@@ -1,10 +1,10 @@
 // The composer's one options button: a gear with a count of what is on, and a menu of the four
-// toggles (web search, ask first, send my view, sounds) as labelled switches.
+// toggles (web search, ask first, image tool, send my view, sounds) as labelled switches.
 import { useEffect, useId } from 'react';
 import { Icon } from '../Icon';
 import { useChipMenu } from './useChipMenu';
 
-export interface ChatOption { key: 'web' | 'ask' | 'view' | 'sounds'; label: string; line: string; on: boolean; title: string }
+export interface ChatOption { key: 'web' | 'ask' | 'image' | 'view' | 'sounds'; label: string; line: string; on: boolean; title: string }
 
 /** How many options are on, and a tooltip that names them ("Options: web search and sounds are on"). */
 export function optionsSummary(opts: ChatOption[]): { count: number; title: string } {
@@ -17,6 +17,7 @@ export function optionsSummary(opts: ChatOption[]): { count: number; title: stri
 const ICONS: Record<ChatOption['key'], (on: boolean) => string> = {
   web: () => 'globe',
   ask: () => 'ask',
+  image: () => 'image',
   view: (on) => (on ? 'eye' : 'eyeOff'),
   sounds: (on) => (on ? 'sound' : 'soundOff'),
 };

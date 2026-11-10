@@ -44,10 +44,13 @@ export function useChatOptions(design: Design) {
   // "Ask first": the AI asks the few questions it can't answer itself before it builds (all modes).
   const [askFirst, setAskFirst] = useState<boolean>(() => load('askFirst', true));
   useEffect(() => store('askFirst', askFirst), [askFirst]);
+  // The image tool (3D model mode, with an image model): the AI can have a picture drawn to model from.
+  const [imageTool, setImageTool] = useState<boolean>(() => load('imageTool', true));
+  useEffect(() => store('imageTool', imageTool), [imageTool]);
   const [sounds, setSounds] = useState<boolean>(() => load('sounds', true));
   useEffect(() => store('sounds', sounds), [sounds]);
   const soundsRef = useRef(sounds);
   soundsRef.current = sounds;
   useEffect(() => unlockSounds(), []);
-  return { chatDefaults, setChatDefaults, kind, chat, setChat, waitForOk, setWaitForOk, waitForOkRef, sendView, setSendView, askFirst, setAskFirst, sounds, setSounds, soundsRef };
+  return { chatDefaults, setChatDefaults, kind, chat, setChat, waitForOk, setWaitForOk, waitForOkRef, sendView, setSendView, askFirst, setAskFirst, imageTool, setImageTool, sounds, setSounds, soundsRef };
 }

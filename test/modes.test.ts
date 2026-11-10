@@ -78,3 +78,8 @@ test('generate_image works from the photos of earlier messages', async () => {
   const photos = await chatPhotos(id, ['data:image/png;base64,bm93'], 4, dir);
   assert.deepEqual(photos, ['data:image/png;base64,bm93', `data:image/jpeg;base64,${Buffer.from('jpg').toString('base64')}`]);
 });
+
+test('the image tool can be turned off', () => {
+  assert.equal(detectModes(req({ imageMode: 'off', imageTool: false }), {}, env).designImage, false);
+  assert.equal(detectModes(req({ imageMode: 'off', imageTool: true }), {}, env).designImage, true);
+});

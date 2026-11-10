@@ -118,7 +118,7 @@ export default function App() {
   const { hiddenParts, setHiddenParts, toggleHidden, paramOwners, ownersKey } = useHiddenParts({ design, setDesign, geo });
   // The part selected in the Object tab, highlighted in the view.
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
-  const { chatDefaults, setChatDefaults, kind, chat, setChat, waitForOk, setWaitForOk, waitForOkRef, sendView, setSendView, askFirst, setAskFirst, sounds, setSounds, soundsRef } = useChatOptions(design);
+  const { chatDefaults, setChatDefaults, kind, chat, setChat, waitForOk, setWaitForOk, waitForOkRef, sendView, setSendView, askFirst, setAskFirst, imageTool, setImageTool, sounds, setSounds, soundsRef } = useChatOptions(design);
   // The countdown under a reply that ended with new concept pictures ("Wait for my OK" off).
   const [autoBuild, setAutoBuild] = useState<AutoBuild | null>(null);
   const [artworkModel, setArtworkModel] = useState<string | null>(null);
@@ -349,7 +349,7 @@ export default function App() {
   const fullValues = (): ParamValues => ({ ...design.values });
 
   const { onSend, onAnswer, queue, steerOrQueue, enqueue, removeQueued, sendQueued, buildConcepts } = useReplies({ design, setDesign, updateDesign, running, setRunning, remoteRunning, setUnseen,
-    currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, sendView, askFirst, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
+    currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
     autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues });
 
   const restore = (vi: number) => {
@@ -659,6 +659,8 @@ export default function App() {
           sounds={sounds}
           onSounds={setSounds}
           onAskFirst={setAskFirst}
+          imageTool={imageTool}
+          onImageTool={setImageTool}
           autoBuild={autoBuild && autoBuild.designId === design.id && design.messages.at(-1)?.id === autoBuild.messageId ? autoBuild : null}
           onBuildNow={() => buildConcepts.current()}
           onStopAutoBuild={() => setAutoBuild(null)}

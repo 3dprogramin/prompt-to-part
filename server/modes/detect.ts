@@ -39,7 +39,7 @@ export function detectModes(req: GenerateRequest, pictureValues: ParamValues, en
   const meshTools = env.meshy && (figure || hasMeshes || hasConcepts);
   // With the image model, a figure starts as a concept picture the user approves.
   const conceptTools = meshTools && env.images;
-  // Any other design (3D model mode) can have a picture drawn to model from, when the user asks for one.
-  const designImage = env.images && !artwork && !layerTone && !lithophane && !lineArt && !conceptTools;
+  // Any other design (3D model mode) can have a picture drawn to model from, unless the user turned the image tool off.
+  const designImage = env.images && req.imageTool !== false && !artwork && !layerTone && !lithophane && !lineArt && !conceptTools;
   return { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools, designImage };
 }

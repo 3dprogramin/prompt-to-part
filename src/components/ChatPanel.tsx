@@ -83,6 +83,9 @@ interface Props {
   onSendView: (on: boolean) => void;
   askFirst: boolean;
   onAskFirst: (on: boolean) => void;
+  /** The image tool (on by default): in 3D model mode the AI can have the image model draw a picture to model from. */
+  imageTool: boolean;
+  onImageTool: (on: boolean) => void;
   /** Chimes when the AI needs you and when a reply has finished. */
   sounds: boolean;
   onSounds: (on: boolean) => void;
@@ -462,7 +465,7 @@ export function ChatPanel(p: Props) {
               {p.imageMode === 'lineart' && <LineArtMenu style={p.lineArtStyle} onStyle={p.onLineArtStyle} />}
             </span>
             <OptionsMenu
-              onToggle={(key, on) => (key === 'web' ? p.onWebSearch(on) : key === 'ask' ? p.onAskFirst(on) : key === 'view' ? p.onSendView(on) : p.onSounds(on))}
+              onToggle={(key, on) => (key === 'web' ? p.onWebSearch(on) : key === 'ask' ? p.onAskFirst(on) : key === 'image' ? p.onImageTool(on) : key === 'view' ? p.onSendView(on) : p.onSounds(on))}
               options={[
                 { key: 'web', label: 'Web search', line: 'Look up real product sizes', on: p.webSearch,
                   title: p.webSearch ? 'Web search is on: exact dimensions of real products are looked up online (click to turn it off for this design, until you reload)' : 'Web search is off for this design: click to search the web for exact dimensions of real products' },
@@ -470,6 +473,10 @@ export function ChatPanel(p: Props) {
                   title: p.askFirst
                     ? 'Ask first is on: when your request leaves an important choice open, you get a few short questions (at most 5) before the build; clear requests and small changes are just done. Click to have defaults picked instead.'
                     : 'Ask first is off: no questions, defaults are picked and named. Click to get a few short questions first when something important is unclear.' },
+                ...(p.artworkModel ? [{ key: 'image' as const, label: 'Image tool', line: 'A picture to model from (3D model)', on: p.imageTool,
+                  title: p.imageTool
+                    ? `The image tool is on: in 3D model mode the AI can have ${p.artworkModel} draw how the object should look (from your photos or the current model) and model from it, when you ask for a picture or a shape needs one. A few cents a picture. Click to turn it off.`
+                    : `The image tool is off: in 3D model mode no pictures are drawn, the AI models from your words and photos alone. Click to let it have ${p.artworkModel} draw a picture to model from (a few cents each).` }] : []),
                 ...(p.hasModel ? [{ key: 'view' as const, label: 'Send my view', line: 'Your 3D view with each change', on: p.sendView,
                   title: p.sendView
                     ? 'Send my view is on: each change you ask for also sends a screenshot of your 3D view and a four-view render at your settings, so "this" is clear. Click to send only your words (the model can still be rendered on its own).'

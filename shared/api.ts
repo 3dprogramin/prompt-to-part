@@ -47,6 +47,8 @@ export interface GenerateRequest {
   webSearch?: boolean;
   /** "Ask first" (on by default): before building, Claude asks the few questions it can't answer itself (none, or up to 5); off, it picks defaults and says which. */
   askFirst?: boolean;
+  /** The image tool (on by default): in 3D model mode, with an image model, Claude can have a picture drawn to model from (generate_image); false turns it off. */
+  imageTool?: boolean;
   /** SVG drawings attached in the chat (name → drawing): model scripts use them with H.svg(name). */
   drawings?: Record<string, SvgDrawing>;
   /** OpenSCAD files attached in the chat: Claude rebuilds them as model scripts. */

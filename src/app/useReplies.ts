@@ -32,7 +32,7 @@ import type { ChatOptions } from './useChatOptions';
 interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[]; scad: ScadFile[]; meshes: MeshUpload[] }
 
 export function useReplies({ design, setDesign, updateDesign, running, setRunning, remoteRunning, setUnseen, currentId, background, cancelPending, saveNow, result, lastGood, chat,
-  textFeatures, svgFeatures, sendView, askFirst, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits, autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues }: {
+  textFeatures, svgFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits, autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues }: {
   design: Design; setDesign: Dispatch<SetStateAction<Design>>;
   /** Applies a change to a design whether it is open or generating in the background. */
   updateDesign: (id: string, fn: (d: Design) => Design) => void;
@@ -45,7 +45,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
   result: ReturnType<typeof useLiveModel>['result']; lastGood: ReturnType<typeof useLiveModel>['lastGood'];
   chat: ChatOptions;
   textFeatures: TextFeature[]; svgFeatures: SvgFeature[];
-  sendView: boolean; askFirst: boolean; waitForOk: boolean; waitForOkRef: RefObject<boolean>; soundsRef: RefObject<boolean>;
+  sendView: boolean; askFirst: boolean; imageTool: boolean; waitForOk: boolean; waitForOkRef: RefObject<boolean>; soundsRef: RefObject<boolean>;
   meshy: boolean; refreshMeshyCredits: () => void;
   autoBuild: AutoBuild | null; setAutoBuild: Dispatch<SetStateAction<AutoBuild | null>>;
   claudeProblem: string | null;
@@ -215,6 +215,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
       webSearch: chat.webSearch,
       // (An approval of concept pictures just goes ahead.)
       askFirst: askFirst && !approval,
+      ...(imageTool ? {} : { imageTool: false }),
       imageMode: chat.imageMode,
       ...(chat.imageMode === 'figure' && chat.figureColor ? { figureColor: true } : {}),
       ...(chat.imageMode === 'lineart' ? { lineArtStyle: chat.lineArtStyle ?? DEFAULT_LINE_ART_STYLE } : {}),

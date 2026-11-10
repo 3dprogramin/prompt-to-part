@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { optionsSummary, type ChatOption } from '../src/components/chat/OptionsMenu';
 
 const make = (on: Record<string, boolean>): ChatOption[] =>
-  (['web', 'ask', 'view', 'sounds'] as const).map((key) => ({
-    key, on: !!on[key], label: { web: 'Web search', ask: 'Ask first', view: 'Send my view', sounds: 'Sounds' }[key], line: '', title: '',
+  (['web', 'ask', 'image', 'view', 'sounds'] as const).map((key) => ({
+    key, on: !!on[key], label: { web: 'Web search', ask: 'Ask first', image: 'Image tool', view: 'Send my view', sounds: 'Sounds' }[key], line: '', title: '',
   }));
 
 test('optionsSummary names what is on', () => {
