@@ -19,7 +19,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `PTP_DATA` | `data/` in the app folder | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings |
 | `OPENROUTER_API_KEY` | | Your OpenRouter key: Claude through OpenRouter (unless an Anthropic key is set), AI artwork and product photos |
 | `ANTHROPIC_API_KEY` | | Your Anthropic API key: Claude straight from Anthropic (generations, price suggestions) |
-| `PTP_MODEL` | `opus` | The model the chat starts with: `fable`, `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
+| `PTP_MODEL` | `fable` | The model the chat starts with: `fable`, `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
 | `PTP_EFFORT` | `high` | The reasoning effort the chat starts with (`low` … `max`) |
 | `PTP_CURRENCY` | `USD` | The currency of the Cost tab and the price suggestion: any ISO 4217 code (`EUR`, `GBP`, `RON`…) |
 | `PTP_COUNTRY` | none | Where you sell, so the price suggestion fits that market (e.g. `Romania`) |

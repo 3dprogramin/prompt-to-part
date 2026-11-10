@@ -76,7 +76,7 @@ export const appCountry = () => (process.env.PTP_COUNTRY ?? '').trim().slice(0, 
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** The chat's starting model (PTP_MODEL: fable, opus, sonnet, haiku or a full model ID such as claude-opus-5-5). */
-export const defaultModel = () => process.env.PTP_MODEL?.trim() || 'opus';
+export const defaultModel = () => process.env.PTP_MODEL?.trim() || 'fable';
 /**
  * The model Claude Code is asked for. Its own names (opus, sonnet, haiku) and full IDs go as they
  * are; fable goes by its ID, because the bundled Claude Code's "fable" is still an older one.

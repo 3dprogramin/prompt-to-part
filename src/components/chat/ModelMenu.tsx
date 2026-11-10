@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { Icon } from '../Icon';
 import { useChipMenu } from './useChipMenu';
 
-const MODELS = [{ id: 'fable', label: 'Fable' }, { id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }, { id: 'haiku', label: 'Haiku' }];
+const MODELS = [{ id: 'fable', label: 'Fable 5.2' }, { id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }, { id: 'haiku', label: 'Haiku' }];
 const EFFORTS = [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'xhigh', label: 'X-High' }, { id: 'max', label: 'Max' }];
 /** How many more models "Show more" adds (and a search shows at first). */
 const PAGE = 20;

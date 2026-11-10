@@ -71,7 +71,7 @@ prompt-to-part has no login: anyone who can reach it can use your keys, so Docke
 
 ## What it costs
 
-prompt-to-part itself is free. You pay the AI services you use, with your own keys, and each reply shows what its Claude part cost. One design of each kind, with Claude Opus 5.5 at high effort (the default):
+prompt-to-part itself is free. You pay the AI services you use, with your own keys, and each reply shows what its Claude part cost. One design of each kind, with Claude Opus 5.5 at high effort (the chat starts on Fable 5.2, the most capable model, which costs more; the model menu under the chat switches):
 
 | Design | Time | Claude | Pictures and figures |
 |---|---|---|---|

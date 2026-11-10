@@ -1399,7 +1399,7 @@ test('through OpenRouter the model menu lists its top models with prices, finds 
     await chip.click();
     const menu = page.getByRole('menu', { name: 'Model and reasoning effort' });
     const group = menu.getByRole('group', { name: 'Model' });
-    // The chosen alias (Opus) on top, then the two top models; the rest behind Show more.
+    // The chosen alias (Fable 5.2) on top, then the two top models; the rest behind Show more.
     await group.getByRole('menuitemradio', { name: /DeepSeek V4.1 Flash/ }).waitFor();
     assert.equal(await group.getByRole('menuitemradio').count(), 3);
     assert.match(await group.getByRole('menuitemradio', { name: /DeepSeek V4.1 Flash/ }).innerText(), /\$0\.045 \/ \$0\.50/);

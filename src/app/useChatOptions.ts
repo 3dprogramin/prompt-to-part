@@ -13,11 +13,11 @@ import { unlockSounds } from '../lib/sounds';
 import { load, store } from '../lib/storage';
 
 export interface ChatOptions { model: string; effort: string; webSearch: boolean; imageMode: ImageMode; figureColor?: boolean; lineArtStyle?: LineArtStyle }
-const DEFAULT_CHAT: ChatOptions = { model: 'opus', effort: 'high', webSearch: true, imageMode: 'off' };
+const DEFAULT_CHAT: ChatOptions = { model: 'fable', effort: 'high', webSearch: true, imageMode: 'off' };
 
 export function useChatOptions(design: Design) {
   // Model, effort and web search per design, in memory only: every new design (and every reload)
-  // starts with Opus, High effort and web search on.
+  // starts with Fable 5.2, High effort and web search on.
   const [chatOpts, setChatOpts] = useState<Record<string, ChatOptions>>({});
   // The starting model and effort come from the server's settings (PTP_MODEL, PTP_EFFORT).
   const [chatDefaults, setChatDefaults] = useState<ChatOptions>(DEFAULT_CHAT);

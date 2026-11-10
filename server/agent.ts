@@ -294,7 +294,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           meshes: figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined,
           lineArt: lineArt ? { pictures: artworkAvailable() } : undefined,
         }),
-        model: claudeModel(req.model || 'opus'),
+        model: claudeModel(req.model || 'fable'),
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
         cwd: ws,
