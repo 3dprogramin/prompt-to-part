@@ -51,6 +51,8 @@ Open http://localhost:8787 and describe what you want to print. Your designs liv
 
 Without Docker: Node 22.12+ and pnpm (`npm install -g pnpm`), then `pnpm install && pnpm build && pnpm start` (see [Run without Docker](docs/running.md#run-without-docker)). That's fine for development, but for everyday use prefer Docker.
 
+**Rather not set it up yourself?** If Docker, API keys and `.env` files aren't your thing, I can install and configure prompt-to-part for you, on your computer or a server, as a paid service. Write to andrei@3dprogramin.io and tell me what you'd like to run it on.
+
 ### Why Docker
 
 prompt-to-part runs code an AI wrote and reads web pages it found, and either could be made to misbehave: a web page can carry instructions meant for the AI, and an attached file can be built to attack the program that opens it. The app has its own walls against this:
