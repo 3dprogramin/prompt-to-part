@@ -10,7 +10,7 @@ import { detectModes } from './modes/detect';
 import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
 import { partialFields } from './partialJson';
-import { claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, DATA_DIR } from './config';
+import { claudeAuthProblem, claudeKeyRefused, claudeModel, claudeViaOpenRouter, DATA_DIR } from './config';
 import { modelIsTextOnly, openRouterModels, priceUsage, withoutPictures, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
@@ -288,7 +288,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           meshes: figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined,
           lineArt: lineArt ? { pictures: artworkAvailable() } : undefined,
         }),
-        model: req.model || 'opus',
+        model: claudeModel(req.model || 'opus'),
         effort: (req.effort ?? 'high') as EffortLevel,
         thinking: { type: 'adaptive', display: 'summarized' },
         cwd: ws,

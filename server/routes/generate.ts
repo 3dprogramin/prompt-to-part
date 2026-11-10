@@ -89,7 +89,7 @@ export async function endGenerations(message: string, waitMs = 3000): Promise<vo
   while (openStreams.size && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
 }
 
-const MODELS = ['opus', 'sonnet', 'haiku'];
+const MODELS = ['fable', 'opus', 'sonnet', 'haiku'];
 const isImage = (i: unknown) => !!i && typeof (i as { data?: unknown }).data === 'string' && typeof (i as { mediaType?: unknown }).mediaType === 'string';
 
 /** What is wrong with a generation request's fields, or null. */

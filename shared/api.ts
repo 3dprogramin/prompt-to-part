@@ -26,7 +26,7 @@ export interface GenerateRequest {
   sessionId?: string;
   /** The design's sessionCostUsd: what the session had cost before this reply (API keys only). */
   sessionCostUsd?: number;
-  /** 'opus' | 'sonnet' | 'haiku' */
+  /** 'fable' | 'opus' | 'sonnet' | 'haiku', or a full model ID */
   model?: string;
   /** 'low' | 'medium' | 'high' | 'xhigh' | 'max' */
   effort?: string;

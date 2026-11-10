@@ -57,8 +57,13 @@ export const appCurrency = () => parseCurrency(process.env.PTP_CURRENCY) ?? DEFA
 export const appCountry = () => (process.env.PTP_COUNTRY ?? '').trim().slice(0, 60);
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-/** The chat's starting model (PTP_MODEL: opus, sonnet, haiku or a full model ID such as claude-opus-5-5). */
+/** The chat's starting model (PTP_MODEL: fable, opus, sonnet, haiku or a full model ID such as claude-opus-5-5). */
 export const defaultModel = () => process.env.PTP_MODEL?.trim() || 'opus';
+/**
+ * The model Claude Code is asked for. Its own names (opus, sonnet, haiku) and full IDs go as they
+ * are; fable goes by its ID, because the bundled Claude Code's "fable" is still an older one.
+ */
+export const claudeModel = (model: string) => (model === 'fable' ? 'claude-fable-5-2' : model);
 /** The chat's starting reasoning effort (PTP_EFFORT). */
 export const defaultEffort = () => (EFFORTS.includes(process.env.PTP_EFFORT?.trim() ?? '') ? process.env.PTP_EFFORT!.trim() : 'high');
 
