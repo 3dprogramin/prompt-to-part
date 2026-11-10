@@ -20,6 +20,7 @@ import { artworkTools, pictureTools } from './tools/pictures';
 import { lineArtTools } from './tools/lineArt';
 import { meshyTools } from './tools/meshy';
 import { questionTools } from './tools/questions';
+import { designImageTools, type DesignImageOptions } from './tools/designImage';
 import { withoutPictures } from './openRouterModels';
 
 const sourcesSchema = z.array(z.object({
@@ -53,7 +54,8 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * With `lineArt` (Line art mode, or a line-art design), Claude can trace an attached picture that
  * already is line art (trace_line_art) and, with its `pictures`, have the image model draw some
  * (generate_line_art); both store a drawing for H.lineart. With `askFirst` (Ask first on), Claude can
- * ask the user a few questions before it builds (ask_questions), shown as a card of options.
+ * ask the user a few questions before it builds (ask_questions), shown as a card of options. With
+ * `designImage` (3D model mode), Claude can have a picture drawn of how the object should look (generate_image).
  */
 export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: ReadonlySet<string> = new Set(), base: ParamValues = {}, extra: {
   artwork?: AiImages; pictures?: AiImages; layerTone?: boolean; lithophane?: boolean;
@@ -61,6 +63,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   meshy?: MeshyOptions;
   /** Line art: the menu's style (generate_line_art's default) and whether the image model can draw (`pictures`); `references` are the attached images, traced or drawn from. */
   lineArt?: LineArtOptions;
+  /** 3D model mode with the image model: generate_image, a picture to model from. */
+  designImage?: DesignImageOptions;
   /** The image model (replaceable in tests). */
   image?: typeof requestImage;
   /** "Ask first" is on: ask_questions is there. */
@@ -74,7 +78,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   /** The generation's abort signal: Stop drops or kills its geometry jobs and OpenSCAD runs. */
   signal?: AbortSignal;
 } = {}) {
-  const { artwork, pictures, layerTone, lithophane, meshy, lineArt, askFirst, signal } = extra;
+  const { artwork, pictures, layerTone, lithophane, meshy, lineArt, designImage, askFirst, signal } = extra;
   const drawImage = extra.image ?? requestImage;
   // Values every evaluation starts from (the drawings attached in the chat, for H.svg).
   const v = (values?: ParamValues) => ({ ...base, ...values });
@@ -143,6 +147,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       ...(artwork ? artworkTools(ctx, artwork) : []),
       ...(lineArt ? lineArtTools(ctx, lineArt) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
+      ...(designImage ? designImageTools(ctx, designImage) : []),
       ...(askFirst ? questionTools(ctx) : []),
       tool('render_scad', 'Render an OpenSCAD file the user attached (saved in the workspace scad/ folder) with OpenSCAD itself, at the given Customizer parameter values (defaults for the rest): the same four views as render_model, plus its parameters and part sizes. Use it to compare your model.js with the original.', {
         file: z.string().max(100).describe('The attached file\'s name, e.g. "box.scad"'),

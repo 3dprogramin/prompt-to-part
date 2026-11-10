@@ -18,6 +18,8 @@ export interface DetectEnv {
 export interface ActiveModes {
   artwork: boolean; layerTone: boolean; lithophane: boolean; lineArt: boolean;
   figure: boolean; figureColor: boolean; meshTools: boolean; conceptTools: boolean;
+  /** 3D model mode with the image model: generate_image draws how the object should look, to model from. */
+  designImage: boolean;
 }
 
 /** `pictureValues` is the design's pictures with the follow-up's values over them, before new photos are added. */
@@ -37,5 +39,7 @@ export function detectModes(req: GenerateRequest, pictureValues: ParamValues, en
   const meshTools = env.meshy && (figure || hasMeshes || hasConcepts);
   // With the image model, a figure starts as a concept picture the user approves.
   const conceptTools = meshTools && env.images;
-  return { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools };
+  // Any other design (3D model mode) can have a picture drawn to model from, when the user asks for one.
+  const designImage = env.images && !artwork && !layerTone && !lithophane && !lineArt && !conceptTools;
+  return { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools, designImage };
 }

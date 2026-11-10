@@ -166,6 +166,29 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
   ].filter(Boolean).join('\n');
 }
 
+/**
+ * The prompt for a design picture in 3D model mode (generate_image): how the object should look,
+ * for Claude to model from and the user to judge. `photos` user photos come first among the
+ * references, then (with `render`) a render sheet of the current model.
+ */
+export function designImagePrompt(r: { subject: string; style?: string; photos: number; render: boolean }): string {
+  const refs = [
+    r.photos ? `${r.photos === 1 ? 'The first attached picture is a photo' : `The first ${r.photos} attached pictures are photos`} the user gave of what they want: keep their subject, character and style, and do better than it where the request says so.` : '',
+    r.render ? `The ${r.photos ? 'last' : ''} attached picture is a render sheet of the current 3D model (four views: 3D view top left, front, right side, top): it is a starting point; keep its overall design and proportions unless the request changes them, and make it look like the finished, much better object.` : '',
+  ].filter(Boolean);
+  return [
+    'A design picture of a 3D-printable object, which will be modelled in CAD from this picture and printed in plastic: it must show the object\'s shape and details clearly.',
+    `Object: ${r.subject.trim()}`,
+    ...refs,
+    `Look: ${r.style?.trim() || 'a realistic studio product photo of the finished, 3D-printed object, crisp and detailed'}.`,
+    'Rules:',
+    '- the whole object in view, three-quarter front view from slightly above, with a margin around it (nothing cut off)',
+    '- forms a printer can make: no hair-thin or floating parts',
+    '- soft, even studio light that shows the form; a plain light background; no other objects',
+    '- no text, logos, frame, signature or watermark unless the object asks for them',
+  ].join('\n');
+}
+
 /** How the subjects sit in the picture for each line-art style (the app adds the bar, frame or base itself). */
 const LINE_ART_COMPOSITION: Record<LineArtStyle, string> = {
   outline: 'one connected, silhouette-like drawing of the subject, readable from its outline alone',

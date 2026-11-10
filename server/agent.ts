@@ -98,7 +98,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // The design's pictures and LayerTone setup (sent with every request; the follow-up values win).
   const pictureValues: ParamValues = { ...req.pictures, ...req.renderValues };
   const modes = detectModes(req, pictureValues, { images: artworkAvailable(), meshy: !!meshyClient() });
-  const { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools } = modes;
+  const { artwork, layerTone, lithophane, lineArt, figure, figureColor, meshTools, conceptTools, designImage } = modes;
   const lineArtStyle = req.lineArtStyle ?? DEFAULT_LINE_ART_STYLE;
   const references = (req.images ?? []).filter((img) => IMAGE_TYPES.has(img.mediaType)).map((img) => `data:${img.mediaType};base64,${img.data}`);
   // Pictures: the design's own, plus the photos attached now (kept with the design).
@@ -155,6 +155,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     lithophane,
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
     lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
+    designImage: designImage ? { references, signal: abort.signal, designId: req.designId } : undefined,
     askFirst: req.askFirst !== false,
     textOnly,
     printBase,

@@ -18,6 +18,7 @@ export const TOOL_LABELS: Record<string, string> = {
   mcp__cad__generate_line_art: 'Drawing line art',
   mcp__cad__trace_line_art: 'Tracing line art',
   mcp__cad__generate_concept: 'Drawing a concept picture',
+  mcp__cad__generate_image: 'Generating a picture',
   mcp__cad__generate_3d: 'Making a 3D model with Meshy',
   mcp__cad__ask_questions: 'Asking you a few questions',
   mcp__cad__submit_model: 'Validating & submitting',
@@ -47,6 +48,7 @@ export function describeToolInput(name: string, input: Record<string, unknown> |
   if (name === 'Read') return 'Reading model.js';
   if (name === 'mcp__cad__generate_picture' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_concept ? `from concept picture "${String(input.from_concept)}"` : input.from_photo ? 'from the attached photo' : String(input.prompt ?? '').slice(0, 200)}`;
+  if (name === 'mcp__cad__generate_image' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_concept' && typeof input.subject === 'string') return `Concept "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__render_scad' && typeof input.file === 'string') return `OpenSCAD: ${input.file}${input.values && typeof input.values === 'object' && Object.keys(input.values).length ? ` with ${Object.entries(input.values as Record<string, unknown>).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}` : ''}`;
