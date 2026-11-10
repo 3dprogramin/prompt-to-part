@@ -1,6 +1,6 @@
 // UI smoke test (`pnpm test:ui`): the built app in one headless Chromium against a throwaway
 // server with its own data folder and a stand-in for Claude, so it never touches your designs, the
-// Docker container or your Claude API credit. It opens a tiny cube design and checks the top bar, the 3D
+// Docker container or your Claude usage. It opens a tiny cube design and checks the top bar, the 3D
 // view, a link in a reply, the Print tab (which must not start a slice by itself), the Designs menu's export and
 // import, Export project… (as a zip), stepping through enlarged product photos, a reply that was cut short, one that goes on through a reload or a dropped connection, the Meshy credits on the 3D figure button, a coloured figure (and repainting a patch of it),
 // "Print in one colour" in the Print tab, and the chat's model chip, "Send my view" and the 3D figure's ▾ menu ("Wait for my OK") with a concept
@@ -25,7 +25,7 @@ const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-ui-test-'));
 process.env.PTP_DATA = dataDir;
 process.env.NODE_ENV = 'production';
 // The stand-in for Claude needs no credentials, but the API checks them first.
-process.env.ANTHROPIC_API_KEY = 'sk-test';
+process.env.PTP_AUTH = 'subscription';
 delete process.env.PTP_DOCKER;
 // No presets of this computer's Bambu Studio user in the printer list.
 process.env.BAMBU_STUDIO_USER_DIR = path.join(dataDir, 'no-bambu-user');
@@ -35,8 +35,10 @@ mkdirSync(shots, { recursive: true });
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
 const { createApp } = await import('../../server/app');
-// Stand-ins for Claude and for the connection check (the real one would call the provider).
-const connection = async () => ({ via: 'openrouter' as const, ok: true, detail: 'Stand-in for the smoke test.', credit: 12.34 });
+// Stand-ins for Claude and for the connection check (the real one would start Claude Code with this
+// computer's login to read the subscription's usage).
+const connection = async () => ({ via: 'subscription' as const, ok: true, detail: 'Stand-in for the smoke test.',
+  usage: [{ kind: 'five_hour', label: '5-hour', percent: 62, resetsAt: Date.now() + 3600_000, limited: false, at: Date.now() }] });
 // The browser's connections, to drop them as a phone locking its screen would.
 const sockets = new Set<Socket>();
 server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
@@ -183,7 +185,8 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
   assert.equal(await page.locator('.app-version').textContent(), `v${version}`);
   assert.equal(await page.locator('a.btn', { hasText: 'New' }).getAttribute('href'), '/');
-  await page.locator('.conn-chip', { hasText: 'OpenRouter API · $12.34' }).waitFor();
+  await page.locator('.conn-chip', { hasText: 'Claude subscription · 62%' }).waitFor();
+  assert.equal(await page.locator('.conn-chip .conn-win').textContent(), '5h');
   await page.locator('canvas').first().waitFor();
   await built(page);
   await page.screenshot({ path: path.join(shots, '1-design.png') });

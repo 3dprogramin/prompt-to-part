@@ -174,7 +174,7 @@ export default function App() {
   // What "Export project…" is making ("3MF"), while it runs.
   const [exportStage, setExportStage] = useState<string | null>(null);
   const [dictation, setDictation] = useState(false);
-  // Why Claude can't run (no API key), from the server.
+  // Why Claude can't run (no API key and no subscription mode), from the server.
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);

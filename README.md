@@ -96,7 +96,7 @@ prompt-to-part is made by [3dprogramin](https://3dprogramin.io), a small softwar
 
 - **[Modes](docs/modes.md)**: What each mode makes (3D model, AI artwork, LayerTone, lithophane, line art, 3D figure), what it needs and what it costs.
 - **[Running prompt-to-part](docs/running.md)**: Docker in detail (data, backups, updates, Bambu Studio and Blender), and running it without Docker for development.
-- **[Configuration](docs/configuration.md)**: The settings in `.env` and how to connect Claude (an Anthropic key, OpenRouter or another provider).
+- **[Configuration](docs/configuration.md)**: The settings in `.env` and how to connect Claude (an Anthropic key, OpenRouter, another provider, or your own Claude subscription).
 - **[Using prompt-to-part](docs/using.md)**: Designs and versions, the chat, the viewer, print settings, cost and export.
 - **[Pictures](docs/pictures.md)**: AI artwork, LayerTone, lithophanes and line art, and product photos for a shop.
 - **[3D models, text and SVG](docs/3d-models.md)**: Imported meshes, AI figures with Meshy, and raised or engraved text and SVG.

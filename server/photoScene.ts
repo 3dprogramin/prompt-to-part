@@ -3,6 +3,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv } from './agent';
 import { claudeAuthProblem } from './config';
+import { recordRateLimit } from './usage';
 import { IDEA_SCENE, IDEA_WRITER_PROMPT, ideaWriterPrompt, parseWrittenScene, SCENE_WRITER_PROMPT, sceneWriterPrompt, type SceneIdea } from '../shared/photos';
 import type { Vec3 } from '../shared/types';
 
@@ -30,6 +31,7 @@ export async function writeScene(id: string, size?: Vec3, idea?: SceneIdea): Pro
         pathToClaudeCodeExecutable: process.env.CLAUDE_PATH || undefined,
       },
     })) {
+      if (msg.type === 'rate_limit_event') recordRateLimit(msg.rate_limit_info);
       if (msg.type === 'result') {
         if (msg.subtype !== 'success') throw new Error(`Couldn't write a scene (${msg.subtype})`);
         text = msg.result;

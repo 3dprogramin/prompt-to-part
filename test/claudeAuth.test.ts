@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { claudeEnv } from '../server/agent';
 import { claudeAuthProblem } from '../server/config';
 
@@ -18,20 +21,35 @@ function withEnv(vars: Record<string, string>, fn: () => void) {
   }
 }
 
-test('an old PTP_AUTH=subscription is refused, even next to an OpenRouter key', () => {
-  withEnv({ PTP_AUTH: 'subscription', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', OPENROUTER_API_KEY: 'sk-or-test' }, () => {
-    const problem = claudeAuthProblem() ?? '';
-    assert.match(problem, /no longer runs on a Claude subscription/);
-    assert.match(problem, /ANTHROPIC_API_KEY or OPENROUTER_API_KEY/);
-    assert.match(problem, /remove PTP_AUTH/);
+test('subscription with a setup-token: the token reaches Claude Code, no key or OpenRouter does', () => {
+  withEnv({ PTP_AUTH: 'subscription', PTP_DOCKER: '1', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', ANTHROPIC_API_KEY: 'sk-ant-test', OPENROUTER_API_KEY: 'sk-or-test' }, () => {
+    assert.equal(claudeAuthProblem(), null);
+    const env = claudeEnv();
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, 'sk-ant-oat01-test');
+    assert.equal(env.ANTHROPIC_API_KEY, undefined, 'an API key would win over the token');
+    assert.equal(env.ANTHROPIC_BASE_URL, undefined, 'never through OpenRouter');
+    assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined);
+    assert.equal(env.OPENROUTER_API_KEY, undefined);
   });
-  // A typo is refused too, and the message names the actual value.
-  withEnv({ PTP_AUTH: 'apikey', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.match(claudeAuthProblem() ?? '', /\(PTP_AUTH=apikey\)/));
-  // The default value is fine.
-  withEnv({ PTP_AUTH: 'api-key', ANTHROPIC_API_KEY: 'sk-ant-test' }, () => assert.equal(claudeAuthProblem(), null));
 });
 
-test('a subscription token never reaches Claude Code', () => {
+test('subscription in Docker without a token or a login says how to make one', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ptp-auth-'));
+  try {
+    withEnv({ PTP_AUTH: 'subscription', PTP_DOCKER: '1', CLAUDE_CONFIG_DIR: dir }, () => {
+      assert.match(claudeAuthProblem() ?? '', /claude setup-token.*CLAUDE_CODE_OAUTH_TOKEN/);
+      // A login made inside the container (kept in the CLAUDE_CONFIG_DIR volume) counts.
+      writeFileSync(path.join(dir, '.credentials.json'), '{}');
+      assert.equal(claudeAuthProblem(), null);
+    });
+    // Outside Docker the CLI's own login is used as before.
+    withEnv({ PTP_AUTH: 'subscription', CLAUDE_CONFIG_DIR: path.join(dir, 'none') }, () => assert.equal(claudeAuthProblem(), null));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('API-key mode never passes a subscription token on', () => {
   withEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test' }, () => {
     assert.match(claudeAuthProblem() ?? '', /No Claude API key/, 'a token alone is not an API key');
     assert.equal(claudeEnv().CLAUDE_CODE_OAUTH_TOKEN, undefined);

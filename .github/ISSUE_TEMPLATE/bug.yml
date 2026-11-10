@@ -36,7 +36,7 @@ body:
     id: claude
     attributes:
       label: How prompt-to-part runs Claude
-      options: [Anthropic API key, OpenRouter key, Another provider]
+      options: [Anthropic API key, OpenRouter key, Claude subscription, Another provider]
   - type: input
     id: system
     attributes:

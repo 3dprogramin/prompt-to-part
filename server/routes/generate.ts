@@ -4,11 +4,12 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { KeyRefusedError, runGeneration, steerGeneration, UsageLimitError } from '../agent';
 import type { AgentEvent, GenerateRequest, ImageData } from '../../shared/api';
-import { claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, defaultModel, EFFORTS } from '../config';
+import { authMode, claudeAuthProblem, claudeKeyRefused, claudeViaOpenRouter, defaultModel, EFFORTS } from '../config';
 import { OPENROUTER_MODEL_ID } from '../openRouterModels';
 import { MAX_SCAD_CHARS, MAX_SCAD_FILES, parseScadFiles } from '../../shared/scad';
 import { isLineArtStyle, LINE_ART_STYLES } from '../../shared/lineart';
 import { MAX_MESHES, MESH_NAME } from '../../shared/meshes';
+import { limitResetsAt } from '../usage';
 import { ID_RE, type RouteContext } from './store';
 
 /**
@@ -118,8 +119,12 @@ function generateProblem(b: GenerateRequest): string | null {
 const USAGE_LIMIT = /rate.?limit|429|usage limit|hit your limit/i;
 
 function friendlyError(msg: string, limited: boolean) {
-  if (limited) return `Claude usage limit reached for now. (${msg})`;
-  if (/auth|login|credential|401|oauth|invalid api key/i.test(msg)) return `${claudeKeyRefused()} (${msg})`;
+  if (limited) return `${authMode() === 'subscription' ? 'Your Claude subscription\'s usage limit is reached' : 'Claude usage limit reached for now'}. (${msg})`;
+  if (/auth|login|credential|401|oauth|invalid api key/i.test(msg)) {
+    if (authMode() === 'api-key') return `${claudeKeyRefused()} (${msg})`;
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed: the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart prompt-to-part. (${msg})`;
+    return `Claude authentication failed: run \`claude\` in a terminal and log in (/login) with your subscription. (${msg})`;
+  }
   return msg;
 }
 
@@ -185,7 +190,7 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
         const msg = (e as Error).message ?? String(e);
         console.error('[generate]', msg);
         const limited = e instanceof UsageLimitError || USAGE_LIMIT.test(msg);
-        send({ type: 'error', message: e instanceof KeyRefusedError ? msg : friendlyError(msg, limited) });
+        send({ type: 'error', message: e instanceof KeyRefusedError ? msg : friendlyError(msg, limited), ...(limited && { resetsAt: limitResetsAt() }) });
       }
     } finally {
       // Every reply's events end with how it ended, so a page catching up later knows.

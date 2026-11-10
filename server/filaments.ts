@@ -2,6 +2,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { claudeEnv, publicPage, publicUrl } from './agent';
 import { claudeAuthProblem } from './config';
+import { recordRateLimit } from './usage';
 import { matchFilament, normalizeFilamentText, type FilamentLookup } from '../shared/filaments';
 
 export interface FilamentQuery {
@@ -71,6 +72,7 @@ async function askClaude(q: FilamentQuery): Promise<string> {
         pathToClaudeCodeExecutable: process.env.CLAUDE_PATH || undefined,
       },
     })) {
+      if (msg.type === 'rate_limit_event') recordRateLimit(msg.rate_limit_info);
       if (msg.type === 'result') {
         if (msg.subtype !== 'success') throw new Error(`Couldn't look up this filament (${msg.subtype})`);
         text = msg.result;

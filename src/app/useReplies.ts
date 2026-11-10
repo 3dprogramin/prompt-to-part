@@ -14,6 +14,7 @@ import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, withConcept } from
 import type { GenerateRequest, MeshUpload } from '../../shared/api';
 import { answerText } from '../../shared/questions';
 import { pageKey } from '../../shared/sources';
+import { formatReset } from '../../shared/usage';
 import { generate, resumeReply, steer, type AgentEvent, type ReplyEnd } from '../lib/api';
 import { addStep, applyBlock } from '../lib/activity';
 import { approvalText, autoBuildAfter, withView, type AutoBuild, type DrawnConcept } from '../lib/autoBuild';
@@ -124,7 +125,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
           patchAsst((m) => ({ ...m, text: ev.text, durationMs: ev.durationMs, ...(ev.costUsd !== undefined && { costUsd: ev.costUsd }) }));
           if (ev.sessionCostUsd !== undefined) update((d) => ({ ...d, sessionCostUsd: ev.sessionCostUsd }));
         }
-        else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.message })); }
+        else if (ev.type === 'error') { finished = true; failed = true; patchAsst((m) => ({ ...m, error: ev.resetsAt ? `${ev.message} It resets ${formatReset(ev.resetsAt)}.` : ev.message })); }
         // How far this copy of the reply has got, so a page opened later can catch up with it.
         patchAsst((m) => ({ ...m, run: ev.type === 'run' ? { id: ev.runId, seen: count } : m.run && { ...m.run, seen: count } }));
       }, abort.signal);

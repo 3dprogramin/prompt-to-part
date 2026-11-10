@@ -48,7 +48,7 @@ export interface AppOptions {
   models?: typeof openRouterModels;
   /** Asks the image model for a picture (tests pass a stand-in). */
   image?: typeof requestImage;
-  /** Checks what the app runs Claude on (tests pass a stand-in: the real one calls the provider). */
+  /** Checks what the app runs Claude on and its usage (tests pass a stand-in: the real one may start Claude Code). */
   connection?: typeof checkConnection;
   /** The password every request must carry (PTP_PASSWORD), or '' for none. */
   password?: string;

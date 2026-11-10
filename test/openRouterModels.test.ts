@@ -97,7 +97,7 @@ const W = { 'Content-Type': 'application/json', 'X-PTP': '1' };
 
 /** Runs `fn` with only these Claude keys set, then puts the environment back. */
 async function withKeys(keys: Record<string, string>, fn: () => Promise<void>) {
-  const names = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENROUTER_API_KEY'];
+  const names = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENROUTER_API_KEY', 'PTP_AUTH'];
   const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
   for (const n of names) delete process.env[n];
   Object.assign(process.env, keys);

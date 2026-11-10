@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Connection } from '../../shared/api';
+import { currentWindow, formatReset, usageSummary } from '../../shared/usage';
 import { api } from '../lib/api';
 import type { Design, DesignSummary } from '../../shared/types';
 import type { DesignKind } from '../../shared/designKind';
@@ -40,7 +41,7 @@ interface Props {
   listError: string | null;
   onRefreshList: () => void;
   isRunning: (id: string) => boolean;
-  /** Generations running in this tab: the connection chip rechecks the connection when one ends. */
+  /** Generations running in this tab: the connection chip rechecks the usage when one ends. */
   generating: number;
   onDelete: (id: string) => void;
   /** Bulk actions of the Designs menu. */
@@ -154,6 +155,7 @@ export function TopBar(p: Props) {
 }
 
 const VIA_LABEL: Record<Connection['via'], string> = {
+  subscription: 'Claude subscription',
   openrouter: 'OpenRouter API',
   anthropic: 'Anthropic API',
   custom: 'Custom API',
@@ -161,7 +163,7 @@ const VIA_LABEL: Record<Connection['via'], string> = {
 };
 
 /**
- * What the app runs Claude on and whether it answers: checked on load,
+ * What the app runs Claude on and whether it answers, with the subscription's usage: checked on load,
  * every 5 minutes, on click and when a generation ends.
  */
 function ConnectionChip({ generating }: { generating: number }) {
@@ -181,13 +183,20 @@ function ConnectionChip({ generating }: { generating: number }) {
     if (generating < wasGenerating.current) check(false);
     wasGenerating.current = generating;
   }, [generating]);
-  const state = checking && !conn ? 'checking' : !conn?.ok ? 'bad' : 'ok';
-  const extra = conn?.credit != null ? `$${conn.credit.toFixed(2)}` : '';
+  const usage = usageSummary(conn?.usage);
+  const state = checking && !conn ? 'checking' : !conn?.ok || usage?.level === 'limited' ? 'bad' : usage?.level === 'warn' ? 'warn' : 'ok';
+  const extra = conn?.credit != null ? `$${conn.credit.toFixed(2)}`
+    : usage?.level === 'limited' ? `limit reached${usage.until ? ` until ${formatReset(usage.until)}` : ''}`
+    : usage ? `${Math.round(usage.percent)}%` : '';
+  // Which limit the percentage is: the 5-hour one or the weekly one ("7d") can be the nearer.
+  const which = conn?.credit == null && usage ? <span className="conn-win" title={usage.window.startsWith('7d') ? 'The weekly limit' : 'The 5-hour limit'}>{usage.window}</span> : null;
+  const windows = (conn?.usage ?? []).map((u) => currentWindow(u)).map((w) => `\n${w.label} limit: ${Math.round(w.percent)}% used${w.limited ? ' (reached)' : ''}${w.resetsAt ? `, resets ${formatReset(w.resetsAt)}` : ''}`).join('');
+  const asOf = conn?.usage?.length ? `\nUsage as of ${formatReset(Math.max(...conn.usage.map((w) => w.at)))}.` : '';
   return (
     <button className={`conn-chip ${state}`} onClick={() => check(true)} disabled={checking}
-      title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'} Click to check again.`}>
-      {/* A phone shows the dot and the credit (the rest is in the tooltip). */}
-      <span className="conn-dot" /> <span className="conn-via">{conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra && ' · '}</span>{extra && <span className="conn-extra">{extra}</span>}
+      title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'}${windows || asOf ? `${windows}${asOf}\n` : ' '}Click to check again.`}>
+      {/* A phone shows the dot, the percentage and its limit (the rest is in the tooltip). */}
+      <span className="conn-dot" /> <span className="conn-via">{conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra && ' · '}</span>{extra && <span className="conn-extra">{extra}</span>}{which}
     </button>
   );
 }

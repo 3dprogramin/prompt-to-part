@@ -9,7 +9,7 @@ import { FILAMENT_LIBRARY, matchFilament, normalizeFilamentText, searchFilaments
 // The server reads its data folder when loaded: a folder of its own, and a stand-in for Claude.
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-filaments-test-'));
 process.env.PTP_DATA = dataDir;
-process.env.ANTHROPIC_API_KEY = 'sk-test';
+process.env.PTP_AUTH = 'subscription';
 const { lookupFilament, parseLookup } = await import('../server/filaments');
 const { createApp } = await import('../server/app');
 
@@ -151,8 +151,8 @@ test('library filaments come back listed, others from Claude (once)', async () =
 });
 
 test('without Claude, only library filaments can be looked up', async () => {
-  const saved = { key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN, openrouter: process.env.OPENROUTER_API_KEY };
-  delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.OPENROUTER_API_KEY;
+  const saved = { auth: process.env.PTP_AUTH, key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN, openrouter: process.env.OPENROUTER_API_KEY };
+  delete process.env.PTP_AUTH; delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.OPENROUTER_API_KEY;
   try {
     assert.equal((await post({ brand: 'eSUN', name: 'PLA+ Red' })).status, 200);
     const r = await post({ brand: 'Polymaker', name: 'PolyTerra Sakura' });
@@ -160,7 +160,7 @@ test('without Claude, only library filaments can be looked up', async () => {
     assert.match((await r.json()).error, /ANTHROPIC_API_KEY/);
     assert.ok(!asked.includes('Polymaker PolyTerra Sakura'));
   } finally {
-    for (const [k, v] of [['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token], ['OPENROUTER_API_KEY', saved.openrouter]] as const) {
+    for (const [k, v] of [['PTP_AUTH', saved.auth], ['ANTHROPIC_API_KEY', saved.key], ['ANTHROPIC_AUTH_TOKEN', saved.token], ['OPENROUTER_API_KEY', saved.openrouter]] as const) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }

@@ -47,7 +47,7 @@ test('artwork prompt: the subject inside the print rules', () => {
 test('OPENROUTER_API_KEY runs Claude through OpenRouter unless an Anthropic key is set', () => {
   const saved = { ...process.env };
   try {
-    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']) delete process.env[k];
+    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'PTP_AUTH']) delete process.env[k];
     process.env.OPENROUTER_API_KEY = 'sk-or-test';
     let env = claudeEnv();
     assert.equal(env.ANTHROPIC_BASE_URL, 'https://openrouter.ai/api');
