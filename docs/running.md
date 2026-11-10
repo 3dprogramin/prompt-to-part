@@ -62,7 +62,7 @@ pnpm typecheck
 
 This is meant for development. For everyday use prefer [Docker](#docker): without it the app and the programs it starts run as you, with access to your files (see [Why Docker](../README.md#why-docker)).
 
-Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`), [pnpm](https://pnpm.io) (the version in `package.json`'s `packageManager`; Node 26 comes without Corepack, so install it with `npm install -g pnpm`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). `pnpm build` needs the dev dependencies (`pnpm install` installs them). `pnpm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
+Requires Node 22.12+ (developed on Node 26; `nvm use` picks it from `.nvmrc`), [pnpm](https://pnpm.io) (the version in `package.json`'s `packageManager`; Node 26 comes without Corepack, so install it with `npm install -g pnpm`) and an OpenRouter or Anthropic API key (copy `.env.sample` to `.env` and fill it in). For Claude to read PDFs it finds on the web (a datasheet, say), install poppler (`apt-get install poppler-utils`, `brew install poppler`); the Docker image has it. `pnpm build` needs the dev dependencies (`pnpm install` installs them). `pnpm start` serves whatever is in `dist/`; it warns when `dist/` is missing or older than the source code.
 
 Optional:
 - **Bambu Studio** (2.x) for Bambu project 3MF export, and for the printer list (every Bambu Lab printer and nozzle, and your own printer presets).

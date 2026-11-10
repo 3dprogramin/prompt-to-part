@@ -70,12 +70,13 @@ FROM ${NODE_IMAGE}
 ARG WITH_BAMBU
 ARG WITH_BLENDER
 # fontconfig and fonts for text (installed fonts are listed next to the bundled ones), tini to pass
-# signals on and reap Bambu Studio and Claude Code processes; Bambu Studio's command line also needs
+# signals on and reap Bambu Studio and Claude Code processes, poppler-utils (pdftoppm) so Claude Code
+# can read the pages of a PDF it downloaded (a datasheet, say); Bambu Studio's command line also needs
 # the GTK and WebKit libraries it is linked against, even without a display.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt,sharing=locked \
   rm -f /etc/apt/apt.conf.d/docker-clean \
   && apt-get update \
-  && apt-get install -y --no-install-recommends tini fontconfig fonts-dejavu-core fonts-liberation2 \
+  && apt-get install -y --no-install-recommends tini fontconfig fonts-dejavu-core fonts-liberation2 poppler-utils \
   && if [ "$WITH_BAMBU" = 1 ]; then apt-get install -y --no-install-recommends \
        libgtk-3-0t64 libwebkit2gtk-4.1-0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgl1 libegl1 libdbus-1-3; fi \
   && if [ "$WITH_BLENDER" = 1 ]; then apt-get install -y --no-install-recommends \
