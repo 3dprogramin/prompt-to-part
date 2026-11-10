@@ -233,6 +233,17 @@ test('units and up axis: Y-up files stand up, unit-less ones get a sensible size
   assert.ok(Math.abs(pug[1] - 60) < 1e-3 && Math.abs(pug[0] - 24.9) < 0.1 && Math.abs(pug[2] - 45.5) < 0.1, `${pug}`);
 });
 
+test('a very heavy mesh is thinned before the clean-up, and stays a solid of about the same volume', () => {
+  const plain = importMeshFile(fixture('cat.glb'), 'cat.glb');
+  const r = importMeshFile(fixture('cat.glb'), 'cat.glb', { heavyTriangles: 500 });
+  assert.ok(r.report.stages.thin != null, 'the thinning ran');
+  assert.equal(plain.report.stages.thin, undefined);
+  assert.ok(r.report.triangles <= plain.report.triangles, `${r.report.triangles}`);
+  assert.match(r.report.repairs.join('\n'), /Simplified from [\d,]+ triangles to [\d,]+ triangles \(surface moved by under 0\.\d+ mm\)/);
+  solid(r.mesh);
+  assert.ok(Math.abs(r.report.volume - plain.report.volume) / plain.report.volume < 0.01, `${r.report.volume} vs ${plain.report.volume}`);
+});
+
 test('heavy meshes are simplified to the budget; the grid rebuild makes anything solid', () => {
   const r = importMeshFile(fixture('cat.glb'), 'cat.glb', { maxTriangles: 1000 });
   assert.ok(r.report.triangles <= 1000, `${r.report.triangles}`);

@@ -15,6 +15,8 @@ import type { Vec3 } from './types';
 export interface ImportOptions {
   /** Most triangles kept (heavier meshes are simplified). */
   maxTriangles?: number;
+  /** Thin the mesh before the clean-up above this many triangles (default HEAVY_TRIANGLES). */
+  heavyTriangles?: number;
   /** Longest side (mm) for a file without usable units (glTF and OBJ from AI tools are 1–2 units across). */
   defaultHeight?: number;
   /** Grid cells along the longest side when a mesh has to be rebuilt. */
@@ -45,6 +47,14 @@ export interface ImportReport {
 export const DEFAULT_MAX_TRIANGLES = 200_000;
 export const DEFAULT_HEIGHT = 80;
 const DEFAULT_RESOLUTION = 160;
+/**
+ * Above this many triangles a mesh is thinned as soon as it is a solid (AI generators can return
+ * 3 million and more): the clean-up and simplifying below hold several copies of it at once, which
+ * the 4 GB wasm heap can't.
+ */
+export const HEAVY_TRIANGLES = 1_500_000;
+/** How far that thinning may move the surface, as a part of the mesh's size (0.03 mm on 150 mm). */
+const HEAVY_TOLERANCE = 2e-4;
 /** Most points in the rebuild grid (memory and time). */
 const MAX_GRID_POINTS = 6_000_000;
 
@@ -152,6 +162,15 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
     stage('rebuild');
   }
 
+  // ---- a very heavy mesh is thinned first, so the steps below fit in memory
+  const heavy = solid.numTri() > (opts.heavyTriangles ?? HEAVY_TRIANGLES) ? solid.numTri() : 0;
+  if (heavy) {
+    const slim = solid.simplify(size * HEAVY_TOLERANCE);
+    solid.delete();
+    solid = slim;
+    stage('thin');
+  }
+
   // ---- loose specks go; overlapping shells (separately modelled eyes, horns…) become one solid
   const pieces = solid.decompose();
   const vols = pieces.map((p) => p.volume());
@@ -173,14 +192,22 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
   // ---- simplify very heavy meshes (and the rebuild's dense grid surface)
   // The grid surface is dense and flat almost everywhere.
   if (rebuilt) solid = solid.simplify(cell * 0.12);
-  const before = solid.numTri();
-  if (before > maxTriangles) {
+  const before = heavy || solid.numTri();
+  let moved = heavy ? size * HEAVY_TOLERANCE : 0;
+  if (solid.numTri() > maxTriangles) {
     let tol = size * 5e-5;
     let s = solid;
-    for (let i = 0; i < 12 && s.numTri() > maxTriangles; i++, tol *= 1.8) s = solid.simplify(tol);
+    for (let i = 0; i < 12 && s.numTri() > maxTriangles; i++, tol *= 1.8) {
+      const next = solid.simplify(tol);
+      // Each attempt starts from the full solid: the one it replaces goes now, not at the end.
+      if (s !== solid) s.delete();
+      s = next;
+    }
+    if (s !== solid) solid.delete();
     solid = s;
-    repairs.push(`Simplified from ${count(before, 'triangle')} to ${count(solid.numTri(), 'triangle')} (surface moved by under ${fmt(tol / 1.8, 3)} mm)`);
+    moved += tol / 1.8;
   }
+  if (moved) repairs.push(`Simplified from ${count(before, 'triangle')} to ${count(solid.numTri(), 'triangle')} (surface moved by under ${fmt(moved, 3)} mm)`);
   stage('simplify');
 
   // ---- on the bed, centred

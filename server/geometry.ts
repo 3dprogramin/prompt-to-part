@@ -24,6 +24,8 @@ let seq = 0;
 interface Reply { data?: unknown; error?: string; crashed?: boolean; oom?: boolean }
 const pending = new Map<number, { worker: Worker; resolve: (r: Reply) => void }>();
 
+/** A mesh import may take this long: a 3.5 million triangle figure from an AI generator needs a minute or two. */
+const IMPORT_TIMEOUT_MS = 300_000;
 /** A fresh worker every this many jobs, so a slow leak in the wasm heap can never build up. */
 const RECYCLE_AFTER = 300;
 
@@ -159,7 +161,9 @@ function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number, sig
       reject(e);
     };
     const onAbort = () => give(stoppedError());
-    const timer = setTimeout(() => give(new Error(`Timed out after ${Math.round(timeoutMs / 1000)} s: the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`)), timeoutMs);
+    const timer = setTimeout(() => give(new Error(msg.cmd === 'importMesh'
+      ? `Importing the mesh took more than ${Math.round(timeoutMs / 1000)} s: it is too big. Simplify it first (e.g. Blender's Decimate) or upload a smaller file.`
+      : `Timed out after ${Math.round(timeoutMs / 1000)} s: the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`)), timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
     pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve(r); } });
     w.send({ ...msg, id, printer: printer() });
@@ -225,7 +229,7 @@ export const geometry = {
   iso: (code: string, values?: ParamValues, signal?: AbortSignal) => call<RenderResult>({ cmd: 'iso', code, values }, 45000, signal),
   /** Parse, repair and normalise an uploaded mesh file in the locked-down worker (a stored .bin, a report and a four-view render). */
   /** With options.colors and `palette`: its colours, at most palette.colors, each with the closest filament (the user's own, `mine`, first). */
-  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions, palette?: { colors: number; mine: LayerToneFilament[] }, signal?: AbortSignal) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options, palette }, 120000, signal),
+  importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions, palette?: { colors: number; mine: LayerToneFilament[] }, signal?: AbortSignal) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options, palette }, IMPORT_TIMEOUT_MS, signal),
   warmup: () => { getWorker(); },
   /** Stop the worker process (tests: it would keep the event loop alive). */
   stop: () => { if (worker) dropWorker(worker); },
