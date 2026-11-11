@@ -63,6 +63,8 @@ interface Props {
   notice?: { text: string; level: 'ok' | 'error' | 'warning' | 'info'; details: boolean } | null;
   onNoticeDetails?: () => void;
   onNoticeClose?: () => void;
+  /** The brush button at the bottom right: the hand editors this model has (line art, each artwork drawing). */
+  painter?: { items: { kind: 'lineart' | 'artwork'; name: string; label: string }[]; disabled?: string; onOpen: (kind: 'lineart' | 'artwork', name: string) => void } | null;
 }
 
 const STEP_SECONDS = 1.6;
@@ -72,7 +74,7 @@ const f2 = (n: number) => n.toFixed(2);
 /** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
 const touch = window.matchMedia('(pointer: coarse)').matches;
 
-export function ViewerPanel({ printerId, costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner }: Props) {
+export function ViewerPanel({ printerId, costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner, painter }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -84,6 +86,7 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
   const [fullscreen, setFullscreen] = useState(false);
   const [solving, setSolving] = useState(false);
   const [hideUi, setHideUi] = useState(false);
+  const [painterMenu, setPainterMenu] = useState(false);
   const [idle, setIdle] = useState(false);
   // The toolbar wraps onto more rows in a narrow window: the overlays below it (section bar,
   // notices, validation, model errors) follow its real height instead of covering it.
@@ -317,6 +320,24 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
               </button>
             );
           })}
+        </div>
+      )}
+
+      {painter && painter.items.length > 0 && (
+        <div className="painter-btn">
+          {painterMenu && !painter.disabled && painter.items.length > 1 && (
+            <div className="painter-menu" role="menu">
+              {painter.items.map((it) => (
+                <button key={`${it.kind}:${it.name}`} className="chip" role="menuitem" onClick={() => { setPainterMenu(false); painter!.onOpen(it.kind, it.name); }}>{it.label}</button>
+              ))}
+            </div>
+          )}
+          <button className="tb-btn" disabled={!!painter.disabled} aria-label="Paint and fix the picture by hand" aria-haspopup={painter.items.length > 1 ? 'menu' : undefined}
+            title={painter.disabled || 'Paint and fix the picture by hand'}
+            onClick={() => {
+              const items = painter!.items;
+              if (items.length === 1) painter!.onOpen(items[0].kind, items[0].name); else setPainterMenu((o) => !o);
+            }}><Icon name="brush" size={16} /></button>
         </div>
       )}
 

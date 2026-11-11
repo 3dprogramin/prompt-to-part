@@ -146,8 +146,6 @@ interface Props {
   /** The design's values: DRAWINGS_KEY (the attached and drawn drawings), LINEART_EDITS_KEY (hand edits) and LINEART_SPLIT_KEY (the split). */
   values: ParamValues;
   onEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
-  /** Open the editor (the Edit drawing brush). */
-  onEdit: () => void;
   /** Set a parameter or design value (the size, the split). */
   onValue: (key: string, v: ParamValue) => void;
   /** Show where loose ends were joined and left in the 3D view (while this section is open). */
@@ -407,7 +405,7 @@ function LooseEnds({ la, values, onValue, onShowJoins }: { la: LineArtInfo; valu
       </div>
       <span className="dim small">A line that hangs by one end is joined to the nearest line within this distance, so nothing lifts off the wall. Off: the drawing exactly as traced; loose ends may need a dot of glue.</span>
       {(la.endsJoined > 0 || la.endsFree > 0) && (
-        <label className="switch small" title="An added join that is not in the drawing can be erased with Edit drawing">
+        <label className="switch small" title="An added join that is not in the drawing can be erased with Edit drawing (the brush at the bottom right of the 3D view)">
           <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
           <span className="track" />
           <span className="switch-label">Show in the 3D view: <span className="lineart-key join" /> joined{la.endsFree > 0 && <>, <span className="lineart-key loose" /> loose</>}</span>
@@ -421,7 +419,7 @@ function LooseEnds({ la, values, onValue, onShowJoins }: { la: LineArtInfo; valu
  * Print tab, Line art section: the drawing(s) the piece was made from, what was fixed (bridges,
  * dropped specks) and how to print and hang it. Sizes are the script's sliders (Parameters).
  */
-export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, onShowJoins }: Props) {
+export function LineArtPanel({ part, result, values, onEdits, onValue, onShowJoins }: Props) {
   const drawings = useMemo(() => parseDrawings(values[DRAWINGS_KEY]), [values[DRAWINGS_KEY]]);
   const edits = useMemo(() => parseLineArtEdits(values[LINEART_EDITS_KEY]), [values[LINEART_EDITS_KEY]]);
   const la = part.lineArt;
@@ -453,9 +451,6 @@ export function LineArtPanel({ part, result, values, onEdits, onEdit, onValue, o
         </div>
       )}
       <div className="lineart-edit">
-        <button className="btn wide" onClick={onEdit} disabled={!la.frames.length} title={la.frames.length ? 'Draw, erase or colour the lines by hand (B draw, P paint, E erase)' : 'Rebuild the model to edit it'}>
-          <Icon name="brush" size={14} /> Edit drawing
-        </button>
         {la.edits > 0 && (
           <div className="lineart-edit-row small">
             <span><span className="mono">{la.edits}</span> hand edit{la.edits === 1 ? '' : 's'}</span>

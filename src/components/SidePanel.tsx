@@ -61,8 +61,6 @@ interface Props {
   onLayerTone: (s: LayerToneSetup | null) => void;
   /** Change the line-art hand edits (LINEART_EDITS_KEY). */
   onLineArtEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
-  /** Open the line-art editor (the Edit drawing brush). */
-  onEditLineArt: () => void;
   /** Show line art's joins of loose ends in the 3D view. */
   onShowJoins?: (on: boolean) => void;
   /** A coloured mesh's colours and filaments changed (Object tab). */
@@ -201,7 +199,7 @@ export function SidePanel(p: Props) {
           {shown && <OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />}
           {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
-          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onEdit={p.onEditLineArt} onValue={p.onValue} onShowJoins={p.onShowJoins} />)}
+          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onValue={p.onValue} onShowJoins={p.onShowJoins} />)}
           {section('print', 'Print settings', () => (shown
             ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} printerInfo={p.printerInfo} onPrinter={p.onPrinter} />
             : noModel('Print settings appear once a model is generated.')))}

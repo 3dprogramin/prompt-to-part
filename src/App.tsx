@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamValues, Quality, SolveResult, Vec3 } from '../shared/types';
 import { stabilityFor } from '../shared/stability';
 import { SCALE_KEY } from '../shared/params';
-import { DRAWINGS_KEY } from '../shared/svgFeatures';
+import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
+import { drawingFingerprint } from '../shared/lineart/strokes';
 import { LAYERTONE_IMAGES_KEY } from '../shared/layertone';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } from '../shared/meshes';
 import type { MeshyBalance, PrinterInfo } from '../shared/api';
@@ -21,6 +22,7 @@ import { LayoutTabs } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
 import { PrinterDialog } from './components/PrinterPicker';
 import { LineArtEditor } from './components/LineArtEditor';
+import { ArtworkEditor } from './components/ArtworkEditor';
 import { PhotosPanel, usePhotoJobs, type SizeShot } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
@@ -198,8 +200,9 @@ export default function App() {
 
   const { layout, shownPanel, showPanel, shownTab, newModel } = useLayoutPanels({ design, picking });
 
-  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
+  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
   const [editingLineArt, setEditingLineArt] = useState(false);
+  const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
   useEffect(() => setEditingLineArt(false), [design.id]);
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
@@ -387,6 +390,23 @@ export default function App() {
     });
   };
   const { shownLineArt, splitArt, editorPart, lineArtOriginal, layoutKey, fitKey, canAssemble, layoutDef, printLayout } = useModelLayout({ design, shown, editingLineArt, quality, geo });
+
+  // ---- the brush button in the view: hand editors for the line art and for each drawing the script reads
+  const drawingsStored = useMemo(() => parseDrawings(design.values[DRAWINGS_KEY]), [design.values]);
+  const artworkItems = useMemo(() => (shown?.drawingsUsed ?? []).flatMap((u) => {
+    const drawing = drawingsStored[u.name];
+    return drawing ? [{ name: u.name, drawing, fp: drawingFingerprint(drawing) }] : [];
+  }), [shown, drawingsStored]);
+  const artworkEditing = editingArtwork ? artworkItems.find((a) => a.name === editingArtwork) : undefined;
+  const painterItems = [
+    ...(shownLineArt?.lineArt.frames.length ? [{ kind: 'lineart' as const, name: '', label: 'Edit drawing' }] : []),
+    ...artworkItems.map((a) => ({ kind: 'artwork' as const, name: a.name, label: `Paint ${a.name}` })),
+  ];
+  const painter = painterItems.length ? {
+    items: painterItems,
+    disabled: busy || !shown ? 'Wait for the model to finish building' : undefined,
+    onOpen: (kind: 'lineart' | 'artwork', name: string) => { if (kind === 'lineart') setEditingLineArt(true); else setEditingArtwork(name); },
+  } : null;
 
   // ---- cost: slice the exported parts in Bambu Studio (the print layout, not an assembled view)
   const cost = useCost(geo, {
@@ -671,6 +691,7 @@ export default function App() {
           claudeProblem={claudeProblem}
         />
         <ViewerPanel
+          painter={painter}
           printerId={printerInfo?.printer.id}
           costStatus={cost.running && { text: STAGE_TEXT[cost.running.stage], since: cost.running.since }}
           result={playback ? playback.result : sizes.viewResult ?? result ?? lastGood}
@@ -775,7 +796,6 @@ export default function App() {
           onLayerTone={setLayerTone}
           onLineArtEdits={setLineArtEdits}
           onPartColor={setPartColor}
-          onEditLineArt={() => setEditingLineArt(true)}
           onShowJoins={setShowJoins}
           onMeshPalette={(name, palette) => setDesign((d) => {
             const meshes = parseMeshes(d.values[MESHES_KEY]);
@@ -835,6 +855,19 @@ export default function App() {
           onEdits={setLineArtEdits}
           onClose={() => setEditingLineArt(false)}
           original={lineArtOriginal}
+        />
+      )}
+      {artworkEditing && shown && (
+        <ArtworkEditor
+          drawing={artworkEditing.drawing}
+          fp={artworkEditing.fp}
+          values={design.values}
+          result={shown}
+          parts={shown.parts}
+          busy={busy}
+          error={error?.message ?? null}
+          onEdits={setArtworkEdits}
+          onClose={() => setEditingArtwork(null)}
         />
       )}
       {printerInfo?.firstStart && <PrinterDialog info={printerInfo} onSave={onPrinter} />}
