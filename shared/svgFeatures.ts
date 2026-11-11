@@ -3,6 +3,8 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
 import { placeOnSurface, type SurfacePlacement } from './textFeatures';
 import type { Vec2 } from './types';
+import type { ArtworkEdits } from './artworkEdits';
+import { drawingFingerprint } from './lineart/strokes';
 
 export const SVG_KEY = '$svg';
 /** SVG drawings attached in the chat, by file name: model scripts use them with H.svg(name). */
@@ -163,9 +165,12 @@ export function parseDrawings(raw: unknown): Record<string, SvgDrawing> {
 }
 
 /** One line per attached drawing for Claude: name, proportions and colours in paint order. */
-export function describeDrawings(drawings: Record<string, SvgDrawing>): string {
-  return Object.values(drawings).map((d) => {
+export function describeDrawings(drawings: Record<string, SvgDrawing>, artworkEdits: ArtworkEdits = {}): string {
+  return Object.entries(drawings).map(([key, d]) => {
+    const e = artworkEdits[key];
+    const n = e && e.fp === drawingFingerprint(d) ? e.strokes.length : 0;
+    const edited = n ? `; ${n} hand edit${n > 1 ? 's' : ''} by the user (paint / erase with the brush in the 3D view): they belong to this drawing, so a new picture leaves them behind; say so before drawing a new one, and suggest the brush for small fixes` : '';
     const colours = drawingColors(d).map((c) => `${c || 'unset'} (${d.shapes.filter((s) => (s.color ?? '') === c).length} shape${d.shapes.filter((s) => (s.color ?? '') === c).length > 1 ? 's' : ''})`);
-    return `"${d.name}": width/height ${d.aspect.toFixed(2)}, colours in paint order: ${colours.join(', ')}; raised by default: ${(defaultColors(d) ?? drawingColors(d)).join(', ') || 'all'}`;
+    return `"${d.name}": width/height ${d.aspect.toFixed(2)}, colours in paint order: ${colours.join(', ')}; raised by default: ${(defaultColors(d) ?? drawingColors(d)).join(', ') || 'all'}${edited}`;
   }).join('\n');
 }

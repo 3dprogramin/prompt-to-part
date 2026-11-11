@@ -1,9 +1,12 @@
+import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
+import { evaluateScript } from '../shared/runtime';
+import { DRAWINGS_KEY, describeDrawings } from '../shared/svgFeatures';
 import { drawingSection, type SvgDrawing } from '../shared/svgFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
-import { parseArtworkEdits, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
+import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
 
 const wasm = await Module();
 wasm.setup();
@@ -79,4 +82,35 @@ test('parseArtworkEdits', () => {
 test('square brush', () => {
   const e = edited(stroke({ points: [[0.4, 0]], shape: 'square' }));
   near(area(drawingSection(e, 100, [GOLD], C)), 2600, 0.01);
+});
+
+const GOLD_SCRIPT = `function build(){ return [{ name: 'Gold', shape: H.svg('art', { height: 100, colors: ['#e0a868'] }).extrude(1) }]; }`;
+const eraseGold = (fp: string) => JSON.stringify({ art: { fp, strokes: [stroke({ mode: 'erase', points: [[0, 0]] })] } });
+const goldVolume = (edits?: string) => {
+  const r = evaluateScript(GOLD_SCRIPT, { [DRAWINGS_KEY]: JSON.stringify({ art: d }), ...(edits ? { [ARTWORK_EDITS_KEY]: edits } : {}) });
+  return r.parts.find((p) => p.name === 'Gold')!.volume;
+};
+
+test('a build uses the edits', () => {
+  near(goldVolume(eraseGold(drawingFingerprint(d))), 2500 - circleA, 0.03);
+  assert.equal(Math.round(goldVolume()), 2500);
+});
+
+test('stale edits do nothing', () => {
+  assert.equal(Math.round(goldVolume(eraseGold('old'))), 2500);
+});
+
+test('drawingsUsed reports the original fingerprint', () => {
+  const r = evaluateScript(GOLD_SCRIPT, { [DRAWINGS_KEY]: JSON.stringify({ art: d }), [ARTWORK_EDITS_KEY]: eraseGold(drawingFingerprint(d)) });
+  assert.deepEqual(r.drawingsUsed, [{ name: 'art', fp: drawingFingerprint(d) }]);
+  const none = evaluateScript(`function build(){ return Manifold.cube([1,1,1]); }`, {});
+  assert.equal(none.drawingsUsed, undefined);
+});
+
+test('describeDrawings mentions hand edits', () => {
+  const art = { art: d };
+  const cur = { art: { fp: drawingFingerprint(d), strokes: [stroke({})] } };
+  assert.match(describeDrawings(art, cur), /1 hand edit by the user/);
+  assert.doesNotMatch(describeDrawings(art, { art: { ...cur.art, fp: 'old' } }), /hand edit/);
+  assert.doesNotMatch(describeDrawings(art), /hand edit/);
 });

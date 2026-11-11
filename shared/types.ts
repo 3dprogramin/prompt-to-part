@@ -165,6 +165,8 @@ export interface AssemblyStep {
 
 export interface EvalResult {
   meta: ModelMeta;
+  /** The drawings H.svg used (first use first), with the fingerprint of the drawing as attached (before hand edits). */
+  drawingsUsed?: { name: string; fp: string }[];
   /** Assembly sequence returned by the script (may be empty). */
   assembly: AssemblyStep[];
   /** Print settings suggested by the script (only what differs from the printer's profile). */

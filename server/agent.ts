@@ -13,6 +13,7 @@ import { partialFields } from './partialJson';
 import { authMode, claudeAuthProblem, claudeKeyRefused, claudeModel, claudeViaOpenRouter, DATA_DIR } from './config';
 import { modelIsTextOnly, openRouterModels, priceUsage, withoutPictures, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
+import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../shared/artworkEdits';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
@@ -132,6 +133,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(layerToneImages).length ? { [LAYERTONE_IMAGES_KEY]: JSON.stringify(layerToneImages) } : {}),
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
     ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
+    ...(typeof pictureValues[ARTWORK_EDITS_KEY] === 'string' ? { [ARTWORK_EDITS_KEY]: pictureValues[ARTWORK_EDITS_KEY] } : {}),
     ...(typeof pictureValues[LINEART_SPLIT_KEY] === 'string' ? { [LINEART_SPLIT_KEY]: pictureValues[LINEART_SPLIT_KEY] } : {}),
     ...(typeof pictureValues[LINEART_SIZE_KEY] === 'string' ? { [LINEART_SIZE_KEY]: pictureValues[LINEART_SIZE_KEY] } : {}),
     ...(pictureValues[LINEART_JOIN_KEY] != null ? { [LINEART_JOIN_KEY]: pictureValues[LINEART_JOIN_KEY] } : {}),
@@ -245,8 +247,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   }
   if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
   if (Object.keys(drawings).length) parts.push(lineArt
-    ? `Drawings in this design (attached SVGs and traced pictures; attached ones are among the images). Use their exact shapes with H.lineart(name, { … }) instead of redrawing them:\n${describeDrawings(drawings)}`
-    : `SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings)}`);
+    ? `Drawings in this design (attached SVGs and traced pictures; attached ones are among the images). Use their exact shapes with H.lineart(name, { … }) instead of redrawing them:\n${describeDrawings(drawings, parseArtworkEdits(pictureValues[ARTWORK_EDITS_KEY]))}`
+    : `SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings, parseArtworkEdits(pictureValues[ARTWORK_EDITS_KEY]))}`);
   parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : attachedMeshes.length ? '(no text – show the attached mesh as a printable model)' : '(no text – work from the reference images)')}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
   if (stopped()) return;

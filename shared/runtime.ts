@@ -7,8 +7,10 @@ import { makeHelpers, type PaintedMesh } from './helpers';
 import { sameFilament, storedSlots, type PaintFilament } from './meshColors';
 import { FACE_SCALE_KEY, normalizeParams, parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
+import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits } from './artworkEdits';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
+import { drawingFingerprint } from './lineart/strokes';
 import { cleanLineArtInfo, lineArtPrint, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtDepth, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
 import type { Load } from './stability';
@@ -305,7 +307,9 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     // The coloured meshes the script used (H.mesh): their triangles keep their colours (paintOf).
     const painted: PaintedMesh[] = [];
     const userPrint = parseProfile(inputValues?.[PRINT_KEY]);
-    const H = makeHelpers(rt, quality, parseDrawings(inputValues?.[DRAWINGS_KEY]), {
+    const originals = parseDrawings(inputValues?.[DRAWINGS_KEY]);
+    const svgUsed: string[] = [];
+    const H = makeHelpers(rt, quality, withArtworkEdits(originals, parseArtworkEdits(inputValues?.[ARTWORK_EDITS_KEY])), {
       images: parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]), setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
     }, meshes, painted, parseLineArtEdits(inputValues?.[LINEART_EDITS_KEY]), {
       split: parseLineArtSplit(inputValues?.[LINEART_SPLIT_KEY]),
@@ -316,7 +320,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       // Colours are cut to the print's layers: the user's layer heights (Print tab), else line art's.
       layers: { layerHeight: userPrint.layerHeight ?? lineArtPrint().layerHeight, firstLayerHeight: userPrint.firstLayerHeight ?? lineArtPrint().firstLayerHeight },
       layout: typeof inputValues?.[LINEART_LAYOUT_KEY] === 'string' ? inputValues[LINEART_LAYOUT_KEY] as string : undefined,
-    });
+    }, svgUsed);
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
@@ -501,7 +505,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       } else warnings.push(`loads[${i}] ignored: needs { name, mass (g), at: [x, y, z] }`);
     });
     const print = cleanProfile(rawPrint, parts.map((p) => p.name));
-    return { meta, params, values, parts, dimensions, assembly, print, loads, bbox, timeMs: performance.now() - t0, warnings: capWarnings(warnings), logs, quality };
+    return { meta, ...(svgUsed.length ? { drawingsUsed: svgUsed.map((name) => ({ name, fp: drawingFingerprint(originals[name]) })) } : {}), params, values, parts, dimensions, assembly, print, loads, bbox, timeMs: performance.now() - t0, warnings: capWarnings(warnings), logs, quality };
   } catch (e) {
     noteTrap(e);
     if (runtimeOutOfMemory()) {
