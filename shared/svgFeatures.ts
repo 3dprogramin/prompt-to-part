@@ -17,7 +17,9 @@ export interface SvgDrawing {
   /** Width ÷ height. */
   aspect: number;
   /** One entry per SVG element in paint order (later ones are drawn on top), with its fill rule and colour. */
-  shapes: { rule: 'NonZero' | 'EvenOdd'; contours: Vec2[][]; color?: string }[];
+  shapes: { rule: 'NonZero' | 'EvenOdd'; contours: Vec2[][]; color?: string;
+    /** Set only on hand-edit shapes (artwork brush strokes, never stored with the drawing): paint adds its colour, clipped to the picture's box; erase cuts only its own colour. */
+    edit?: 'paint' | 'erase' }[];
 }
 
 export interface SvgFeature extends SurfacePlacement {
@@ -100,11 +102,38 @@ export function parseSvgFeatures(raw: unknown): SvgFeature[] {
  */
 export function drawingSection(d: SvgDrawing, height: number, colors: string[] | undefined, C: typeof CrossSection): CrossSection | null {
   const chosen = colors ? new Set(colors) : null;
+  const poly = (sh: SvgDrawing['shapes'][number]) => new C(sh.contours.map((c) => c.map(([x, y]) => [x * height, y * height] as Vec2)), sh.rule);
+  const original = d.shapes.filter((s) => !s.edit);
+  if (original.length === d.shapes.length) {
+    let cs: CrossSection | null = null;
+    for (const sh of d.shapes) {
+      const part = poly(sh);
+      if (!chosen || chosen.has(sh.color ?? '')) cs = cs ? cs.add(part) : part;
+      else if (cs) cs = cs.subtract(part);
+    }
+    return cs && !cs.isEmpty() ? cs : null;
+  }
+  // Hand edits: paint stays inside the picture's box (the section of the shapes without edits, in
+  // the colours raised by default), erase cuts only its own colour where that colour shows.
+  const base = drawingSection({ ...d, shapes: original }, height, defaultColors(d) ?? undefined, C);
+  const b = base?.bounds();
+  const box = b ? C.square([b.max[0] - b.min[0], b.max[1] - b.min[1]]).translate([b.min[0], b.min[1]]) : null;
+  const track = new Map<string, CrossSection | null>();
+  for (const sh of d.shapes) if (sh.edit === 'erase') track.set(sh.color ?? '', null);
   let cs: CrossSection | null = null;
   for (const sh of d.shapes) {
-    const part = new C(sh.contours.map((c) => c.map(([x, y]) => [x * height, y * height] as Vec2)), sh.rule);
-    if (!chosen || chosen.has(sh.color ?? '')) cs = cs ? cs.add(part) : part;
+    const col = sh.color ?? '';
+    let part = poly(sh);
+    if (sh.edit === 'paint') part = box ? part.intersect(box) : new C([]);
+    if (sh.edit === 'erase') {
+      const seen = track.get(col) ?? null;
+      if (cs && seen && (!chosen || chosen.has(col))) cs = cs.subtract(part.intersect(seen));
+      if (seen) track.set(col, seen.subtract(part));
+      continue;
+    }
+    if (!chosen || chosen.has(col)) cs = cs ? cs.add(part) : part;
     else if (cs) cs = cs.subtract(part);
+    for (const [t, seen] of track) track.set(t, t === col ? (seen ? seen.add(part) : part) : seen ? seen.subtract(part) : null);
   }
   return cs && !cs.isEmpty() ? cs : null;
 }

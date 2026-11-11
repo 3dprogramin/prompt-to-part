@@ -1,0 +1,82 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import Module from 'manifold-3d';
+import { drawingSection, type SvgDrawing } from '../shared/svgFeatures';
+import { drawingFingerprint } from '../shared/lineart/strokes';
+import { parseArtworkEdits, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
+
+const wasm = await Module();
+wasm.setup();
+const C = wasm.CrossSection;
+
+const BLACK = '#111111', GOLD = '#e0a868';
+const sq = (h: number): [number, number][] => [[-h, -h], [h, -h], [h, h], [-h, h]];
+const d: SvgDrawing = {
+  name: 't.svg', aspect: 1,
+  shapes: [{ rule: 'NonZero', contours: [sq(0.5)], color: BLACK }, { rule: 'NonZero', contours: [sq(0.25)], color: GOLD }],
+};
+const area = (x: ReturnType<typeof drawingSection>) => (x ? x.area() : 0);
+const stroke = (o: Partial<ArtworkStroke>): ArtworkStroke => ({ mode: 'paint', color: GOLD, width: 0.1, points: [[0, 0]], ...o });
+const edited = (...s: ArtworkStroke[]) => withArtworkEdits({ t: d }, { t: { fp: drawingFingerprint(d), strokes: s } }).t;
+const near = (a: number, b: number, tol: number) => assert.ok(Math.abs(a - b) <= tol * b, `${a} ~ ${b}`);
+const circleA = Math.PI * 25;
+
+test('no edit shapes: same result as before', () => {
+  for (const x of [d, withArtworkEdits({ t: d }, {}).t]) {
+    assert.equal(area(drawingSection(x, 100, [GOLD], C)), 2500);
+    assert.equal(area(drawingSection(x, 100, [BLACK], C)), 10000 - 2500);
+  }
+});
+
+test('paint gold over a black spot', () => {
+  const e = edited(stroke({ points: [[0.4, 0]] }));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500 + circleA, 0.03);
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500 - circleA, 0.03);
+});
+
+test('erase gold leaves a hole and keeps black', () => {
+  const e = edited(stroke({ mode: 'erase', points: [[0, 0]] }));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500 - circleA, 0.03);
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500, 0.001);
+});
+
+test('erase X with colours [X, Y]', () => {
+  const e = edited(stroke({ mode: 'erase', points: [[0, 0]] }));
+  near(area(drawingSection(e, 100, [BLACK, GOLD], C)), 10000 - circleA, 0.03);
+  const over = edited(stroke({ mode: 'erase', points: [[0.4, 0]] }));
+  near(area(drawingSection(over, 100, [BLACK, GOLD], C)), 10000, 0.001);
+});
+
+test('paint outside the box is clipped', () => {
+  const e = edited(stroke({ points: [[0.7, 0]], width: 0.2 }));
+  assert.equal(drawingSection(e, 100, undefined, C)!.bounds().max[0], 50);
+});
+
+test('later strokes win', () => {
+  const e = edited(stroke({ points: [[0.4, 0]] }), stroke({ color: BLACK, points: [[0.4, 0]] }));
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500, 0.01);
+});
+
+test('stale fingerprint ignored', () => {
+  const r = withArtworkEdits({ t: d }, { t: { fp: 'x', strokes: [stroke({})] } });
+  assert.equal(r.t, d);
+});
+
+test('unknown colour ignored', () => {
+  assert.equal(edited(stroke({ color: '#00ff00' })).shapes.length, 2);
+});
+
+test('parseArtworkEdits', () => {
+  const good = stroke({ shape: 'square' });
+  const raw = { t: { fp: 'f', strokes: [good, { ...good, points: [] }, { ...good, width: 3 }, { ...good, mode: 'fill' }] } };
+  for (const input of [raw, JSON.stringify(raw)]) {
+    const r = parseArtworkEdits(input);
+    assert.equal(r.t.strokes.length, 1);
+    assert.equal(r.t.strokes[0].shape, 'square');
+  }
+});
+
+test('square brush', () => {
+  const e = edited(stroke({ points: [[0.4, 0]], shape: 'square' }));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2600, 0.01);
+});
