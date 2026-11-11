@@ -4,6 +4,7 @@ import type { DimTarget, EvalResult, Quality, ScriptErrorInfo, SolveResult, Vec3
 import type { LayerColor } from '../../shared/layertone';
 import type { TrueScale } from '../../shared/photos';
 import { Icon } from './Icon';
+import { useEscape } from './useEscape';
 import { ValidationPanel, type ValidationState } from './ValidationPanel';
 
 interface Props {
@@ -87,6 +88,16 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
   const [solving, setSolving] = useState(false);
   const [hideUi, setHideUi] = useState(false);
   const [painterMenu, setPainterMenu] = useState(false);
+  const painterRef = useRef<HTMLDivElement>(null);
+  const painterKey = `${painter?.disabled ?? ''}|${painter?.items.map((i) => `${i.kind}:${i.name}`).join(',') ?? ''}`;
+  useEffect(() => setPainterMenu(false), [painterKey]);
+  useEscape(painterMenu, () => setPainterMenu(false));
+  useEffect(() => {
+    if (!painterMenu) return;
+    const down = (e: PointerEvent) => { if (!painterRef.current?.contains(e.target as Node)) setPainterMenu(false); };
+    document.addEventListener('pointerdown', down);
+    return () => document.removeEventListener('pointerdown', down);
+  }, [painterMenu]);
   const [idle, setIdle] = useState(false);
   // The toolbar wraps onto more rows in a narrow window: the overlays below it (section bar,
   // notices, validation, model errors) follow its real height instead of covering it.
@@ -324,7 +335,7 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
       )}
 
       {painter && painter.items.length > 0 && (
-        <div className="painter-btn">
+        <div className="painter-btn" ref={painterRef}>
           {painterMenu && !painter.disabled && painter.items.length > 1 && (
             <div className="painter-menu" role="menu">
               {painter.items.map((it) => (

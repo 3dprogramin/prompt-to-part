@@ -203,7 +203,7 @@ export default function App() {
   const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
   const [editingLineArt, setEditingLineArt] = useState(false);
   const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
-  useEffect(() => setEditingLineArt(false), [design.id]);
+  useEffect(() => { setEditingLineArt(false); setEditingArtwork(null); }, [design.id]);
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
@@ -404,7 +404,7 @@ export default function App() {
   ];
   const painter = painterItems.length ? {
     items: painterItems,
-    disabled: busy || !shown ? 'Wait for the model to finish building' : undefined,
+    disabled: generating || busyElsewhere ? 'Wait for the reply to finish' : busy || !shown ? 'Wait for the model to finish building' : undefined,
     onOpen: (kind: 'lineart' | 'artwork', name: string) => { if (kind === 'lineart') setEditingLineArt(true); else setEditingArtwork(name); },
   } : null;
 
