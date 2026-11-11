@@ -2,9 +2,9 @@ import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
+import { pictureValues } from '../src/app/designValues';
 import { evaluateScript } from '../shared/runtime';
-import { DRAWINGS_KEY, describeDrawings } from '../shared/svgFeatures';
-import { drawingSection, type SvgDrawing } from '../shared/svgFeatures';
+import { DRAWINGS_KEY, describeDrawings, drawingSection, type SvgDrawing } from '../shared/svgFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
 
@@ -113,4 +113,8 @@ test('describeDrawings mentions hand edits', () => {
   assert.match(describeDrawings(art, cur), /1 hand edit by the user/);
   assert.doesNotMatch(describeDrawings(art, { art: { ...cur.art, fp: 'old' } }), /hand edit/);
   assert.doesNotMatch(describeDrawings(art), /hand edit/);
+});
+
+test('the client sends the artwork edits to the server', () => {
+  assert.deepEqual(pictureValues({ '$artworkEdits': '{"a":1}', x: 1 }), { '$artworkEdits': '{"a":1}' });
 });

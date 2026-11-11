@@ -246,9 +246,10 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
   if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
+  const artworkEdits = parseArtworkEdits(pictureValues[ARTWORK_EDITS_KEY]);
   if (Object.keys(drawings).length) parts.push(lineArt
-    ? `Drawings in this design (attached SVGs and traced pictures; attached ones are among the images). Use their exact shapes with H.lineart(name, { … }) instead of redrawing them:\n${describeDrawings(drawings, parseArtworkEdits(pictureValues[ARTWORK_EDITS_KEY]))}`
-    : `SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings, parseArtworkEdits(pictureValues[ARTWORK_EDITS_KEY]))}`);
+    ? `Drawings in this design (attached SVGs and traced pictures; attached ones are among the images). Use their exact shapes with H.lineart(name, { … }) instead of redrawing them:\n${describeDrawings(drawings, artworkEdits)}`
+    : `SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:\n${describeDrawings(drawings, artworkEdits)}`);
   parts.push(`User request:\n${req.prompt.trim() || (attachedScad.length ? '(no text – rebuild the attached OpenSCAD file as it is)' : attachedMeshes.length ? '(no text – show the attached mesh as a printable model)' : '(no text – work from the reference images)')}`);
   content.push({ type: 'text', text: parts.join('\n\n') });
   if (stopped()) return;
