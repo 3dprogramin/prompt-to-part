@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box3, EvalResult, ParamValues, PartMesh } from '../../shared/types';
 import { defaultColors, drawingColors, type SvgDrawing } from '../../shared/svgFeatures';
-import { ARTWORK_EDITS_KEY, MAX_ARTWORK_STROKES, parseArtworkEdits, splitLongStroke, type ArtworkEdits, type ArtworkStroke } from '../../shared/artworkEdits';
+import { ARTWORK_EDITS_KEY, MAX_ARTWORK_STROKES, parseArtworkEdits, splitLongStroke, strokeContours, type ArtworkEdits, type ArtworkStroke } from '../../shared/artworkEdits';
 import { leanStroke, niceLength } from '../lib/lineArtEdit';
 import { useLayoutMode } from '../hooks/useLayoutMode';
 import { useEscape } from './useEscape';
 import { Icon } from './Icon';
 import { clamp, ERASE, MAX_ZOOM, round, strokeOn, type Pt } from './lineart/editorDraw';
-import { colourNames, colourOps, drawPicture, mmPerUnit, pictureBox, shapePaths } from './artwork/artworkCanvas';
+import { BACKDROP, builtView, colourNames, colourOps, drawBuilt, drawPicture, mmPerUnit, nearestPart, pictureBox, registerDrawing, shapePaths } from './artwork/artworkCanvas';
 
 interface Props {
   /** The drawing as attached (without hand edits), named as in the design. */
@@ -17,7 +17,7 @@ interface Props {
   /** The design's values: ARTWORK_EDITS_KEY (the edits). */
   values: ParamValues;
   result: EvalResult;
-  /** The model's parts (their colours name the drawing's, their size gives the brush in mm). */
+  /** The model's parts: seen from the top, they are the picture (their colours name the drawing's, their size places it and gives the brush in mm). */
   parts: PartMesh[];
   /** A rebuild is running. */
   busy: boolean;
@@ -30,9 +30,12 @@ interface Props {
 type Tool = 'paint' | 'erase';
 /** Brush widths: in mm when the picture's printed size is known, else in % of its height. */
 const MM = { min: 0.3, max: 15, start: 2 }, PCT = { min: 0.1, max: 10, start: 1 };
+/** The model as built, drawn while the view moves: a bitmap of at most this many pixels. */
+const QUICK_PX = 4_000_000;
 
 /**
- * The artwork brush: the drawing flat and straight on, in its own colours, to paint one of them
+ * The artwork brush: the model as built seen from the top (what prints; the drawing flat in its own
+ * colours when the model's layout can't be matched to it), to paint one of the drawing's colours
  * where the brush goes (it takes over from the colours there) or erase it (only it, down to the
  * plate). The strokes are a draft until Done (or Escape) saves them in the design at once
  * (ARTWORK_EDITS_KEY, in the drawing's own units) and the model rebuilds a single time; Cancel drops them.
@@ -59,13 +62,27 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   const names = useMemo(() => colourNames(colours, parts), [colours, parts]);
   const [colour, setColour] = useState(() => defaultColors(drawing)?.[0] ?? colours[0] ?? '');
   const label = (c: string) => names[c] || c || 'No colour';
-  // Millimetres per drawing unit: the parts in the picture's raised colours against them (else the whole model).
+  // Where the drawing lies on the model as built (measured with the paint it was built with); null
+  // when the model's layout doesn't match it: then the picture shows as traced.
+  const reg = useMemo(() => {
+    const own = new Set(colours);
+    const painted = initial.filter((st) => st.mode === 'paint' && own.has(st.color))
+      .map((st) => ({ rule: 'NonZero' as const, contours: strokeContours(st), color: st.color, edit: 'paint' as const }));
+    return registerDrawing(painted.length ? { ...drawing, shapes: [...drawing.shapes, ...painted] } : drawing, parts);
+  }, [drawing, colours, initial, parts]);
+  const built = useMemo(() => (reg ? builtView(parts) : null), [reg, parts]);
+  const matched = useMemo(() => (reg && built ? { reg, built } : null), [reg, built]);
+  // Each colour's part (-1: none) and the colour it shows in.
+  const shade = useMemo(() => new Map(colours.map((c) => { const i = nearestPart(c, parts); return [c, { part: i, color: i < 0 ? c : parts[i].color }]; })), [colours, parts]);
+  // Millimetres per drawing unit: from where the drawing lies on the model, else the parts in the
+  // picture's raised colours against them (else the whole model).
   const k = useMemo(() => {
+    if (reg && built) return reg.k;
     const raised = defaultColors(drawing) ?? colours;
     const own = parts.filter((p) => raised.some((c) => names[c] === p.name));
     const box = own.length ? own.reduce<Box3>((b, p) => ({ min: [0, 1, 2].map((i) => Math.min(b.min[i], p.bbox.min[i])) as Box3['min'], max: [0, 1, 2].map((i) => Math.max(b.max[i], p.bbox.max[i])) as Box3['max'] }), own[0].bbox) : result.bbox;
     return mmPerUnit(drawing, box);
-  }, [drawing, colours, names, parts, result.bbox]);
+  }, [drawing, colours, names, parts, result.bbox, reg, built]);
   const unit = k ? MM : PCT, per = k ?? 100;
   const [tool, setTool] = useState<Tool>('paint');
   // The brush width in drawing units.
@@ -81,6 +98,17 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   const box = useMemo(() => pictureBox(drawing), [drawing]);
   const paths = useMemo(() => shapePaths(drawing), [drawing]);
   const layers = useMemo(() => colours.map((c) => ({ colour: c, ops: colourOps(drawing, strokes, c) })), [drawing, colours, strokes]);
+  // The model was built with the strokes the editor opened with: the ones after those are drawn
+  // over it; when some of those were taken away (undo, clear), that shows only once it is built.
+  const kept = useMemo(() => { let i = 0; while (i < initial.length && i < strokes.length && strokes[i] === initial[i]) i++; return i; }, [initial, strokes]);
+  const fresh = useMemo(() => strokes.slice(kept), [strokes, kept]);
+  // What the view fits: the picture, and the model when it is shown (drawing units).
+  const fitBox = useMemo(() => {
+    const a = drawing.aspect / 2;
+    if (!matched) return { x0: -a, y0: -0.5, x1: a, y1: 0.5 };
+    const { reg: r, built: { box: b } } = matched;
+    return { x0: Math.min(-a, (b.x0 - r.tx) / r.k), y0: Math.min(-0.5, (b.y0 - r.ty) / r.k), x1: Math.max(a, (b.x1 - r.tx) / r.k), y1: Math.max(0.5, (b.y1 - r.ty) / r.k) };
+  }, [drawing, matched]);
 
   const stage = useRef<HTMLDivElement>(null);
   const base = useRef<HTMLCanvasElement>(null);
@@ -95,9 +123,11 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   const pointers = useRef(new Map<number, Pt>());
   const hover = useRef<{ at: Pt; show: boolean }>({ at: [0, 0], show: false });
   const space = useRef(false);
-  // The latest of everything the pointer and key handlers use.
-  const now = useRef({ tool, width, square, colour, strokes, hist, layers });
-  now.current = { tool, width, square, colour, strokes, hist, layers };
+  // The colour the picked one shows in.
+  const ink = (matched ? shade.get(colour)?.color : colour) || '#000';
+  // The latest of everything the pointer and key handlers and the painting use.
+  const now = useRef({ tool, width, square, colour, ink, strokes, hist, layers, matched, fresh, shade, fitBox });
+  now.current = { tool, width, square, colour, ink, strokes, hist, layers, matched, fresh, shade, fitBox };
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -116,18 +146,44 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     return [dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s)];
   };
   const fitScale = () => {
-    const { w, h } = size.current;
+    const { w, h } = size.current, b = now.current.fitBox;
     if (!w || !h) return 1;
     const pad = Math.min(48, Math.min(w, h) * 0.08);
-    return Math.min((w - 2 * pad) / drawing.aspect, h - 2 * pad);
+    return Math.min((w - 2 * pad) / (b.x1 - b.x0), (h - 2 * pad) / (b.y1 - b.y0));
   };
 
-  // ---- painting: the picture with the strokes (redrawn when the view or the strokes change), and the stroke being drawn and the brush over it
+  // ---- painting: the model as built with this session's strokes (or the picture with the strokes; redrawn when the view or the strokes
+  // change, the model as a quick bitmap while the view moves), and the stroke being drawn and the brush over it
   const raf = useRef({ base: 0, over: 0 });
+  /** The view is moving (the quick bitmap is up). */
+  const moving = useRef(false);
+  const crispTimer = useRef(0);
+  /** The model with the strokes as a bitmap (drawing units: from x0, y1 down, r pixels per unit), kept while they stay the same. */
+  const quick = useRef<{ key: unknown[]; canvas: HTMLCanvasElement; tmp: HTMLCanvasElement; x0: number; y1: number; r: number } | null>(null);
   const paintBase = useCallback(() => {
     const ctx = base.current?.getContext('2d');
     if (!ctx) return;
-    drawPicture(ctx, now.current.layers, paths, box, matrix(), scratch.current);
+    const { matched: mt, fresh: st, shade: sh, fitBox: fb } = now.current;
+    const partOf = (c: string) => sh.get(c)?.part ?? -1, colourOf = (c: string) => sh.get(c)?.color ?? c;
+    if (!mt) drawPicture(ctx, now.current.layers, paths, box, matrix(), scratch.current);
+    else if (!moving.current) drawBuilt(ctx, mt.built, mt.reg, st, partOf, colourOf, box, matrix(), (scratch.current[0] ??= document.createElement('canvas')));
+    else {
+      const key = [mt, st, sh, fb];
+      let q = quick.current;
+      if (!q || q.key.some((v, i) => v !== key[i])) {
+        const W = fb.x1 - fb.x0, H = fb.y1 - fb.y0, r = Math.sqrt(QUICK_PX / (W * H));
+        const canvas = q?.canvas ?? document.createElement('canvas'), tmp = q?.tmp ?? document.createElement('canvas');
+        canvas.width = Math.ceil(W * r); canvas.height = Math.ceil(H * r);
+        q = quick.current = { key, canvas, tmp, x0: fb.x0, y1: fb.y1, r };
+        drawBuilt(canvas.getContext('2d')!, mt.built, mt.reg, st, partOf, colourOf, box, [r, 0, 0, -r, -fb.x0 * r, fb.y1 * r], tmp);
+      }
+      const m = matrix();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = BACKDROP;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.imageSmoothingEnabled = m[0] < q.r * 2;
+      ctx.drawImage(q.canvas, m[0] * q.x0 + m[4], m[3] * q.y1 + m[5], (m[0] * q.canvas.width) / q.r, (m[0] * q.canvas.height) / q.r);
+    }
     // The box paint stays inside, faintly.
     if (!box) return;
     ctx.setTransform(...matrix());
@@ -152,7 +208,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
       else if (box) {
         ctx.save();
         ctx.beginPath(); ctx.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.clip();
-        strokeOn(ctx, st, n.colour || '#000');
+        strokeOn(ctx, st, n.ink);
         ctx.restore();
       }
     }
@@ -160,7 +216,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (hover.current.show && a.mode !== 'pan' && a.mode !== 'pinch' && !space.current) {
       const [x, y] = hover.current.at, r = Math.max(1.5, (n.width / 2) * v.s);
-      const mark = n.tool === 'erase' ? '#c0392b' : n.colour || '#1d1d1f';
+      const mark = n.tool === 'erase' ? '#c0392b' : n.ink;
       const outline = (color: string, lw: number) => {
         ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
         if (n.square) ctx.rect(x - r, y - r, 2 * r, 2 * r); else ctx.arc(x, y, r, 0, 2 * Math.PI);
@@ -180,10 +236,20 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     cancelAnimationFrame(raf.current.base);
     raf.current.base = requestAnimationFrame(() => { paintBase(); paintOver(); });
   }, [paintBase, paintOver]);
-  const viewChanged = useCallback(() => { repaint(); setZoom(view.current.s); }, [repaint]);
+  /** The view moved: the model as a quick bitmap at once, sharp once it rests (the picture is sharp at once). */
+  const viewChanged = useCallback(() => {
+    if (now.current.matched) {
+      moving.current = true;
+      clearTimeout(crispTimer.current);
+      crispTimer.current = window.setTimeout(() => { moving.current = false; repaint(); }, 120);
+    }
+    repaint();
+    setZoom(view.current.s);
+  }, [repaint]);
   const fit = useCallback(() => {
     if (!size.current.w || !size.current.h) return;
-    view.current = { s: fitScale(), cx: 0, cy: 0, fitted: true };
+    const b = now.current.fitBox;
+    view.current = { s: fitScale(), cx: (b.x0 + b.x1) / 2, cy: (b.y0 + b.y1) / 2, fitted: true };
     viewChanged();
   }, [viewChanged]);
   /** Zoom by `f` keeping the point under screen point `at` in place. */
@@ -207,9 +273,9 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
       if (!view.current.fitted) fit(); else repaint();
     });
     ro.observe(el);
-    return () => { ro.disconnect(); cancelAnimationFrame(raf.current.base); cancelAnimationFrame(raf.current.over); };
+    return () => { ro.disconnect(); cancelAnimationFrame(raf.current.base); cancelAnimationFrame(raf.current.over); clearTimeout(crispTimer.current); };
   }, [fit, repaint]);
-  useEffect(repaint, [layers, repaint]);
+  useEffect(repaint, [layers, fresh, matched, repaint]);
   useEffect(repaintOver, [tool, width, square, colour, repaintOver]);
 
   // ---- strokes (Undo and Redo step through the lists of strokes)
@@ -415,6 +481,8 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label={`The picture: drag to ${doing}`} />
         <div className="la-ed-notes">
+          {!matched && <div className="la-ed-note">Showing the picture as traced: the model's layout didn't match it</div>}
+          {matched && kept < initial.length && <div className="la-ed-note">Edits taken away come off the model when it is built (Done)</div>}
           {stale && <div className="la-ed-note warn"><Icon name="alert" size={13} /> Edits made on an earlier picture don't apply to this one</div>}
           {error && <div className="la-ed-note warn"><Icon name="alert" size={13} /> The model didn't build: {error}</div>}
           {note && <div className="la-ed-note">{note}</div>}
