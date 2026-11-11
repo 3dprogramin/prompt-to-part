@@ -1,11 +1,12 @@
 // The design's settings the side panel edits: text and SVG features, the LayerTone setup (shown
-// recoloured at once), a part's filament and line art's hand edits.
+// recoloured at once), a part's filament and the hand edits of line art and artwork.
 import { useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Design } from '../../shared/types';
 import { parsePartColors, PART_COLORS_KEY, type PartFilament } from '../../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../../shared/textFeatures';
-import { parseSvgFeatures, SVG_KEY, type SvgFeature } from '../../shared/svgFeatures';
+import { DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgFeature } from '../../shared/svgFeatures';
+import { ARTWORK_EDITS_KEY, parseArtworkEdits, pruneArtworkEdits, type ArtworkEdits } from '../../shared/artworkEdits';
 import { LAYERTONE_KEY, parseLayerToneSetup, type LayerToneSetup } from '../../shared/layertone';
 import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits } from '../../shared/lineart';
 import { findLayerTonePart } from '../components/LayerTonePanel';
@@ -68,6 +69,15 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
     if (values[LINEART_DEPTH_KEY] == null && !coloured(before) && coloured(after)) values[LINEART_DEPTH_KEY] = 'auto';
     return { ...d, values, updatedAt: Date.now() };
   });
+  // Artwork hand edits (the artwork brush), the same way; those of drawings the design no longer has go.
+  const setArtworkEdits = (update: (edits: ArtworkEdits) => ArtworkEdits) => setDesign((d) => {
+    const before = parseArtworkEdits(d.values[ARTWORK_EDITS_KEY]);
+    const after = pruneArtworkEdits(update(before), parseDrawings(d.values[DRAWINGS_KEY]));
+    if (after === before) return d;
+    const values = { ...d.values };
+    if (Object.keys(after).length) values[ARTWORK_EDITS_KEY] = JSON.stringify(after); else delete values[ARTWORK_EDITS_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
   // A filament picked for a part (Object tab), or back to the script's colour. Lines of a line art
   // in another filament (Edit drawing's colours) change filament where they were drawn and painted.
   const setPartColor = (part: string, filament: PartFilament | null) => {
@@ -82,5 +92,5 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
     if (Object.keys(all).length) values[PART_COLORS_KEY] = JSON.stringify(all); else delete values[PART_COLORS_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
-  return { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setPartColor };
+  return { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setArtworkEdits, setPartColor };
 }
