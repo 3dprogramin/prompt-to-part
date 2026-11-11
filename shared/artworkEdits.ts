@@ -38,6 +38,14 @@ function cleanStroke(s: unknown): ArtworkStroke | null {
   return { mode: o.mode, color: o.color.slice(0, 40).toLowerCase(), width, points, ...(o.shape === 'square' ? { shape: 'square' as const } : {}) };
 }
 
+/** A stroke with at most MAX_ARTWORK_POINTS points (all the parser keeps): a longer one as several, each starting where the last ended. */
+export function splitLongStroke(st: ArtworkStroke): ArtworkStroke[] {
+  if (st.points.length <= MAX_ARTWORK_POINTS) return [st];
+  const out: ArtworkStroke[] = [];
+  for (let i = 0; i < st.points.length - 1; i += MAX_ARTWORK_POINTS - 1) out.push({ ...st, points: st.points.slice(i, i + MAX_ARTWORK_POINTS) });
+  return out;
+}
+
 /** Edits from the design's values (a JSON string or the object), checked. */
 export function parseArtworkEdits(raw: unknown): ArtworkEdits {
   let o: unknown = raw;

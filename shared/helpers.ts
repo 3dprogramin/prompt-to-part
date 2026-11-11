@@ -77,7 +77,9 @@ export interface LayerToneInput {
 export interface PaintedMesh { id: number; name: string; url: string }
 
 /** `painted` collects the coloured meshes H.mesh gave out (see PaintedMesh). */
-export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[], lineArtEdits: LineArtEdits = {}, lineArtDesign: Pick<LineArtDeps, 'split' | 'layout' | 'size' | 'join' | 'ends' | 'depth' | 'layers'> = {}, svgUsed: string[] = []) {
+export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Record<string, SvgDrawing> = {}, layerToneInput: LayerToneInput = { images: {}, setup: {} }, meshes: Record<string, MeshEntry> = {}, painted?: PaintedMesh[], lineArtEdits: LineArtEdits = {}, lineArtDesign: Pick<LineArtDeps, 'split' | 'layout' | 'size' | 'join' | 'ends' | 'depth' | 'layers'> = {}, svgUsed: string[] = [],
+  /** The drawings without artwork hand edits, for H.lineart (its fingerprints and edits go with the drawing as attached). */
+  lineArtDrawings: Record<string, SvgDrawing> = drawings) {
   const { wasm } = rt;
   // Meshes this evaluation uses: they stay in meshCache until it is over.
   const meshesInUse = new Set<string>();
@@ -569,8 +571,8 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
      */
     lineart(source: string | string[], opts: LineArtOptions = {}): LineArtResult {
       const known = (n: string) => {
-        const d = drawings[n];
-        if (!d) throw new Error(`H.lineart: no drawing named "${n}" (drawings: ${Object.keys(drawings).map((k) => `"${k}"`).join(', ') || 'none'})`);
+        const d = lineArtDrawings[n];
+        if (!d) throw new Error(`H.lineart: no drawing named "${n}" (drawings: ${Object.keys(lineArtDrawings).map((k) => `"${k}"`).join(', ') || 'none'})`);
         return d;
       };
       return buildLineArt({

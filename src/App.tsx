@@ -392,7 +392,8 @@ export default function App() {
   const { shownLineArt, splitArt, editorPart, lineArtOriginal, layoutKey, fitKey, canAssemble, layoutDef, printLayout } = useModelLayout({ design, shown, editingLineArt, quality, geo });
 
   // ---- the brush button in the view: hand editors for the line art and for each drawing the script reads
-  const drawingsStored = useMemo(() => parseDrawings(design.values[DRAWINGS_KEY]), [design.values]);
+  // Only the drawings value: the rest changes with every slider tick, and parsing is not cheap.
+  const drawingsStored = useMemo(() => parseDrawings(design.values[DRAWINGS_KEY]), [design.values[DRAWINGS_KEY]]);
   const artworkItems = useMemo(() => (shown?.drawingsUsed ?? []).flatMap((u) => {
     const drawing = drawingsStored[u.name];
     return drawing ? [{ name: u.name, drawing, fp: drawingFingerprint(drawing) }] : [];

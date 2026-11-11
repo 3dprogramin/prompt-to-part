@@ -6,7 +6,8 @@ import { pictureValues } from '../src/app/designValues';
 import { evaluateScript } from '../shared/runtime';
 import { DRAWINGS_KEY, describeDrawings, drawingSection, type SvgDrawing } from '../shared/svgFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
-import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
+import { ARTWORK_EDITS_KEY, MAX_ARTWORK_POINTS, parseArtworkEdits, splitLongStroke, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
+import { describeSettings } from '../src/lib/settings';
 
 const wasm = await Module();
 wasm.setup();
@@ -82,6 +83,19 @@ test('parseArtworkEdits', () => {
 test('square brush', () => {
   const e = edited(stroke({ points: [[0.4, 0]], shape: 'square' }));
   near(area(drawingSection(e, 100, [GOLD], C)), 2600, 0.01);
+});
+
+test('a very long stroke is split, each part starting where the last ended', () => {
+  const points = Array.from({ length: 4500 }, (_, i) => [i / 1e4, 0] as [number, number]);
+  const parts = splitLongStroke(stroke({ points }));
+  assert.deepEqual(parts.map((p) => p.points.length), [MAX_ARTWORK_POINTS, MAX_ARTWORK_POINTS, 502]);
+  for (let i = 1; i < parts.length; i++) assert.deepEqual(parts[i].points[0], parts[i - 1].points.at(-1));
+  assert.deepEqual(parts.at(-1)!.points.at(-1), points.at(-1));
+  assert.equal(splitLongStroke(stroke({})).length, 1);
+});
+
+test('saving artwork edits as a version names them', () => {
+  assert.equal(describeSettings({}, { [ARTWORK_EDITS_KEY]: '{"t":{}}' }, {}), 'Settings: artwork edits');
 });
 
 const GOLD_SCRIPT = `function build(){ return [{ name: 'Gold', shape: H.svg('art', { height: 100, colors: ['#e0a868'] }).extrude(1) }]; }`;

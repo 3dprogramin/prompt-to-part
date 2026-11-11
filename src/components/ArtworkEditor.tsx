@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box3, EvalResult, ParamValues, PartMesh } from '../../shared/types';
 import { defaultColors, drawingColors, type SvgDrawing } from '../../shared/svgFeatures';
-import { ARTWORK_EDITS_KEY, MAX_ARTWORK_STROKES, parseArtworkEdits, type ArtworkEdits, type ArtworkStroke } from '../../shared/artworkEdits';
+import { ARTWORK_EDITS_KEY, MAX_ARTWORK_STROKES, parseArtworkEdits, splitLongStroke, type ArtworkEdits, type ArtworkStroke } from '../../shared/artworkEdits';
 import { leanStroke, niceLength } from '../lib/lineArtEdit';
 import { useLayoutMode } from '../hooks/useLayoutMode';
 import { useEscape } from './useEscape';
@@ -239,7 +239,8 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     // Made lean in mm (or as if the picture were 100 mm high), saved in drawing units.
     const pts = leanStroke(a.points.map(([x, y]): Pt => [x * per, y * per])).map(([x, y]): [number, number] => [round(x / per, 5), round(y / per, 5)]);
     const st: ArtworkStroke = { mode: n.tool, color: n.colour, width: round(clamp(n.width, 1e-5, 1), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
-    change([...n.strokes, st]);
+    // (A very long stroke is saved as several: the build reads at most MAX_ARTWORK_POINTS per stroke.)
+    change([...n.strokes, ...splitLongStroke(st)].slice(0, MAX_ARTWORK_STROKES));
     setNote(null);
   };
 

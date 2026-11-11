@@ -320,7 +320,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       // Colours are cut to the print's layers: the user's layer heights (Print tab), else line art's.
       layers: { layerHeight: userPrint.layerHeight ?? lineArtPrint().layerHeight, firstLayerHeight: userPrint.firstLayerHeight ?? lineArtPrint().firstLayerHeight },
       layout: typeof inputValues?.[LINEART_LAYOUT_KEY] === 'string' ? inputValues[LINEART_LAYOUT_KEY] as string : undefined,
-    }, svgUsed);
+    }, svgUsed, originals);
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));
