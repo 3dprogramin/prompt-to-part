@@ -5,7 +5,7 @@ import { colourCost } from './LineArtPanel';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import { SCALE_KEY, type PartFilament } from '../../shared/params';
 import { addStroke, clearArea, frameAt, leanStroke, niceLength, removeStroke, sameFilament, snapEnd, staleEdits, strokeFilaments, strokesOf, toDrawing, toPiece, withoutDrawings } from '../lib/lineArtEdit';
-import { describeChange, EDIT_HISTORY_KEY, historyTime, parseEditHistory } from '../../shared/editHistory';
+import { describeChange, EDIT_HISTORY_KEY, historyFor, historyTime, parseEditHistory } from '../../shared/editHistory';
 import { EditHistory } from './EditHistory';
 import { useLayoutMode } from '../hooks/useLayoutMode';
 import { useEscape } from './useEscape';
@@ -50,7 +50,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   // The edits as they will be saved: the saved ones as the editor opened, and this session's changes.
   const [edits, setEdits] = useState<LineArtEdits>(saved);
   const changed = useMemo(() => JSON.stringify(edits) !== JSON.stringify(saved), [edits, saved]);
-  const history = useMemo(() => parseEditHistory(values[EDIT_HISTORY_KEY]).lineart ?? [], [values[EDIT_HISTORY_KEY]]);
+  // This piece's restore points (its drawings'), and its edits as saved: going back leaves other drawings as they are.
+  const frameNames = la.frames.map((f) => f.name).join('\n');
+  const history = useMemo(() => historyFor(parseEditHistory(values[EDIT_HISTORY_KEY]).lineart ?? [], frameNames.split('\n')), [values[EDIT_HISTORY_KEY], frameNames]);
+  const savedHere = useMemo(() => { const names = frameNames.split('\n'); return Object.fromEntries(Object.entries(saved).filter(([n]) => names.includes(n))); }, [saved, frameNames]);
   const finish = useRef(() => {});
   finish.current = () => { if (changed) onEdits(() => edits, visitLabel()); onClose(); };
   const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
@@ -487,7 +490,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
    * once it is built (Done).
    */
   const restoreTo = (to: LineArtEdits, at: number) => {
-    const n = now.current, after = parseLineArtEdits(to), added: ShownStroke[] = [];
+    // (The piece's drawings as they were then; the others as the draft has them.)
+    const n = now.current, names = n.la.frames.map((f) => f.name), added: ShownStroke[] = [];
+    const after = { ...Object.fromEntries(Object.entries(n.edits).filter(([k]) => !names.includes(k))), ...parseLineArtEdits(Object.fromEntries(Object.entries(to).filter(([k]) => names.includes(k)))) };
     for (const f of n.la.frames) {
       const was = strokesOf(saved, f.name, f.fp), is = strokesOf(after, f.name, f.fp);
       let p = 0;
@@ -671,19 +676,25 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   const using = coloured && filament ? ` in ${filament.name ?? filament.color}` : '';
   // Clearing edits the piece was built with only shows once it is rebuilt.
   const clearedBuilt = la.edits > 0 && applied === 0;
+  // Gone back to a restore point without strokes the piece was built with: they show until it is built.
+  const builtGone = useMemo(() => !!restoring && la.frames.some((f) => {
+    const was = strokesOf(saved, f.name, f.fp), is = strokesOf(edits, f.name, f.fp);
+    return was.some((s, i) => JSON.stringify(s) !== JSON.stringify(is[i]));
+  }), [restoring, la.frames, saved, edits]);
   return (
     <div className={`la-editor ${phone ? 'phone' : ''}`} role="dialog" aria-modal="true" aria-label="Edit the drawing" ref={dialog} tabIndex={-1}>
       <EditorToolbar tool={tool} setTool={setTool} filament={filament} setFilament={setFilament} coloured={coloured} part={part} palette={palette} pickButton={pickButton}
         picking={picking} setPicking={setPicking} width={width} setWidths={setWidths} square={square} setShape={setShape} snap={snap} setSnap={setSnap}
         hist={hist} undo={undo} redo={redo} selection={selection} setSelection={setSelection} clearHere={clearHere} clear={clear} applied={applied}
         la={la} edits={edits} busy={busy} changed={changed} swaps={swaps} cancel={cancel} finish={finish}
-        history={<EditHistory entries={history} current={saved} onPick={(to, e) => restoreTo(to, e.at)} />} />
+        history={<EditHistory entries={history} current={savedHere} onPick={(to, e) => restoreTo(to, e.at)} />} />
       <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint, fill, erase or select" />
         <div className="la-ed-notes">
           {restoring && <div className="la-ed-note"><Icon name="history" size={13} /> Going back to before {historyTime(restoring.at)}: Done saves it</div>}
+          {builtGone && !clearedBuilt && <div className="la-ed-note">Edits taken away come off the model when it is built (Done)</div>}
           {stale.strokes > 0 && (
             <div className="la-ed-note warn"><Icon name="alert" size={13} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing <button className="link" onClick={() => clear(stale.names)}>Clear</button></div>
           )}

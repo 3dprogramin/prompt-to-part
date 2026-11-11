@@ -368,7 +368,7 @@ export default function App() {
 
   const onApplyCode = (code: string) => {
     setDesign((d) => {
-      const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const, values: { ...d.values } }];
+      const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const, values: withoutEditHistory(d.values) }];
       return { ...d, code, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };

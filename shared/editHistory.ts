@@ -82,9 +82,13 @@ export function editsBefore<S>(history: HistoryEntry[], current: StrokeEdits<S>,
   return index >= 0 && index < history.length ? state : null;
 }
 
-/** The entries that changed one drawing, with only its change: one editor's restore points. */
-export function historyFor(history: HistoryEntry[], name: string): HistoryEntry[] {
-  return history.filter((e) => e.changes[name]).map((e) => ({ ...e, changes: { [name]: e.changes[name] } }));
+/** The entries that changed these drawings, with only their changes: one editor's restore points. */
+export function historyFor(history: HistoryEntry[], names: string | string[]): HistoryEntry[] {
+  const keep = new Set(typeof names === 'string' ? [names] : names);
+  return history.flatMap((e) => {
+    const changes = Object.fromEntries(Object.entries(e.changes).filter(([n]) => keep.has(n)));
+    return Object.keys(changes).length ? [{ ...e, changes }] : [];
+  });
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

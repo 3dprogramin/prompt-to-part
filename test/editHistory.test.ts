@@ -110,6 +110,10 @@ test('historyFor: the entries of one drawing, with only its changes', () => {
   assert.equal(forA.length, 1);
   assert.equal(forA[0].label, 'A');
   assert.deepEqual(Object.keys(forA[0].changes), ['a']);
+  // Several drawings (a line art's frames): the entries of any of them, only their changes.
+  const two = recordChange([], {}, { a: { fp: 'fa', strokes: [st('paint', 1)] }, z: { fp: 'fz', strokes: [st('paint', 3)] } }, 'Z', 3);
+  assert.deepEqual(Object.keys(historyFor(two, ['a', 'b'])[0].changes), ['a']);
+  assert.equal(historyFor(two, ['b']).length, 0);
 });
 
 test('describeChange: artwork', () => {
