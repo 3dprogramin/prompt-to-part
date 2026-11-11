@@ -79,25 +79,31 @@ function hull(pts: Vec2[]): Vec2[] {
 }
 
 /**
- * Counter-clockwise contours whose NonZero union is the brush swept along the stroke: round = a
- * circle at each point plus a quad joining each pair's tangent points; square = for each segment
- * the hull of the two upright squares. One point = one circle or square.
+ * A stroke's pieces, whose NonZero union is the brush swept along it: round = a circle (`circle`,
+ * centred on the origin, radius width / 2) at each of `centres` plus a quad joining each pair's
+ * tangent points; square = for each segment the hull of the two upright squares. One point = one
+ * circle or square. All counter-clockwise.
  */
-export function strokeContours(st: ArtworkStroke, segments = 24): Vec2[][] {
+export function strokePieces(st: ArtworkStroke, segments = 24): { circle: Vec2[]; centres: Vec2[]; polys: Vec2[][] } {
   const r = st.width / 2, square = st.shape === 'square';
-  const out: Vec2[][] = [];
+  const polys: Vec2[][] = [];
   const pts = st.points;
-  if (square) { if (pts.length === 1) out.push(squareAt(pts[0][0], pts[0][1], r)); }
-  else for (const [x, y] of pts) out.push(circle(x, y, r, segments));
+  if (square && pts.length === 1) polys.push(squareAt(pts[0][0], pts[0][1], r));
   for (let i = 1; i < pts.length; i++) {
     const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
     const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
-    if (len < 1e-9) { if (square && pts.length > 1 && i === 1) out.push(squareAt(ax, ay, r)); continue; }
-    if (square) { out.push(hull([...squareAt(ax, ay, r), ...squareAt(bx, by, r)])); continue; }
+    if (len < 1e-9) { if (square && i === 1) polys.push(squareAt(ax, ay, r)); continue; }
+    if (square) { polys.push(hull([...squareAt(ax, ay, r), ...squareAt(bx, by, r)])); continue; }
     const nx = (-dy / len) * r, ny = (dx / len) * r;
-    out.push([[ax - nx, ay - ny], [bx - nx, by - ny], [bx + nx, by + ny], [ax + nx, ay + ny]]);
+    polys.push([[ax - nx, ay - ny], [bx - nx, by - ny], [bx + nx, by + ny], [ax + nx, ay + ny]]);
   }
-  return out;
+  return { circle: circle(0, 0, r, segments), centres: square ? [] : pts.map(([x, y]) => [x, y] as Vec2), polys };
+}
+
+/** The stroke as contours (its pieces, the circles placed). */
+export function strokeContours(st: ArtworkStroke, segments = 24): Vec2[][] {
+  const { centres, polys } = strokePieces(st, segments);
+  return [...centres.map(([x, y]) => circle(x, y, st.width / 2, segments)), ...polys];
 }
 
 /** The drawings with the strokes added as shapes (those made on the drawing as it is now, in colours it has). */
@@ -108,7 +114,7 @@ export function withArtworkEdits(drawings: Record<string, SvgDrawing>, edits: Ar
     if (!e || e.fp !== drawingFingerprint(d)) { out[name] = d; continue; }
     const colours = new Set(drawingColors(d));
     const extra = e.strokes.filter((st) => colours.has(st.color))
-      .map((st) => ({ rule: 'NonZero' as const, contours: strokeContours(st), color: st.color, edit: st.mode }));
+      .map((st) => ({ rule: 'NonZero' as const, contours: strokeContours(st), color: st.color, edit: st.mode, stroke: st }));
     out[name] = extra.length ? { ...d, shapes: [...d.shapes, ...extra] } : d;
   }
   return out;

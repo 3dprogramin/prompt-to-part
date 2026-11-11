@@ -85,6 +85,52 @@ test('square brush', () => {
   near(area(drawingSection(e, 100, [GOLD], C)), 2600, 0.01);
 });
 
+// An L along the top and right of the black ring (clear of the gold square), width 0.1.
+const L: [number, number][] = [[-0.4, 0.4], [0.4, 0.4], [0.4, -0.4]];
+
+test('multi-point square stroke', () => {
+  // Two 90 x 10 bars sharing a 10 x 10 corner.
+  const e = edited(stroke({ points: L, shape: 'square' }));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500 + 1700, 1e-9);
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500 - 1700, 1e-9);
+  near(area(drawingSection(e, 100, undefined, C)), 10000, 1e-9);
+});
+
+test('multi-point round stroke', () => {
+  // Two 80 x 10 bars sharing a 5 x 5 corner, round ends (a whole circle) and the outer quarter at the turn.
+  const capsule = 1575 + circleA * 1.25;
+  const e = edited(stroke({ points: L }));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500 + capsule, 0.01);
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500 - capsule, 0.01);
+});
+
+test('paint, erase and paint again apply in order', () => {
+  const big = Math.PI * 100;
+  // Black painted over the gold, then erased (a hole in both), then a smaller gold dot in it.
+  const e = edited(stroke({ color: BLACK, width: 0.2 }), stroke({ mode: 'erase', color: BLACK, width: 0.2 }), stroke({}));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500 - big + circleA, 0.03);
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500, 0.001);
+  near(area(drawingSection(e, 100, undefined, C)), 10000 - big + circleA, 0.01);
+  // Erasing black where gold covers it does nothing; black painted after it shows.
+  const r = edited(stroke({ mode: 'erase', color: BLACK, width: 0.2 }), stroke({ color: BLACK, width: 0.2 }));
+  near(area(drawingSection(r, 100, [GOLD], C)), 2500 - big, 0.03);
+  near(area(drawingSection(r, 100, [BLACK], C)), 7500 + big, 0.01);
+});
+
+test('a colour no stroke reaches keeps its polygons', () => {
+  const e = edited(stroke({ points: [[0, 0]] }));
+  assert.deepEqual(drawingSection(e, 100, [BLACK], C)!.toPolygons(), drawingSection(d, 100, [BLACK], C)!.toPolygons());
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500, 0.001);
+});
+
+test('the same edits give the same section in a later build', () => {
+  const s = [stroke({ points: L }), stroke({ mode: 'erase', color: BLACK, points: [[-0.4, 0.4]], width: 0.2 })];
+  const first = area(drawingSection(edited(...s), 100, [BLACK], C));
+  const copy = JSON.parse(JSON.stringify(d)) as SvgDrawing;
+  const again = withArtworkEdits({ t: copy }, { t: { fp: drawingFingerprint(copy), strokes: JSON.parse(JSON.stringify(s)) } }).t;
+  assert.equal(area(drawingSection(again, 100, [BLACK], C)), first);
+});
+
 test('a very long stroke is split, each part starting where the last ended', () => {
   const points = Array.from({ length: 4500 }, (_, i) => [i / 1e4, 0] as [number, number]);
   const parts = splitLongStroke(stroke({ points }));
