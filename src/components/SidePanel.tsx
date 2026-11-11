@@ -60,7 +60,7 @@ interface Props {
   values: ParamValues;
   onLayerTone: (s: LayerToneSetup | null) => void;
   /** Change the line-art hand edits (LINEART_EDITS_KEY). */
-  onLineArtEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
+  onLineArtEdits: (update: (edits: LineArtEdits) => LineArtEdits, label?: string) => void;
   /** Show line art's joins of loose ends in the 3D view. */
   onShowJoins?: (on: boolean) => void;
   /** A coloured mesh's colours and filaments changed (Object tab). */

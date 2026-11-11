@@ -1,6 +1,6 @@
 // The Edit drawing brush's toolbar: the tools, the filament to draw, paint and fill with, the
-// brush's width and shape, snap, undo and redo, clearing edits, the status and Cancel / Done.
-import type { Dispatch, RefObject, SetStateAction } from 'react';
+// brush's width and shape, snap, undo and redo, the History, clearing edits, the status and Cancel / Done.
+import type { Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
 import type { PartMesh } from '../../../shared/types';
 import type { ColourDepth, LineArtEdits, LineArtInfo } from '../../../shared/lineart';
 import type { PartFilament } from '../../../shared/params';
@@ -33,11 +33,13 @@ interface Props {
   swaps: { depth: ColourDepth; text: string } | null;
   cancel: () => void;
   finish: RefObject<() => void>;
+  /** The History button (EditHistory). */
+  history: ReactNode;
 }
 
 /** The bar over the Edit drawing brush's piece (LineArtEditor). */
 export function EditorToolbar({ tool, setTool, filament, setFilament, coloured, part, palette, pickButton, picking, setPicking, width, setWidths, square, setShape,
-  snap, setSnap, hist, undo, redo, selection, setSelection, clearHere, clear, applied, la, edits, busy, changed, swaps, cancel, finish }: Props) {
+  snap, setSnap, hist, undo, redo, selection, setSelection, clearHere, clear, applied, la, edits, busy, changed, swaps, cancel, finish, history }: Props) {
   const lim = WIDTH[tool];
   const status = changed ? 'Not built yet: Done builds it' : `${applied} hand edit${applied === 1 ? '' : 's'}`;
   const showSwaps = !!swaps && (tool === 'paint' || tool === 'fill' || palette.length > 0);
@@ -110,6 +112,7 @@ export function EditorToolbar({ tool, setTool, filament, setFilament, coloured, 
         <button className="la-ed-tool" disabled={!hist.undo.length} onClick={undo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={15} /></button>
         <button className="la-ed-tool" disabled={!hist.redo.length} onClick={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={15} /></button>
       </div>
+      {history}
       {/* While selecting, edits are cleared only where selected. */}
       {tool === 'clear' || selection.length > 0 ? (
         <div className="la-ed-group">

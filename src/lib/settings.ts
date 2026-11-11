@@ -5,6 +5,7 @@ import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 import { LINEART_EDITS_KEY } from '../../shared/lineart';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
+import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -16,9 +17,9 @@ type Params = EvalResult['params'];
 function effective(values: ParamValues, params: Params): ParamValues {
   const out: ParamValues = {};
   for (const [k, v] of Object.entries(values)) {
-    // Attached drawings and LayerTone pictures come with chat messages and visibility is a view
-    // choice: none of them is a setting to save as a version.
-    if (k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY || k === HIDDEN_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
+    // Attached drawings and LayerTone pictures come with chat messages, visibility is a view choice
+    // and the hand edits' restore points are kept with the design: none of them is a setting to save as a version.
+    if (k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY || k === HIDDEN_KEY || k === EDIT_HISTORY_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
     out[k] = v;
   }
   return out;

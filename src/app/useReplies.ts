@@ -25,7 +25,7 @@ import type { useDesignSaving } from '../hooks/useDesignSaving';
 import type { useCrossTabSync } from '../hooks/useCrossTabSync';
 import type { useLiveModel } from '../hooks/useLiveModel';
 import { describeSvg, describeText } from './describe';
-import { keepAppValues, pictureValues, withDrawings, withLayerToneImage, withMesh } from './designValues';
+import { keepAppValues, pictureValues, withDrawings, withLayerToneImage, withMesh, withoutEditHistory } from './designValues';
 import type { ChatOptions } from './useChatOptions';
 
 /** A message written while Claude was working, sent after its reply. */
@@ -113,7 +113,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
             // A page Claude opened in an earlier generation of this design counts as opened.
             const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
             const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values, sources, ...(ev.stability && { stability: ev.stability }) }];
+            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values: withoutEditHistory(values), sources, ...(ev.stability && { stability: ev.stability }) }];
             const vi = versions.length - 1;
             return {
               ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),

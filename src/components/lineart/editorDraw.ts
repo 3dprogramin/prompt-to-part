@@ -8,7 +8,9 @@ export type Pt = [number, number];
 export type Tool = 'draw' | 'erase' | 'paint' | 'fill' | 'clear';
 /** A step of this session, for Undo / Redo: a stroke added, edits cleared, or cleared where selected (the selection it cleared kept for Undo). */
 export type Op = { kind: 'add'; name: string; fp: string; stroke: LineArtStroke; shown: ShownStroke } | { kind: 'clear'; names: string[]; before: LineArtEdits; shown: ShownStroke[] }
-  | { kind: 'here'; names: string[]; before: LineArtEdits; after: LineArtEdits; shown: ShownStroke[]; selection: ShownStroke[] };
+  | { kind: 'here'; names: string[]; before: LineArtEdits; after: LineArtEdits; shown: ShownStroke[]; selection: ShownStroke[] }
+  // (Back to a restore point made at `at`: all the edits at once; `added` shows its strokes the piece wasn't built with.)
+  | { kind: 'set'; at: number; before: LineArtEdits; after: LineArtEdits; shown: ShownStroke[]; added: ShownStroke[]; selection: ShownStroke[] };
 /**
  * A stroke of this session on the screen (mm, the piece's XY), drawn over the piece: it is only
  * built when the editor closes with Done. `src` is the stroke as saved; `color` its filament's

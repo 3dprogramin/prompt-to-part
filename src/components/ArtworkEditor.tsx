@@ -4,6 +4,8 @@ import { defaultColors, drawingColors, type SvgDrawing } from '../../shared/svgF
 import { ARTWORK_EDITS_KEY, MAX_ARTWORK_STROKES, parseArtworkEdits, splitLongStroke, strokeContours, type ArtworkEdits, type ArtworkStroke } from '../../shared/artworkEdits';
 import { leanStroke, niceLength } from '../lib/lineArtEdit';
 import { useLayoutMode } from '../hooks/useLayoutMode';
+import { describeChange, EDIT_HISTORY_KEY, historyFor, historyTime, parseEditHistory } from '../../shared/editHistory';
+import { EditHistory } from './EditHistory';
 import { useEscape } from './useEscape';
 import { Icon } from './Icon';
 import { clamp, ERASE, MAX_ZOOM, round, strokeOn, type Pt } from './lineart/editorDraw';
@@ -14,7 +16,7 @@ interface Props {
   drawing: SvgDrawing;
   /** Its fingerprint, which the edits are saved with. */
   fp: string;
-  /** The design's values: ARTWORK_EDITS_KEY (the edits). */
+  /** The design's values: ARTWORK_EDITS_KEY (the edits), EDIT_HISTORY_KEY (the restore points). */
   values: ParamValues;
   result: EvalResult;
   /** The model's parts: seen from the top, they are the picture (their colours name the drawing's, their size places it and gives the brush in mm). */
@@ -23,11 +25,16 @@ interface Props {
   busy: boolean;
   /** Why the last rebuild failed, if it did. */
   error: string | null;
-  onEdits: (update: (edits: ArtworkEdits) => ArtworkEdits) => void;
+  /** `label`: what the visit did, for the History. */
+  onEdits: (update: (edits: ArtworkEdits) => ArtworkEdits, label?: string) => void;
   onClose: () => void;
 }
 
 type Tool = 'paint' | 'erase';
+/** Gone back to a restore point made at `at`, which gave `strokes`. */
+type Restored = { at: number; strokes: ArtworkStroke[] };
+/** A step of Undo and Redo: the strokes, and the restore point gone back to then. */
+type Snap = { strokes: ArtworkStroke[]; restored: Restored | null };
 /** Brush widths: in mm when the picture's printed size is known, else in % of its height. */
 const MM = { min: 0.3, max: 15, start: 2 }, PCT = { min: 0.1, max: 10, start: 1 };
 /** The model as built, drawn while the view moves: a bitmap of at most this many pixels. */
@@ -39,6 +46,7 @@ const QUICK_PX = 4_000_000;
  * where the brush goes (it takes over from the colours there) or erase it (only it, down to the
  * plate). The strokes are a draft until Done (or Escape) saves them in the design at once
  * (ARTWORK_EDITS_KEY, in the drawing's own units) and the model rebuilds a single time; Cancel drops them.
+ * Each visit saved is a restore point: History puts the strokes as they were before one in the draft.
  */
 export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error, onEdits, onClose }: Props) {
   const layout = useLayoutMode();
@@ -49,10 +57,21 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     return { initial: saved && saved.fp === fp ? saved.strokes : [], stale: !!saved && saved.fp !== fp };
   });
   const [strokes, setStrokes] = useState<ArtworkStroke[]>(initial);
+  const [restored, setRestored] = useState<Restored | null>(null);
   const changed = strokes.length !== initial.length || strokes.some((s, i) => s !== initial[i]);
+  // This picture's restore points, and its edits as saved now (also when made on an earlier picture).
+  const history = useMemo(() => historyFor(parseEditHistory(values[EDIT_HISTORY_KEY]).artwork ?? [], name), [values[EDIT_HISTORY_KEY], name]);
+  const savedNow = useMemo(() => { const e = parseArtworkEdits(values[ARTWORK_EDITS_KEY])[name]; return e ? { [name]: e } : {}; }, [values[ARTWORK_EDITS_KEY], name]);
+  /** What this visit did, for the History. */
+  const visitLabel = () => {
+    const as = (list: ArtworkStroke[]) => (list.length ? { [name]: { fp, strokes: list } } : {});
+    if (!restored) return describeChange(as(initial), as(strokes));
+    const back = `Restored to before ${historyTime(restored.at)}`;
+    return strokes.length === restored.strokes.length && strokes.every((s, i) => s === restored.strokes[i]) ? back : `${back}, then ${describeChange(as(restored.strokes), as(strokes)).toLowerCase()}`;
+  };
   const finish = useRef(() => {});
   finish.current = () => {
-    if (changed) onEdits((e) => { const { [name]: _old, ...rest } = e; return strokes.length ? { ...rest, [name]: { fp, strokes } } : rest; });
+    if (changed) onEdits((e) => { const { [name]: _old, ...rest } = e; return strokes.length ? { ...rest, [name]: { fp, strokes } } : rest; }, visitLabel());
     onClose();
   };
   const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
@@ -89,7 +108,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   const [width, setWidth] = useState(() => unit.start / per);
   const [shape, setShape] = useState<'round' | 'square'>('round');
   const square = shape === 'square';
-  const [hist, setHist] = useState<{ undo: ArtworkStroke[][]; redo: ArtworkStroke[][] }>({ undo: [], redo: [] });
+  const [hist, setHist] = useState<{ undo: Snap[]; redo: Snap[] }>({ undo: [], redo: [] });
   const [note, setNote] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -126,8 +145,8 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   // The colour the picked one shows in.
   const ink = (matched ? shade.get(colour)?.color : colour) || '#000';
   // The latest of everything the pointer and key handlers and the painting use.
-  const now = useRef({ tool, width, square, colour, ink, strokes, hist, layers, matched, fresh, shade, fitBox });
-  now.current = { tool, width, square, colour, ink, strokes, hist, layers, matched, fresh, shade, fitBox };
+  const now = useRef({ tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox });
+  now.current = { tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox };
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -279,22 +298,36 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   useEffect(repaintOver, [tool, width, square, colour, repaintOver]);
 
   // ---- strokes (Undo and Redo step through the lists of strokes)
-  const change = (next: ArtworkStroke[]) => {
-    const cur = now.current.strokes;
+  const change = (next: ArtworkStroke[], back = now.current.restored) => {
+    const cur: Snap = { strokes: now.current.strokes, restored: now.current.restored };
     setHist((h) => ({ undo: [...h.undo, cur], redo: [] }));
     setStrokes(next);
+    setRestored(back);
   };
+  const go = (to: Snap) => { setStrokes(to.strokes); setRestored(to.restored); };
   const undo = () => {
-    const { hist: h, strokes: cur } = now.current;
+    const { hist: h, strokes: cur, restored: r } = now.current;
     if (!h.undo.length) return;
-    setHist({ undo: h.undo.slice(0, -1), redo: [...h.redo, cur] });
-    setStrokes(h.undo[h.undo.length - 1]);
+    setHist({ undo: h.undo.slice(0, -1), redo: [...h.redo, { strokes: cur, restored: r }] });
+    go(h.undo[h.undo.length - 1]);
   };
   const redo = () => {
-    const { hist: h, strokes: cur } = now.current;
+    const { hist: h, strokes: cur, restored: r } = now.current;
     if (!h.redo.length) return;
-    setHist({ undo: [...h.undo, cur], redo: h.redo.slice(0, -1) });
-    setStrokes(h.redo[h.redo.length - 1]);
+    setHist({ undo: [...h.undo, { strokes: cur, restored: r }], redo: h.redo.slice(0, -1) });
+    go(h.redo[h.redo.length - 1]);
+  };
+  /**
+   * Back to a restore point: the strokes as they were before it (one step to undo). Those the
+   * model was built with stay the same strokes, so only what differs shows over it.
+   */
+  const restoreTo = (to: ArtworkEdits, at: number) => {
+    const list = parseArtworkEdits(to)[name]?.strokes ?? [];
+    let p = 0;
+    while (p < list.length && p < initial.length && JSON.stringify(list[p]) === JSON.stringify(initial[p])) p++;
+    const next = [...initial.slice(0, p), ...list.slice(p)];
+    change(next, { at, strokes: next });
+    setNote(null);
   };
   const clearAll = () => { if (window.confirm(`Clear all ${strokes.length} hand edits of this picture?`)) change([]); };
   const commit = () => {
@@ -467,6 +500,8 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
           <button className="la-ed-tool" disabled={!hist.undo.length} onClick={undo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={15} /></button>
           <button className="la-ed-tool" disabled={!hist.redo.length} onClick={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={15} /></button>
         </div>
+        <EditHistory entries={history} current={savedNow} onPick={(to, e) => restoreTo(to, e.at)}
+          unusable={(to) => (to[name] && to[name].fp !== fp ? 'Those edits were made on an earlier picture: they no longer fit this one' : null)} />
         <button className="la-ed-tool" disabled={!strokes.length} onClick={clearAll} title="Remove every hand edit of this picture">
           <Icon name="trash" size={15} /><span className="la-ed-label">Clear edits</span>
         </button>
@@ -481,6 +516,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label={`The picture: drag to ${doing}`} />
         <div className="la-ed-notes">
+          {restored && <div className="la-ed-note"><Icon name="history" size={13} /> Going back to before {historyTime(restored.at)}: Done saves it</div>}
           {!matched && <div className="la-ed-note">Showing the picture as traced: the model's layout didn't match it</div>}
           {matched && kept < initial.length && <div className="la-ed-note">Edits taken away come off the model when it is built (Done)</div>}
           {stale && <div className="la-ed-note warn"><Icon name="alert" size={13} /> Edits made on an earlier picture don't apply to this one</div>}

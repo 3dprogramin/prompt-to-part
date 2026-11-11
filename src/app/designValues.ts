@@ -5,6 +5,7 @@ import { PART_COLORS_KEY } from '../../shared/params';
 import { MAX_DRAWINGS, type SvgDrawing } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, type LayerToneImage } from '../../shared/layertone';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
+import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../../shared/lineart';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, type MeshEntry } from '../../shared/meshes';
 import { uid } from '../lib/files';
@@ -19,6 +20,19 @@ export function newDesign(): Design {
 /** Values owned by the app rather than the script ($scale, $text, $print) survive resets and new AI versions. */
 export function keepAppValues(values: ParamValues): ParamValues {
   return Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith('$')));
+}
+
+/** The values without the hand edits' restore points (kept with the design, not with a version, never sent). */
+export function withoutEditHistory(values: ParamValues | undefined): ParamValues {
+  const { [EDIT_HISTORY_KEY]: _history, ...rest } = values ?? {};
+  return rest;
+}
+
+/** A version's values with the design's restore points as they are now: going to a version doesn't take them back. */
+export function withEditHistoryOf(values: ParamValues | undefined, current: ParamValues): ParamValues {
+  const out = withoutEditHistory(values);
+  if (current[EDIT_HISTORY_KEY] != null) out[EDIT_HISTORY_KEY] = current[EDIT_HISTORY_KEY];
+  return out;
 }
 
 /** The layouts of a line art split into pieces, when its script has no layout parameter (LINEART_LAYOUT_KEY). */

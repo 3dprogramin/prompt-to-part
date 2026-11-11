@@ -145,7 +145,8 @@ interface Props {
   result: EvalResult;
   /** The design's values: DRAWINGS_KEY (the attached and drawn drawings), LINEART_EDITS_KEY (hand edits) and LINEART_SPLIT_KEY (the split). */
   values: ParamValues;
-  onEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
+  /** `label`: what the change did, for the editor's History. */
+  onEdits: (update: (edits: LineArtEdits) => LineArtEdits, label?: string) => void;
   /** Set a parameter or design value (the size, the split). */
   onValue: (key: string, v: ParamValue) => void;
   /** Show where loose ends were joined and left in the 3D view (while this section is open). */
@@ -454,13 +455,13 @@ export function LineArtPanel({ part, result, values, onEdits, onValue, onShowJoi
         {la.edits > 0 && (
           <div className="lineart-edit-row small">
             <span><span className="mono">{la.edits}</span> hand edit{la.edits === 1 ? '' : 's'}</span>
-            <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)))}>Clear edits</button>
+            <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)), 'Cleared edits')}>Clear edits</button>
           </div>
         )}
         {stale.strokes > 0 && (
           <div className="lineart-edit-row small warn">
             <span><Icon name="alert" size={12} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing</span>
-            <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, stale.names))}>Clear</button>
+            <button className="link" onClick={() => onEdits((e) => withoutDrawings(e, stale.names), 'Cleared edits made on an earlier drawing')}>Clear</button>
           </div>
         )}
         {components > 1 && (
@@ -507,7 +508,7 @@ export function LineArtPanel({ part, result, values, onEdits, onValue, onShowJoi
               <span className="lineart-colours">
                 {colours.map((f) => <span key={`${f.color}${f.name ?? ''}`} className="lineart-colour" title={f.brand ? `${f.brand} ${f.name ?? f.color}` : f.name ?? f.color}><span className="swatch" style={{ background: f.color }} />{f.name ?? f.color}</span>)}
               </span>
-              <button className="link" onClick={() => onEdits((e) => withoutColours(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)))} title="Every line back in the piece's own filament">Remove colours</button>
+              <button className="link" onClick={() => onEdits((e) => withoutColours(e, la.frames.filter((f) => e[f.name]?.fp === f.fp).map((f) => f.name)), 'Removed colours')} title="Every line back in the piece's own filament">Remove colours</button>
               {colours.length + 1 > amsSlots() && <span className="lineart-why"><Icon name="alert" size={12} /> {colours.length + 1} filaments with the piece's own: the {shortName()} loads {amsSlots()} at once, the rest are swapped by hand</span>}
               {paints.length > 0 && <ColourDepthRow paints={paints} base={part.color} values={values} onValue={onValue} />}
             </dd>

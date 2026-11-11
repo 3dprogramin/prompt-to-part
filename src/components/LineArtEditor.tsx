@@ -4,7 +4,9 @@ import { FILL_WIDTH, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, MAX_LINEART_STROKES, 
 import { colourCost } from './LineArtPanel';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import { SCALE_KEY, type PartFilament } from '../../shared/params';
-import { addStroke, clearArea, frameAt, leanStroke, niceLength, removeStroke, sameFilament, snapEnd, staleEdits, strokeFilaments, strokesOf, toDrawing, withoutDrawings } from '../lib/lineArtEdit';
+import { addStroke, clearArea, frameAt, leanStroke, niceLength, removeStroke, sameFilament, snapEnd, staleEdits, strokeFilaments, strokesOf, toDrawing, toPiece, withoutDrawings } from '../lib/lineArtEdit';
+import { describeChange, EDIT_HISTORY_KEY, historyTime, parseEditHistory } from '../../shared/editHistory';
+import { EditHistory } from './EditHistory';
 import { useLayoutMode } from '../hooks/useLayoutMode';
 import { useEscape } from './useEscape';
 import { Icon } from './Icon';
@@ -14,13 +16,14 @@ import { EditorToolbar } from './lineart/EditorToolbar';
 interface Props {
   /** The line art on the wall (assembledLineArt), with its lines in other filaments. */
   part: PartMesh & { lineArt: LineArtInfo; paints?: { color: string; from: number; to: number }[]; colourInfo?: LineArtPaint[] };
-  /** The design's values: LINEART_EDITS_KEY (the edits), DRAWINGS_KEY (the drawings' proportions), SCALE_KEY. */
+  /** The design's values: LINEART_EDITS_KEY (the edits), DRAWINGS_KEY (the drawings' proportions), SCALE_KEY, EDIT_HISTORY_KEY (the restore points). */
   values: ParamValues;
   /** A rebuild is running. */
   busy: boolean;
   /** Why the last rebuild failed, if it did. */
   error: string | null;
-  onEdits: (update: (edits: LineArtEdits) => LineArtEdits) => void;
+  /** `label`: what the visit did, for the History. */
+  onEdits: (update: (edits: LineArtEdits) => LineArtEdits, label?: string) => void;
   onClose: () => void;
   /** The piece built without any hand edits (as the AI made it), shown where edits are cleared. */
   original: () => Promise<(PartMesh & { lineArt: LineArtInfo; paints?: { color: string; from: number; to: number }[] }) | null | undefined>;
@@ -32,7 +35,8 @@ interface Props {
  * (as deep as LINEART_DEPTH_KEY says; a line can be drawn in one too), fill where the piece has
  * nothing yet (inside an outline, in a filament too) or erase (also what the AI drew there). The strokes are a draft,
  * drawn over the piece, until Done (or Escape) saves them in the design at once (LINEART_EDITS_KEY,
- * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft.
+ * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft. Each
+ * visit saved is a restore point: History puts the edits as they were before one in the draft.
  */
 export function LineArtEditor({ part, values, busy, error, onEdits, onClose, original }: Props) {
   const layout = useLayoutMode();
@@ -46,8 +50,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   // The edits as they will be saved: the saved ones as the editor opened, and this session's changes.
   const [edits, setEdits] = useState<LineArtEdits>(saved);
   const changed = useMemo(() => JSON.stringify(edits) !== JSON.stringify(saved), [edits, saved]);
+  const history = useMemo(() => parseEditHistory(values[EDIT_HISTORY_KEY]).lineart ?? [], [values[EDIT_HISTORY_KEY]]);
   const finish = useRef(() => {});
-  finish.current = () => { if (changed) onEdits(() => edits); onClose(); };
+  finish.current = () => { if (changed) onEdits(() => edits, visitLabel()); onClose(); };
   const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
   useEscape(true, () => finish.current());
   // The area selected to clear edits in (mm, the piece's XY): Escape drops it first.
@@ -68,6 +73,14 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   const pickButton = useRef<HTMLButtonElement>(null);
   const [snap, setSnap] = useState(true);
   const [hist, setHist] = useState<{ undo: Op[]; redo: Op[] }>({ undo: [], redo: [] });
+  // Gone back to a restore point (and not undone): the latest time.
+  const restoring = hist.undo.findLast((op): op is Extract<Op, { kind: 'set' }> => op.kind === 'set');
+  /** What this visit did, for the History. */
+  const visitLabel = () => {
+    if (!restoring) return describeChange(saved, edits);
+    const back = `Restored to before ${historyTime(restoring.at)}`;
+    return JSON.stringify(edits) === JSON.stringify(restoring.after) ? back : `${back}, then ${describeChange(restoring.after, edits).toLowerCase()}`;
+  };
   const [note, setNote] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -435,6 +448,10 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       });
       setShown((s) => (undo ? s.filter((x) => !op.shown.includes(x)) : [...s, ...op.shown]));
       setSelection(undo ? op.selection : []);
+    } else if (op.kind === 'set') {
+      setEdits(undo ? op.before : op.after);
+      setShown(undo ? op.shown : op.added);
+      setSelection(undo ? op.selection : []);
     } else if (op.kind === 'add') {
       setEdits((e) => (undo ? removeStroke(e, op.name, op.stroke) : addStroke(e, op.name, op.fp, op.stroke)));
       setShown((s) => (undo ? s.filter((x) => x !== op.shown) : [...s, op.shown]));
@@ -462,6 +479,31 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     const op: Op = { kind: 'clear', names, before: Object.fromEntries(names.map((k) => [k, e[k]])), shown: now.current.shown.filter((x) => names.includes(x.name ?? '')) };
     apply(op, false);
     setHist((h) => ({ undo: [...h.undo, op], redo: [] }));
+  };
+
+  /**
+   * Back to a restore point: the draft becomes the edits as they were before it (one step to undo).
+   * The strokes the piece wasn't built with show over it; those it was built with and that go,
+   * once it is built (Done).
+   */
+  const restoreTo = (to: LineArtEdits, at: number) => {
+    const n = now.current, after = parseLineArtEdits(to), added: ShownStroke[] = [];
+    for (const f of n.la.frames) {
+      const was = strokesOf(saved, f.name, f.fp), is = strokesOf(after, f.name, f.fp);
+      let p = 0;
+      while (p < was.length && p < is.length && JSON.stringify(was[p]) === JSON.stringify(is[p])) p++;
+      for (const st of is.slice(p)) {
+        // (Its width in mm now, as Clear edits here reaches.)
+        const grow = st.width == null ? 1 : st.k ? f.k / n.scale / st.k : f.k / (f.k0 ?? f.k);
+        const w = (st.width ?? (st.mode === 'draw' ? n.la.lineWidth / n.scale : st.mode === 'fill' ? FILL_WIDTH : 3)) * grow * n.scale;
+        added.push({ mode: st.mode === 'restore' ? 'clear' : st.mode, width: st.mode === 'draw' ? Math.max(w, n.la.lineWidth) : w, points: st.points.map((q) => toPiece(f, q)), name: f.name, src: st,
+          ...(st.filament ? { color: st.filament.color } : {}), ...(st.shape ? { shape: st.shape } : {}) });
+      }
+    }
+    const op: Op = { kind: 'set', at, before: n.edits, after, shown: n.shown, added, selection: n.selection };
+    apply(op, false);
+    setHist((h) => ({ undo: [...h.undo, op], redo: [] }));
+    setNote(null);
   };
 
   /**
@@ -634,12 +676,14 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       <EditorToolbar tool={tool} setTool={setTool} filament={filament} setFilament={setFilament} coloured={coloured} part={part} palette={palette} pickButton={pickButton}
         picking={picking} setPicking={setPicking} width={width} setWidths={setWidths} square={square} setShape={setShape} snap={snap} setSnap={setSnap}
         hist={hist} undo={undo} redo={redo} selection={selection} setSelection={setSelection} clearHere={clearHere} clear={clear} applied={applied}
-        la={la} edits={edits} busy={busy} changed={changed} swaps={swaps} cancel={cancel} finish={finish} />
+        la={la} edits={edits} busy={busy} changed={changed} swaps={swaps} cancel={cancel} finish={finish}
+        history={<EditHistory entries={history} current={saved} onPick={(to, e) => restoreTo(to, e.at)} />} />
       <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint, fill, erase or select" />
         <div className="la-ed-notes">
+          {restoring && <div className="la-ed-note"><Icon name="history" size={13} /> Going back to before {historyTime(restoring.at)}: Done saves it</div>}
           {stale.strokes > 0 && (
             <div className="la-ed-note warn"><Icon name="alert" size={13} /> {stale.strokes} edit{stale.strokes === 1 ? ' was' : 's were'} made on an earlier drawing <button className="link" onClick={() => clear(stale.names)}>Clear</button></div>
           )}

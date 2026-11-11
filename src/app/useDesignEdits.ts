@@ -11,6 +11,7 @@ import { LAYERTONE_KEY, parseLayerToneSetup, type LayerToneSetup } from '../../s
 import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits } from '../../shared/lineart';
 import { findLayerTonePart } from '../components/LayerTonePanel';
 import { recolourEdits } from '../lib/lineArtEdit';
+import { EDIT_HISTORY_KEY, parseEditHistory, recordChange, type HistoryKind, type StrokeEdits } from '../../shared/editHistory';
 import type { useLiveModel } from '../hooks/useLiveModel';
 
 export function useDesignEdits({ design, setDesign, result, lastGood }: {
@@ -57,32 +58,41 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
     if (setup) values[LAYERTONE_KEY] = JSON.stringify(setup); else delete values[LAYERTONE_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
+  // Every change to the hand edits is a restore point (EDIT_HISTORY_KEY), of the edits as saved (as
+  // they read back), `label` saying what it did.
+  const record = <S,>(values: Design['values'], kind: HistoryKind, before: StrokeEdits<S>, after: StrokeEdits<S>, label = 'Hand edits changed') => {
+    const all = parseEditHistory(values[EDIT_HISTORY_KEY]);
+    const list = recordChange(all[kind], before, after, label, Date.now());
+    if (list.length && list !== all[kind]) values[EDIT_HISTORY_KEY] = JSON.stringify({ ...all, [kind]: list });
+  };
   // Line art hand edits (the Edit drawing brush): a setting like the LayerTone setup, saved with versions.
-  const setLineArtEdits = (update: (edits: LineArtEdits) => LineArtEdits) => setDesign((d) => {
+  const setLineArtEdits = (update: (edits: LineArtEdits) => LineArtEdits, label?: string) => setDesign((d) => {
     const before = parseLineArtEdits(d.values[LINEART_EDITS_KEY]);
     const after = update(before);
     if (after === before) return d;
     const values = { ...d.values };
     if (Object.keys(after).length) values[LINEART_EDITS_KEY] = JSON.stringify(after); else delete values[LINEART_EDITS_KEY];
+    record(values, 'lineart', before, parseLineArtEdits(values[LINEART_EDITS_KEY]), label);
     // The piece's first colour goes in its top layers (fewer filament changes), unless the user chose a depth.
     const coloured = (e: LineArtEdits) => Object.values(e).some((x) => x.strokes.some((st) => st.filament));
     if (values[LINEART_DEPTH_KEY] == null && !coloured(before) && coloured(after)) values[LINEART_DEPTH_KEY] = 'auto';
     return { ...d, values, updatedAt: Date.now() };
   });
   // Artwork hand edits (the artwork brush), the same way; those of drawings the design no longer has go.
-  const setArtworkEdits = (update: (edits: ArtworkEdits) => ArtworkEdits) => setDesign((d) => {
+  const setArtworkEdits = (update: (edits: ArtworkEdits) => ArtworkEdits, label?: string) => setDesign((d) => {
     const before = parseArtworkEdits(d.values[ARTWORK_EDITS_KEY]);
     const after = pruneArtworkEdits(update(before), parseDrawings(d.values[DRAWINGS_KEY]));
     if (after === before) return d;
     const values = { ...d.values };
     if (Object.keys(after).length) values[ARTWORK_EDITS_KEY] = JSON.stringify(after); else delete values[ARTWORK_EDITS_KEY];
+    record(values, 'artwork', before, parseArtworkEdits(values[ARTWORK_EDITS_KEY]), label);
     return { ...d, values, updatedAt: Date.now() };
   });
   // A filament picked for a part (Object tab), or back to the script's colour. Lines of a line art
   // in another filament (Edit drawing's colours) change filament where they were drawn and painted.
   const setPartColor = (part: string, filament: PartFilament | null) => {
     const painted = (result ?? lastGood)?.parts.find((p) => p.name === part)?.lineArt?.paintedIn;
-    if (painted) setLineArtEdits((e) => recolourEdits(e, painted, filament));
+    if (painted) setLineArtEdits((e) => recolourEdits(e, painted, filament), `Recoloured ${painted.name ?? painted.color} to ${filament ? filament.name ?? filament.color : "the piece's own"}`);
     else setPickedColor(part, filament);
   };
   const setPickedColor = (part: string, filament: PartFilament | null) => setDesign((d) => {

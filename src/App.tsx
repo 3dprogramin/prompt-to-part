@@ -44,7 +44,7 @@ import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
 import { forgetChatMode } from './lib/chatModes';
 import { latestOnly } from './lib/latest';
 import { cleanTags } from '../shared/tags';
-import { newDesign, keepAppValues, UNTITLED, withLayerToneImage, withMesh } from './app/designValues';
+import { newDesign, keepAppValues, UNTITLED, withEditHistoryOf, withLayerToneImage, withMesh, withoutEditHistory } from './app/designValues';
 import type { Notice } from './app/notice';
 import { useDesignTabs } from './app/useDesignTabs';
 import { useSidebars } from './app/useSidebars';
@@ -349,7 +349,7 @@ export default function App() {
    */
   // The runtime resolves values against the script it actually runs (defaults for anything new),
   // so they are passed as they are, not resolved against a preview that may be of older code.
-  const fullValues = (): ParamValues => ({ ...design.values });
+  const fullValues = (): ParamValues => withoutEditHistory(design.values);
 
   const { onSend, onAnswer, queue, steerOrQueue, enqueue, removeQueued, sendQueued, buildConcepts } = useReplies({ design, setDesign, updateDesign, running, setRunning, remoteRunning, setUnseen,
     currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
@@ -357,7 +357,7 @@ export default function App() {
 
   const restore = (vi: number) => {
     const v = design.versions[vi];
-    if (v) setDesign((d) => ({ ...d, code: v.code, currentVersion: vi, values: { ...v.values }, updatedAt: Date.now() }));
+    if (v) setDesign((d) => ({ ...d, code: v.code, currentVersion: vi, values: withEditHistoryOf(v.values, d.values), updatedAt: Date.now() }));
   };
   // Switching versions replaces the sliders with that version's settings: ask first if yours aren't saved.
   const [pendingRestore, setPendingRestore] = useState<number | null>(null);
@@ -385,7 +385,7 @@ export default function App() {
     if (!shown) return;
     setDesign((d) => {
       const base = d.versions[d.currentVersion]?.values ?? {};
-      const versions = [...d.versions, { code: d.code, summary: describeSettings(base, d.values, shown.params), createdAt: Date.now(), source: 'settings' as const, values: { ...d.values } }];
+      const versions = [...d.versions, { code: d.code, summary: describeSettings(base, d.values, shown.params), createdAt: Date.now(), source: 'settings' as const, values: withoutEditHistory(d.values) }];
       return { ...d, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };
