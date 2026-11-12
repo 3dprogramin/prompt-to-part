@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { rasterize } from '../shared/lineart/raster';
 import { boxMark, markBounds, markContours, markMask, parsePictureMarks } from '../shared/pictureEdit/mark';
 
 const grid = { w: 100, h: 100, px: 0.01, x0: -0.5, y1: 0.5 };
@@ -50,4 +51,41 @@ test('parsePictureMarks drops what is malformed', () => {
   const many = parsePictureMarks({ a: { fp: 'x', mark: { strokes: Array.from({ length: 500 }, () => ({ width: 0.1, points: Array.from({ length: 2500 }, () => [0, 0]) })) } } });
   assert.equal(many.a.mark.strokes.length, 400);
   assert.equal(many.a.mark.strokes[0].points.length, 2000);
+});
+
+test('markContours are all counter-clockwise (positive area)', () => {
+  const area = (c: [number, number][]) => c.reduce((a, p, i) => { const q = c[(i + 1) % c.length]; return a + (p[0] * q[1] - q[0] * p[1]) / 2; }, 0);
+  for (const shape of [undefined, 'square' as const]) {
+    const cs = markContours({ strokes: [{ width: 0.1, shape, points: [[0, 0], [0.2, 0.1], [0.1, -0.2]] }] });
+    assert.ok(cs.length >= 2);
+    for (const c of cs) assert.ok(area(c) > 0);
+  }
+});
+
+test('markMask matches filling each piece with rasterize, pixel for pixel', () => {
+  const m = { strokes: [
+    { width: 0.13, points: [[-0.3, 0.1], [0, 0.25], [0.3, -0.1]] as [number, number][] },
+    { width: 0.1, shape: 'square' as const, points: [[-0.2, -0.3], [0.25, -0.25]] as [number, number][] },
+  ] };
+  const ref = new Uint8Array(grid.w * grid.h);
+  for (const c of markContours(m)) rasterize([c], grid, ref);
+  assert.deepEqual(markMask(m, grid), ref);
+});
+
+test('a heavy mark rasterises fast', () => {
+  const strokes = Array.from({ length: 20 }, (_, s) => ({ width: 0.03, points: Array.from({ length: 1000 }, (_, i): [number, number] => [Math.sin(i / 30 + s) * 0.4, Math.cos(i / 17 + s) * 0.4]) }));
+  const t = Date.now();
+  const n = count(markMask({ strokes }, { w: 1024, h: 1024, px: 1 / 1024, x0: -0.5, y1: 0.5 }));
+  const ms = Date.now() - t;
+  console.log(`heavy mark: ${ms} ms`);
+  assert.ok(n > 0);
+  assert.ok(ms < 1000, `${ms} ms`);
+});
+
+test('a box that is empty after clamping gives no strokes', () => {
+  assert.deepEqual(boxMark([0.5, 0.2, 0.5, 0.8], 1), { strokes: [] });
+  assert.deepEqual(boxMark([0.2, 0.9, 0.8, 0.3], 1), { strokes: [] });
+  assert.deepEqual(boxMark([1.2, 0.2, 1.5, 0.8], 1), { strokes: [] });
+  const b = markBounds(boxMark([-0.5, 0, 1.5, 1], 1))!;
+  assert.ok(Math.abs(b.min[0] + 0.5) < 1e-9 && Math.abs(b.max[0] - 0.5) < 1e-9);
 });
