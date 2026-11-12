@@ -11,8 +11,8 @@ export const ARTWORK_EDITS_KEY = '$artworkEdits';
 /** The most strokes kept per drawing, and points per stroke. */
 export const MAX_ARTWORK_STROKES = 400;
 export const MAX_ARTWORK_POINTS = 2000;
-/** The most points in one stroke's cut. */
-export const MAX_CUT_POINTS = 400;
+/** The most points in one stroke's cut: as many as a stroke may have. */
+export const MAX_CUT_POINTS = MAX_ARTWORK_POINTS;
 
 /**
  * One brush stroke: 'paint' puts `color` (one of the drawing's colours) where the brush goes,

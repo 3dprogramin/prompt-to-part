@@ -286,7 +286,7 @@ const cutAgainst = (st: ArtworkStroke, mark: PictureMark) => {
 };
 
 test('cutStrokes keeps a heavy mark under the point limit, inside the mark', () => {
-  assert.ok(pointsIn(markContours(scribble)) > 10 * MAX_CUT_POINTS);
+  assert.ok(pointsIn(markContours(scribble)) > 4 * MAX_CUT_POINTS);
   // The mark's outline where the stroke reaches: it cuts about what the mark covers, and nothing outside it.
   const exact = cutStrokes([across], scribble, C)[0];
   assert.ok(pointsIn(exact.cut) > 0 && pointsIn(exact.cut) <= MAX_CUT_POINTS, `${pointsIn(exact.cut)}`);
@@ -295,29 +295,29 @@ test('cutStrokes keeps a heavy mark under the point limit, inside the mark', () 
   assert.ok(a.outside < 0.001 * a.stroke, `${a.outside}`);
   // And what it had already stays within the limit.
   assert.ok(pointsIn(cutStrokes([exact], scribble, C)[0].cut) <= MAX_CUT_POINTS);
-  // A wide stroke over most of the scribble: the outline shrunk and simplified to fit.
+  // A wide stroke over most of the scribble: its outline there.
   const wide = cutStrokes([stroke({ width: 0.8, points: [[-0.3, 0], [-0.2, 0]] })], scribble, C)[0];
   assert.ok(pointsIn(wide.cut) <= MAX_CUT_POINTS, `${pointsIn(wide.cut)}`);
   const b = cutAgainst(wide, scribble);
-  near(b.cut, b.covered, 0.05);
+  near(b.cut, b.covered, 0.01);
   assert.ok(b.outside < 0.001 * b.stroke, `${b.outside}`);
 });
 
 test('cutStrokes on many small rings: never cuts outside them, and an empty cut leaves the stroke as it is', () => {
-  // A grid of small rings (each an outline with a hole), far more than fits.
+  // A grid of small rings (each an outline with a hole).
   const ring = (cx: number, cy: number, r: number, width: number) => ({ width, points: Array.from({ length: 25 }, (_, i): [number, number] => [cx + r * Math.cos(i / 12 * Math.PI), cy + r * Math.sin(i / 12 * Math.PI)]) });
   const rings = (n: number, r: number, width: number): PictureMark => ({ strokes: Array.from({ length: n * n }, (_, k) => ring(-0.3 + 0.6 * (k % n) / (n - 1), -0.3 + 0.6 * Math.floor(k / n) / (n - 1), r, width)) });
   const big = stroke({ width: 0.8 });
-  // (64 rings cannot all fit in MAX_CUT_POINTS points: the cut is the largest it can keep.)
-  for (const [mark, share] of [[rings(3, 0.02, 0.008), 0.7], [rings(8, 0.02, 0.008), 0.1], [rings(8, 0.01, 0.001), 0.02]] as const) {
+  // (The 8x8 grids, about 9,000 points as they are, need shrinking and cannot all fit: the cut is the largest it can keep.)
+  for (const [mark, share] of [[rings(3, 0.02, 0.008), 0.99], [rings(8, 0.02, 0.008), 0.7], [rings(8, 0.01, 0.001), 0.4]] as const) {
     const st = cutStrokes([big], mark, C)[0];
     assert.ok(st.cut!.length > 0 && pointsIn(st.cut) <= MAX_CUT_POINTS, `${pointsIn(st.cut)}`);
     const a = cutAgainst(st, mark);
     assert.ok(a.cut > share * a.covered, `${a.cut} of ${a.covered}`);
     assert.ok(a.outside < 0.001 * a.stroke, `${a.outside}`);
   }
-  // Pieces whose boxes reach the stroke but not the pieces themselves, more than fit: no `cut: []`, the stroke itself.
-  const corner: PictureMark = { strokes: [{ width: 0.02, points: Array.from({ length: 20 }, (): [number, number] => [0.11, 0.11]) }] };
+  // Pieces whose boxes reach the stroke but not the pieces themselves (100 circles), more than fit: no `cut: []`, the stroke itself.
+  const corner: PictureMark = { strokes: [{ width: 0.02, points: Array.from({ length: 100 }, (): [number, number] => [0.11, 0.11]) }] };
   const small = stroke({ width: 0.2 });
   assert.ok(pointsIn(markContours(corner)) > MAX_CUT_POINTS);
   assert.equal(cutStrokes([small], corner, C)[0], small);
