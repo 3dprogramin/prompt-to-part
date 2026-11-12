@@ -3,7 +3,8 @@
 // the one-edit-per-design rule and the busy marker the Docker rebuild waits on.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -332,6 +333,26 @@ test('a stopped edit leaves no busy marker and frees the design', async () => {
     await new Promise((r) => setTimeout(r, 20));
   }
   assert.fail('the design stayed busy');
+});
+
+test('at start the server clears the busy markers of picture edits that no longer run', () => {
+  // Left by a server that died mid-edit (its process is gone, or it came back as this very process),
+  // or unreadable; a marker of another server that is running stays.
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  const files = { gone: busyFile('test-pe-stale-gone'), own: busyFile('test-pe-stale-own'), junk: busyFile('test-pe-stale-junk'), live: busyFile('test-pe-live-other') };
+  writeFileSync(files.gone, `${gone}\n`);
+  writeFileSync(files.own, `${process.pid}\n`);
+  writeFileSync(files.junk, '');
+  writeFileSync(files.live, `${process.ppid}\n`);
+  try {
+    createApp({ port });
+    assert.equal(existsSync(files.gone), false, 'a process that is gone');
+    assert.equal(existsSync(files.own), false, 'this process, before it ran any edit');
+    assert.equal(existsSync(files.junk), false, 'unreadable');
+    assert.equal(existsSync(files.live), true, 'another running server');
+  } finally {
+    for (const f of Object.values(files)) rmSync(f, { force: true });
+  }
 });
 
 test('requests that cannot be edited are refused before the image model is asked', async () => {
