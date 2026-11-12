@@ -33,8 +33,14 @@ export function registerPrintedRoutes(app: express.Express, { designFile, imageD
       } else {
         await rm(file, { force: true });
       }
-      const mark: PrintedMark = { v, at: Date.now(), fp: versionFingerprint(version), file: !!bytes, settings: !!bytes && req.query.settings === '1' };
-      await changePrinted((all) => { all[id] = [...(all[id] ?? []).filter((m) => m.v !== v), mark].sort((a, b) => a.v - b.v); });
+      const fp = versionFingerprint(version);
+      let mark!: PrintedMark;
+      await changePrinted((all) => {
+        // Marked again (Make 3MF) with nothing changed: it keeps the date it was printed.
+        const old = all[id]?.find((m) => m.v === v);
+        mark = { v, at: old && old.fp === fp ? old.at : Date.now(), fp, file: !!bytes, settings: !!bytes && req.query.settings === '1' };
+        all[id] = [...(all[id] ?? []).filter((m) => m.v !== v), mark].sort((a, b) => a.v - b.v);
+      });
       res.json(without(mark));
     });
   });

@@ -6,7 +6,6 @@ import { ID_RE } from './routes/store';
 import { cleanPrintedMap, type PrintedMap, type PrintedMark } from '../shared/printed';
 import type { Design, DesignVersion } from '../shared/types';
 
-
 /** JSON with object keys sorted at every depth, so equal content gives equal text. */
 function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map((x) => canonical(x) ?? 'null').join(',')}]`;

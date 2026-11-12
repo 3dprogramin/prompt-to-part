@@ -426,7 +426,12 @@ test('printed: a version is marked with its 3MF, listed, downloaded, guarded aga
   assert.equal((await fetch(`${A}/api/designs/test-prnt-missing1/printed/0`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-PTP': '1' }, body: 'x' })).status, 404);
   const none = await post(0, undefined);
   assert.equal(none.status, 200);
-  assert.equal((await none.json()).file, false);
+  const noneMark = await none.json();
+  assert.equal(noneMark.file, false);
+  // Making its 3MF later re-marks it: the date it was marked stays.
+  await new Promise((r) => setTimeout(r, 5));
+  const made = await (await post(0, 'PK3mf')).json();
+  assert.deepEqual({ at: made.at, file: made.file }, { at: noneMark.at, file: true });
 
   for (const n of [1, 0]) assert.equal((await fetch(`${url}/${n}`, { method: 'DELETE', headers: W })).status, 200);
   assert.equal((await fetch(`${url}/1/3mf`)).status, 404);
