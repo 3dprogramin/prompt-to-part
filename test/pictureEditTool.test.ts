@@ -213,7 +213,11 @@ test('edit_picture and show_picture come with the artwork tools only, and edit w
   assert.ok(names({ artwork: { references: [] } }).includes('edit_picture'));
   assert.ok(names({ artwork: { references: [] } }).includes('show_picture'));
   assert.equal(names({}).includes('edit_picture'), false);
-  assert.equal(names({ pictures: { references: [] }, lithophane: true }).includes('edit_picture'), false);
+  // A mode with no pictures (a plain 3D model) has none; a lithophane with the image model has them (its own test below).
+  assert.equal(names({ designImage: undefined }).includes('edit_picture'), false);
+  assert.ok(names({ pictures: { references: [] }, lithophane: true }).includes('edit_picture'));
+  assert.ok(names({ pictures: { references: [] }, lithophane: true }).includes('show_picture'));
+  assert.equal(names({ lithophane: true }).includes('edit_picture'), false, 'no image model: no edit_picture');
   // (LayerTone with the image model has them too: its own test below.)
 
   // The real picture edit, with a stand-in image model that sends the crop back unchanged.

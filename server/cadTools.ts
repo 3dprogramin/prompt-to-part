@@ -161,6 +161,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       ...(artwork ? [...artworkTools(ctx, artwork), ...editPictureTools(ctx, artwork)] : []),
       // LayerTone photos are edited the same way (not alongside artwork's: the tools have one name).
       ...(!artwork && layerTone && pictures ? editPictureTools(ctx, pictures, editPicture, { mode: 'layertone', built: layerToneBuilt }) : []),
+      // ...and a lithophane's (its panel outside the mark is the same by itself).
+      ...(!artwork && lithophane && pictures ? editPictureTools(ctx, pictures, editPicture, { mode: 'lithophane' }) : []),
       ...(lineArt ? lineArtTools(ctx, lineArt) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
       ...(designImage ? designImageTools(ctx, designImage) : []),

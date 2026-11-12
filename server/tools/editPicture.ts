@@ -45,7 +45,7 @@ interface Picture { aspect: number; fp: string; render: (heightPx: number) => Ra
 
 /** The design's picture `name` (own keys only): AI artwork's drawing with its hand edits, or a LayerTone photo; null when there is none. */
 function pictureOf(values: ToolContext['base'], name: string, mode: PictureTools['mode']): Picture | null {
-  if (mode === 'layertone') {
+  if (mode !== 'artwork') {
     const all = parseLayerToneImages(values[LAYERTONE_IMAGES_KEY]);
     if (!Object.hasOwn(all, name)) return null;
     const img = all[name], aspect = img.width / img.height;
@@ -93,10 +93,11 @@ function sideBySide(a: Raster, b: Raster): Raster {
 }
 
 /**
- * What edit_picture and show_picture edit: AI artwork's drawings, or LayerTone's photos (`built`:
- * how a photo's part is built now, which a marked edit needs; null when no part is built from it).
+ * What edit_picture and show_picture edit: AI artwork's drawings, LayerTone's photos (`built`:
+ * how a photo's part is built now, which a marked edit needs; null when no part is built from it)
+ * or a lithophane's photo (nothing to pin: each pixel is its own thickness).
  */
-export type PictureTools = { mode: 'artwork' } | { mode: 'layertone'; built: (picture: string) => Promise<PictureEditRequest['layerTone'] | null> };
+export type PictureTools = { mode: 'artwork' } | { mode: 'lithophane' } | { mode: 'layertone'; built: (picture: string) => Promise<PictureEditRequest['layerTone'] | null> };
 
 /** The tools' words for each kind of picture (artwork's as they always were). */
 const WORDS = {
@@ -112,9 +113,15 @@ const WORDS = {
     show: 'Show one of the design\'s LayerTone pictures as stored (greyscale), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
     edit: 'Change part of one of the design\'s LayerTone pictures with the image model and keep everything else exactly as it is: swap a person or a face, take something out, fix a detail. The new picture replaces the old one under the same name, so the script stays unchanged; with a region, automatic swap layers are kept as they were, so the print outside the region stays the same. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redone. Costs a few cents and takes ~20-60 s.',
   },
+  lithophane: {
+    noun: 'picture',
+    name: 'The picture\'s name, as used with H.lithophane',
+    show: 'Show one of the design\'s lithophane pictures as stored (greyscale), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
+    edit: 'Change part of one of the design\'s lithophane pictures with the image model and keep everything else exactly as it is: swap a person or a face, take something out, fix a detail. The new picture replaces the old one under the same name, so the script stays unchanged; with a region, the panel outside it stays exactly as it was. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redone. Costs a few cents and takes ~20-60 s.',
+  },
 };
 
-/** edit_picture and show_picture, in AI artwork mode or (`kind`) LayerTone mode; `edit` is the picture edit (replaceable in tests). */
+/** edit_picture and show_picture, in AI artwork mode or (`kind`) LayerTone or lithophane mode; `edit` is the picture edit (replaceable in tests). */
 export function editPictureTools({ base, emit, drawImage }: ToolContext, images: AiImages, edit: typeof editPicture = editPicture, kind: PictureTools = { mode: 'artwork' }) {
   const mode = kind.mode, words = WORDS[mode], noun = words.noun;
   return [

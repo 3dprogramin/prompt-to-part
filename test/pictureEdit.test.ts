@@ -366,7 +366,7 @@ test('requests that cannot be edited are refused before the image model is asked
   // Names an object has from its prototype are not drawings.
   for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) await bad(request({ picture: name }), /no drawing/);
   await bad(request({ change: ' ' }), /what to change/i);
-  await bad(request({ mode: 'lithophane' }), /not yet/);
+  await bad(request({ mode: 'lineart' }), /not yet/);
   await bad(request({ photos: ['https://example.com/a.png'] }), /photo/i);
   await bad(request({ photos: [PHOTO, PHOTO, PHOTO, PHOTO, PHOTO] }), /at most 4/);
   await bad(request({ mark: { strokes: [{ width: 0.1, points: [[3, 3]] }] } }), /outside the picture/);

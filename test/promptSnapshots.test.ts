@@ -69,6 +69,12 @@ const LAYERTONE_FOLLOWUP: Partial<GenerateRequest> = {
   },
   pictureEdits: [{ picture: 'photo-1', change: 'take out the lamp post', masked: true, version: 2 }],
 };
+/** A lithophane follow-up: the same stored photo with a saved mark, a picture edit kept in the picture editor. */
+const LITHOPHANE_FOLLOWUP: Partial<GenerateRequest> = {
+  imageMode: 'lithophane', prompt: 'put my dad in the empty chair', code: 'const meta = { name: "cat" };\nfunction build(p) { return { name: "Lithophane", ...H.lithophane("photo-1", { width: 100 }) }; }',
+  pictures: LAYERTONE_FOLLOWUP.pictures,
+  pictureEdits: [{ picture: 'photo-1', change: 'take out the lamp post', masked: true, version: 2 }],
+};
 const LINE_ART_CODE = 'const meta = { name: "fox" };\nfunction build(p) { return H.lineart("fox", { width: 200 }); }';
 const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_API_KEY' | 'MESHY_API_KEY')[] }[] = [
   { name: 'plain-new', req: {} },
@@ -81,6 +87,8 @@ const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_A
   { name: 'layertone', req: { imageMode: 'layertone', prompt: 'my cat' }, env: ['OPENROUTER_API_KEY'] },
   { name: 'layertone-followup', req: LAYERTONE_FOLLOWUP, env: ['OPENROUTER_API_KEY'] },
   { name: 'lithophane', req: { imageMode: 'lithophane', prompt: 'my cat' } },
+  { name: 'lithophane-edit', req: { imageMode: 'lithophane', prompt: 'my cat' }, env: ['OPENROUTER_API_KEY'] },
+  { name: 'lithophane-followup', req: LITHOPHANE_FOLLOWUP, env: ['OPENROUTER_API_KEY'] },
   { name: 'lineart', req: { imageMode: 'lineart', prompt: 'a motorbike key holder' }, env: ['OPENROUTER_API_KEY'] },
   { name: 'lineart-sticky', req: { imageMode: 'off', code: LINE_ART_CODE }, env: ['OPENROUTER_API_KEY'] },
   { name: 'figure', req: { imageMode: 'figure', figureColor: true, prompt: 'a dragon' }, env: ['OPENROUTER_API_KEY', 'MESHY_API_KEY'] },
@@ -142,4 +150,20 @@ test('prompt for picture-edit-layertone', async () => {
   const file = path.join(FIXTURES, 'picture-edit-layertone.md');
   if (update) writeFileSync(file, actual);
   else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-layertone changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
+});
+
+test('prompt for picture-edit-lithophane', async () => {
+  const { pictureEditPrompt } = await import('../server/pictureEdit/prompt');
+  const actual = [
+    '# marked, with a photo',
+    pictureEditPrompt({ mode: 'lithophane', change: 'swap the man on the left for the man in the photo', masked: true, photos: 1 }),
+    '# the whole picture',
+    pictureEditPrompt({ mode: 'lithophane', change: 'take out the lamp post', masked: false, photos: 0 }),
+    '# marked, padded, with two photos',
+    pictureEditPrompt({ mode: 'lithophane', change: 'make her smile', masked: true, photos: 2, padded: true }),
+    '',
+  ].join('\n');
+  const file = path.join(FIXTURES, 'picture-edit-lithophane.md');
+  if (update) writeFileSync(file, actual);
+  else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-lithophane changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
 });

@@ -10,7 +10,7 @@ import type { PictureMode } from '../../shared/api';
  * `padded`: white bands were added to the picture to give it the aspect asked for.
  */
 export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number; padded?: boolean }): string {
-  if (r.mode === 'layertone') return photoPrompt(r);
+  if (r.mode === 'layertone' || r.mode === 'lithophane') return photoPrompt(r, r.mode === 'lithophane');
   if (r.mode !== 'artwork') throw new Error(`Picture edits for ${r.mode} are not written yet`);
   const colours = r.colours ?? [];
   const where = r.masked ? ' inside the outlined area' : '';
@@ -38,13 +38,20 @@ export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked
  * filament painting (its brightness becomes the print's height), so the change is a realistic
  * photo edit in grey tones that blends in. The attached pictures as for artwork.
  */
-function photoPrompt(r: { change: string; masked: boolean; photos: number; padded?: boolean }): string {
+function photoPrompt(r: { change: string; masked: boolean; photos: number; padded?: boolean }, lithophane = false): string {
+  // What the print does with the picture, and what the change must keep for it.
+  const print = lithophane
+    ? 'a lithophane, a panel in white PLA that is thicker where the photo is dark and thinner where it is bright, so it shows the photo when lit from behind'
+    : 'a LayerTone filament painting, where the brightness of every point becomes the print\'s height';
+  const tones = lithophane
+    ? 'so only its grey tones show: a full range of tones from deep shadow to bright highlight, with no flat or washed-out areas'
+    : 'so only its grey tones print';
   const where = r.masked ? ' inside the outlined area' : '';
   const photos = r.photos === 1 ? 'The attached photo shows' : `The ${r.photos} attached photos show`;
   return [
     r.masked
-      ? 'Edit the first attached picture: it is part of a black-and-white photo that is 3D printed as a LayerTone filament painting, where the brightness of every point becomes the print\'s height, so only its grey tones print. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole photo, for context only.'
-      : 'Edit the attached picture: it is a black-and-white photo that is 3D printed as a LayerTone filament painting, where the brightness of every point becomes the print\'s height, so only its grey tones print.',
+      ? `Edit the first attached picture: it is part of a black-and-white photo that is 3D printed as ${print}, ${tones}. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole photo, for context only.`
+      : `Edit the attached picture: it is a black-and-white photo that is 3D printed as ${print}, ${tones}.`,
     `Change only this${where}: ${r.change.trim()}`,
     r.photos ? `${photos} the real person or subject for the part you change: keep their likeness.` : '',
     r.masked
@@ -53,6 +60,7 @@ function photoPrompt(r: { change: string; masked: boolean; photos: number; padde
     r.padded ? `The plain white bands along two opposite edges of the ${r.masked ? 'first two pictures' : 'picture'} are only padding: leave them plain white, with nothing drawn in them.` : '',
     'Rules for what you change:',
     '- a realistic photo, like the rest of the picture: the same light, focus, grain, brightness and contrast, so that it blends in with no visible seam',
+    lithophane ? '- a full tonal range in the change too (real shadows and highlights, not flat grey): the lit panel shows the tones' : '',
     '- in grey tones only, as the rest of the picture (the print has no colour)',
     '- no outline, border or frame around the change, and no text, signature or watermark',
   ].filter(Boolean).join('\n');

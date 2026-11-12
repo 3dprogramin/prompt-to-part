@@ -4,7 +4,7 @@ import { stabilityFor } from '../shared/stability';
 import { SCALE_KEY } from '../shared/params';
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
-import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, parseLayerToneImages, type LayerToneImage } from '../shared/layertone';
 import { layerToneBuild, photoFingerprint } from '../shared/pictureEdit/photo';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } from '../shared/meshes';
 import type { MeshyBalance, PrinterInfo } from '../shared/api';
@@ -467,11 +467,21 @@ export default function App() {
   // The LayerTone photo of the part the LayerTone panel shows, for the picture editor (with the image model only).
   const imagesStored = useMemo(() => parseLayerToneImages(design.values[LAYERTONE_IMAGES_KEY]), [design.values[LAYERTONE_IMAGES_KEY]]);
   const pictureItems = useMemo(() => {
-    const part = artworkModel ? findLayerTonePart(shown) : undefined;
+    if (!artworkModel || !shown) return [];
+    const part = findLayerTonePart(shown);
     // How the part was built, sent with an edit (a marked one keeps automatic swap layers as they were).
-    const layerTone = part && layerToneBuild(part, shown!.parts);
+    const layerTone = part && layerToneBuild(part, shown.parts);
+    const items: { name: string; image: LayerToneImage; fp: string; mode: 'layertone' | 'lithophane'; layerTone: typeof layerTone; mmPerUnit: number; label: string }[] = [];
     const image = layerTone ? imagesStored[part!.layerTone!.image] : undefined;
-    return image && layerTone ? [{ name: image.name, image, fp: photoFingerprint(image), layerTone, mmPerUnit: layerTone.options.width / (image.width / image.height) }] : [];
+    if (image && layerTone) items.push({ name: image.name, image, fp: photoFingerprint(image), mode: 'layertone', layerTone, mmPerUnit: layerTone.options.width / (image.width / image.height), label: 'Edit the picture' });
+    // A lithophane's pictures: the lit panel maps each pixel on its own, so there is nothing to send with the edit.
+    for (const p of shown.parts) {
+      const litho = p.lithophane, img = litho ? imagesStored[litho.image] : undefined;
+      if (litho && img && !items.some((i) => i.name === img.name)) items.push({ name: img.name, image: img, fp: photoFingerprint(img), mode: 'lithophane', layerTone: null, mmPerUnit: litho.options.width / (img.width / img.height), label: 'Edit the picture' });
+    }
+    // Both kinds in one design: say which picture each button is for.
+    if (items.some((i) => i.mode === 'layertone') && items.some((i) => i.mode === 'lithophane')) for (const i of items) i.label = i.mode === 'layertone' ? 'Edit the LayerTone picture' : 'Edit the lithophane picture';
+    return items;
   }, [shown, imagesStored, artworkModel]);
   const pictureEditing = editingPicture ? pictureItems.find((a) => a.name === editingPicture) : undefined;
   // Editing a picture with the image model (from the artwork brush or the picture editor), and its mark.
@@ -479,7 +489,7 @@ export default function App() {
   const painterItems = [
     ...(shownLineArt?.lineArt.frames.length ? [{ kind: 'lineart' as const, name: '', label: 'Edit drawing' }] : []),
     ...artworkItems.map((a) => ({ kind: 'artwork' as const, name: a.name, label: `Paint ${a.name}` })),
-    ...pictureItems.map((a) => ({ kind: 'picture' as const, name: a.name, label: 'Edit the picture' })),
+    ...pictureItems.map((a) => ({ kind: 'picture' as const, name: a.name, label: a.label })),
   ];
   const painter = painterItems.length ? {
     items: painterItems,
@@ -1000,7 +1010,7 @@ export default function App() {
           values={design.values}
           mmPerUnit={pictureEditing.mmPerUnit}
           onMark={(mark) => pictureEdit.setMark(pictureEditing.name, pictureEditing.fp, mark)}
-          edit={pictureEdit.ui(pictureEditing.name, pictureEditing.fp, { layerTone: pictureEditing.layerTone })}
+          edit={pictureEdit.ui(pictureEditing.name, pictureEditing.fp, { mode: pictureEditing.mode, layerTone: pictureEditing.layerTone })}
           onClose={() => setEditingPicture(null)}
         />
       )}

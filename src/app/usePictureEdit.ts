@@ -20,8 +20,8 @@ import { useLinesUp } from './useLinesUp';
 export const PICTURE_CHANGED = 'The picture changed while editing; try again';
 
 type StartArgs = Parameters<PictureEditUi['start']>[0];
-/** A LayerTone photo's edit: how its part was built (from the part as built; a marked edit needs it). */
-export interface PhotoEdit { layerTone: PictureEditRequest['layerTone'] | null }
+/** A stored photo's edit: LayerTone's (how its part was built, from the part as built; a marked edit needs it) or a lithophane's (nothing to send). */
+export interface PhotoEdit { mode: 'layertone' | 'lithophane'; layerTone?: PictureEditRequest['layerTone'] | null }
 /**
  * What an edit was asked for, and the design as it was then: its id, the picture and its hand edits
  * as saved (a photo's: its pictures and LayerTone setup, in `others`), the model's box.
@@ -78,7 +78,7 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
   };
   /**
    * The request for the open design as it is now: its values with the editor's unsaved strokes in, as
-   * Done would save them. With `photo`, of a LayerTone photo (its picture under $images).
+   * Done would save them. With `photo`, of a stored photo (LayerTone's or a lithophane's) (its picture under $images).
    */
   const start = (picture: string, fp: string, args: StartArgs, photo?: PhotoEdit) => {
     const d = designRef.current, saved = d.values[ARTWORK_EDITS_KEY];
@@ -89,7 +89,7 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
       if (Object.keys(next).length) values[ARTWORK_EDITS_KEY] = JSON.stringify(next); else delete values[ARTWORK_EDITS_KEY];
     }
     const request: PictureEditRequest = {
-      mode: photo ? 'layertone' : 'artwork', picture, values, ...(args.mark ? { mark: args.mark } : {}), change: args.change, photos: args.photos,
+      mode: photo ? photo.mode : 'artwork', picture, values, ...(args.mark ? { mark: args.mark } : {}), change: args.change, photos: args.photos,
       ...(photo?.layerTone ? { layerTone: photo.layerTone } : {}),
     };
     // A photo's edit sets its picture and may set the setup's swap layers: kept only if neither changed meanwhile.
@@ -154,7 +154,7 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
     return { ...d, values, updatedAt: Date.now() };
   });
 
-  /** The edit as the editor of `picture` (fingerprint `fp`; with `photo`, a LayerTone photo) shows it. */
+  /** The edit as the editor of `picture` (fingerprint `fp`; with `photo`, a stored photo) shows it. */
   const ui = (picture: string, fp: string, photo?: PhotoEdit): PictureEditUi => {
     const mine = job?.sent.picture === picture ? job : null;
     return {

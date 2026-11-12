@@ -56,6 +56,8 @@ export const OFF_PALETTE_SHARE = 0.05;
 const MAX_PHOTOS = 4, MAX_CHANGE = 2000;
 /** The most points a mark may have in all (a brushed mark has a few thousand; parsing alone allows 400 strokes of 2000). */
 export const MAX_MARK_POINTS = 20_000;
+/** The modes whose picture is a stored photo (greyscale under $images): LayerTone's and the lithophane's. */
+const isPhoto = (m: PictureMode) => m === 'layertone' || m === 'lithophane';
 const MODES: readonly PictureMode[] = ['artwork', 'layertone', 'lithophane', 'lineart'];
 
 /** A picture edit that failed with an HTTP status: 400 the request, 502 the image model's answer. */
@@ -95,7 +97,7 @@ function cleanMark(mark: unknown): PictureMark | null {
 export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undefined): string | null {
   if (!r || typeof r !== 'object') return 'Send a picture edit';
   if (!MODES.includes(r.mode as PictureMode)) return `mode: one of ${MODES.join(', ')}`;
-  if (r.mode !== 'artwork' && r.mode !== 'layertone') return `Editing a ${r.mode} picture is not yet supported`;
+  if (r.mode === 'lineart') return `Editing a ${r.mode} picture is not yet supported`;
   if (typeof r.change !== 'string' || !r.change.trim() || r.change.length > MAX_CHANGE) return `Say what to change (up to ${MAX_CHANGE} characters)`;
   const photos = r.photos ?? [];
   if (!Array.isArray(photos)) return 'photos: a list of data URLs';
@@ -104,7 +106,7 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
   if (!r.values || typeof r.values !== 'object' || typeof r.picture !== 'string') return 'Send the design\'s values and the picture\'s name';
   // Own keys only: 'constructor' or '__proto__' must not find the object's prototype.
   let aspect: number;
-  if (r.mode === 'layertone') {
+  if (isPhoto(r.mode as PictureMode)) {
     const images = parseLayerToneImages(r.values[LAYERTONE_IMAGES_KEY]);
     if (!Object.hasOwn(images, r.picture) || !Object.hasOwn(rawObject(r.values[LAYERTONE_IMAGES_KEY]), r.picture)) return `There is no picture "${r.picture}" in this design`;
     aspect = images[r.picture].width / images[r.picture].height;
@@ -124,7 +126,7 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
     // A brush stroke wider than twice the picture's longer side covers it all from anywhere: not a brushed mark.
     if (mark.strokes.some((st) => st.width > 2 * Math.max(aspect, 1))) return 'A stroke of the mark is wider than twice the picture: select with a smaller brush';
     if (b.max[0] <= w.x0 || b.min[0] >= w.x0 + w.w || b.max[1] <= w.y1 - w.h || b.min[1] >= w.y1) return 'The mark is outside the picture';
-    // Its automatic swap layers are kept as the part was built with them (editLayerTone).
+    // Its automatic swap layers are kept as the part was built with them (editPhoto).
     if (r.mode === 'layertone' && !cleanBuild(r.layerTone)) return 'A marked LayerTone edit needs how the picture\'s part was built (its options and filaments): build the model first';
   }
   return null;
@@ -390,13 +392,13 @@ function marksWithout(values: PictureEditRequest['values'], picture: string): st
  * (PictureEditError 502) rather than paste a moved piece. Without one, the whole picture is sent,
  * padded to the nearest aspect the model draws, and replaced. Returns the values to set: the drawing
  * or picture under the same name, for artwork the hand edits cut by the mark (dropped for a
- * whole-picture edit) and re-keyed, for LayerTone the swap layers kept (editLayerTone), and the
+ * whole-picture edit) and re-keyed, for LayerTone the swap layers kept (editPhoto), and the
  * picture's mark removed.
  */
 export async function editPicture(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const problem = pictureEditProblem(r);
   if (problem) throw new PictureEditError(400, problem);
-  return r.mode === 'layertone' ? editLayerTone(r, deps) : editArtwork(r, deps);
+  return isPhoto(r.mode) ? editPhoto(r, deps) : editArtwork(r, deps);
 }
 
 async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
@@ -481,7 +483,7 @@ async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEd
 }
 
 /**
- * A LayerTone photo's edit. The stored picture (grey, at most 800 pixels a side) is cropped around
+ * A stored photo's edit (LayerTone's or a lithophane's, the same picture store). The stored picture (grey, at most 800 pixels a side) is cropped around
  * the mark on its own pixels and sent at about SENT_LONG_SIDE; the answer is lined up (tones too:
  * photos often come back re-toned), brought back to the stored pixels and pasted into the whole
  * stored picture inside the mark only, so every byte outside it stays as it was. The picture is
@@ -490,7 +492,7 @@ async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEd
  * the mark keeps its heights too; nothing else in the setup changes. When the build prints another
  * LayerTone picture too (the swaps are shared), they are not kept, and the result says so.
  */
-async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
+async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const img = parseLayerToneImages(r.values[LAYERTONE_IMAGES_KEY])[r.picture];
   const photos = r.photos ?? [], mark = cleanMark(r.mark);
   const ask = asker(r, deps, !!mark), log = logger(r, deps, !!mark);
@@ -502,10 +504,13 @@ async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<Picture
   let before: string, after: string, shown: PictureWindow, pasted: Raster, asked: Asked;
   let align: PictureEditResponse['align'], kept: number[] | null = null, notKept = false, fullMask: Uint8Array | null = null;
   if (mark) {
-    const build = cleanBuild(r.layerTone)!;
-    kept = swapsToKeep(img, build, r.values);
-    // Swaps shared with another LayerTone picture would change its print: not kept, and said.
-    if (kept && sharedSwaps(build)) { kept = null; notKept = true; }
+    // A lithophane maps each pixel to a thickness on its own: nothing to keep for the print outside the mark.
+    if (r.mode === 'layertone') {
+      const build = cleanBuild(r.layerTone)!;
+      kept = swapsToKeep(img, build, r.values);
+      // Swaps shared with another LayerTone picture would change its print: not kept, and said.
+      if (kept && sharedSwaps(build)) { kept = null; notKept = true; }
+    }
     fullMask = markMask(mark, { w: W, h: H, px: 1 / H, x0: -aspect / 2, y1: 0.5 });
     const b = markBounds(mark)!;
     const c = chooseCrop({ x: (b.min[0] + aspect / 2) * H, y: (0.5 - b.max[1]) * H, w: (b.max[0] - b.min[0]) * H, h: (b.max[1] - b.min[1]) * H }, { width: W, height: H }, ASPECTS, CONTEXT_MARGIN);
