@@ -2,12 +2,17 @@
 // the image model: only the marked area of the stored picture changes, byte for byte; automatic
 // swap layers are kept as they were, so the built print outside the mark keeps its heights.
 import './wasm';
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { encode as encodePng } from 'fast-png';
 import { ASPECTS, decodeImage, type requestImage } from '../server/artwork';
 import { editPicture, PictureEditError } from '../server/pictureEdit/index';
-import type { PictureEditRequest } from '../shared/api';
+import { cadTools } from '../server/cadTools';
+import { geometry } from '../server/geometry';
+import type { AgentEvent, PictureEditRequest } from '../shared/api';
 import { autoSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, parseLayerToneSetup, toBase64, type LayerToneFilament, type LayerToneImage } from '../shared/layertone';
 import { markMask, PICTURE_MARKS_KEY, parsePictureMarks, type PictureMark } from '../shared/pictureEdit/mark';
 import { photoFingerprint } from '../shared/pictureEdit/photo';
@@ -209,4 +214,22 @@ test('a LayerTone edit that cannot be done says why', async () => {
   await bad(request({ layerTone: undefined }), /built/);
   await bad(request({ layerTone: { options: { width: -1 } as never, filaments: FILAMENTS } }), /built/);
   await bad(request({ mark: { strokes: [{ width: 0.1, points: [[3, 3]] }] } }), /outside the picture/);
+});
+
+test('edit_picture in the chat (LayerTone mode): the part as model.js builds it now goes along, its automatic swaps are kept', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ptp-layertone-edit-'));
+  after(() => { geometry.stop(); rmSync(dir, { recursive: true, force: true }); });
+  const file = path.join(dir, 'model.js');
+  writeFileSync(file, SCRIPT);
+  const base: ParamValues = { ...values }, events: AgentEvent[] = [], calls: Call[] = [];
+  const { server } = cadTools(file, (e) => events.push(e), new Set(), base, { pictures: { references: [] }, layerTone: true, image: darkInMark(calls) });
+  const tools = (server.instance as unknown as { _registeredTools: Record<string, { handler: (a: unknown, x: unknown) => Promise<{ isError?: boolean; content: { text?: string }[] }> }> })._registeredTools;
+  const r = await tools.edit_picture.handler({ picture: 'photo-1', change: 'a darker face', region: 'mark' }, {});
+  assert.ok(!r.isError, r.content.map((c) => c.text).join());
+  assert.equal(calls.length, 1);
+  const auto = autoSwaps(photo, FILAMENTS, builtWith(values).options);
+  assert.deepEqual(parseLayerToneSetup(base[LAYERTONE_KEY]).swaps, auto);
+  assert.ok(r.content.some((c) => c.text?.includes(`Swap layers kept as they were (layers ${auto.join(', ')})`)));
+  assert.notEqual(base[LAYERTONE_IMAGES_KEY], values[LAYERTONE_IMAGES_KEY]);
+  assert.ok(events.some((e) => e.type === 'pictureEdited' && e.info.masked && e.info.outsideSame));
 });

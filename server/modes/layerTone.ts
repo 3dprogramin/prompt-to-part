@@ -1,8 +1,10 @@
 // LayerTone mode (H.layertone): its system prompt section, with the filament library to pick from,
-// and its notes on the user's setup and pictures.
+// and its notes on the user's setup and pictures (and on edit_picture, with the image model).
 import { loadsAtOnce, maxPiece, printer } from '../../shared/printer';
 import { FILAMENT_LIBRARY } from '../../shared/filaments';
 import { LAYERTONE_KEY, type LayerToneFilament } from '../../shared/layertone';
+import { photoFingerprint } from '../../shared/pictureEdit/photo';
+import { pictureEditNotes, type PictureWords } from './pictureEdits';
 import type { PromptMode } from './types';
 
 /** The filament library, one line per brand and line, for Claude to pick LayerTone filaments from. */
@@ -30,7 +32,8 @@ LayerTone mode is ON: the user wants a LayerTone filament painting – a picture
     function build(p) { return { name: 'Picture', ...H.layertone('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
 - Size: unless the user asks for another, make it as big as the ${printer().name}'s bed allows: ${maxPiece()} × ${maxPiece()} mm. The picture's longer side is ${maxPiece()} mm – landscape or square: width ${maxPiece()}; portrait: width = ${maxPiece()} × (picture width ÷ picture height), so its height is ${maxPiece()} – and with a frame, take 2 × the frame off (the frame adds to the outside). Give the width slider that same maximum.
 - The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
-- Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
+${pictures ? `- To change part of a picture already in the design (swap a person or a face, take something out, fix a detail), call edit_picture: it changes only that region of the stored picture and keeps its name, so keep the script unchanged, check with render_model and submit. Never call generate_picture for it (that makes a new picture). Region: the user's saved mark ("mark") when there is one, else a box picked on show_picture's grid; none redoes the whole picture. With a region, automatic swap layers are kept as they were (set in the LayerTone setup), so the print outside it stays the same: say so in your final message.
+` : ''}- Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
 ${loads > 1
     ? `  - ${cap(loadsAtOnce())} (AMS), so up to ${loads} filaments always work with no manual work: treat ${Math.min(loads, 4)} as your normal budget and use as many as the picture benefits from – 2 for a classic black-and-white print${loads >= 3 ? `, ${loads === 3 ? '3' : '3–4'} when the picture has colour or needs more tonal range` : ''}.
   - More than ${loads} only when really needed: each extra filament means a pause and a manual spool swap. If you go above ${loads}, say so in your final message and why.`
@@ -48,17 +51,23 @@ ${myFilamentLines(mine)}
 - Check it with render_model (it shows the simulated colours; the report lists the stack used). In your final message give the size and list the filaments bottom → top with brand, colour and TD and where each one starts (layer and mm), and tell the user they can change them in the LayerTone panel (Print tab) or ask you to.`;
 }
 
+/** For edit_picture's notes: LayerTone's pictures, selected in the picture editor. */
+const PICTURE_WORDS: PictureWords = { noun: 'picture', nouns: 'pictures', instead: 'generate_picture', editor: 'picture editor' };
+
 export const layerTone: PromptMode = {
   id: 'layerTone',
   picture: true,
   active: (m) => m.layerTone,
   system: (o) => (o.layerTone ? layerTonePrompt(o.layerTone.pictures, o.layerTone.mine) : ''),
-  turnNotes: ({ isFollowUp, pictureValues, layerToneImages, newPictures, images }) => {
+  turnNotes: ({ isFollowUp, pictureValues, layerToneImages, newPictures, images, req }) => {
     const names = Object.keys(layerToneImages);
     const setup = typeof pictureValues[LAYERTONE_KEY] === 'string' ? pictureValues[LAYERTONE_KEY] : null;
+    // edit_picture's notes (the tool is there with the image model).
+    const edits = images ? pictureEditNotes(Object.fromEntries(names.map((n) => [n, photoFingerprint(layerToneImages[n])])), pictureValues, req.pictureEdits, PICTURE_WORDS) : [];
     return [
       ...(isFollowUp ? [setup ? `The LayerTone setup (the user's panel; set_layertone changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_layertone changes that).'] : []),
       `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`,
+      ...edits,
     ];
   },
 };

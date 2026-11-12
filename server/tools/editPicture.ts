@@ -1,11 +1,17 @@
-// The chat's picture edits in AI artwork mode: edit_picture changes part of a drawing (the user's
-// saved mark, or a box the model picks) with the image model and keeps everything else exactly,
-// under the same name; show_picture shows a drawing with a grid to pick that box from.
+// The chat's picture edits in AI artwork and LayerTone mode: edit_picture changes part of a drawing
+// or a LayerTone photo (the user's saved mark, or a box the model picks) with the image model and
+// keeps everything else exactly, under the same name; show_picture shows it with a grid to pick
+// that box from.
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { encode as encodePng } from 'fast-png';
 import { z } from 'zod';
 import { decodeImage } from '../artwork';
 import { editPicture, outlined } from '../pictureEdit/index';
+import { greyRaster } from '../pictureEdit/layerTone';
+import { resizeTo } from '../pictureEdit/raster';
+import type { PictureEditRequest } from '../../shared/api';
+import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../../shared/layertone';
+import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import type { Raster } from '../../shared/meshFormats';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
 import { drawingFingerprint } from '../../shared/lineart/strokes';
@@ -34,11 +40,29 @@ function drawingOf(values: ToolContext['base'], name: string): SvgDrawing | null
   return Object.hasOwn(all, name) ? all[name] : null;
 }
 
-/** The user's saved mark on drawing `d` (named `name`), or null when there is none or it was made on another version of the picture. */
-export function savedMark(values: ToolContext['base'], name: string, d: SvgDrawing): PictureMark | null {
+/** A picture as the tools see it: its shape (width / height), the fingerprint a mark on it is saved with, and how it prints, `heightPx` pixels high. */
+interface Picture { aspect: number; fp: string; render: (heightPx: number) => Raster }
+
+/** The design's picture `name` (own keys only): AI artwork's drawing with its hand edits, or a LayerTone photo; null when there is none. */
+function pictureOf(values: ToolContext['base'], name: string, mode: PictureTools['mode']): Picture | null {
+  if (mode === 'layertone') {
+    const all = parseLayerToneImages(values[LAYERTONE_IMAGES_KEY]);
+    if (!Object.hasOwn(all, name)) return null;
+    const img = all[name], aspect = img.width / img.height;
+    return { aspect, fp: photoFingerprint(img), render: (h) => resizeTo(greyRaster(img), Math.max(1, Math.round(h * aspect)), h) };
+  }
+  const d = drawingOf(values, name);
+  if (!d) return null;
+  const own = parseArtworkEdits(values[ARTWORK_EDITS_KEY]);
+  const strokes = Object.hasOwn(own, name) && own[name].fp === drawingFingerprint(d) ? own[name].strokes : [];
+  return { aspect: d.aspect, fp: drawingFingerprint(d), render: (h) => { const pic = renderDrawing(d, strokes, wholeWindow(d), h); return { width: pic.width, height: pic.height, data: pic.data }; } };
+}
+
+/** The user's saved mark on picture `name` (fingerprint `fp`), or null when there is none or it was made on another version of the picture. */
+export function savedMark(values: ToolContext['base'], name: string, fp: string): PictureMark | null {
   const marks = parsePictureMarks(values[PICTURE_MARKS_KEY]);
   const m = Object.hasOwn(marks, name) ? marks[name] : undefined;
-  return m && m.fp === drawingFingerprint(d) ? m.mark : null;
+  return m && m.fp === fp ? m.mark : null;
 }
 
 /** The picture with a grid every 0.1 of its width and height, thicker at 0.5 (lines blended over the picture). */
@@ -68,60 +92,87 @@ function sideBySide(a: Raster, b: Raster): Raster {
   return { width: w, height: h, data };
 }
 
-/** edit_picture and show_picture, in AI artwork mode; `edit` is the picture edit (replaceable in tests). */
-export function editPictureTools({ base, emit, drawImage }: ToolContext, artwork: AiImages, edit: typeof editPicture = editPicture) {
+/**
+ * What edit_picture and show_picture edit: AI artwork's drawings, or LayerTone's photos (`built`:
+ * how a photo's part is built now, which a marked edit needs; null when no part is built from it).
+ */
+export type PictureTools = { mode: 'artwork' } | { mode: 'layertone'; built: (picture: string) => Promise<PictureEditRequest['layerTone'] | null> };
+
+/** The tools' words for each kind of picture (artwork's as they always were). */
+const WORDS = {
+  artwork: {
+    noun: 'drawing',
+    name: 'The drawing\'s name, as used with H.svg',
+    show: 'Show one of the design\'s drawings as it prints (the user\'s hand edits in), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
+    edit: 'Change part of one of the design\'s drawings with the image model and keep everything else exactly as it is: swap a person or a face, change an object, fix a detail. The new drawing replaces the old one under the same name (in the drawing\'s own colours), so the script stays unchanged. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redrawn. Costs a few cents and takes ~20-60 s.',
+  },
+  layertone: {
+    noun: 'picture',
+    name: 'The picture\'s name, as used with H.layertone',
+    show: 'Show one of the design\'s LayerTone pictures as stored (greyscale), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
+    edit: 'Change part of one of the design\'s LayerTone pictures with the image model and keep everything else exactly as it is: swap a person or a face, take something out, fix a detail. The new picture replaces the old one under the same name, so the script stays unchanged; with a region, automatic swap layers are kept as they were, so the print outside the region stays the same. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redone. Costs a few cents and takes ~20-60 s.',
+  },
+};
+
+/** edit_picture and show_picture, in AI artwork mode or (`kind`) LayerTone mode; `edit` is the picture edit (replaceable in tests). */
+export function editPictureTools({ base, emit, drawImage }: ToolContext, images: AiImages, edit: typeof editPicture = editPicture, kind: PictureTools = { mode: 'artwork' }) {
+  const mode = kind.mode, words = WORDS[mode], noun = words.noun;
   return [
-    tool('show_picture', 'Show one of the design\'s drawings as it prints (the user\'s hand edits in), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.', {
-      picture: z.string().max(120).describe('The drawing\'s name, as used with H.svg'),
+    tool('show_picture', words.show, {
+      picture: z.string().max(120).describe(words.name),
     }, async (a) => {
-      const d = drawingOf(base, a.picture);
-      if (!d) return fail(`There is no drawing "${a.picture}" in this design.`);
-      const own = parseArtworkEdits(base[ARTWORK_EDITS_KEY]);
-      const strokes = Object.hasOwn(own, a.picture) && own[a.picture].fp === drawingFingerprint(d) ? own[a.picture].strokes : [];
-      const heightPx = Math.round(SHOW_LONG_SIDE / Math.max(d.aspect, 1)), win = wholeWindow(d);
-      const pic = renderDrawing(d, strokes, win, heightPx);
-      let img: Raster = withGrid({ width: pic.width, height: pic.height, data: pic.data });
-      const mark = savedMark(base, a.picture, d);
-      if (mark) img = outlined(img, markMask(mark, { w: pic.width, h: pic.height, px: 1 / heightPx, x0: win.x0, y1: win.y1 }), 3);
+      const pic = pictureOf(base, a.picture, mode);
+      if (!pic) return fail(`There is no ${noun} "${a.picture}" in this design.`);
+      const heightPx = Math.round(SHOW_LONG_SIDE / Math.max(pic.aspect, 1)), win = wholeWindow(pic);
+      const shown = pic.render(heightPx);
+      let img: Raster = withGrid(shown);
+      const mark = savedMark(base, a.picture, pic.fp);
+      if (mark) img = outlined(img, markMask(mark, { w: shown.width, h: shown.height, px: 1 / heightPx, x0: win.x0, y1: win.y1 }), 3);
       const png = pngBase64(img);
       emit({ type: 'step', step: { kind: 'render', ok: true, verbose: true, text: `Picture "${a.picture}" with a grid`, image: `data:image/png;base64,${png}` } });
       return {
         content: [
           { type: 'image', data: png, mimeType: 'image/png' },
-          { type: 'text', text: `Drawing "${a.picture}" (${pic.width}×${pic.height} pixels, ${d.aspect.toFixed(3)} times as wide as high). The grid lines are every 0.1 of the width and height from the top-left corner (0, 0) to the bottom-right (1, 1), thicker at 0.5. A region for edit_picture is a box [x0, y0, x1, y1] in these fractions from the top-left; give it a little room around what changes (the whole head for a face). ${mark ? 'The user\'s saved mark is outlined in magenta: region "mark" uses it.' : 'The user has no saved mark on it.'}` },
+          { type: 'text', text: `${mode === 'artwork' ? 'Drawing' : 'Picture'} "${a.picture}" (${shown.width}×${shown.height} pixels, ${pic.aspect.toFixed(3)} times as wide as high). The grid lines are every 0.1 of the width and height from the top-left corner (0, 0) to the bottom-right (1, 1), thicker at 0.5. A region for edit_picture is a box [x0, y0, x1, y1] in these fractions from the top-left; give it a little room around what changes (the whole head for a face). ${mark ? 'The user\'s saved mark is outlined in magenta: region "mark" uses it.' : 'The user has no saved mark on it.'}` },
         ],
       };
     }),
-    tool('edit_picture', 'Change part of one of the design\'s drawings with the image model and keep everything else exactly as it is: swap a person or a face, change an object, fix a detail. The new drawing replaces the old one under the same name (in the drawing\'s own colours), so the script stays unchanged. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redrawn. Costs a few cents and takes ~20-60 s.', {
-      picture: z.string().max(120).describe('The drawing\'s name, as used with H.svg'),
+    tool('edit_picture', words.edit, {
+      picture: z.string().max(120).describe(words.name),
       change: z.string().min(3).max(2000).describe('What to change, in plain words: who or what goes there, how it looks (e.g. "replace the man on the left with the woman in the attached photo, smiling")'),
       region: z.union([z.literal('mark'), z.tuple([z.number(), z.number(), z.number(), z.number()])]).optional()
         .describe('"mark" = the area the user selected in the brush editor; or [x0, y0, x1, y1], fractions 0..1 of the picture\'s width and height from its top-left corner (see show_picture); omit to change the whole picture'),
       use_attached_photos: z.boolean().optional().describe('Show the image model the photos the user attached to this message (the real person or thing for the part that changes)'),
     }, async (a) => {
-      const d = drawingOf(base, a.picture);
-      if (!d) return fail(`There is no drawing "${a.picture}" in this design.`);
+      const pic = pictureOf(base, a.picture, mode);
+      if (!pic) return fail(`There is no ${noun} "${a.picture}" in this design.`);
       let mark: PictureMark | undefined;
       if (a.region === 'mark') {
-        const saved = savedMark(base, a.picture, d);
-        if (!saved) return fail(`There is no saved mark on "${a.picture}": ask the user to select the area with Select (C) in the brush editor, or give the region as a box from show_picture's grid.`);
+        const saved = savedMark(base, a.picture, pic.fp);
+        if (!saved) return fail(`There is no saved mark on "${a.picture}": ask the user to select the area with Select (C) in the ${mode === 'artwork' ? 'brush' : 'picture'} editor, or give the region as a box from show_picture's grid.`);
         mark = saved;
       } else if (a.region) {
-        const box = boxMark(a.region, d.aspect);
+        const box = boxMark(a.region, pic.aspect);
         if (!box.strokes.length) return fail(`The region [${a.region.join(', ')}] is an empty box: give [x0, y0, x1, y1] with x0 < x1 and y0 < y1, fractions 0..1 of the picture's width and height from its top-left corner (show_picture shows the grid).`);
         mark = box;
       }
       let photos: string[] = [];
       if (a.use_attached_photos) {
-        photos = artwork.references.filter((p) => PHOTO.test(p)).slice(0, MAX_PHOTOS);
-        if (!photos.length) return fail(artwork.references.length ? 'The photos attached to this message are not PNG, JPEG or WebP pictures.' : 'The user attached no photos to this message.');
+        photos = images.references.filter((p) => PHOTO.test(p)).slice(0, MAX_PHOTOS);
+        if (!photos.length) return fail(images.references.length ? 'The photos attached to this message are not PNG, JPEG or WebP pictures.' : 'The user attached no photos to this message.');
+      }
+      // A marked LayerTone edit keeps the swap layers the part is built with now.
+      let layerTone: PictureEditRequest['layerTone'] | null = null;
+      if (kind.mode === 'layertone' && mark) {
+        layerTone = await kind.built(a.picture);
+        if (!layerTone) return fail(`No part of the model is built from "${a.picture}" yet: build it with H.layertone("${a.picture}", …) first, or edit the whole picture (no region).`);
       }
       emit({ type: 'step', step: { kind: 'status', text: `Changing "${a.picture}"…` } });
       try {
-        const r = await edit({ mode: 'artwork', picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos }, {
-          image: drawImage, signal: artwork.signal, onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
+        const r = await edit({ mode, picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos, ...(layerTone ? { layerTone } : {}) }, {
+          image: drawImage, signal: images.signal, onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
         });
-        // From now on every check and render uses the new drawing; the app keeps the same values.
+        // From now on every check and render uses the new picture; the app keeps the same values.
         // (Changed in place: every tool of the generation holds this same `base`.)
         const next = withSet(base, r.set);
         for (const k of Object.keys(base)) if (!Object.hasOwn(next, k)) delete base[k];
@@ -129,7 +180,8 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, artwork
         emit({ type: 'pictureEdited', set: r.set, info: { picture: a.picture, change: a.change, masked: r.masked, outsideSame: r.outsideSame, cost: r.cost } });
         const cost = r.cost != null ? ` · ${formatCost(r.cost)}` : '';
         const notes = [
-          r.masked ? (r.outsideSame ? 'Outside the region the drawing is unchanged.' : 'Outside the region the drawing changed too.') : 'The whole picture was redrawn.',
+          r.masked ? (r.outsideSame ? `Outside the region the ${noun} is unchanged.` : `Outside the region the ${noun} changed too.`) : 'The whole picture was redrawn.',
+          ...(r.swapsKept ? [r.swapsKept.note] : []),
           ...(r.offPalette ? [r.offPalette.note] : []),
           ...(r.simplified ? ['The new shapes were simplified harder to stay within the drawing\'s point limit.'] : []),
         ];
@@ -141,7 +193,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, artwork
         return {
           content: [
             { type: 'image', data: r.after.slice(r.after.indexOf(',') + 1), mimeType: 'image/png' },
-            { type: 'text', text: `${r.masked ? 'The region' : 'The picture'} of "${a.picture}" after the edit (above). ${notes.join(' ')}${r.cost != null ? ` It cost ${formatCost(r.cost)}.` : ''}\nThe drawing is updated under the same name: keep the script unchanged, check it with render_model and submit. If the change itself is wrong, call edit_picture again with a clearer change.` },
+            { type: 'text', text: `${r.masked ? 'The region' : 'The picture'} of "${a.picture}" after the edit (above). ${notes.join(' ')}${r.cost != null ? ` It cost ${formatCost(r.cost)}.` : ''}\nThe ${noun} is updated under the same name: keep the script unchanged, check it with render_model and submit. If the change itself is wrong, call edit_picture again with a clearer change.` },
           ],
         };
       } catch (e) {

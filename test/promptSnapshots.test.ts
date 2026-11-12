@@ -11,6 +11,8 @@ import type { GenerateRequest } from '../shared/api';
 import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
 import { drawingFingerprint } from '../shared/lineart/strokes';
 import { PICTURE_MARKS_KEY } from '../shared/pictureEdit/mark';
+import { photoFingerprint } from '../shared/pictureEdit/photo';
+import { LAYERTONE_IMAGES_KEY, toBase64 } from '../shared/layertone';
 import type { SvgDrawing } from '../shared/svgFeatures';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'ptp-prompts-'));
@@ -57,6 +59,16 @@ const ARTWORK_FOLLOWUP: Partial<GenerateRequest> = {
   pictures: { [PICTURE_MARKS_KEY]: JSON.stringify({ fox: { fp: drawingFingerprint(FOX), mark: { strokes: [{ width: 0.2, points: [[0, 0.1]] }] } } }) },
   pictureEdits: [{ picture: 'sun', change: 'a smiling sun', masked: true, version: 3 }],
 };
+/** A LayerTone follow-up: a stored photo with a saved mark, a picture edit kept in the picture editor. */
+const CAT = { name: 'photo-1', width: 4, height: 3, luma: toBase64(Uint8Array.from({ length: 12 }, (_, i) => i * 20)) };
+const LAYERTONE_FOLLOWUP: Partial<GenerateRequest> = {
+  imageMode: 'layertone', prompt: 'put my dad in the empty chair', code: 'const meta = { name: "cat" };\nfunction build(p) { return { name: "Picture", ...H.layertone("photo-1", { width: 200 }) }; }',
+  pictures: {
+    [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'photo-1': CAT }),
+    [PICTURE_MARKS_KEY]: JSON.stringify({ 'photo-1': { fp: photoFingerprint(CAT), mark: { strokes: [{ width: 0.2, points: [[0, 0.1]] }] } } }),
+  },
+  pictureEdits: [{ picture: 'photo-1', change: 'take out the lamp post', masked: true, version: 2 }],
+};
 const LINE_ART_CODE = 'const meta = { name: "fox" };\nfunction build(p) { return H.lineart("fox", { width: 200 }); }';
 const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_API_KEY' | 'MESHY_API_KEY')[] }[] = [
   { name: 'plain-new', req: {} },
@@ -67,6 +79,7 @@ const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_A
   { name: 'artwork-nokey', req: { imageMode: 'artwork', prompt: 'a fox wall piece' } },
   { name: 'legacy-artwork', req: { artwork: true }, env: ['OPENROUTER_API_KEY'] },
   { name: 'layertone', req: { imageMode: 'layertone', prompt: 'my cat' }, env: ['OPENROUTER_API_KEY'] },
+  { name: 'layertone-followup', req: LAYERTONE_FOLLOWUP, env: ['OPENROUTER_API_KEY'] },
   { name: 'lithophane', req: { imageMode: 'lithophane', prompt: 'my cat' } },
   { name: 'lineart', req: { imageMode: 'lineart', prompt: 'a motorbike key holder' }, env: ['OPENROUTER_API_KEY'] },
   { name: 'lineart-sticky', req: { imageMode: 'off', code: LINE_ART_CODE }, env: ['OPENROUTER_API_KEY'] },

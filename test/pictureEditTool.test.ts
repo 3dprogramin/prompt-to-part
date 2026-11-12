@@ -14,6 +14,8 @@ import { ARTWORK_EDITS_KEY } from '../shared/artworkEdits';
 import { drawingFingerprint } from '../shared/lineart/strokes';
 import { boxMark, PICTURE_MARKS_KEY, type PictureMark } from '../shared/pictureEdit/mark';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../shared/svgFeatures';
+import { LAYERTONE_IMAGES_KEY, toBase64 } from '../shared/layertone';
+import { photoFingerprint } from '../shared/pictureEdit/photo';
 import type { Design, DesignVersion, ParamValues, Vec2 } from '../shared/types';
 import type { Raster } from '../shared/meshFormats';
 import { addReplyEdit, replyModel, withPictureEdited, withReplyVersion } from '../src/app/replyVersion';
@@ -202,7 +204,8 @@ test('edit_picture and show_picture come with the artwork tools only, and edit w
   assert.ok(names({ artwork: { references: [] } }).includes('edit_picture'));
   assert.ok(names({ artwork: { references: [] } }).includes('show_picture'));
   assert.equal(names({}).includes('edit_picture'), false);
-  assert.equal(names({ pictures: { references: [] }, layerTone: true }).includes('edit_picture'), false);
+  assert.equal(names({ pictures: { references: [] }, lithophane: true }).includes('edit_picture'), false);
+  // (LayerTone with the image model has them too: its own test below.)
 
   // The real picture edit, with a stand-in image model that sends the crop back unchanged.
   const asked: string[] = [];
@@ -222,6 +225,75 @@ test('edit_picture and show_picture come with the artwork tools only, and edit w
   assert.equal(PICTURE_MARKS_KEY in base, false);
   const ev = events.find((e) => e.type === 'pictureEdited');
   assert.ok(ev && ev.type === 'pictureEdited' && ev.info.masked && ev.info.outsideSame && ev.info.cost === 0.02);
+});
+
+/** A LayerTone photo, 1.5 times as wide as high: dark left, bright right. */
+const photo = { name: 'photo-1', width: 30, height: 20, luma: toBase64(Uint8Array.from({ length: 600 }, (_, i) => Math.round(((i % 30) / 29) * 255))) };
+const photoValues = (marks: unknown = { 'photo-1': { fp: photoFingerprint(photo), mark: face } }): ParamValues => ({
+  [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'photo-1': photo }),
+  ...(marks ? { [PICTURE_MARKS_KEY]: JSON.stringify(marks) } : {}),
+});
+const BUILT = { options: { width: 150, layerHeight: 0.08, firstLayerHeight: 0.16, baseHeight: 0.48, maxHeight: 1.6, border: 0, invert: false, gamma: 1, resolution: 0.35 }, filaments: [{ name: 'Black', color: '#000000', td: 0.2 }, { name: 'White', color: '#ffffff', td: 5.9 }], swaps: [11] };
+
+test('edit_picture and show_picture in LayerTone mode: the photo greyscale with a grid, a marked edit sent with how its part is built, the swaps kept said', async () => {
+  const names = (extra: Parameters<typeof cadTools>[4]) => Object.keys((cadTools('/nonexistent/model.js', () => {}, new Set(), {}, extra).server.instance as unknown as { _registeredTools: Record<string, unknown> })._registeredTools);
+  assert.ok(names({ pictures: { references: [] }, layerTone: true }).includes('edit_picture'));
+  assert.ok(names({ pictures: { references: [] }, layerTone: true }).includes('show_picture'));
+  // Without the image model, none.
+  assert.equal(names({ layerTone: true }).includes('edit_picture'), false);
+
+  const events: AgentEvent[] = [];
+  const requests: PictureEditRequest[] = [];
+  const note = 'Swap layers kept as they were (layer 11), so the print outside the mark stays the same: set them back to automatic in the Print tab if you like.';
+  const set = { [LAYERTONE_IMAGES_KEY]: '{"photo-1":"new"}', $layertone: '{"swaps":[11]}', [PICTURE_MARKS_KEY]: null };
+  const edit = (async (r: PictureEditRequest) => {
+    requests.push(structuredClone(r));
+    return { set, before: png(plain(30, 20, 255)), after: png(plain(30, 20, 0)), masked: !!r.mark, outsideSame: !!r.mark, swapsKept: { swaps: [11], note }, prompt: 'the prompt', model: 'test/image', cost: 0.04 };
+  }) as typeof editPicture;
+  const built: string[] = [];
+  const tools = (base: ParamValues, answer: PictureEditRequest['layerTone'] | null = BUILT) => {
+    const ctx = { base, emit: (e: AgentEvent) => events.push(e), drawImage: (async () => { throw new Error('not asked'); }) as typeof requestImage } as unknown as ToolContext;
+    return editPictureTools(ctx, { references: [] }, edit, { mode: 'layertone', built: async (p) => { built.push(p); return answer; } }).map((t) => t.handler as unknown as Handler);
+  };
+
+  // show_picture: the stored photo, grey, about 1024 wide, the saved mark outlined.
+  const [show, editTool] = tools(photoValues());
+  const shown = await show({ picture: 'photo-1' }, {});
+  const pic = decodeImage(Buffer.from(shown.content[0].data!, 'base64'));
+  assert.equal(pic.height, Math.round(1024 / 1.5));
+  assert.ok(Math.abs(pic.width - 1024) <= 1, String(pic.width));
+  // Grey: the photo's own tones (red, green and blue alike) away from the grid lines.
+  const [r0, g0, b0] = pic.data.subarray((300 * pic.width + 30) * 4);
+  assert.ok(r0 === g0 && g0 === b0, `${r0} ${g0} ${b0}`);
+  assert.match(shown.content[1].text!, /^Picture "photo-1"/);
+  assert.match(shown.content[1].text!, /outlined in magenta/);
+  assert.equal((await show({ picture: 'nope' }, {})).isError, true);
+
+  // A marked edit: the photo's mode and how its part is built go along; the model is told the swaps were kept.
+  const r = await editTool({ picture: 'photo-1', change: 'a smiling face', region: 'mark' }, {});
+  assert.ok(!r.isError, r.content.map((c) => c.text).join());
+  assert.deepEqual(built, ['photo-1']);
+  assert.equal(requests[0].mode, 'layertone');
+  assert.deepEqual(requests[0].mark, face);
+  assert.deepEqual(requests[0].layerTone, BUILT);
+  const text = r.content.find((c) => c.type === 'text')!.text!;
+  assert.match(text, /Outside the region the picture is unchanged\./);
+  assert.ok(text.includes(note));
+  assert.match(text, /The picture is updated under the same name/);
+  const ev = events.find((e) => e.type === 'pictureEdited');
+  assert.deepEqual(ev, { type: 'pictureEdited', set, info: { picture: 'photo-1', change: 'a smiling face', masked: true, outsideSame: true, cost: 0.04 } });
+
+  // A marked edit with no part built from the picture says what to do; the whole picture needs none.
+  const [, unbuilt] = tools(photoValues(), null);
+  const u = await unbuilt({ picture: 'photo-1', change: 'a smiling face', region: [0.2, 0.2, 0.6, 0.6] }, {});
+  assert.equal(u.isError, true);
+  assert.match(u.content[0].text!, /No part of the model is built from "photo-1"/);
+  const whole = await unbuilt({ picture: 'photo-1', change: 'a winter scene' }, {});
+  assert.ok(!whole.isError);
+  assert.equal(requests.at(-1)!.layerTone, undefined);
+  // A mark made on another picture is not used.
+  const [, stale] = tools(photoValues({ 'photo-1': { fp: 'an older picture', mark: face } }));
+  assert.match((await stale({ picture: 'photo-1', change: 'a smiling face', region: 'mark' }, {})).content[0].text!, /picture editor/);
 });
 
 // ---- The app's side

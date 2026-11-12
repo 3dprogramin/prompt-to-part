@@ -18,6 +18,8 @@ import type { AiImages, LineArtOptions, MeshyOptions, ToolContext } from './tool
 import { layerToneTools } from './tools/layerTone';
 import { artworkTools, pictureTools } from './tools/pictures';
 import { editPictureTools } from './tools/editPicture';
+import { editPicture } from './pictureEdit/index';
+import { layerToneBuild } from '../shared/pictureEdit/photo';
 import { lineArtTools } from './tools/lineArt';
 import { meshyTools } from './tools/meshy';
 import { questionTools } from './tools/questions';
@@ -49,8 +51,9 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
  * marked as actually opened. With `artwork`, Claude can also have artwork drawn (generate_artwork)
  * and part of a drawing changed (edit_picture, with show_picture to pick the region),
  * and with `pictures` a picture made for H.layertone, or with `lithophane` for H.lithophane
- * (generate_picture), from the user's `references` photos if it likes. With `meshy`, Claude can have
- * Meshy make 3D models (generate_3d, at most meshyMaxPerReply() per reply) and, with `concepts`,
+ * (generate_picture), from the user's `references` photos if it likes; with `pictures` and
+ * `layerTone`, part of a LayerTone picture changed (edit_picture and show_picture). With
+ * `meshy`, Claude can have Meshy make 3D models (generate_3d, at most meshyMaxPerReply() per reply) and, with `concepts`,
  * have a concept picture drawn first for the user to approve (generate_concept); `color` (the user
  * turned on Colour) makes figures coloured by default (a textured model, printed in up to 4 filaments).
  * With `lineArt` (Line art mode, or a line-art design), Claude can trace an attached picture that
@@ -93,6 +96,14 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
     try { return await readFile(file, 'utf8'); } catch { return null; }
   };
   const ctx: ToolContext = { base, emit, state, drawImage, readModel, v };
+  /** How the part built from LayerTone picture `picture` is built now (model.js with the generation's values), for a marked edit_picture; null when none is. */
+  const layerToneBuilt = async (picture: string) => {
+    const code = await readModel();
+    if (code == null) return null;
+    const r = await geometry.evaluate(code, v(), undefined, signal);
+    const part = r.ok ? r.parts.find((p) => p.layerTone?.image === picture) : undefined;
+    return part ? layerToneBuild(part) : null;
+  };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
   // Code of model.js at the last successful render: submit requires the current file to have been looked at.
   let renderedCode: string | null = null;
@@ -147,6 +158,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       ...(layerTone ? layerToneTools(ctx) : []),
       ...(pictures ? pictureTools(ctx, pictures, lithophane) : []),
       ...(artwork ? [...artworkTools(ctx, artwork), ...editPictureTools(ctx, artwork)] : []),
+      // LayerTone photos are edited the same way (not alongside artwork's: the tools have one name).
+      ...(!artwork && layerTone && pictures ? editPictureTools(ctx, pictures, editPicture, { mode: 'layertone', built: layerToneBuilt }) : []),
       ...(lineArt ? lineArtTools(ctx, lineArt) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
       ...(designImage ? designImageTools(ctx, designImage) : []),

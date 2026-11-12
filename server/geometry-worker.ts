@@ -24,7 +24,7 @@ import type { LayerToneFilament } from '../shared/layertone';
 import { checkPose, footprint, meshCentroid, partMass, type MassPoint, type PoseCheck } from '../shared/stability';
 import { effectiveSettings, parseProfile, PRINT_KEY, type PrintSettings } from '../shared/print';
 import type { Box3, EvalResult, ParamValues, Quality } from '../shared/types';
-import type { LayerColor } from '../shared/layertone';
+import type { LayerColor, LayerToneSource } from '../shared/layertone';
 import type { LithophaneSource } from '../shared/lithophane';
 import type { LineArtInfo } from '../shared/lineart';
 
@@ -112,7 +112,7 @@ export interface EvalSummary {
   dimensions: EvalResult['dimensions'];
   assembly: EvalResult['assembly'];
   print: EvalResult['print'];
-  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; lithophane?: LithophaneSource; lineArt?: LineArtInfo; paint?: PaintSummary }[];
+  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; layerTone?: LayerToneSource; lithophane?: LithophaneSource; lineArt?: LineArtInfo; paint?: PaintSummary }[];
 }
 /** A part coloured per triangle: its filaments and each one's share of the part's surface. */
 export interface PaintSummary { filaments: PaintFilament[]; share: number[] }
@@ -132,9 +132,10 @@ function summarize(r: EvalResult): EvalSummary {
     ok: true, meta: r.meta, params: r.params, values: r.values, bbox: r.bbox, timeMs: r.timeMs,
     warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly, print: r.print,
     parts: r.parts.map((p) => {
-      const { name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, lithophane, lineArt } = p;
+      const { name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, layerTone, lithophane, lineArt } = p;
       const paint = paintSummary(p);
-      return { name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...(paint ? { paint } : {}) };
+      // (A LayerTone part's picture and options: how it was built, which a marked edit_picture keeps its swaps by.)
+      return { name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...(paint ? { paint } : {}) };
     }),
   };
 }
