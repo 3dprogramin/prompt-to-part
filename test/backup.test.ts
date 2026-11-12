@@ -227,6 +227,35 @@ test('design tags go into a backup and come back for designs that have none here
   assert.deepEqual([tags[ID3], tags[ID4]], [['Ornamente'], ['Temp', 'Ornamente']]);
 });
 
+test('backup: printed marks and their 3MF go with the design', async () => {
+  const id = 'test-bkp-00000005';
+  const v = (n: number) => ({ code: `// v${n}`, summary: `v${n}`, createdAt: n, source: 'ai', values: { w: n } });
+  const mk = (versions: unknown[], rev?: number) => design({ id, name: 'Dog lamp', versions, currentVersion: versions.length - 1, ...(rev !== undefined && { rev }) });
+  assert.equal((await put(mk([v(1), v(2)]))).status, 200);
+  const url = `${A}/api/designs/${id}/printed/1`;
+  const marked = await fetch(`${url}?settings=1`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-PTP': '1' }, body: 'PK3mf' });
+  assert.equal(marked.status, 200);
+  const mark = await marked.json();
+  const zip = await exportZip();
+  const files = unzipSync(zip);
+  assert.equal(Buffer.from(files[`designs/${id}/printed/v2.3mf`]).toString(), 'PK3mf');
+  assert.ok(files['printed.json']);
+
+  // A restore never overwrites a design: unmark and delete it first, then bring it back from the zip.
+  assert.equal((await fetch(url, { method: 'DELETE', headers: W })).status, 200);
+  assert.equal((await fetch(`${A}/api/designs/${id}`, { method: 'DELETE', headers: W })).status, 200);
+  const out = await (await importZip(zip)).json();
+  assert.ok(out.imported.some((x: { id: string }) => x.id === id), JSON.stringify(out));
+  assert.ok(out.settings.includes('printed versions'));
+  const row = (await (await fetch(`${A}/api/designs`)).json()).find((d: { id: string }) => d.id === id);
+  assert.deepEqual(row.printed, [mark]);
+  const f = await fetch(`${url}/3mf`);
+  assert.equal(f.status, 200);
+  assert.equal(Buffer.from(await f.arrayBuffer()).toString(), 'PK3mf');
+  const rev = (await getDesign(id)).rev;
+  assert.equal((await put(mk([v(1), { ...v(2), values: { w: 99 } }], rev))).status, 423);
+});
+
 test('a backup restores the printer choice where none is saved, and the server follows it', async () => {
   const file = path.join(dataDir, 'printer.json');
   rmSync(file, { force: true });

@@ -5,26 +5,29 @@ import express from 'express';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readdir, rm, statfs } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, statfs } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import type { BackupImport } from '../../shared/api';
+import type { DesignVersion } from '../../shared/types';
 import { DATA_DIR } from '../config';
 import { cleanMyFilaments, myFilamentsProblem } from '../../shared/filaments';
 import { cleanCostSettings } from '../../shared/cost';
 import { cleanTagMap } from '../../shared/tags';
+import { cleanPrintedMap, MAX_PRINTED_BYTES, PRINTED_FILE, printedFileName } from '../../shared/printed';
+import { printedGuard } from '../printed';
 import { MAX_MESH_BYTES, MESH_FILE, meshDir } from '../meshes';
 import { MAX_ZIP_BYTES, openZip, unpackProblem, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from '../backup';
 import { contentHash, DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
-const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'printer.json': 'printer', 'starred.json': 'starred designs', 'tags.json': 'design tags' };
+const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'printer.json': 'printer', 'starred.json': 'starred designs', 'tags.json': 'design tags', 'printed.json': 'printed versions' };
 const MAX_BACKUP_ENTRIES = 100_000;
-const BACKUP_LIMITS = { settings: 1024 * 1024, design: 80 * 1024 * 1024, image: 25 * 1024 * 1024, mesh: 2 * MAX_MESH_BYTES };
+const BACKUP_LIMITS = { settings: 1024 * 1024, design: 80 * 1024 * 1024, image: 25 * 1024 * 1024, mesh: 2 * MAX_MESH_BYTES, printed: MAX_PRINTED_BYTES };
 
 type BackupPath =
   | { kind: 'folder' } | { kind: 'settings' } | { kind: 'design'; id: string }
-  /** An image (sub '') or a mesh file (sub 'meshes') of a design. */
-  | { kind: 'file'; id: string; sub: '' | 'meshes'; name: string };
+  /** An image (sub ''), a mesh file (sub 'meshes') or a printed 3MF (sub 'printed') of a design. */
+  | { kind: 'file'; id: string; sub: '' | 'meshes' | 'printed'; name: string };
 
 /**
  * What a path in a backup zip is, or null for anything a backup never holds. Every part is
@@ -42,6 +45,7 @@ function backupPath(name: string): BackupPath | null {
   if (!ID_RE.test(p[1])) return null;
   if (p.length === 3) return p[2] === '' ? { kind: 'folder' } : IMAGE_NAME.test(p[2]) ? { kind: 'file', id: p[1], sub: '', name: p[2] } : null;
   if (p.length === 4 && p[2] === 'meshes') return p[3] === '' ? { kind: 'folder' } : MESH_FILE.test(p[3]) ? { kind: 'file', id: p[1], sub: 'meshes', name: p[3] } : null;
+  if (p.length === 4 && p[2] === 'printed') return p[3] === '' ? { kind: 'folder' } : PRINTED_FILE.test(p[3]) ? { kind: 'file', id: p[1], sub: 'printed', name: p[3] } : null;
   return null;
 }
 
@@ -75,7 +79,7 @@ function projectPath(name: string, root: string): BackupPath | { kind: 'other' }
   return { kind: 'other' };
 }
 
-export function registerBackupRoutes(app: express.Express, { designFile, imageDir, generatingDesigns, deleted, serially, changeTags }: RouteContext) {
+export function registerBackupRoutes(app: express.Express, { designFile, imageDir, generatingDesigns, deleted, serially, changeTags, changePrinted }: RouteContext) {
   // ---- backups: every design (with its images and meshes) and the user's settings as one zip, and
   // back. The zip mirrors the data folder (designs/<id>.json, designs/<id>/<image>,
   // designs/<id>/meshes/<file>, cost.json, filaments.json); workspaces, Claude sessions and the
@@ -92,6 +96,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       files.push({ name: `designs/${f}`, file: designFile(id), compress: true });
       for (const n of await readdir(imageDir(id)).catch(() => [] as string[])) if (IMAGE_NAME.test(n)) files.push({ name: `designs/${id}/${n}`, file: path.join(imageDir(id), n), compress: false });
       for (const n of await readdir(meshDir(id)).catch(() => [] as string[])) if (MESH_FILE.test(n)) files.push({ name: `designs/${id}/meshes/${n}`, file: path.join(meshDir(id), n), compress: false });
+      for (const n of await readdir(path.join(imageDir(id), 'printed')).catch(() => [] as string[])) if (PRINTED_FILE.test(n)) files.push({ name: `designs/${id}/printed/${n}`, file: path.join(imageDir(id), 'printed', n), compress: false });
     }
     if (await zipSizeBound(files) > MAX_ZIP_BYTES) {
       return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in docs/running.md).' });
@@ -129,7 +134,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       // Every entry is checked before anything is written: a zip with anything else in it is refused
       // whole. A zipped project ("Export project…") is one design; only its design files are read.
       const root = projectRoot(zip.entries.map((e) => e.name));
-      const designs = new Map<string, { json?: ZipEntry; files: { entry: ZipEntry; sub: '' | 'meshes'; name: string }[] }>();
+      const designs = new Map<string, { json?: ZipEntry; files: { entry: ZipEntry; sub: '' | 'meshes' | 'printed'; name: string }[] }>();
       const settings: ZipEntry[] = [];
       // What the entries that may be written add up to, checked before anything is (see unpackProblem).
       let unpacked = 0;
@@ -137,7 +142,7 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
         const p = root === null ? backupPath(entry.name) : projectPath(entry.name, root);
         if (!p) throw new ZipError(`Not a prompt-to-part backup: it holds "${entry.name.slice(0, 100)}"`);
         if (p.kind === 'folder' || p.kind === 'other') continue;
-        if (entry.size > BACKUP_LIMITS[p.kind === 'file' ? (p.sub ? 'mesh' : 'image') : p.kind]) throw new ZipError(`${entry.name} is too large`);
+        if (entry.size > BACKUP_LIMITS[p.kind === 'file' ? (p.sub === 'meshes' ? 'mesh' : p.sub === 'printed' ? 'printed' : 'image') : p.kind]) throw new ZipError(`${entry.name} is too large`);
         unpacked += entry.size;
         if (p.kind === 'settings') { settings.push(entry); continue; }
         const design = designs.get(p.id) ?? { files: [] };
@@ -171,10 +176,17 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
           try {
             // Its images and meshes first, the design last: it shows up only once it is whole.
             for (const f of files) {
-              const dir = f.sub ? meshDir(id) : imageDir(id);
+              const dir = f.sub === 'meshes' ? meshDir(id) : f.sub === 'printed' ? path.join(imageDir(id), 'printed') : imageDir(id);
               const target = path.join(dir, f.name);
-              if (existsSync(target)) continue; // named by content: the same file
               const bytes = await f.entry.read();
+              if (f.sub === 'printed') {
+                // Named by version, not content: this design is new here, so a leftover is replaced.
+                await mkdir(dir, { recursive: true });
+                await writeAtomically(target, bytes);
+                written.push(target);
+                continue;
+              }
+              if (existsSync(target)) continue; // named by content: the same file
               // Named by content (images, and every mesh file: the .bin too), so a file whose
               // bytes aren't what its name says was changed or damaged: the design is skipped.
               if (contentHash(bytes) !== f.name.slice(0, 32)) throw new ZipError(`${f.sub ? 'meshes/' : ''}${f.name} does not match its content (changed or damaged)`);
@@ -204,6 +216,27 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
             const imported = cleanTagMap(v?.tags, (id) => ID_RE.test(id));
             let added = 0;
             await changeTags((all) => { for (const [id, tags] of Object.entries(imported)) if (!Object.hasOwn(all, id) && existsSync(designFile(id))) { all[id] = tags; added++; } });
+            if (added) out.settings.push(BACKUP_SETTINGS[entry.name]);
+          } catch { /* a damaged settings file is left out */ }
+          continue;
+        }
+        // The marks of designs that have none here are added (the imported designs' marks), where
+        // the design still holds the marked version as it was.
+        if (entry.name === 'printed.json') {
+          try {
+            const v = JSON.parse(Buffer.from(await entry.read()).toString('utf8')) as { printed?: unknown };
+            const imported = cleanPrintedMap(v?.printed, (id) => ID_RE.test(id));
+            let added = 0;
+            await changePrinted(async (all) => {
+              for (const [id, marks] of Object.entries(imported)) {
+                if (Object.hasOwn(all, id)) continue;
+                const design = await readFile(designFile(id), 'utf8').then((t) => JSON.parse(t) as { versions: DesignVersion[] }, () => null);
+                if (!design || !Array.isArray(design.versions) || printedGuard(design, marks)) continue;
+                all[id] = marks.map((m) => ({ ...m, file: m.file && existsSync(path.join(imageDir(id), 'printed', printedFileName(m.v))) }))
+                  .map((m) => (m.file ? m : { ...m, settings: false }));
+                added++;
+              }
+            });
             if (added) out.settings.push(BACKUP_SETTINGS[entry.name]);
           } catch { /* a damaged settings file is left out */ }
           continue;
