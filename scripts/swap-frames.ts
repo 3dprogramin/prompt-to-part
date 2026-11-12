@@ -24,10 +24,27 @@ export const CROP = 900;
 const BACKGROUND = [0xf4, 0xf6, 0xfa];
 const MODEL_VIEWER = 'https://unpkg.com/@google/model-viewer@4.0.0/dist/model-viewer.min.js';
 
-/** Whether one of the two versions is a picture edit of the other that lines up with it. */
+/**
+ * Whether two versions line up: they are connected through picture-edit parent links where every
+ * edit on the way lines up, followed in either direction (so two lined-up edits of one parent line up
+ * with each other: both are the parent outside their marks and neither moves anything).
+ */
 function linkedUp(versions: DesignVersion[], a: number, b: number): boolean {
-  const edit = (v: number, of: number) => !!versions[v]?.pictureEdit?.linesUp && versions[v].pictureEdit!.parent === of;
-  return edit(b, a) || edit(a, b);
+  const neighbours = (v: number): number[] => {
+    const out: number[] = [];
+    const own = versions[v]?.pictureEdit;
+    if (own?.linesUp && Number.isInteger(own.parent) && versions[own.parent]) out.push(own.parent);
+    versions.forEach((w, i) => { if (w.pictureEdit?.linesUp && w.pictureEdit.parent === v) out.push(i); });
+    return out;
+  };
+  const seen = new Set([a]);
+  const todo = [a];
+  while (todo.length) {
+    const v = todo.pop()!;
+    if (v === b) return true;
+    for (const n of neighbours(v)) if (!seen.has(n)) { seen.add(n); todo.push(n); }
+  }
+  return false;
 }
 
 /**

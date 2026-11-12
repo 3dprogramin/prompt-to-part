@@ -20,6 +20,18 @@ test('a version lines up only with its own parent', () => {
   assert.deepEqual(transitions(versions, [1, 2]), ['slideleft', 'slideleft']);
 });
 
+test('versions line up through a chain of lined-up edits, a break in the chain slides, siblings line up', () => {
+  const chain = [version(), version({ parent: 0, linesUp: true }), version({ parent: 1, linesUp: true })];
+  assert.deepEqual(transitions(chain, [0, 1, 2]), ['fade', 'fade', 'fade'], 'v3 lines up with v1 through v2');
+  const broken = [version(), version({ parent: 0, linesUp: true }), version({ parent: 1, linesUp: false }), version({ parent: 2, linesUp: true })];
+  assert.deepEqual(transitions(broken, [0, 1, 2]), ['fade', 'slideleft', 'slideleft']);
+  assert.deepEqual(transitions(broken, [0, 3]), ['slideleft', 'slideleft'], 'the break separates 0 from 3');
+  const siblings = [version(), version({ parent: 0, linesUp: true }), version({ parent: 0, linesUp: true })];
+  assert.deepEqual(transitions(siblings, [1, 2]), ['fade', 'fade'], 'two lined-up edits of one parent line up');
+  const cycle = [version({ parent: 1, linesUp: true }), version({ parent: 0, linesUp: true }), version({ parent: 9, linesUp: true })];
+  assert.deepEqual(transitions(cycle, [0, 1, 2]), ['fade', 'slideleft', 'slideleft'], 'cycles and bad parents are safe');
+});
+
 test('plaqueBounds finds the non-background pixels, ignoring near-background noise', () => {
   const w = 10, h = 8;
   const blank = () => { const a = new Uint8Array(w * h * 4); for (let i = 0; i < w * h; i++) a.set([0xf4, 0xf6, 0xfa, 255], i * 4); return a; };
