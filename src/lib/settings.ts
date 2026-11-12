@@ -6,6 +6,7 @@ import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 import { LINEART_EDITS_KEY } from '../../shared/lineart';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
+import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -17,7 +18,6 @@ export function parseHidden(v: unknown): string[] {
     return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
   } catch { return []; }
 }
-import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
 
 type Params = EvalResult['params'];
 

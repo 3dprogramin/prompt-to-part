@@ -585,6 +585,10 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .export-notice.error { background: #3a1e1df2; border: 1px solid #5c2c2a; color: #ffc6c0; }
 .export-notice .icon-btn { width: 22px; height: 22px; }
 .ui-hidden .validation-panel, .ui-hidden .export-notice { display: none; }
+/* A notice and the printed banner stack at the top of the view, the notice first. */
+.viewer-top-stack { position: absolute; top: calc(var(--toolbar-bottom, 42px) + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 15; pointer-events: none; }
+.viewer-top-stack > * { position: static; transform: none; max-width: 100%; pointer-events: auto; }
+.size-banner.pinned { white-space: normal; }
 
 /* ---------- print settings ---------- */
 .print-panel { display: flex; flex-direction: column; gap: 10px; }
@@ -1468,7 +1472,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .size-banner .mono { color: var(--text-2); }
 
 /* printed versions: the locked banner, the version menu's badge and mark button, the Designs menu's icon */
-.printed-banner { display: inline-flex; align-items: center; gap: 10px; }
+.printed-banner { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
 .printed-banner > svg { color: var(--accent); flex-shrink: 0; }
 .printed-badge { flex-shrink: 0; font-size: 10.5px; color: var(--accent); border: 1px solid #e0a43c66; border-radius: 999px; padding: 0 6px; }
 .icon-btn.printed-mark.on { color: var(--accent); }

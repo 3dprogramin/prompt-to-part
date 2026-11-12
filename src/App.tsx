@@ -79,7 +79,9 @@ export default function App() {
   // The open design's printed versions, and the shown one's mark (it is locked while shown).
   const marks = useMemo(() => new Map(designs.find((d) => d.id === design.id)?.printed?.map((m) => [m.v, m]) ?? []), [designs, design.id]);
   const shownMark = marks.get(design.currentVersion);
-  const lockReason = shownMark ? `Printed v${shownMark.v + 1} is locked: clone it to change it` : null;
+  // While it is being marked nothing changes either: the 3MF is built from what is shown.
+  const [marking, setMarking] = useState(false);
+  const lockReason = shownMark ? `Printed v${shownMark.v + 1} is locked: clone it to change it` : marking ? 'Wait while it is marked as printed' : null;
   const setDesign = useCallback<typeof setDesignRaw>((u) => {
     setDesignRaw((prev) => {
       const next = typeof u === 'function' ? u(prev) : u;
@@ -520,8 +522,9 @@ export default function App() {
     setExporting, setExportError, setExportStage, setNotice, setValidation, setValidationOpen, isUnsaved, saveNow });
 
   // ---- printed versions: marking the shown one (its 3MF saved with it), unmarking
-  const [marking, setMarking] = useState(false);
-  const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings, hasCode: !!design.code });
+  // The 3MF comes from the stored version: a locked version's view changes don't count.
+  const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings: unsavedSettings && !lockReason, hasCode: !!design.code });
+  const markDisabled = marking ? 'Marking it as printed...' : problem;
   const printed = printedActions({ design, problem, saveNow, build3mf, refreshList, setNotice, setMarking });
 
   // A design opened on one of its versions (the Printed filter): that version is shown once the design's
@@ -673,7 +676,7 @@ export default function App() {
         onRestore={onRestore}
         onFork={(vi) => void forkVersion(vi)}
         printed={marks}
-        markDisabled={marking ? 'Marking it as printed…' : problem}
+        markDisabled={markDisabled}
         onMark={() => void printed.mark()}
         onUnmark={(vi) => void printed.unmark(vi)}
         onOpenAt={(id, vi) => void openDesign(id, vi)}
@@ -768,9 +771,11 @@ export default function App() {
             <b>Size {sizes.viewed.label}</b>{' '}
             {sizes.viewResult && sizes.resolvedOf(sizes.viewed) ? <span className="mono">{sizeText(sizes.resolvedOf(sizes.viewed)!.size)}</span> : <><span className="spinner" /> building it…</>}
             <button className="link" onClick={() => sizes.view(null)}>Back to the design</button>
-          </> : shownMark && !playback ? (
+          </> : null}
+          pinnedBanner={shownMark && !playback ? (
             <PrintedBanner v={shownMark.v} at={shownMark.at} file={shownMark.file} settings={shownMark.settings} fileUrl={printedFileUrl(design.id, shownMark.v)}
-              onClone={() => void forkVersion(design.currentVersion)} onMake3mf={() => void printed.mark()} making={marking} />
+              onClone={() => void forkVersion(design.currentVersion)} onMake3mf={() => void printed.mark()} makeDisabled={markDisabled} making={marking}
+              onUnmark={() => void printed.unmark(shownMark.v)} />
           ) : null}
           recolor={playback ? null : recolor}
           previewColors={previewColors}
