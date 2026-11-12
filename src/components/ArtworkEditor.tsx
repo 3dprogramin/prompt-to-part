@@ -8,15 +8,18 @@ import { describeChange, EDIT_HISTORY_KEY, historyFor, historyTime, parseEditHis
 import { EditHistory } from './EditHistory';
 import { useEscape } from './useEscape';
 import { Icon } from './Icon';
-import { clamp, ERASE, MAX_ZOOM, round, strokeOn, type Pt } from './lineart/editorDraw';
+import { clamp, ERASE, MAX_ZOOM, round, SELECT, SELECT_RING, strokeOn, type Pt } from './lineart/editorDraw';
 import { BACKDROP, builtView, colourNames, colourOps, drawBuilt, drawPicture, mmPerUnit, nearestPart, pictureBox, registerDrawing, shapePaths } from './artwork/artworkCanvas';
+import { parsePictureMarks, PICTURE_MARKS_KEY, type MarkStroke, type PictureMark } from '../../shared/pictureEdit/mark';
+import type { PictureEditUi } from '../lib/pictureEdit';
+import { EditPicturePanel } from './picture/EditPicturePanel';
 
 interface Props {
   /** The drawing as attached (without hand edits), named as in the design. */
   drawing: SvgDrawing;
   /** Its fingerprint, which the edits are saved with. */
   fp: string;
-  /** The design's values: ARTWORK_EDITS_KEY (the edits), EDIT_HISTORY_KEY (the restore points). */
+  /** The design's values: ARTWORK_EDITS_KEY (the edits), EDIT_HISTORY_KEY (the restore points), PICTURE_MARKS_KEY (the area selected, as it opens). */
   values: ParamValues;
   result: EvalResult;
   /** The model's parts: seen from the top, they are the picture (their colours name the drawing's, their size places it and gives the brush in mm). */
@@ -27,16 +30,22 @@ interface Props {
   error: string | null;
   /** `label`: what the visit did, for the History. */
   onEdits: (update: (edits: ArtworkEdits) => ArtworkEdits, label?: string) => void;
+  /** The area selected changed (null: none): saved with the design at once, so the chat can use it. */
+  onMark: (mark: PictureMark | null) => void;
+  /** Editing the picture with the image model, in the area selected or all of it. */
+  edit: PictureEditUi;
   onClose: () => void;
 }
 
-type Tool = 'paint' | 'erase';
+type Tool = 'paint' | 'erase' | 'select';
 /** Gone back to a restore point made at `at`, which gave `strokes`. */
 type Restored = { at: number; strokes: ArtworkStroke[] };
 /** A step of Undo and Redo: the strokes, and the restore point gone back to then. */
 type Snap = { strokes: ArtworkStroke[]; restored: Restored | null };
 /** Brush widths: in mm when the picture's printed size is known, else in % of its height. */
 const MM = { min: 0.3, max: 15, start: 2 }, PCT = { min: 0.1, max: 10, start: 1 };
+/** The selection brush's widths, the same ways. */
+const SEL_MM = { min: 1, max: 60, start: 10 }, SEL_PCT = { min: 0.5, max: 40, start: 5 };
 /** The model as built, drawn while the view moves: a bitmap of at most this many pixels. */
 const QUICK_PX = 4_000_000;
 
@@ -47,8 +56,11 @@ const QUICK_PX = 4_000_000;
  * plate). The strokes are a draft until Done (or Escape) saves them in the design at once
  * (ARTWORK_EDITS_KEY, in the drawing's own units) and the model rebuilds a single time; Cancel drops them.
  * Each visit saved is a restore point: History puts the strokes as they were before one in the draft.
+ * Select (C) brushes an area (strokes add up, Escape deselects; saved with the design as it is made)
+ * for the Edit panel, which changes it, or the whole picture, with the image model: while that works
+ * and its result waits for Keep / Try again / Discard, the brush is locked and Escape keeps it open.
  */
-export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error, onEdits, onClose }: Props) {
+export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error, onEdits, onMark, edit, onClose }: Props) {
   const layout = useLayoutMode();
   const name = drawing.name;
   // The strokes as the editor opened (none when they were made on an earlier picture), and as they are now.
@@ -69,13 +81,29 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     const back = `Restored to before ${historyTime(restored.at)}`;
     return strokes.length === restored.strokes.length && strokes.every((s, i) => s === restored.strokes[i]) ? back : `${back}, then ${describeChange(as(restored.strokes), as(strokes)).toLowerCase()}`;
   };
+  // A picture edit running or waiting for Keep / Try again / Discard locks the brush (its strokes and mark were sent).
+  const locked = edit.busy || !!edit.result || edit.keeping;
   const finish = useRef(() => {});
   finish.current = () => {
+    if (locked) return;
     if (changed) onEdits((e) => { const { [name]: _old, ...rest } = e; return strokes.length ? { ...rest, [name]: { fp, strokes } } : rest; }, visitLabel());
     onClose();
   };
   const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
   useEscape(true, () => finish.current());
+  // The area selected for a picture edit (drawing units), as saved with the design for this picture.
+  const [selection, setSelection] = useState<MarkStroke[]>(() => {
+    const saved = parsePictureMarks(values[PICTURE_MARKS_KEY])[name];
+    return saved && saved.fp === fp ? saved.mark.strokes : [];
+  });
+  const select = (next: MarkStroke[]) => { setSelection(next); onMark(next.length ? { strokes: next } : null); };
+  useEscape(selection.length > 0 && !locked, () => select([]));
+  // (While locked, Escape does nothing: the result is dropped with Discard.)
+  useEscape(locked, () => {});
+  // Closing the editor stops the edit under way, or drops its result.
+  const discard = useRef(edit.discard);
+  discard.current = edit.discard;
+  useEffect(() => () => discard.current(), []);
 
   const colours = useMemo(() => drawingColors(drawing), [drawing]);
   const names = useMemo(() => colourNames(colours, parts), [colours, parts]);
@@ -102,10 +130,16 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     const box = own.length ? own.reduce<Box3>((b, p) => ({ min: [0, 1, 2].map((i) => Math.min(b.min[i], p.bbox.min[i])) as Box3['min'], max: [0, 1, 2].map((i) => Math.max(b.max[i], p.bbox.max[i])) as Box3['max'] }), own[0].bbox) : result.bbox;
     return mmPerUnit(drawing, box);
   }, [drawing, colours, names, parts, result.bbox, reg, built]);
-  const unit = k ? MM : PCT, per = k ?? 100;
   const [tool, setTool] = useState<Tool>('paint');
-  // The brush width in drawing units.
-  const [width, setWidth] = useState(() => unit.start / per);
+  const selecting = tool === 'select';
+  const unit = selecting ? (k ? SEL_MM : SEL_PCT) : k ? MM : PCT, per = k ?? 100;
+  // The brush widths in drawing units: painting and erasing, and selecting.
+  const [widths, setWidths] = useState(() => ({ brush: (k ? MM : PCT).start / per, select: (k ? SEL_MM : SEL_PCT).start / per }));
+  const width = selecting ? widths.select : widths.brush;
+  const setWidth = (f: number | ((w: number) => number)) => setWidths((w) => {
+    const key = selecting ? 'select' : 'brush';
+    return { ...w, [key]: typeof f === 'function' ? f(w[key]) : f };
+  });
   const [shape, setShape] = useState<'round' | 'square'>('round');
   const square = shape === 'square';
   const [hist, setHist] = useState<{ undo: Snap[]; redo: Snap[] }>({ undo: [], redo: [] });
@@ -145,8 +179,10 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   // The colour the picked one shows in.
   const ink = (matched ? shade.get(colour)?.color : colour) || '#000';
   // The latest of everything the pointer and key handlers and the painting use.
-  const now = useRef({ tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox });
-  now.current = { tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox };
+  const now = useRef({ tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox, selection, locked });
+  now.current = { tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox, selection, locked };
+  /** The selection put together off screen (where strokes cross it is no darker). */
+  const selLayer = useRef<HTMLCanvasElement | null>(null);
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -220,9 +256,23 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(...matrix());
-    if (a.mode === 'draw' && a.points.length) {
+    const live = a.mode === 'draw' && a.points.length ? { width: n.width, points: a.points, ...(n.square ? { shape: 'square' as const } : {}) } : null;
+    // The area selected (with the stroke adding to it), see-through: drawn whole off screen.
+    const sel = [...n.selection, ...(live && n.tool === 'select' ? [live] : [])];
+    if (sel.length) {
+      const S = (selLayer.current ??= document.createElement('canvas'));
+      if (S.width !== c.width || S.height !== c.height) { S.width = c.width; S.height = c.height; }
+      const sctx = S.getContext('2d')!;
+      sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, S.width, S.height);
+      sctx.setTransform(...matrix());
+      for (const st of sel) strokeOn(sctx, { mode: 'clear', ...st }, SELECT[0]);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = SELECT[1]; ctx.drawImage(S, 0, 0); ctx.globalAlpha = 1;
+      ctx.setTransform(...matrix());
+    }
+    if (live && n.tool !== 'select') {
       // The stroke being drawn: paint in its colour (inside the box, as it will be), erasing in red.
-      const st = { mode: n.tool, width: n.width, points: a.points, ...(n.square ? { shape: 'square' as const } : {}) };
+      const st = { mode: n.tool, ...live };
       if (n.tool === 'erase') strokeOn(ctx, st, ERASE);
       else if (box) {
         ctx.save();
@@ -233,9 +283,9 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     }
     // The brush, screen sized.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (hover.current.show && a.mode !== 'pan' && a.mode !== 'pinch' && !space.current) {
+    if (hover.current.show && a.mode !== 'pan' && a.mode !== 'pinch' && !space.current && !n.locked) {
       const [x, y] = hover.current.at, r = Math.max(1.5, (n.width / 2) * v.s);
-      const mark = n.tool === 'erase' ? '#c0392b' : n.ink;
+      const mark = n.tool === 'erase' ? '#c0392b' : n.tool === 'select' ? SELECT_RING : n.ink;
       const outline = (color: string, lw: number) => {
         ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
         if (n.square) ctx.rect(x - r, y - r, 2 * r, 2 * r); else ctx.arc(x, y, r, 0, 2 * Math.PI);
@@ -295,7 +345,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     return () => { ro.disconnect(); cancelAnimationFrame(raf.current.base); cancelAnimationFrame(raf.current.over); clearTimeout(crispTimer.current); };
   }, [fit, repaint]);
   useEffect(repaint, [layers, fresh, matched, repaint]);
-  useEffect(repaintOver, [tool, width, square, colour, repaintOver]);
+  useEffect(repaintOver, [tool, width, square, colour, selection, locked, repaintOver]);
 
   // ---- strokes (Undo and Redo step through the lists of strokes)
   const change = (next: ArtworkStroke[], back = now.current.restored) => {
@@ -334,10 +384,19 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     const a = act.current, n = now.current;
     a.mode = 'idle';
     if (!a.points.length) return;
-    if (n.strokes.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} strokes per picture: undo or clear some first.`); return; }
     // Made lean in mm (or as if the picture were 100 mm high), saved in drawing units.
     const pts = leanStroke(a.points.map(([x, y]): Pt => [x * per, y * per])).map(([x, y]): [number, number] => [round(x / per, 5), round(y / per, 5)]);
-    const st: ArtworkStroke = { mode: n.tool, color: n.colour, width: round(clamp(n.width, 1e-5, 1), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
+    if (n.tool === 'select') {
+      // The stroke adds to the area selected (in pieces the mark can hold), saved with the design at once.
+      if (n.selection.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} selection strokes: deselect (Esc) and select again.`); return; }
+      const st = { mode: 'paint' as const, color: '', width: round(clamp(n.width, 1e-5, 2), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
+      const added = splitLongStroke(st).map(({ width: w, points, shape }): MarkStroke => ({ width: w, points, ...(shape ? { shape } : {}) }));
+      select([...n.selection, ...added].slice(0, MAX_ARTWORK_STROKES));
+      setNote(null);
+      return;
+    }
+    if (n.strokes.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} strokes per picture: undo or clear some first.`); return; }
+    const st: ArtworkStroke = { mode: n.tool === 'erase' ? 'erase' : 'paint', color: n.colour, width: round(clamp(n.width, 1e-5, 1), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
     // (A very long stroke is saved as several: the build reads at most MAX_ARTWORK_POINTS per stroke.)
     change([...n.strokes, ...splitLongStroke(st)].slice(0, MAX_ARTWORK_STROKES));
     setNote(null);
@@ -365,7 +424,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     if (pointers.current.size > 1 || a.mode !== 'idle') return;
     a.id = e.pointerId; a.last = p;
     if (e.button === 1 || e.button === 2 || (e.button === 0 && space.current)) { a.mode = 'pan'; setPanning(true); return; }
-    if (e.button !== 0) return;
+    if (e.button !== 0 || now.current.locked) return;
     a.mode = 'draw'; a.points = [toUnits(...p)];
     setNote(null);
     repaintOver();
@@ -423,24 +482,27 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     return () => c.removeEventListener('wheel', onWheel);
   }, [zoomAt]);
 
-  // Keys: P paint, E erase, [ ] width, Q round / square brush, F fit, + - zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
-  // Space pans. The editor is on top: the app's own keys wait (Escape closes it).
+  // Keys: P paint, E erase, C select, [ ] width, Q round / square brush, F fit, + - zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
+  // Space pans. The editor is on top: the app's own keys wait (Escape closes it). While a picture
+  // edit locks the brush, only the view moves.
   useEffect(() => {
     const typing = (t: EventTarget | null) => t instanceof Element && !!t.closest('textarea, [contenteditable], input:not([type="range"])');
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || typing(e.target)) return;
       e.stopPropagation();
       const key = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
-      if (ctrl && (key === 'z' || key === 'y')) { e.preventDefault(); if (key === 'y' || e.shiftKey) redo(); else undo(); return; }
+      if (ctrl && (key === 'z' || key === 'y')) { e.preventDefault(); if (locked) return; if (key === 'y' || e.shiftKey) redo(); else undo(); return; }
       if (ctrl || e.altKey) return;
       if (e.key === ' ') { e.preventDefault(); if (!space.current) { space.current = true; setPanning(true); repaintOver(); } return; }
-      const step = (d: number) => setWidth((w) => clamp(round(w * per + d * 0.5, 1), unit.min, unit.max) / per);
-      if (key === 'p') setTool('paint');
-      else if (key === 'e') setTool('erase');
-      else if (key === 'q') setShape((s) => (s === 'square' ? 'round' : 'square'));
-      else if (key === 'f' || key === '0') fit();
+      const step = (d: number) => setWidth((w) => clamp(round(w * per + d * (selecting ? 2 : 0.5), 1), unit.min, unit.max) / per);
+      if (key === 'f' || key === '0') fit();
       else if (key === '+' || key === '=') zoomAt(1.25);
       else if (key === '-' || key === '_') zoomAt(0.8);
+      else if (locked) return;
+      else if (key === 'p') setTool('paint');
+      else if (key === 'e') setTool('erase');
+      else if (key === 'c') setTool('select');
+      else if (key === 'q') setShape((s) => (s === 'square' ? 'round' : 'square'));
       else if (key === '[') step(-1);
       else if (key === ']') step(1);
     };
@@ -458,25 +520,32 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   const phone = layout === 'phone';
   const shown = round(width * per, 1);
   const status = `${name}: ${strokes.length} hand edit${strokes.length === 1 ? '' : 's'}${changed ? ', built on Done' : ''}`;
-  const doing = tool === 'paint' ? `paint ${label(colour)}` : `erase ${label(colour)}`;
+  const doing = tool === 'paint' ? `paint ${label(colour)}` : tool === 'erase' ? `erase ${label(colour)}` : 'select where to edit';
   // The scale bar (when the printed size is known): a round length about 90 px long.
   const barMm = k ? niceLength((90 / zoom) * k) : 0;
+  // The Edit panel: while selecting, with an area selected, or while an edit is under way.
+  const editing = selecting || selection.length > 0 || locked;
+  const mark = selection.length ? { strokes: selection } : null;
   return (
     <div className={`la-editor ${phone ? 'phone' : ''}`} role="dialog" aria-modal="true" aria-label="Paint the artwork" ref={dialog} tabIndex={-1}>
       <div className="la-ed-bar" role="toolbar" aria-label="Brush">
         <div className="la-ed-group" role="radiogroup" aria-label="Tool">
-          <button className={`la-ed-tool ${tool === 'paint' ? 'on' : ''}`} role="radio" aria-checked={tool === 'paint'} onClick={() => setTool('paint')}
+          <button className={`la-ed-tool ${tool === 'paint' ? 'on' : ''}`} role="radio" aria-checked={tool === 'paint'} disabled={locked} onClick={() => setTool('paint')}
             title="Paint (P): the colour picked takes over under the brush, from whatever colour was there">
             <Icon name="palette" size={15} /><span className="la-ed-label">Paint</span>
           </button>
-          <button className={`la-ed-tool ${tool === 'erase' ? 'on erase' : ''}`} role="radio" aria-checked={tool === 'erase'} onClick={() => setTool('erase')}
+          <button className={`la-ed-tool ${tool === 'erase' ? 'on erase' : ''}`} role="radio" aria-checked={tool === 'erase'} disabled={locked} onClick={() => setTool('erase')}
             title="Erase (E): only the colour picked goes under the brush, down to the plate; the other colours stay">
             <Icon name="eraser" size={15} /><span className="la-ed-label">Erase</span>
           </button>
+          <button className={`la-ed-tool ${selecting ? 'on' : ''}`} role="radio" aria-checked={selecting} disabled={locked} onClick={() => setTool('select')}
+            title="Select (C): brush over the area to change with the image model (strokes add up), then say the change; nothing selected: the whole picture">
+            <Icon name="select" size={15} /><span className="la-ed-label">Select</span>
+          </button>
         </div>
-        <div className="la-ed-filaments" role="radiogroup" aria-label="Colour to paint or erase">
+        <div className={`la-ed-filaments ${selecting ? 'off' : ''}`} role="radiogroup" aria-label="Colour to paint or erase">
           {colours.map((c) => (
-            <button key={c} className={`la-ed-chip ${c === colour ? 'on' : ''}`} role="radio" aria-checked={c === colour} onClick={() => setColour(c)} title={label(c)} aria-label={label(c)}>
+            <button key={c} className={`la-ed-chip ${c === colour ? 'on' : ''}`} role="radio" aria-checked={c === colour} disabled={locked || selecting} onClick={() => setColour(c)} title={label(c)} aria-label={label(c)}>
               <span className="swatch" style={{ background: c || '#000' }} />
             </button>
           ))}
@@ -484,34 +553,43 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
         </div>
         <label className="la-ed-width" title="Brush width ([ and ])">
           <span className="la-ed-label">Width</span>
-          <input type="range" min={unit.min} max={unit.max} step={0.1} value={clamp(shown, unit.min, unit.max)} aria-label={`${tool === 'paint' ? 'Paint brush' : 'Eraser'} width, ${k ? 'mm' : '% of the picture height'}`}
+          <input type="range" min={unit.min} max={unit.max} step={0.1} value={clamp(shown, unit.min, unit.max)} disabled={locked}
+            aria-label={`${tool === 'paint' ? 'Paint brush' : tool === 'erase' ? 'Eraser' : 'Selection brush'} width, ${k ? 'mm' : '% of the picture height'}`}
             onChange={(e) => setWidth(Number(e.target.value) / per)} />
           <span className="mono la-ed-val">{shown.toFixed(1)} {k ? 'mm' : '%'}</span>
         </label>
         <div className="la-ed-group" role="radiogroup" aria-label="Brush shape">
-          <button className={`la-ed-tool ${!square ? 'on' : ''}`} role="radio" aria-checked={!square} onClick={() => setShape('round')} title="Round brush (Q)" aria-label="Round brush">
+          <button className={`la-ed-tool ${!square ? 'on' : ''}`} role="radio" aria-checked={!square} disabled={locked} onClick={() => setShape('round')} title="Round brush (Q)" aria-label="Round brush">
             <Icon name="round" size={15} />
           </button>
-          <button className={`la-ed-tool ${square ? 'on' : ''}`} role="radio" aria-checked={square} onClick={() => setShape('square')} title="Square brush (Q): a square as wide as the brush, upright" aria-label="Square brush">
+          <button className={`la-ed-tool ${square ? 'on' : ''}`} role="radio" aria-checked={square} disabled={locked} onClick={() => setShape('square')} title="Square brush (Q): a square as wide as the brush, upright" aria-label="Square brush">
             <Icon name="square" size={15} />
           </button>
         </div>
         <div className="la-ed-group">
-          <button className="la-ed-tool" disabled={!hist.undo.length} onClick={undo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={15} /></button>
-          <button className="la-ed-tool" disabled={!hist.redo.length} onClick={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={15} /></button>
+          <button className="la-ed-tool" disabled={locked || !hist.undo.length} onClick={undo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={15} /></button>
+          <button className="la-ed-tool" disabled={locked || !hist.redo.length} onClick={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={15} /></button>
         </div>
-        <EditHistory entries={history} current={savedNow} onPick={(to, e) => restoreTo(to, e.at)}
-          unusable={(to) => (to[name] && to[name].fp !== fp ? 'Those edits were made on an earlier picture: they no longer fit this one' : null)} />
-        <button className="la-ed-tool" disabled={!strokes.length} onClick={clearAll} title="Remove every hand edit of this picture">
-          <Icon name="trash" size={15} /><span className="la-ed-label">Clear edits</span>
-        </button>
+        {!locked && (
+          <EditHistory entries={history} current={savedNow} onPick={(to, e) => restoreTo(to, e.at)}
+            unusable={(to) => (to[name] && to[name].fp !== fp ? 'Those edits were made on an earlier picture: they no longer fit this one' : null)} />
+        )}
+        {selection.length > 0 ? (
+          <button className="la-ed-tool" disabled={locked} onClick={() => select([])} title="Deselect (Esc)">
+            <Icon name="x" size={15} /><span className="la-ed-label">Deselect</span>
+          </button>
+        ) : (
+          <button className="la-ed-tool" disabled={locked || !strokes.length} onClick={clearAll} title="Remove every hand edit of this picture">
+            <Icon name="trash" size={15} /><span className="la-ed-label">Clear edits</span>
+          </button>
+        )}
         <span className="la-ed-status small" aria-live="polite" title={busy ? undefined : status}>
           {busy ? <><span className="spinner" /> updating…</> : status}
         </span>
         <button className="btn" onClick={cancel} title="Close without the changes made now">Cancel</button>
-        <button className="btn primary" onClick={() => finish.current()} title="Done (Esc): build the model with the edits">Done</button>
+        <button className="btn primary" disabled={locked} onClick={() => finish.current()} title="Done (Esc): build the model with the edits">Done</button>
       </div>
-      <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
+      <div className={`la-ed-stage ${panning ? 'panning' : ''} ${editing ? 'with-edit' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label={`The picture: drag to ${doing}`} />
@@ -537,8 +615,14 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
         {!phone && (
           <div className="la-ed-hint small">
             {touch ? `One finger: ${doing} · two fingers move and zoom`
-              : `Drag to ${doing} · Space, middle or right button: move · wheel: zoom · [ ]: width · Q: square`}
+              : `Drag to ${doing}${selecting ? ' (strokes add up) · Esc: deselect' : ''} · Space, middle or right button: move · wheel: zoom · [ ]: width · Q: square`}
           </div>
+        )}
+        {editing && (
+          <EditPicturePanel mark={mark} busy={edit.busy} startedAt={edit.startedAt} result={edit.result} error={edit.error} keeping={edit.keeping}
+            onEdit={(change, photos) => edit.start({ mark, change, photos, draft: changed ? strokes : null })}
+            onCancel={edit.cancel} onRetry={edit.retry} onDiscard={edit.discard}
+            onKeep={() => { void edit.keep().then((kept) => { if (kept) onClose(); }); }} />
         )}
       </div>
     </div>

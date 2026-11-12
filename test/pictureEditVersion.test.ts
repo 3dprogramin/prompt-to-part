@@ -4,8 +4,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { linesUp, versionNote } from '../src/lib/pictureEdit';
-import type { Box3, DesignVersion } from '../shared/types';
+import { applyPictureEdit, linesUp, pictureEditNotes, versionNote } from '../src/lib/pictureEdit';
+import type { PictureEditResponse } from '../shared/api';
+import type { Box3, Design, DesignVersion } from '../shared/types';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-picver-test-'));
 process.env.PTP_DATA = dataDir;
@@ -76,4 +77,79 @@ test('a design with and without pictureEdit round-trips through save and load un
   const got = await (await fetch(`${A}/api/designs/${id}`, { headers: W })).json();
   assert.deepEqual(got.versions, d.versions);
   assert.equal('pictureEdit' in got.versions[0], false);
+});
+
+// ---- Keeping a picture edit from the editor: the values it sets, a new version and a chat entry.
+
+const response = (extra: Partial<PictureEditResponse> = {}): PictureEditResponse => ({
+  set: { $drawings: '{"art":"new"}', $artworkEdits: '{"art":"cut"}', $pictureMarks: null },
+  before: 'data:image/png;base64,AAAA', after: 'data:image/png;base64,BBBB', masked: true, outsideSame: true,
+  prompt: 'p', model: 'test/image', cost: 0.04, ...extra,
+});
+const design = (): Design => ({ id: 'd1', name: 'n', createdAt: 1, updatedAt: 1, code: 'code v2', currentVersion: 1,
+  versions: [v({ code: 'code v1' }), v({ code: 'code v2' })], messages: [{ id: 'm1', role: 'user', text: 'hi', createdAt: 1 }],
+  values: { size: 3, $drawings: '{"art":"old"}', $artworkEdits: '{"art":"strokes"}', $pictureMarks: '{"art":"mark"}', $editHistory: '{"artwork":[]}' } });
+const info = { picture: 'art', change: '  make him look like the man in the photo  ', masked: true, cost: 0.04 };
+const stored = { photos: ['/api/designs/d1/images/photo.jpg'], render: '/api/designs/d1/images/both.png' };
+
+test('applyPictureEdit: the values merged (null deletes), a version after the current one, lines up not yet measured', () => {
+  const d = design();
+  const out = applyPictureEdit(d, response(), info, stored);
+  assert.deepEqual(out.values, { size: 3, $drawings: '{"art":"new"}', $artworkEdits: '{"art":"cut"}', $editHistory: '{"artwork":[]}' });
+  assert.equal(out.versions.length, 3);
+  assert.equal(out.currentVersion, 2);
+  const nv = out.versions[2];
+  assert.equal(nv.code, 'code v2');
+  assert.equal(nv.source, 'manual');
+  assert.equal(nv.summary, 'Picture edit: make him look like the man in the photo');
+  // The version's values leave out the restore points, as every version's do.
+  assert.deepEqual(nv.values, { size: 3, $drawings: '{"art":"new"}', $artworkEdits: '{"art":"cut"}' });
+  assert.deepEqual(nv.pictureEdit, { picture: 'art', change: 'make him look like the man in the photo', masked: true, parent: 1, linesUp: false, cost: 0.04 });
+  // The design passed in is not changed.
+  assert.equal(d.versions.length, 2);
+  assert.equal(d.values.$drawings, '{"art":"old"}');
+});
+
+test('applyPictureEdit: a long change is trimmed in the summary only', () => {
+  const change = 'x'.repeat(200);
+  const out = applyPictureEdit(design(), response(), { ...info, change }, stored);
+  assert.ok(out.versions[2].summary.length <= 'Picture edit: '.length + 80, out.versions[2].summary);
+  assert.equal(out.versions[2].pictureEdit!.change, change);
+});
+
+test('applyPictureEdit: the chat gets the change with its photos, and the result with its version, before / after and cost', () => {
+  const out = applyPictureEdit(design(), response(), info, stored);
+  assert.equal(out.messages.length, 3);
+  const [, user, reply] = out.messages;
+  assert.equal(user.role, 'user');
+  assert.equal(user.text, 'Picture edit: make him look like the man in the photo');
+  assert.deepEqual(user.images, stored.photos);
+  assert.equal(reply.role, 'assistant');
+  assert.equal(reply.versionIndex, 2);
+  assert.match(reply.text, /^Picture edit kept as v3\. Outside the mark: unchanged\. Cost \$0\.04\.$/);
+  assert.deepEqual(reply.steps, [{ kind: 'render', ok: true, text: 'Before / after', image: stored.render }]);
+  assert.notEqual(user.id, reply.id);
+  // Never a data URL in the messages: the pictures are stored with the design.
+  assert.doesNotMatch(JSON.stringify(out.messages), /data:/);
+});
+
+test('applyPictureEdit: no photos, no cost; the warnings go in the reply', () => {
+  const r = response({ outsideSame: false, cost: null, offPalette: { share: 0.4, colour: '#8b5a2b', note: 'The change wants brown, a colour the design has no filament for.' } });
+  const out = applyPictureEdit(design(), r, { ...info, cost: null }, { photos: [], render: stored.render });
+  const [, user, reply] = out.messages;
+  assert.equal(user.images, undefined);
+  assert.doesNotMatch(reply.text, /Cost/);
+  assert.match(reply.text, /Outside the mark: changed too/);
+  assert.match(reply.text, /no filament for\./);
+  // A whole-picture edit says nothing about an outside.
+  const whole = applyPictureEdit(design(), response({ masked: false, outsideSame: false }), { ...info, masked: false }, stored);
+  assert.doesNotMatch(whole.messages[2].text, /Outside the mark/);
+});
+
+test('pictureEditNotes: outside unchanged only for a masked edit, warnings marked', () => {
+  assert.deepEqual(pictureEditNotes(response()), [{ text: 'Outside the mark: unchanged' }]);
+  assert.equal(pictureEditNotes(response({ outsideSame: false }))[0].warn, true);
+  assert.deepEqual(pictureEditNotes(response({ masked: false, outsideSame: false })), []);
+  const notes = pictureEditNotes(response({ simplified: true, offPalette: { share: 0.3, colour: '#8b5a2b', note: 'Brown wanted.' } }));
+  assert.deepEqual(notes.map((n) => !!n.warn), [false, true, true]);
 });

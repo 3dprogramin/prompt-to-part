@@ -129,6 +129,8 @@ export const api = {
   uploadMesh: (designId: string, file: File) => getJson<MeshUpload>(`/api/designs/${designId}/meshes?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } }),
   /** Restores the designs (and unsaved settings) in a backup zip from GET /api/backup. */
   importBackup: (file: File) => getJson<BackupImport>('/api/backup/import', { method: 'POST', body: file, headers: { 'Content-Type': 'application/zip' } }),
+  /** Stores a data-URL image with a design: its URL. */
+  storeImage: (designId: string, src: string) => getJson<{ url: string }>(`/api/designs/${designId}/images`, { method: 'POST', body: JSON.stringify(dataUrlToImage(src)) }).then((r) => r.url),
   /** The images and mesh files stored with a design. */
   designFiles: (id: string) => getJson<DesignFiles>(`/api/designs/${id}/files`),
   /** Copies one design's mesh files to another (a design started from a version). */

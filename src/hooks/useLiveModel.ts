@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Design, EvalResult, Quality, ScriptErrorInfo } from '../../shared/types';
+import { sameBuild } from '../lib/settings';
 import type { GeometryClient } from '../geometry/client';
 
 /**
@@ -23,18 +24,24 @@ export function useLiveModel(geo: GeometryClient, design: Design, quality: Quali
     setError(null);
   }, [design.id]);
 
+  // The values built: kept the same object while only the picture marks change (they build nothing,
+  // and are saved as the user brushes them).
+  const builtValues = useRef(design.values);
+  if (!sameBuild(builtValues.current, design.values)) builtValues.current = design.values;
+  const values = builtValues.current;
+
   useEffect(() => {
     if (!design.code.trim()) { resultCode.current = ''; setResult(null); setLastGood(null); setError(null); setBusy(false); return; }
     let cancelled = false;
     setBusy(true);
-    geo.preview(design.code, design.values, quality).then((o) => {
+    geo.preview(design.code, values, quality).then((o) => {
       if (cancelled || !o) return;
       setBusy(false);
       if (o.result) { resultCode.current = design.code; setResult(o.result); setLastGood(o.result); setError(null); }
       else { setError(o.error); setResult(null); }
     });
     return () => { cancelled = true; };
-  }, [geo, design.id, design.code, design.values, quality, printerId]);
+  }, [geo, design.id, design.code, values, quality, printerId]);
 
   return { result, lastGood, error, busy, resultCode };
 }

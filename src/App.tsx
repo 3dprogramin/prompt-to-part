@@ -53,6 +53,7 @@ import { useChatOptions } from './app/useChatOptions';
 import { useLayoutPanels } from './app/useLayoutPanels';
 import { useDesignEdits } from './app/useDesignEdits';
 import { useReplies } from './app/useReplies';
+import { usePictureEdit } from './app/usePictureEdit';
 import { usePrintSettings } from './app/usePrintSettings';
 import { designExports } from './app/exports';
 import { useDesignList } from './app/useDesignList';
@@ -399,6 +400,8 @@ export default function App() {
     return drawing ? [{ name: u.name, drawing, fp: drawingFingerprint(drawing) }] : [];
   }), [shown, drawingsStored]);
   const artworkEditing = editingArtwork ? artworkItems.find((a) => a.name === editingArtwork) : undefined;
+  // Editing a picture with the image model (from the artwork brush), and its mark.
+  const pictureEdit = usePictureEdit({ design, setDesign, result, busy });
   const painterItems = [
     ...(shownLineArt?.lineArt.frames.length ? [{ kind: 'lineart' as const, name: '', label: 'Edit drawing' }] : []),
     ...artworkItems.map((a) => ({ kind: 'artwork' as const, name: a.name, label: `Paint ${a.name}` })),
@@ -868,6 +871,8 @@ export default function App() {
           busy={busy}
           error={error?.message ?? null}
           onEdits={setArtworkEdits}
+          onMark={(mark) => pictureEdit.setMark(artworkEditing.name, artworkEditing.fp, mark)}
+          edit={pictureEdit.ui(artworkEditing.name, artworkEditing.fp)}
           onClose={() => setEditingArtwork(null)}
         />
       )}

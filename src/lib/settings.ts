@@ -6,6 +6,7 @@ import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 import { LINEART_EDITS_KEY } from '../../shared/lineart';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
+import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -18,8 +19,8 @@ function effective(values: ParamValues, params: Params): ParamValues {
   const out: ParamValues = {};
   for (const [k, v] of Object.entries(values)) {
     // Attached drawings and LayerTone pictures come with chat messages, visibility is a view choice
-    // and the hand edits' restore points are kept with the design: none of them is a setting to save as a version.
-    if (k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY || k === HIDDEN_KEY || k === EDIT_HISTORY_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
+    // and the hand edits' restore points and the picture marks are kept with the design: none of them is a setting to save as a version.
+    if (k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY || k === HIDDEN_KEY || k === EDIT_HISTORY_KEY || k === PICTURE_MARKS_KEY || (k === SCALE_KEY ? Number(v) === 1 : k in params ? params[k].value === v : !k.startsWith('$'))) continue;
     out[k] = v;
   }
   return out;
@@ -28,6 +29,14 @@ function effective(values: ParamValues, params: Params): ParamValues {
 function changedKeys(from: ParamValues, to: ParamValues, params: Params): string[] {
   const a = effective(from, params), b = effective(to, params);
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}
+
+/** The same values for the build: alike but for the picture marks (they build nothing). */
+export function sameBuild(a: ParamValues, b: ParamValues): boolean {
+  if (a === b) return true;
+  const keys = (v: ParamValues) => Object.keys(v).filter((k) => k !== PICTURE_MARKS_KEY);
+  const ka = keys(a), kb = keys(b);
+  return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && a[k] === b[k]);
 }
 
 /** True when the sliders, scale, text or print overrides differ from `saved`. */

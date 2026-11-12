@@ -68,3 +68,9 @@ test('costKey changes with the printer', () => {
 test('costKey for the A1 0.4 is the key from before printers could be chosen (saved sale-size slices stay valid)', () => {
   assert.equal(costKey('c', { a: 1 }, ['x'], {}, null, 'Bambu Lab A1 0.4 nozzle'), JSON.stringify(['c', { a: 1 }, ['x'], {}, null]));
 });
+
+test('costKey leaves out the picture marks (selecting an area for a picture edit keeps the slice)', () => {
+  const key = (values: Record<string, string | number>) => costKey('c', values, [], {}, null, 'Bambu Lab P1S 0.4 nozzle');
+  assert.equal(key({ a: 1, $pictureMarks: '{"art":{}}' }), key({ a: 1 }));
+  assert.notEqual(key({ a: 1, $drawings: '{}' }), key({ a: 1 }));
+});

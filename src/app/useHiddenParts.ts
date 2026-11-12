@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { Design } from '../../shared/types';
 import type { GeometryClient } from '../geometry/client';
 import { HIDDEN_KEY } from '../lib/settings';
+import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 
 export function useHiddenParts({ design, setDesign, geo }: { design: Design; setDesign: Dispatch<SetStateAction<Design>>; geo: GeometryClient }) {
   // Hidden parts are saved with the design (they stay hidden after a reload or a new version).
@@ -23,13 +24,15 @@ export function useHiddenParts({ design, setDesign, geo }: { design: Design; set
   // Which parts each parameter changes, measured while parts are hidden (to grey out the
   // parameters of hidden parts); kept for the code and values it was measured with.
   const [paramOwners, setParamOwners] = useState<{ key: string; owners: Record<string, string[]> } | null>(null);
-  const ownersKey = JSON.stringify([design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))]);
+  // (Neither hidden parts nor the picture marks change what a parameter does.)
+  const measured = () => Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY && k !== PICTURE_MARKS_KEY));
+  const ownersKey = JSON.stringify([design.code, measured()]);
   useEffect(() => {
     if (!hiddenParts.length || !design.code || paramOwners?.key === ownersKey) return;
     let stale = false;
     // After the preview has settled, so the measuring builds don't hold it up.
     const t = setTimeout(() => {
-      geo.owners(design.code, Object.fromEntries(Object.entries(design.values).filter(([k]) => k !== HIDDEN_KEY))).then((owners) => {
+      geo.owners(design.code, measured()).then((owners) => {
         if (!stale && owners) setParamOwners({ key: ownersKey, owners });
       });
     }, 600);

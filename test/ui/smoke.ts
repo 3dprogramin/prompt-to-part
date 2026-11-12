@@ -8,7 +8,8 @@
 // and an unfolded foldable (the 3D view beside the chat or the side panel), the Designs menu's search, the
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
-// resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
+// resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene), and a picture edit from the artwork brush (the
+// stand-in fills the area marked). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // PTP_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
@@ -20,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContextOptions, type Locator, type Page } from 'playwright-core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { encode as encodePng } from 'fast-png';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-ui-test-'));
 process.env.PTP_DATA = dataDir;
@@ -45,12 +47,31 @@ server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.del
 // The one reply it generates, "a slow cube", waits for finishSlowCube() (or Stop).
 let finishSlowCube = () => {};
 // A stand-in for the image model (the shop photos test): the "photo" is the render it was sent,
-// held until openImages() and refused once for a close-up; what it was asked for is kept.
+// held until openImages() and refused once for a close-up; what it was asked for is kept. A picture
+// edit is answered at once (blackInMark) and kept apart (editAsks).
 let openImages = () => {};
 const imagesOpen = new Promise<void>((resolve) => { openImages = resolve; });
 const imageAsks: { prompt: string; aspect: string; size?: string }[] = [];
+const editAsks: { prompt: string; aspect: string; size?: string; references: number }[] = [];
 let refuseCloseUp = true;
+const { decodeImage } = await import('../../server/artwork');
+/** A picture edit's stand-in answer: the crop sent, filled with black inside the area outlined in magenta (on the second picture), row by row. */
+const blackInMark = (references: string[]) => {
+  const raster = (url: string) => decodeImage(Buffer.from(url.split(',')[1], 'base64'));
+  const crop = raster(references[0]), outlined = raster(references[1]), w = crop.width, data = new Uint8Array(crop.data);
+  for (let j = 0; j < crop.height; j++) {
+    let lo = -1, hi = -1;
+    for (let i = 0; i < w; i++) {
+      const o = (j * w + i) * 4, d = outlined.data;
+      if (d[o] > 200 && d[o + 1] < 80 && d[o + 2] > 200) { if (lo < 0) lo = i; hi = i; }
+    }
+    for (let i = lo; lo >= 0 && i <= hi; i++) data.set([0x11, 0x11, 0x11], (j * w + i) * 4);
+  }
+  return { image: { data: Buffer.from(encodePng({ width: w, height: crop.height, data, channels: 4 })).toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
+};
 const image = async (prompt: string, aspect: string, references: string[] | undefined, _signal?: AbortSignal, _onStatus?: unknown, size?: string) => {
+  // (A picture edit is answered at once, and kept apart from the photos asked for.)
+  if (prompt.includes('outlined in magenta')) { editAsks.push({ prompt, aspect, size, references: references?.length ?? 0 }); return blackInMark(references!); }
   imageAsks.push({ prompt, aspect, size });
   await imagesOpen;
   if (refuseCloseUp && prompt.includes('CLOSE-UP DETAIL')) { refuseCloseUp = false; throw new Error('test/image is busy'); }
@@ -1361,6 +1382,95 @@ test('Edit drawing selects an area and clears the hand edits there only: shown a
   assert.deepEqual(JSON.parse((await getDesign(cid)).values.$lineartEdits).frame.strokes, [line(0.6)]);
   await page.locator('.lineart-edit-row', { hasText: '1 hand edit' }).waitFor();
   assert.deepEqual(errors, []);
+});
+
+test('the artwork editor edits only the marked area: a new version that lines up', TEST, async () => {
+  // As if the app had an OpenRouter key; the image model is the stand-in (black inside the mark).
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  const { drawingFingerprint } = await import('../../shared/lineart');
+  const aid = 'ui-smoke-0000000e';
+  const BLACK = '#111111', GOLD = '#e0a868';
+  const square = (h: number): [number, number][] => [[-h, -h], [h, -h], [h, h], [-h, h]];
+  const disc = (r: number): [number, number][] => Array.from({ length: 64 }, (_, i) => [r * Math.cos((2 * Math.PI * i) / 64), r * Math.sin((2 * Math.PI * i) / 64)]);
+  // A black square with a gold disc, and a gold stroke painted across the middle by hand.
+  const art = { name: 'art', aspect: 1, shapes: [{ rule: 'EvenOdd' as const, contours: [square(0.5)], color: BLACK }, { rule: 'EvenOdd' as const, contours: [disc(0.3)], color: GOLD }] };
+  const edits = { art: { fp: drawingFingerprint(art), strokes: [{ mode: 'paint', color: GOLD, width: 0.04, points: [[-0.45, 0], [0.45, 0]] }] } };
+  const script = `function build() { return [
+    { name: 'Black', color: '${BLACK}', shape: H.svg('art', { height: 40, colors: ['${BLACK}'] }).extrude(1) },
+    { name: 'Gold', color: '${GOLD}', shape: H.svg('art', { height: 40, colors: ['${GOLD}'] }).extrude(2) },
+  ]; }`;
+  const values = { $drawings: JSON.stringify({ art }), $artworkEdits: JSON.stringify(edits) };
+  const r = await putDesign({ id: aid, name: 'Gold disc', createdAt: 1, updatedAt: 1, code: script, values, messages: [], currentVersion: 0,
+    versions: [{ code: script, summary: 'A gold disc', createdAt: 1, source: 'manual', values }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.goto(`${A}/?design=${aid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Gold disc');
+    await built(page);
+    await page.getByRole('button', { name: 'Paint and fix the picture by hand' }).click();
+    const editor = page.getByRole('dialog', { name: 'Paint the artwork' });
+    await editor.waitFor();
+    await editor.getByRole('radio', { name: 'Select' }).click();
+    // No mark yet: the whole picture.
+    await editor.getByText('Edit the whole picture').waitFor();
+    // A short stroke across the middle of the picture marks the area.
+    const b = (await editor.locator('.la-ed-over').boundingBox())!;
+    const cx = b.x + b.width / 2, cy = b.y + b.height / 2, half = Math.min(b.width, b.height) * 0.08;
+    await page.mouse.move(cx - half, cy);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(cx - half + (2 * half * k) / 8, cy);
+    await page.mouse.up();
+    await editor.getByText('Edit this picture here').waitFor();
+    // The mark is saved with the design as it is made (the chat can use it).
+    await until(async () => !!JSON.parse((await getDesign(aid)).values.$pictureMarks ?? '{}').art, 'the mark saved with the design');
+    assert.equal(JSON.parse((await getDesign(aid)).values.$pictureMarks).art.fp, drawingFingerprint(art));
+
+    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('make the middle black');
+    const photo = Buffer.from(encodePng({ width: 4, height: 4, data: new Uint8Array(64).fill(200), channels: 4 }));
+    await editor.locator('input[type=file]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: photo });
+    await editor.getByRole('img', { name: 'Photo 1' }).waitFor();
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+    const keep = editor.getByRole('button', { name: 'Keep' });
+    await keep.waitFor();
+    await editor.getByText('Outside the mark: unchanged').waitFor();
+    await editor.getByText('Cost $0.04').waitFor();
+    await page.screenshot({ path: path.join(shots, '21-artwork-edit-result.png') });
+    // Sent: the crop, the crop outlined, the whole picture and the photo.
+    assert.equal(editAsks.length, 1);
+    assert.equal(editAsks[0].references, 4);
+    assert.match(editAsks[0].prompt, /make the middle black/);
+    // Escape doesn't drop the result: the editor stays open.
+    await page.keyboard.press('Escape');
+    await keep.waitFor();
+    await keep.click();
+    await editor.waitFor({ state: 'detached' });
+
+    // A new version, measured once its build is in: it lines up with the one it came from.
+    await until(async () => (await getDesign(aid)).versions[1]?.pictureEdit?.linesUp === true, 'the kept edit lines up', 30_000);
+    const d = await getDesign(aid);
+    assert.equal(d.versions.length, 2);
+    assert.equal(d.currentVersion, 1);
+    assert.deepEqual(d.versions[1].pictureEdit, { picture: 'art', change: 'make the middle black', masked: true, parent: 0, linesUp: true, cost: 0.04 });
+    assert.notEqual(d.values.$drawings, values.$drawings, 'the drawing changed');
+    const strokes = JSON.parse(d.values.$artworkEdits).art.strokes;
+    assert.ok(strokes.every((s: { cut?: unknown[] }) => s.cut?.length), 'the strokes carry the cut');
+    assert.equal(d.values.$pictureMarks, undefined, 'the mark is used up');
+    // The chat: the change with the photo, and the result with its version, stored pictures only.
+    const [user, reply] = d.messages;
+    assert.equal(user.text, 'Picture edit: make the middle black');
+    assert.match(user.images[0], /^\/api\/designs\/ui-smoke-0000000e\/images\//);
+    assert.equal(reply.versionIndex, 1);
+    assert.match(reply.text, /^Picture edit kept as v2\. Outside the mark: unchanged\. Cost \$0\.04\.$/);
+    assert.doesNotMatch(JSON.stringify(d.messages), /data:/);
+    await page.locator('.msg.assistant', { hasText: 'Picture edit kept as v2' }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+  }
 });
 
 test('the new-design screen offers four starters with their mode, and "Give me 4 new ideas" swaps them for new ones', TEST, async () => {

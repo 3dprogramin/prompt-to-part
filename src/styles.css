@@ -1194,6 +1194,35 @@ body.resizing { cursor: col-resize; user-select: none; }
 .la-editor.phone .la-ed-width input { flex: 1; width: auto; min-width: 80px; }
 .la-editor.phone .la-ed-zoom button { width: 40px; height: 40px; }
 .la-editor.phone .la-ed-history-menu { position: fixed; top: auto; left: 8px; right: 8px; max-width: none; }
+/* The Edit panel (a picture edit with the image model): a card at the stage's top right, the notes beside it. */
+.la-ed-edit { position: absolute; top: 10px; right: 10px; z-index: 1; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto; padding: 10px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 40px #0008; color: var(--text); }
+.la-ed-stage.with-edit .la-ed-notes { right: 380px; }
+.la-ed-edit-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.la-ed-edit-head svg { color: var(--accent); }
+.la-ed-edit-change { resize: vertical; min-height: 64px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--input-line); border-radius: var(--radius); outline: none; }
+.la-ed-edit-change:focus { border-color: var(--accent); }
+.la-ed-edit-photos { display: flex; flex-wrap: wrap; gap: 6px; }
+.la-ed-edit-photo { position: relative; width: 52px; height: 52px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line-2); }
+.la-ed-edit-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.la-ed-edit-photo button { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: #000a; color: #fff; }
+.la-ed-edit-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.la-ed-edit-wait { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; color: var(--text-2); }
+.la-ed-edit-note { display: flex; align-items: flex-start; gap: 6px; color: var(--text-2); font-size: 12px; }
+.la-ed-edit-note.warn { color: #f2c66d; }
+.la-ed-edit-note svg { flex-shrink: 0; margin-top: 2px; }
+.la-ed-edit-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.la-ed-edit-compare figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.la-ed-edit-compare img { width: 100%; max-height: 240px; object-fit: contain; background: #fff; border-radius: 6px; border: 1px solid var(--line-2); }
+.la-ed-edit-compare figcaption { color: var(--text-3); font-size: 12px; text-align: center; }
+.la-ed-edit-checks { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.la-ed-edit-checks li { display: flex; align-items: flex-start; gap: 6px; color: var(--good); }
+.la-ed-edit-checks li.warn { color: #f2c66d; }
+.la-ed-edit-checks svg { flex-shrink: 0; margin-top: 2px; }
+.la-ed-edit-cost { color: var(--text-2); }
+/* Phone: the panel along the bottom, the zoom buttons up top. */
+.la-editor.phone .la-ed-edit { top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-height: 60%; }
+.la-editor.phone .la-ed-stage.with-edit .la-ed-notes { right: 10px; }
+.la-editor.phone .la-ed-stage.with-edit .la-ed-zoom { top: 10px; bottom: auto; }
 .layertone-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 4px; }
 .layertone-head h4 { margin: 0; }
 .h4-hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }

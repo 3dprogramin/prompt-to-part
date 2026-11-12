@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeParams } from '../shared/params';
-import { describeSettings, settingsChanged } from '../src/lib/settings';
+import { describeSettings, sameBuild, settingsChanged } from '../src/lib/settings';
 
 const params = normalizeParams({ w: { value: 30, label: 'W' } });
 
@@ -21,4 +21,14 @@ test('LayerTone filaments count as a setting, its pictures do not', () => {
   assert.equal(settingsChanged({}, { $images: '{"photo":{}}' }, params), false);
   assert.equal(settingsChanged({}, { $layertone: '{"swaps":[3]}' }, params), true);
   assert.match(describeSettings({}, { $layertone: '{"swaps":[3]}' }, params), /LayerTone filaments/);
+});
+
+test('a picture mark is not a setting, and builds the same as without it', () => {
+  const marks = '{"art":{"fp":"x","mark":{"strokes":[{"width":0.1,"points":[[0,0]]}]}}}';
+  assert.equal(settingsChanged({}, { $pictureMarks: marks }, params), false);
+  assert.equal(sameBuild({ w: 31 }, { w: 31, $pictureMarks: marks }), true);
+  assert.equal(sameBuild({ w: 31, $pictureMarks: marks }, { w: 31 }), true);
+  assert.equal(sameBuild({ w: 31 }, { w: 32, $pictureMarks: marks }), false);
+  assert.equal(sameBuild({ w: 31 }, { w: 31, $drawings: '{}' }), false);
+  assert.equal(sameBuild({ w: 31, $drawings: '{}' }, { w: 31, $text: '{}' }), false);
 });

@@ -2,6 +2,7 @@
 // tower included) and, only when the user has measured their printer, electricity.
 
 import { DEFAULT_PRINTER } from './printer';
+import { PICTURE_MARKS_KEY } from './pictureEdit/mark';
 import type { ParamValues } from './types';
 import type { PrintProfile } from './print';
 
@@ -38,7 +39,9 @@ export interface SliceStats {
  * What a cost calculation is made from (the script, values, hidden parts, print settings and
  * "Print in one colour"): a result with another key is out of date.
  */
-export function costKey(code: string, values: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string, printerId: string): string {
+export function costKey(code: string, raw: ParamValues, hiddenParts: string[], userPrint: PrintProfile, oneColour: null | 'main' | string, printerId: string): string {
+  // The picture marks build nothing (and without one the key is as before).
+  const { [PICTURE_MARKS_KEY]: _marks, ...values } = raw;
   // The A1 0.4 (the app's printer before it could be chosen) keeps the old key, so slices saved then stay valid.
   return JSON.stringify(printerId === DEFAULT_PRINTER.id ? [code, values, hiddenParts, userPrint, oneColour] : [code, values, hiddenParts, userPrint, oneColour, printerId]);
 }

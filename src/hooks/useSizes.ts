@@ -7,6 +7,7 @@ import { costKey } from '../../shared/cost';
 import { boxSize, cleanSizes, driverOf, hashText, mainAxis, MAX_SIZES, nextSize, printableMax, resolveSize, shapeKey, sizeKey, suggestSizes, type DesignSize, type ResolvedSize, type SizeAxis, type SizeTools } from '../../shared/sizes';
 import { HIDDEN_KEY } from '../lib/settings';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
+import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 import { uid } from '../lib/files';
 import { sliceBuild, type CostStage } from './useCost';
 import type { GeometryClient } from '../geometry/client';
@@ -43,6 +44,7 @@ export function useSizes(geo: GeometryClient, i: Inputs) {
     const v = { ...design.values };
     delete v[HIDDEN_KEY];
     delete v[EDIT_HISTORY_KEY];
+    delete v[PICTURE_MARKS_KEY];
     if (layoutKey) v[layoutKey] = 'assembled';
     return v;
   }, [design.values, layoutKey]);
@@ -155,7 +157,7 @@ export function useSizes(geo: GeometryClient, i: Inputs) {
   /** Puts the sizes in order, smallest first (their dimensions stay as they are). */
   const sort = useCallback(() => setSizes(design.id, (all) => [...all].sort((a, b) => a.mm - b.mm)), [setSizes, design.id]);
   /** The design's shape apart from its size: the photos made for another one are out of date. */
-  const shape = useMemo(() => (shown ? shapeKey(design.code, design.values, shown.params, [HIDDEN_KEY, EDIT_HISTORY_KEY, ...(layoutKey ? [layoutKey] : [])]) : ''), [design.code, design.values, shown, layoutKey]);
+  const shape = useMemo(() => (shown ? shapeKey(design.code, design.values, shown.params, [HIDDEN_KEY, EDIT_HISTORY_KEY, PICTURE_MARKS_KEY, ...(layoutKey ? [layoutKey] : [])]) : ''), [design.code, design.values, shown, layoutKey]);
 
   // ---- the size shown in the 3D view (null: the design as it is)
   const [viewed, setViewed] = useState<string | null>(null);
