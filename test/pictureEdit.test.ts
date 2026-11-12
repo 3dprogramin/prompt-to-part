@@ -248,6 +248,25 @@ test('an answer that is not the picture sent fails with the alignment message an
   assert.equal(body.set, undefined);
 });
 
+test('an answer that keeps the magenta guide outline fails and changes nothing', async () => {
+  // The model edits the second picture (the outlined one) instead of the first: the change inside, the outline kept.
+  const magenta = (d: Uint8Array, o: number) => d[o] > 200 && d[o + 1] < 80 && d[o + 2] > 200;
+  answer = async (_p, _a, refs) => {
+    const outlined = raster(refs![1]), w = outlined.width, data = new Uint8Array(outlined.data);
+    for (let j = 0; j < outlined.height; j++) {
+      let lo = -1, hi = -1;
+      for (let i = 0; i < w; i++) if (magenta(data, (j * w + i) * 4)) { if (lo < 0) lo = i; hi = i; }
+      for (let i = lo; lo >= 0 && i <= hi; i++) if (!magenta(data, (j * w + i) * 4)) data.set([0xd0, 0x1c, 0x1f], (j * w + i) * 4);
+    }
+    return answerOf({ width: w, height: outlined.height, data });
+  };
+  const res = await post('test-pe-00000014', request());
+  const body = await res.json() as { error: string; set?: unknown };
+  assert.equal(res.status, 502, JSON.stringify(body).slice(0, 200));
+  assert.equal(body.error, 'The image model left the guide outline in the picture: try again');
+  assert.equal(body.set, undefined);
+});
+
 test('the image model\'s refusal comes back as it is', async () => {
   answer = async () => { throw new Error('The image model refused: no faces today'); };
   const res = await post('test-pe-00000005', request());

@@ -32,6 +32,20 @@ const FEATHER_PX = 4;
 /** How thick the magenta outline of the mark is on the picture that shows the model where to change (pixels). */
 const OUTLINE_PX = 3;
 const MAGENTA = [255, 0, 255];
+/**
+ * Near-magenta in the image model's answer: the outline as it comes back, re-toned and softened a
+ * little (pure magenta is 255, 0, 255; the design's filament colours are rarely this far toward it).
+ */
+const nearMagenta = (d: ArrayLike<number>, o: number) => d[o] > 200 && d[o + 1] < 80 && d[o + 2] > 200;
+/** How far on both sides of the outline's band the check for an outline left in looks (pixels). */
+const OUTLINE_SLACK_PX = 3;
+/**
+ * The most of that band that may be near-magenta (where the picture sent was not) before the answer
+ * counts as keeping the outline. The band is OUTLINE_PX + 2 x OUTLINE_SLACK_PX = 9 pixels wide, so
+ * an outline left in fills about a third of it, a thin or broken one still well over this; a magenta
+ * shape of the change that only touches the mark's edge stays under it.
+ */
+export const MAX_OUTLINE_SHARE = 0.05;
 /** The share of the mark (paper left out) that may want a colour the design has no filament for before the result says so. */
 export const OFF_PALETTE_SHARE = 0.05;
 /** The most photos sent with an edit, and the longest change. */
@@ -43,12 +57,16 @@ export class PictureEditError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-/** What the user is told when the answer cannot be lined up with what was sent. */
-const ALIGN_MESSAGES: Record<AlignFailure, string> = {
+/** Why a marked edit's answer cannot be pasted: it does not line up, or it kept the guide outline. */
+type PasteFailure = AlignFailure | 'outline left in';
+
+/** What the user is told when the answer cannot be pasted. */
+const PASTE_MESSAGES: Record<PasteFailure, string> = {
   'too little outside the mark': 'The mark covers nearly all of what was sent, so the answer can\'t be lined up with the picture: mark a smaller area, or edit the whole picture without a mark.',
   'different picture': 'The image model drew a different picture instead of changing only the marked area, so it can\'t be pasted in: try again, or describe the change more simply.',
   'moved past the range': 'The image model moved or resized the picture too much to line its answer up with it: try again.',
   'mark leaves the answer': 'The image model cut off part of the marked area at the edge of its answer: try again.',
+  'outline left in': 'The image model left the guide outline in the picture: try again',
 };
 
 let manifold: Promise<typeof CrossSection> | null = null;
@@ -147,12 +165,10 @@ export function pasteMark(orig: Raster, edited: Raster, mask: Uint8Array, feathe
   return { width: w, height: h, data };
 }
 
-/** The picture with the mark's outline drawn in magenta, `thick` pixels wide, just inside the mark. */
-export function outlined(img: Raster, mask: Uint8Array, thick: number): Raster {
-  const w = img.width, h = img.height;
+/** The mark shrunk by `r` pixels (a square neighbourhood; past the picture's edge counts as outside). */
+function shrinkMark(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
   let inner = mask;
-  // Shrink the mark by `thick` (a square neighbourhood; past the picture's edge counts as outside).
-  for (let k = 0; k < thick; k++) {
+  for (let k = 0; k < r; k++) {
     const across = new Uint8Array(w * h), down = new Uint8Array(w * h);
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
       const p = j * w + i;
@@ -164,9 +180,47 @@ export function outlined(img: Raster, mask: Uint8Array, thick: number): Raster {
     }
     inner = down;
   }
+  return inner;
+}
+
+/** The mark grown by `r` pixels (a square neighbourhood). */
+function growMark(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  const across = new Uint8Array(w * h), out = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    if (!mask[j * w + i]) continue;
+    across.fill(1, j * w + Math.max(0, i - r), j * w + Math.min(w, i + r + 1));
+  }
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    if (!across[j * w + i]) continue;
+    for (let q = Math.max(0, j - r); q <= Math.min(h - 1, j + r); q++) out[q * w + i] = 1;
+  }
+  return out;
+}
+
+/** The picture with the mark's outline drawn in magenta, `thick` pixels wide, just inside the mark. */
+export function outlined(img: Raster, mask: Uint8Array, thick: number): Raster {
+  const w = img.width, h = img.height, inner = shrinkMark(mask, w, h, thick);
   const data = new Uint8Array(img.data);
   for (let p = 0; p < w * h; p++) if (mask[p] && !inner[p]) data.set(MAGENTA, p * 4);
   return { width: w, height: h, data };
+}
+
+/**
+ * How much of the guide outline the lined-up answer kept: the share of the band it was drawn in
+ * (`thick` pixels inside the mark), grown by OUTLINE_SLACK_PX on both sides for a fit a pixel or two
+ * off, that is near-magenta in `answer` where `sent` was not. The model may answer with the outlined
+ * picture edited, and the outline lies inside the mark, where the alignment does not look.
+ */
+export function outlineShare(answer: Raster, sent: Raster, mask: Uint8Array, thick: number): number {
+  const w = sent.width, h = sent.height;
+  const outer = growMark(mask, w, h, OUTLINE_SLACK_PX), inner = shrinkMark(mask, w, h, thick + OUTLINE_SLACK_PX);
+  let band = 0, left = 0;
+  for (let p = 0; p < w * h; p++) {
+    if (!outer[p] || inner[p]) continue;
+    band++;
+    if (nearMagenta(answer.data, p * 4) && !nearMagenta(sent.data, p * 4)) left++;
+  }
+  return band ? left / band : 0;
 }
 
 const pngUrl = (img: Raster) => `data:image/png;base64,${Buffer.from(encodePng({ width: img.width, height: img.height, data: img.data, channels: 4 })).toString('base64')}`;
@@ -287,7 +341,8 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     // it, and it must not count toward the outside a match needs).
     const outside = inMark.map((v) => 1 - v);
     const fit = alignTo(asked.answer, padded, bands ? padMask(outside, crop.width, padded.width, padded.height, x, y) : outside, { mark: sentMark });
-    if (!fit.ok) throw new PictureEditError(502, ALIGN_MESSAGES[fit.reason!]);
+    const failure: PasteFailure | undefined = !fit.ok ? fit.reason! : outlineShare(fit.image, padded, sentMark, OUTLINE_PX) > MAX_OUTLINE_SHARE ? 'outline left in' : undefined;
+    if (failure) throw new PictureEditError(502, PASTE_MESSAGES[failure]);
     const lined = bands ? cut(fit.image, x, y, crop.width, crop.height) : fit.image;
     pasted = pasteMark(raster, lined, inMark, FEATHER_PX, crop.open);
     fresh = traceCrop(pasted, colours, crop.win, background(pic.labels), d.name, MAX_SVG_POINTS);
