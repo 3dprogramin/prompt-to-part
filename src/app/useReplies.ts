@@ -13,7 +13,6 @@ import { DEFAULT_LINE_ART_STYLE, LINEART_EDITS_KEY, parseLineArtEdits } from '..
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, withConcept } from '../../shared/meshes';
 import type { GenerateRequest, MeshUpload } from '../../shared/api';
 import { answerText } from '../../shared/questions';
-import { pageKey } from '../../shared/sources';
 import { formatReset } from '../../shared/usage';
 import { generate, resumeReply, steer, type AgentEvent, type ReplyEnd } from '../lib/api';
 import { addStep, applyBlock } from '../lib/activity';
@@ -25,7 +24,10 @@ import type { useDesignSaving } from '../hooks/useDesignSaving';
 import type { useCrossTabSync } from '../hooks/useCrossTabSync';
 import type { useLiveModel } from '../hooks/useLiveModel';
 import { describeSvg, describeText } from './describe';
-import { keepAppValues, pictureValues, withDrawings, withLayerToneImage, withMesh, withoutEditHistory } from './designValues';
+import { pictureValues, withDrawings, withLayerToneImage, withMesh } from './designValues';
+import { editorEditsSince } from '../lib/pictureEdit';
+import { addReplyEdit, withPictureEdited, withReplyVersion, type ReplyEdit } from './replyVersion';
+import { useLinesUp } from './useLinesUp';
 import type { ChatOptions } from './useChatOptions';
 
 /** A message written while Claude was working, sent after its reply. */
@@ -54,6 +56,8 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
   snapshotRef: RefObject<(() => string | null) | null>;
   fullValues: () => ParamValues;
 }) {
+  // A version made by a reply that edited a picture: whether it lines up is measured on its build.
+  const watchLinesUp = useLinesUp({ design, setDesign, result, busy });
   /**
    * Follows the reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
    * with one under way): its events update that design, even if another one is open by now.
@@ -76,6 +80,10 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
     let failed = false;
     // The AI asked questions in this reply (they wait for an answer).
     let asked = false;
+    // Its picture edits (edit_picture), for the version it makes: they came from the version current
+    // as it started, whose build is on screen then.
+    let edit: ReplyEdit | null = null;
+    const parent = design.currentVersion, parentBox = result?.bbox ?? null;
     let end: ReplyEnd | undefined;
     try {
       end = await stream((ev, count) => {
@@ -90,6 +98,10 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         });
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
+        else if (ev.type === 'pictureEdited') {
+          edit = addReplyEdit(edit, ev.info);
+          update((d) => withPictureEdited(d, ev.set));
+        }
         else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
         else if (ev.type === 'concept') {
           drawn.push({ name: ev.name, color: !!ev.entry.color });
@@ -108,17 +120,11 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
         else if (ev.type === 'model') {
+          const e = edit;
           update((d) => {
-            const values = keepAppValues(d.values);
-            // A page Claude opened in an earlier generation of this design counts as opened.
-            const seen = new Set(d.versions.flatMap((v) => v.sources ?? []).filter((s) => s.opened).map((s) => pageKey(s.url)));
-            const sources = (ev.sources ?? []).map((s) => (s.url && !s.opened && seen.has(pageKey(s.url)) ? { ...s, opened: true } : s));
-            const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values: withoutEditHistory(values), sources, ...(ev.stability && { stability: ev.stability }) }];
-            const vi = versions.length - 1;
-            return {
-              ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
-              messages: d.messages.map((m) => (m.id === asstId ? { ...m, versionIndex: vi } : m)),
-            };
+            const next = withReplyVersion(d, ev, asstId, e ? { edit: e, parent } : undefined);
+            if (e) watchLinesUp({ designId: d.id, version: next.currentVersion, values: next.values, parentBox, masked: e.masked, outsideSame: e.outsideSame });
+            return next;
           });
         } else if (ev.type === 'done') {
           finished = true; completed = true;
@@ -198,6 +204,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         ...(meshNames.length ? { [MESHES_KEY]: JSON.stringify({ ...parseMeshes(d.values[MESHES_KEY]), ...Object.fromEntries(meshNames.map((n) => [n, meshes[n]])) }) } : {}),
       },
     }));
+    const editorEdits = editorEditsSince(design.versions);
     await followReply(designId, asst.id, (onEvent, signal) => generate({
       designId: design.id,
       prompt: text,
@@ -208,6 +215,8 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
       ...current,
       // The render Claude gets of the current model already has the newly attached meshes.
       ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
+      // Picture edits kept in the brush editor since the chat's last version.
+      ...(editorEdits.length ? { pictureEdits: editorEdits } : {}),
       sessionId: design.sessionId,
       sessionCostUsd: design.sessionId ? design.sessionCostUsd : undefined,
       model: chat.model,

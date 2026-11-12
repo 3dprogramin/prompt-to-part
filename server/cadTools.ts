@@ -17,6 +17,7 @@ import { pageKey, SOURCE_KIND_NAMES, SOURCE_KINDS, sourcesProblem, type Dimensio
 import type { AiImages, LineArtOptions, MeshyOptions, ToolContext } from './tools/context';
 import { layerToneTools } from './tools/layerTone';
 import { artworkTools, pictureTools } from './tools/pictures';
+import { editPictureTools } from './tools/editPicture';
 import { lineArtTools } from './tools/lineArt';
 import { meshyTools } from './tools/meshy';
 import { questionTools } from './tools/questions';
@@ -45,7 +46,8 @@ const valuesSchema = z.record(z.string(), z.union([z.number(), z.boolean(), z.st
 /**
  * The `cad` MCP server for one generation, working on `file`. `state.submitted` tells whether
  * Claude got a model accepted. `opened` holds the pages Claude read (pageKey), so a source can be
- * marked as actually opened. With `artwork`, Claude can also have artwork drawn (generate_artwork),
+ * marked as actually opened. With `artwork`, Claude can also have artwork drawn (generate_artwork)
+ * and part of a drawing changed (edit_picture, with show_picture to pick the region),
  * and with `pictures` a picture made for H.layertone, or with `lithophane` for H.lithophane
  * (generate_picture), from the user's `references` photos if it likes. With `meshy`, Claude can have
  * Meshy make 3D models (generate_3d, at most meshyMaxPerReply() per reply) and, with `concepts`,
@@ -144,7 +146,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       }),
       ...(layerTone ? layerToneTools(ctx) : []),
       ...(pictures ? pictureTools(ctx, pictures, lithophane) : []),
-      ...(artwork ? artworkTools(ctx, artwork) : []),
+      ...(artwork ? [...artworkTools(ctx, artwork), ...editPictureTools(ctx, artwork)] : []),
       ...(lineArt ? lineArtTools(ctx, lineArt) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
       ...(designImage ? designImageTools(ctx, designImage) : []),

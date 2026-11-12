@@ -9,6 +9,9 @@ import path from 'node:path';
 import type { query } from '@anthropic-ai/claude-agent-sdk';
 import type { GenerateRequest } from '../shared/api';
 import { DEFAULT_PRINTER, setPrinter } from '../shared/printer';
+import { drawingFingerprint } from '../shared/lineart/strokes';
+import { PICTURE_MARKS_KEY } from '../shared/pictureEdit/mark';
+import type { SvgDrawing } from '../shared/svgFeatures';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'ptp-prompts-'));
 // server/config.ts reads these when it is first imported.
@@ -45,12 +48,22 @@ async function captured(req: GenerateRequest): Promise<string> {
   return out.split(dataDir).join('<data>');
 }
 
+/** An artwork follow-up: two drawings, a saved mark on one, a picture edit kept in the brush editor. */
+const FOX: SvgDrawing = { name: 'fox', aspect: 1, shapes: [{ rule: 'EvenOdd', contours: [[[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4]]], color: '#111111' }] };
+const SUN: SvgDrawing = { name: 'sun', aspect: 2, shapes: [{ rule: 'EvenOdd', contours: [[[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2]]], color: '#e0a040' }] };
+const ARTWORK_FOLLOWUP: Partial<GenerateRequest> = {
+  imageMode: 'artwork', prompt: 'swap the fox\'s face for my dog\'s', code: 'const meta = { name: "fox" };\nfunction build(p) { return []; }',
+  drawings: { fox: FOX, sun: SUN },
+  pictures: { [PICTURE_MARKS_KEY]: JSON.stringify({ fox: { fp: drawingFingerprint(FOX), mark: { strokes: [{ width: 0.2, points: [[0, 0.1]] }] } } }) },
+  pictureEdits: [{ picture: 'sun', change: 'a smiling sun', masked: true, version: 3 }],
+};
 const LINE_ART_CODE = 'const meta = { name: "fox" };\nfunction build(p) { return H.lineart("fox", { width: 200 }); }';
 const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_API_KEY' | 'MESHY_API_KEY')[] }[] = [
   { name: 'plain-new', req: {} },
   { name: 'plain-web-askoff', req: { webSearch: true, askFirst: false } },
   { name: 'followup', req: { code: 'const meta = { name: "clip" };\nfunction build(p) { return []; }', values: { width: 10 }, scale: 1.5, versionNote: 'Version 2 of 2.', textNote: '"Hi" on the front' } },
   { name: 'artwork', req: { imageMode: 'artwork', prompt: 'a fox wall piece' }, env: ['OPENROUTER_API_KEY'] },
+  { name: 'artwork-followup', req: ARTWORK_FOLLOWUP, env: ['OPENROUTER_API_KEY'] },
   { name: 'artwork-nokey', req: { imageMode: 'artwork', prompt: 'a fox wall piece' } },
   { name: 'legacy-artwork', req: { artwork: true }, env: ['OPENROUTER_API_KEY'] },
   { name: 'layertone', req: { imageMode: 'layertone', prompt: 'my cat' }, env: ['OPENROUTER_API_KEY'] },

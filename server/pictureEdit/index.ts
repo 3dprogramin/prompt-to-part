@@ -148,7 +148,7 @@ export function pasteMark(orig: Raster, edited: Raster, mask: Uint8Array, feathe
 }
 
 /** The picture with the mark's outline drawn in magenta, `thick` pixels wide, just inside the mark. */
-function outlined(img: Raster, mask: Uint8Array, thick: number): Raster {
+export function outlined(img: Raster, mask: Uint8Array, thick: number): Raster {
   const w = img.width, h = img.height;
   let inner = mask;
   // Shrink the mark by `thick` (a square neighbourhood; past the picture's edge counts as outside).

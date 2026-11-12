@@ -14,6 +14,7 @@ import { authMode, claudeAuthProblem, claudeKeyRefused, claudeModel, claudeViaOp
 import { modelIsTextOnly, openRouterModels, priceUsage, withoutPictures, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../shared/artworkEdits';
+import { PICTURE_MARKS_KEY } from '../shared/pictureEdit/mark';
 import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
@@ -134,6 +135,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
     ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
     ...(typeof pictureValues[ARTWORK_EDITS_KEY] === 'string' ? { [ARTWORK_EDITS_KEY]: pictureValues[ARTWORK_EDITS_KEY] } : {}),
+    // The user's marks on pictures (edit_picture's region "mark").
+    ...(typeof pictureValues[PICTURE_MARKS_KEY] === 'string' ? { [PICTURE_MARKS_KEY]: pictureValues[PICTURE_MARKS_KEY] } : {}),
     ...(typeof pictureValues[LINEART_SPLIT_KEY] === 'string' ? { [LINEART_SPLIT_KEY]: pictureValues[LINEART_SPLIT_KEY] } : {}),
     ...(typeof pictureValues[LINEART_SIZE_KEY] === 'string' ? { [LINEART_SIZE_KEY]: pictureValues[LINEART_SIZE_KEY] } : {}),
     ...(pictureValues[LINEART_JOIN_KEY] != null ? { [LINEART_JOIN_KEY]: pictureValues[LINEART_JOIN_KEY] } : {}),

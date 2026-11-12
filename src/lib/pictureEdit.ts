@@ -1,5 +1,5 @@
-import type { Box3, ChatMessage, Design, DesignVersion, PictureEditInfo } from '../../shared/types';
-import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
+import type { Box3, ChatMessage, Design, DesignVersion, ParamValues, PictureEditInfo } from '../../shared/types';
+import type { GenerateRequest, PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { ARTWORK_EDITS_KEY, type ArtworkStroke } from '../../shared/artworkEdits';
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import type { PictureMark } from '../../shared/pictureEdit/mark';
@@ -82,6 +82,22 @@ export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsid
   return out;
 }
 
+/** The values with what a picture edit sets merged in (null deletes the key). */
+export function withSet(values: ParamValues, set: Record<string, string | null>): ParamValues {
+  const out = { ...values };
+  for (const [k, v] of Object.entries(set)) if (v === null) delete out[k]; else out[k] = v;
+  return out;
+}
+
+/**
+ * The picture edits the user kept in the brush editor since the chat's last version (versions after
+ * the last `source: 'ai'` one that have a picture edit), with their 1-based version numbers.
+ */
+export function editorEditsSince(versions: DesignVersion[]): NonNullable<GenerateRequest['pictureEdits']> {
+  const last = versions.findLastIndex((v) => v.source === 'ai');
+  return versions.flatMap((v, i) => (i > last && v.pictureEdit ? [{ picture: v.pictureEdit.picture, change: v.pictureEdit.change, masked: !!v.pictureEdit.masked, version: i + 1 }] : []));
+}
+
 /** The change in a version's summary: at most this many characters. */
 const SUMMARY_CHANGE = 80;
 const sentence = (t: string) => (/[.!?]$/.test(t) ? t : `${t}.`);
@@ -94,8 +110,7 @@ const sentence = (t: string) => (/[.!?]$/.test(t) ? t : `${t}.`);
  * stored with the design (never data URLs in the messages).
  */
 export function applyPictureEdit(d: Design, r: PictureEditResponse, info: Omit<PictureEditInfo, 'linesUp' | 'parent'>, images: { photos: string[]; render: string }): Design {
-  const values = { ...d.values };
-  for (const [k, v] of Object.entries(r.set)) if (v === null) delete values[k]; else values[k] = v;
+  const values = withSet(d.values, r.set);
   const { [EDIT_HISTORY_KEY]: _history, ...versionValues } = values;
   const change = info.change.trim();
   const now = Date.now();

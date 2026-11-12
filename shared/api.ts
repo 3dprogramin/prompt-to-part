@@ -1,7 +1,7 @@
 // Request and response shapes of the HTTP API, shared by the server and the browser app so the
 // two can't drift apart.
 import type { LineArtStroke, LineArtStyle } from './lineart';
-import type { AgentStep, ParamValues } from './types';
+import type { AgentStep, ParamValues, PictureEditInfo } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
@@ -45,6 +45,8 @@ export interface GenerateRequest {
   scale?: number;
   /** Restored-version / manual-edit note. */
   versionNote?: string;
+  /** Picture edits the user kept in the brush editor since the chat's last version (`version` 1-based), so Claude knows about them. */
+  pictureEdits?: { picture: string; change: string; masked: boolean; version: number }[];
   /** Let Claude use WebSearch / WebFetch (on by default; the user can turn it off per design). */
   webSearch?: boolean;
   /** "Ask first" (on by default): before building, Claude asks the few questions it can't answer itself (none, or up to 5); off, it picks defaults and says which. */
@@ -93,6 +95,8 @@ export type AgentEvent =
   | { type: 'drawing'; name: string; drawing: SvgDrawing }
   /** Line art: the hand edits of a drawing are now part of it (a partial edit by the image model redrew it with them), so the design drops them; `kept`: their colours, on the new drawing. */
   | { type: 'lineArtEditsBaked'; name: string; kept?: { fp: string; strokes: LineArtStroke[] } }
+  /** A picture edit in the chat (edit_picture): the values to set (null = delete) and what the version the reply makes records of it. */
+  | { type: 'pictureEdited'; set: Record<string, string | null>; info: Omit<PictureEditInfo, 'parent' | 'linesUp'> & { outsideSame: boolean } }
   /** A picture for H.layertone or H.lithophane (an attached photo or one the image model drew), kept with the design under LAYERTONE_IMAGES_KEY. */
   | { type: 'layerToneImage'; name: string; image: LayerToneImage }
   /** A mesh Claude had made (generate_3d), kept in the design's MESHES_KEY index for H.mesh. */

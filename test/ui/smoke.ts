@@ -22,6 +22,7 @@ import path from 'node:path';
 import { chromium, type Browser, type BrowserContextOptions, type Locator, type Page } from 'playwright-core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { encode as encodePng } from 'fast-png';
+import type { AgentEvent, GenerateRequest } from '../../shared/api';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-ui-test-'));
 process.env.PTP_DATA = dataDir;
@@ -46,6 +47,8 @@ const sockets = new Set<Socket>();
 server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
 // The one reply it generates, "a slow cube", waits for finishSlowCube() (or Stop).
 let finishSlowCube = () => {};
+// A reply that edits a picture in the chat (edit_picture), set up by its test.
+const chatEdit: { prompt: string; reply: (req: GenerateRequest, send: (e: AgentEvent) => void) => void } = { prompt: '', reply: () => {} };
 // A stand-in for the image model (the shop photos test): the "photo" is the render it was sent,
 // held until openImages() and refused once for a close-up; what it was asked for is kept. A picture
 // edit is answered at once (blackInMark) and kept apart (editAsks).
@@ -89,6 +92,7 @@ const image = async (prompt: string, aspect: string, references: string[] | unde
   return { image: { data, mediaType }, model: 'test/image', cost: 0.1 };
 };
 server.on('request', createApp({ port, connection, image, ideas: async () => '[{"text":"A test idea for the smoke test","mode":"lithophane"}]', generate: async (req, send, abort) => {
+  if (req.prompt === chatEdit.prompt) return chatEdit.reply(req, send);
   if (req.prompt !== 'a slow cube') throw new Error('the smoke test never generates');
   send({ type: 'step', step: { kind: 'status', text: 'Measuring the slow cube' } });
   await new Promise<void>((resolve) => { finishSlowCube = resolve; abort.signal.addEventListener('abort', () => resolve()); });
@@ -1510,6 +1514,63 @@ test('the artwork editor edits only the marked area: a new version that lines up
     assert.deepEqual(errors, []);
   } finally {
     if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+  }
+});
+
+test('a picture edit in the chat: its values applied, the reply\'s version records it and lines up; the editor\'s edits go along', TEST, async () => {
+  const { drawingFingerprint } = await import('../../shared/lineart');
+  const cid = 'ui-smoke-0000000f';
+  const BLACK = '#111111', GOLD = '#e0a868';
+  const square = (h: number): [number, number][] => [[-h, -h], [h, -h], [h, h], [-h, h]];
+  const disc = (r: number): [number, number][] => Array.from({ length: 64 }, (_, i) => [r * Math.cos((2 * Math.PI * i) / 64), r * Math.sin((2 * Math.PI * i) / 64)]);
+  const art = (r: number) => ({ name: 'art', aspect: 1, shapes: [{ rule: 'EvenOdd' as const, contours: [square(0.5)], color: BLACK }, { rule: 'EvenOdd' as const, contours: [disc(r)], color: GOLD }] });
+  const script = `function build() { return [
+    { name: 'Black', color: '${BLACK}', shape: H.svg('art', { height: 40, colors: ['${BLACK}'] }).extrude(1) },
+    { name: 'Gold', color: '${GOLD}', shape: H.svg('art', { height: 40, colors: ['${GOLD}'] }).extrude(2) },
+  ]; }`;
+  const marks = JSON.stringify({ art: { fp: drawingFingerprint(art(0.3)), mark: { strokes: [{ width: 0.2, points: [[0, 0]] }] } } });
+  const values = { $drawings: JSON.stringify({ art: art(0.3) }), $pictureMarks: marks };
+  // v1 from the chat, v2 a picture edit kept in the brush editor since.
+  const kept = { picture: 'art', change: 'a gold disc', masked: true, parent: 0, linesUp: true, cost: 0.04 };
+  const r = await putDesign({ id: cid, name: 'Chat edit', createdAt: 1, updatedAt: 1, code: script, values, messages: [], currentVersion: 1,
+    versions: [{ code: script, summary: 'A disc', createdAt: 1, source: 'ai', values }, { code: script, summary: 'Picture edit: a gold disc', createdAt: 2, source: 'manual', values, pictureEdit: kept }] });
+  assert.equal(r.status, 200, await r.text());
+  // The reply: edit_picture makes the disc smaller (inside the square: the same box), then the same script is submitted.
+  let sent: GenerateRequest | null = null;
+  chatEdit.prompt = 'make the disc smaller';
+  chatEdit.reply = (req, send) => {
+    sent = req;
+    send({ type: 'pictureEdited', set: { $drawings: JSON.stringify({ art: art(0.25) }), $pictureMarks: null }, info: { picture: 'art', change: 'a smaller disc', masked: true, outsideSame: true, cost: 0.03 } });
+    send({ type: 'model', code: script, summary: 'A smaller gold disc', sources: [] });
+    send({ type: 'done', durationMs: 1000, turns: 1, submitted: true, text: 'The disc is smaller.' });
+  };
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.goto(`${A}/?design=${cid}`);
+    await built(page);
+    const box = page.locator('.chat-panel textarea');
+    await box.fill('make the disc smaller');
+    await box.press('Enter');
+    await page.locator('.msg.assistant', { hasText: 'The disc is smaller.' }).waitFor();
+    // Sent along: the user's mark and the editor's edit since the chat's last version.
+    assert.ok(sent);
+    const req = sent as GenerateRequest;
+    assert.equal(req.pictures?.$pictureMarks, marks);
+    assert.deepEqual(req.pictureEdits, [{ picture: 'art', change: 'a gold disc', masked: true, version: 2 }]);
+    // The values set, a version that records the edit (its parent: v2, current as the reply started), measured once built.
+    await until(async () => (await getDesign(cid)).versions[2]?.pictureEdit?.linesUp === true, 'the chat\'s edit lines up', 30_000);
+    const d = await getDesign(cid);
+    assert.equal(d.versions.length, 3);
+    assert.equal(d.currentVersion, 2);
+    assert.equal(d.versions[2].source, 'ai');
+    assert.deepEqual(d.versions[2].pictureEdit, { picture: 'art', change: 'a smaller disc', masked: true, parent: 1, linesUp: true, cost: 0.03 });
+    assert.equal(d.values.$drawings, JSON.stringify({ art: art(0.25) }));
+    assert.equal(d.values.$pictureMarks, undefined, 'the mark is used up');
+    assert.deepEqual(errors, []);
+  } finally {
+    chatEdit.prompt = '';
   }
 });
 

@@ -6,6 +6,7 @@ import { MAX_DRAWINGS, type SvgDrawing } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, type LayerToneImage } from '../../shared/layertone';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
+import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_LAYOUTS, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../../shared/lineart';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, type MeshEntry } from '../../shared/meshes';
 import { uid } from '../lib/files';
@@ -38,10 +39,10 @@ export function withEditHistoryOf(values: ParamValues | undefined, current: Para
 /** The layouts of a line art split into pieces, when its script has no layout parameter (LINEART_LAYOUT_KEY). */
 export const LINEART_LAYOUT_PARAM: ParamDef = { type: 'select', label: 'Layout', value: 'print', options: LINEART_LAYOUTS.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) };
 
-/** The design's pictures, meshes, concept pictures, LayerTone setup and line-art and artwork hand edits and line-art split, for the server (undefined when there are none). */
+/** The design's pictures, meshes, concept pictures, LayerTone setup, line-art and artwork hand edits, line-art split and the marks on pictures, for the server (undefined when there are none). */
 export function pictureValues(values: ParamValues): ParamValues | undefined {
   const out: ParamValues = {};
-  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY, ARTWORK_EDITS_KEY, LINEART_SPLIT_KEY, LINEART_SIZE_KEY, LINEART_JOIN_KEY, LINEART_ENDS_KEY, LINEART_DEPTH_KEY, LINEART_LAYOUT_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
+  for (const k of [LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, MESHES_KEY, CONCEPTS_KEY, PART_COLORS_KEY, LINEART_EDITS_KEY, ARTWORK_EDITS_KEY, PICTURE_MARKS_KEY, LINEART_SPLIT_KEY, LINEART_SIZE_KEY, LINEART_JOIN_KEY, LINEART_ENDS_KEY, LINEART_DEPTH_KEY, LINEART_LAYOUT_KEY]) if (typeof values[k] === 'string') out[k] = values[k];
   return Object.keys(out).length ? out : undefined;
 }
 

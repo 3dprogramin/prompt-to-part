@@ -2,7 +2,7 @@
 // for the design open then), its result waiting for Keep / Try again / Discard, Keep's new version
 // and chat entry, and whether the build that follows lines up with the version it came from. Also
 // the mark on each picture (PICTURE_MARKS_KEY), saved with the design as the user selects.
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import type { Box3, Design, EvalResult, ParamValue } from '../../shared/types';
 import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
@@ -10,8 +10,9 @@ import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits'
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { api } from '../lib/api';
-import { applyPictureEdit, linesUp, pictureChangedSince, requestPictureEdit, type PictureEditUi } from '../lib/pictureEdit';
+import { applyPictureEdit, pictureChangedSince, requestPictureEdit, type PictureEditUi } from '../lib/pictureEdit';
 import { withoutEditHistory } from './designValues';
+import { useLinesUp } from './useLinesUp';
 
 /** Said when the picture was changed by something else between the request and Keep. */
 export const PICTURE_CHANGED = 'The picture changed while editing; try again';
@@ -20,8 +21,6 @@ type StartArgs = Parameters<PictureEditUi['start']>[0];
 /** What an edit was asked for, and the design as it was then: its id, the picture and its hand edits as saved, the model's box. */
 interface Sent { designId: string; picture: string; fp: string; args: StartArgs; request: PictureEditRequest; drawings: ParamValue | undefined; edits: ParamValue | undefined; parentBox: Box3 | null }
 interface Job { sent: Sent; startedAt: number; abort: AbortController | null; result: PictureEditResponse | null; error: string | null; keeping: boolean }
-/** A kept edit's version waiting for its build: lines up is measured once that is in. */
-interface Measure { designId: string; version: number; values: Design['values']; parentBox: Box3 | null; masked: boolean; outsideSame: boolean; before: EvalResult | null }
 
 /** Before and after side by side on white, as one PNG data URL (for the chat). */
 async function sideBySide(before: string, after: string): Promise<string> {
@@ -48,7 +47,8 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
   designRef.current = design;
   const resultRef = useRef(result);
   resultRef.current = result;
-  const measure = useRef<Measure | null>(null);
+  // Lines up is measured on the build of the kept edit's values (once).
+  const watchLinesUp = useLinesUp({ design, setDesign, result, busy });
 
   /** Sends `sent` (dropping an edit still running), its answer or error kept for the editor. */
   const run = (sent: Sent) => {
@@ -108,7 +108,7 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
       const sentEdits = sent.request.values[ARTWORK_EDITS_KEY];
       if (sentEdits != null) values[ARTWORK_EDITS_KEY] = sentEdits; else delete values[ARTWORK_EDITS_KEY];
       const next = applyPictureEdit({ ...d, values }, r, info, images);
-      measure.current = { designId: d.id, version: next.currentVersion, values: next.values, parentBox: sent.parentBox, masked: r.masked, outsideSame: r.outsideSame, before: resultRef.current };
+      watchLinesUp({ designId: d.id, version: next.currentVersion, values: next.values, parentBox: sent.parentBox, masked: r.masked, outsideSame: r.outsideSame });
       kept = true;
       return next;
     }));
@@ -116,22 +116,6 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
     setJob(null);
     return true;
   };
-
-  // Lines up is measured on the build of the kept edit's values (once): a change before that build
-  // is in (a slider, another edit) leaves it false.
-  useEffect(() => {
-    const m = measure.current;
-    if (!m || busy) return;
-    if (design.id !== m.designId || design.values !== m.values) { measure.current = null; return; }
-    if (!result || result === m.before) return;
-    measure.current = null;
-    if (!linesUp(m, m.parentBox, result.bbox)) return;
-    setDesign((d) => {
-      const v = d.versions[m.version];
-      if (d.id !== m.designId || !v?.pictureEdit) return d;
-      return { ...d, versions: d.versions.map((x, i) => (i === m.version ? { ...v, pictureEdit: { ...v.pictureEdit!, linesUp: true } } : x)) };
-    });
-  }, [design, result, busy]);
 
   /** The mark on a picture saved with the design (with the picture's fingerprint), or taken away. */
   const setMark = (picture: string, fp: string, mark: PictureMark | null) => setDesign((d) => {
