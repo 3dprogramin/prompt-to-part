@@ -307,6 +307,13 @@ export interface PictureEditResponse {
   simplified?: boolean;
   /** Only when more of the mark than OFF_PALETTE_SHARE wants a colour the design has no filament for; `note` says so in plain words. */
   offPalette?: { share: number; colour: string; note: string };
+  /**
+   * A marked edit: how the image model's answer was lined up with what was sent, to tune the
+   * alignment by. `error`: mean absolute RGB difference outside the mark (0..255); `shift` (pixels of
+   * what was sent) and `scale` (x, y): where the sent content sits in the answer resized to it;
+   * `answer`: the answer's own size in pixels.
+   */
+  align?: { error: number; shift: [number, number]; scale: [number, number]; answer: [number, number] };
   prompt: string;
   model: string;
   cost: number | null;

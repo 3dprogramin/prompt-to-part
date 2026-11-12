@@ -303,7 +303,7 @@ function offPaletteNote(answer: Raster, mask: Uint8Array, colours: string[]): Pi
  * values to set: the drawing under the same name, the hand edits cut by the mark (dropped for a
  * whole-picture edit) and re-keyed, the picture's mark removed.
  */
-export async function editPicture(r: PictureEditRequest, deps: { image: typeof requestImage; signal?: AbortSignal; onStatus?: (t: string) => void }): Promise<PictureEditResponse> {
+export async function editPicture(r: PictureEditRequest, deps: { image: typeof requestImage; signal?: AbortSignal; onStatus?: (t: string) => void; id?: string }): Promise<PictureEditResponse> {
   const problem = pictureEditProblem(r);
   if (problem) throw new PictureEditError(400, problem);
   const d = parseDrawings(r.values[DRAWINGS_KEY])[r.picture];
@@ -323,9 +323,13 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     return { ...out, prompt, answer: decodeImage(Buffer.from(out.image.data, 'base64')) };
   };
   const background = (labels: Int16Array) => Uint8Array.from(labels, (l) => (l < 0 ? 1 : 0));
+  const size = (img: Raster) => `${img.width}x${img.height}`;
+  /** One line per edit in the server log with the numbers to tune the alignment by (no prompt, no picture). */
+  const logLine = (fields: Record<string, unknown>) => console.log('[picture-edit]', JSON.stringify({ id: deps.id, picture: r.picture, masked: !!mark, ...fields }));
 
   let sent: string, shown: PictureWindow, pasted: Raster, fresh: SvgDrawing, area: PictureMark, note: PictureEditResponse['offPalette'];
   let asked: Awaited<ReturnType<typeof ask>>;
+  let align: PictureEditResponse['align'];
   if (mark) {
     const crop = cropAround(d, mark);
     const pic = renderDrawing(d, strokes, crop.win, crop.height), raster: Raster = { width: pic.width, height: pic.height, data: pic.data };
@@ -340,8 +344,16 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     // Outside: the crop's own pixels outside the mark. The padding is neither (the model may redraw
     // it, and it must not count toward the outside a match needs).
     const outside = inMark.map((v) => 1 - v);
+    const t0 = performance.now();
     const fit = alignTo(asked.answer, padded, bands ? padMask(outside, crop.width, padded.width, padded.height, x, y) : outside, { mark: sentMark });
-    const failure: PasteFailure | undefined = !fit.ok ? fit.reason! : outlineShare(fit.image, padded, sentMark, OUTLINE_PX) > MAX_OUTLINE_SHARE ? 'outline left in' : undefined;
+    const outline = fit.ok ? outlineShare(fit.image, padded, sentMark, OUTLINE_PX) : undefined;
+    const failure: PasteFailure | undefined = !fit.ok ? fit.reason! : outline! > MAX_OUTLINE_SHARE ? 'outline left in' : undefined;
+    const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
+    align = { error: round(fit.error, 2), shift: [round(fit.shift[0], 2), round(fit.shift[1], 2)], scale: [round(fit.scale[0], 5), round(fit.scale[1], 5)], answer: [asked.answer.width, asked.answer.height] };
+    logLine({
+      answer: size(asked.answer), sent: size(padded), error: align.error, shift: align.shift, scale: align.scale, offMark: fit.offMark,
+      outline: outline === undefined ? undefined : round(outline, 4), reason: failure, ms: Math.round(performance.now() - t0),
+    });
     if (failure) throw new PictureEditError(502, PASTE_MESSAGES[failure]);
     const lined = bands ? cut(fit.image, x, y, crop.width, crop.height) : fit.image;
     pasted = pasteMark(raster, lined, inMark, FEATHER_PX, crop.open);
@@ -356,6 +368,7 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     const aspect = nearestAspect(pic.width / pic.height), { padded, x, y, bands } = fitShape(raster, ratioOf(aspect));
     sent = pngUrl(raster);
     asked = await ask(aspect, [pngUrl(padded), ...photos], bands);
+    logLine({ answer: size(asked.answer), sent: size(padded) });
     pasted = cut(resizeTo(asked.answer, padded.width, padded.height), x, y, pic.width, pic.height);
     // Paper: where it was, and what touches the picture's edges (the whole subject may change).
     const paper = background(pic.labels);
@@ -398,6 +411,7 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     set, before: sent, after: pngUrl(pasted), window: shown, masked: !!mark, outsideSame: !!mark && combined.outsideSame,
     ...(combined.simplified ? { simplified: true } : {}),
     ...(note ? { offPalette: note } : {}),
+    ...(align ? { align } : {}),
     prompt: asked.prompt, model: asked.model, cost: asked.cost,
   };
 }

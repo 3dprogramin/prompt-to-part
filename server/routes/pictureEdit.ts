@@ -37,7 +37,7 @@ export function registerPictureEditRoutes(app: express.Express, { json, deleted,
     let result: PictureEditResponse | undefined, error: unknown;
     try {
       await writeFile(busy, `${process.pid}\n`);
-      result = await editPicture(body, { image, signal: abort.signal });
+      result = await editPicture(body, { image, signal: abort.signal, id });
     } catch (e) {
       error = e;
     } finally {

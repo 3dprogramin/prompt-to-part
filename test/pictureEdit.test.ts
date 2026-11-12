@@ -144,6 +144,12 @@ test('a marked edit of artwork: the crop and its outline sent, only the mark cha
   assert.match(body.before, /^data:image\/png;base64,/);
   assert.match(body.after, /^data:image\/png;base64,/);
   assert.equal(body.offPalette, undefined);
+  // How the answer was lined up: it came back as sent, so in place.
+  const fit = body.align!;
+  assert.ok(fit, 'align is set');
+  assert.deepEqual(fit.answer, [raster(body.before).width, raster(body.before).height]);
+  assert.ok(fit.error < 1, String(fit.error));
+  assert.ok(fit.shift.every((v) => Math.abs(v) <= 0.5) && fit.scale.every((v) => Math.abs(v - 1) < 0.002), `${fit.shift} ${fit.scale}`);
   // The before / after pictures show the crop's window (to draw the mark's edge over them).
   assert.deepEqual(body.window, cropAround(santa, face).win);
 
@@ -208,6 +214,7 @@ test('without a mark the whole picture is sent, padded to an allowed shape, and 
   const body = await res.json() as PictureEditResponse;
   assert.equal(res.status, 200, JSON.stringify(body));
   assert.equal(body.masked, false);
+  assert.equal(body.align, undefined);
   // No outside to compare: nothing claimed.
   assert.equal(body.outsideSame, false);
   // The pictures shown are the whole picture.
@@ -260,8 +267,23 @@ test('an answer that keeps the magenta guide outline fails and changes nothing',
     }
     return answerOf({ width: w, height: outlined.height, data });
   };
-  const res = await post('test-pe-00000014', request());
+  // One line of numbers per edit in the log, without the prompt or any picture.
+  const logged: unknown[][] = [], log = console.log;
+  console.log = (...a: unknown[]) => { if (a[0] === '[picture-edit]') logged.push(a); else log(...a); };
+  let res: Response;
+  try { res = await post('test-pe-00000014', request()); } finally { console.log = log; }
   const body = await res.json() as { error: string; set?: unknown };
+  assert.equal(logged.length, 1);
+  const line = JSON.parse(String(logged[0][1])) as Record<string, unknown>;
+  assert.equal(line.id, 'test-pe-00000014');
+  assert.equal(line.picture, 'santa.svg');
+  assert.equal(line.masked, true);
+  assert.equal(line.reason, 'outline left in');
+  assert.match(String(line.answer), /^\d+x\d+$/);
+  assert.equal(line.answer, line.sent);
+  for (const k of ['error', 'shift', 'scale', 'offMark', 'outline', 'ms']) assert.ok(k in line, k);
+  assert.ok((line.outline as number) > 0.2, String(line.outline));
+  assert.doesNotMatch(JSON.stringify(logged), /red face|base64/);
   assert.equal(res.status, 502, JSON.stringify(body).slice(0, 200));
   assert.equal(body.error, 'The image model left the guide outline in the picture: try again');
   assert.equal(body.set, undefined);
