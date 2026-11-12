@@ -88,3 +88,28 @@ test('isFlat: plaques and line art are flat, cups and stands are not', () => {
   assert.equal(isFlat([box('Plaque', [0, 0, 0], [200, 100, 4], '#fff')]), true);
   assert.equal(isFlat([box('Cup', [0, 0, 0], [80, 80, 100], '#fff')]), false);
 });
+
+test('GLB: a degenerate triangle never gets a zero-length normal', async () => {
+  const p = box('Gold', [0, 0, 0], [10, 10, 2], '#d4af37');
+  // A zero-area sliver (two corners at the same point), as booleans leave on line art.
+  const pos = new Float32Array([...p.positions, 5, 5, 2, 5, 5, 2, 6, 5, 2]);
+  const idx = new Uint32Array([...p.indices, 8, 9, 10]);
+  p.positions = pos; p.indices = idx;
+  const blob = toGlb([p], 'Sliver', { upright: true });
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const { json } = await read(blob);
+  const acc = json.accessors[json.meshes[0].primitives[0].attributes.NORMAL] as unknown as { bufferView: number; count: number };
+  const view = (json as unknown as { bufferViews: { byteOffset: number }[] }).bufferViews[acc.bufferView];
+  const jsonLen = new DataView(buf.buffer).getUint32(12, true);
+  const n = new Float32Array(buf.slice(20 + jsonLen + 8 + view.byteOffset).buffer, 0, acc.count * 3);
+  for (let i = 0; i < acc.count; i++) near(Math.hypot(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]), 1);
+});
+
+test('GLB: a LayerTone relief keeps its shared corners and leaves the normals to the viewer (size)', async () => {
+  const relief = box('Relief', [0, 0, 0], [10, 10, 2], '#ffffff');
+  relief.vertexColors = new Float32Array(relief.positions.length).fill(0.5);
+  const { json } = await read(toGlb([relief], 'Relief', { upright: true }));
+  const prim = json.meshes[0].primitives[0];
+  assert.ok(!('NORMAL' in prim.attributes), 'flat steps: the viewer shades them flat');
+  assert.equal(json.accessors[prim.attributes.POSITION].count, 8, 'the 8 corners, not one per triangle corner');
+});

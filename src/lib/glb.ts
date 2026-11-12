@@ -23,8 +23,12 @@ export function isFlat(parts: PartMesh[]): boolean {
 /** PLA: matte, not metal. */
 const ROUGHNESS = 0.7;
 
-/** The part as a three.js geometry with its colours per vertex (linear) when it has them. */
-function partGeometry(part: PartMesh): { geom: THREE.BufferGeometry; perVertex: boolean } {
+/**
+ * The part as a three.js geometry with its colours per vertex (linear) when it has them, and normals
+ * unless it is a LayerTone relief or a lithophane: those are millions of flat steps, so they keep their
+ * shared corners and the viewer shades them flat (a glTF without normals), at a fraction of the size.
+ */
+function partGeometry(part: PartMesh): { geom: THREE.BufferGeometry; perVertex: boolean; normals: boolean } {
   let g = paintedGeometry(part);
   if (!g) {
     g = new THREE.BufferGeometry();
@@ -34,12 +38,13 @@ function partGeometry(part: PartMesh): { geom: THREE.BufferGeometry; perVertex: 
     g.setIndex(new THREE.BufferAttribute(part.indices, 1));
   }
   const perVertex = !!g.getAttribute('color');
+  if (perVertex && !part.paint) return { geom: g, perVertex, normals: false };
   // Sharp edges stay sharp, curved faces smooth (as in the viewer); then shared corners again, for size.
   const creased = toCreasedNormals(g, THREE.MathUtils.degToRad(32));
   g.dispose();
   const geom = mergeVertices(creased, 1e-4);
   creased.dispose();
-  return { geom, perVertex };
+  return { geom, perVertex, normals: true };
 }
 
 export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob {
@@ -82,14 +87,21 @@ export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob 
   const meshes: object[] = [];
   const materials: object[] = [];
   for (const part of parts) {
-    const { geom, perVertex } = partGeometry(part);
+    const { geom, perVertex, normals } = partGeometry(part);
     const P = geom.getAttribute('position'), N = geom.getAttribute('normal'), C = geom.getAttribute('color');
-    const pos = new Float32Array(P.count * 3), nor = new Float32Array(P.count * 3);
-    for (let i = 0; i < P.count; i++) {
-      pos.set(place(P.getX(i), P.getY(i), P.getZ(i)), i * 3);
-      nor.set(turn(N.getX(i), N.getY(i), N.getZ(i)), i * 3);
+    const pos = new Float32Array(P.count * 3);
+    for (let i = 0; i < P.count; i++) pos.set(place(P.getX(i), P.getY(i), P.getZ(i)), i * 3);
+    const attributes: Record<string, number> = { POSITION: vec3(pos, true) };
+    if (normals) {
+      const nor = new Float32Array(P.count * 3);
+      for (let i = 0; i < P.count; i++) {
+        const [x, y, z] = turn(N.getX(i), N.getY(i), N.getZ(i));
+        // A zero-area sliver has no direction: glTF wants unit normals, so it gets "up".
+        const l = Math.hypot(x, y, z);
+        nor.set(l > 1e-8 ? [x / l, y / l, z / l] : [0, 1, 0], i * 3);
+      }
+      attributes.NORMAL = vec3(nor, false);
     }
-    const attributes: Record<string, number> = { POSITION: vec3(pos, true), NORMAL: vec3(nor, false) };
     if (perVertex && C) attributes.COLOR_0 = vec3(Float32Array.from(C.array as ArrayLike<number>), false);
     const idx = geom.getIndex()!.array as ArrayLike<number>;
     const small = P.count < 65536;
