@@ -20,6 +20,8 @@ const MAX_CHANGE = 2000;
 interface Props {
   /** The area marked (none: the whole picture is edited). */
   mark: PictureMark | null;
+  /** Why no edit can start now (e.g. the selection reaches no drawing): said, and Edit waits. */
+  blocked?: string;
   /** The image model is working on it. */
   busy: boolean;
   onEdit: (change: string, photos: string[]) => void;
@@ -108,7 +110,7 @@ export function EditPicturePanel(p: Props) {
       // (Photos dropped here are for the edit, not the chat.)
       onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); } }}
       onDrop={(e) => { if (!e.dataTransfer.types.includes('Files')) return; e.preventDefault(); e.stopPropagation(); if (!locked) void add(files(e.dataTransfer.files)); }}>
-      <div className="la-ed-edit-head"><Icon name="spark" size={14} /> {p.mark ? 'Edit this picture here' : 'Edit the whole picture'}</div>
+      <div className="la-ed-edit-head"><Icon name="spark" size={14} /> {p.mark ? 'Edit this picture here' : p.blocked ? 'Edit this picture' : 'Edit the whole picture'}</div>
       {p.result ? (
         <>
           <div className="la-ed-edit-compare">
@@ -156,6 +158,7 @@ export function EditPicturePanel(p: Props) {
             </div>
           )}
           {problem && !locked && <div className="la-ed-edit-note warn"><Icon name="alert" size={13} /> {problem}</div>}
+          {p.blocked && !p.busy && <div className="la-ed-edit-note warn" role="alert"><Icon name="alert" size={13} /> {p.blocked}</div>}
           {p.error && !p.busy && <div className="la-ed-edit-note warn" role="alert"><Icon name="alert" size={13} /> {p.error}</div>}
           <div className="la-ed-edit-actions">
             {p.busy ? (
@@ -172,8 +175,8 @@ export function EditPicturePanel(p: Props) {
                   <Icon name="paperclip" size={14} />Attach photo
                 </button>
                 {/* (As Edit: with the mark, the strokes and the words as they are now, which may have changed since.) */}
-                {p.error && <button className="btn" disabled={!change.trim()} onClick={() => p.onEdit(change.trim(), photos)} title="Ask the image model again">Try again</button>}
-                <button className="btn primary" disabled={!change.trim()} onClick={() => p.onEdit(change.trim(), photos)}
+                {p.error && <button className="btn" disabled={!change.trim() || !!p.blocked} onClick={() => p.onEdit(change.trim(), photos)} title="Ask the image model again">Try again</button>}
+                <button className="btn primary" disabled={!change.trim() || !!p.blocked} onClick={() => p.onEdit(change.trim(), photos)}
                   title={p.mark ? 'Change the area marked with the image model' : 'Change the whole picture with the image model'}>Edit</button>
               </>
             )}

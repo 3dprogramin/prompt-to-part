@@ -774,7 +774,7 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
           </div>
         )}
         {editing && pe && (
-          <EditPicturePanel mark={mark} busy={pe.busy} startedAt={pe.startedAt} result={pe.result} error={pe.error} keeping={pe.keeping}
+          <EditPicturePanel mark={mark} blocked={selection.length && !mark ? 'The selection doesn\'t reach the drawing' : undefined} busy={pe.busy} startedAt={pe.startedAt} result={pe.result} error={pe.error} keeping={pe.keeping}
             onEdit={(change, photos) => pe.start({ mark, change, photos, draft: null, lineArtEdits: changed ? edits : null })}
             onCancel={pe.cancel} onRetry={pe.retry} onDiscard={pe.discard}
             // (Kept: the edits as sent are saved with it, so the editor closes without Done.)

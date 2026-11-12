@@ -1666,6 +1666,20 @@ test('the line art editor edits only the selected area: a new version that lines
     // A short stroke along the bar in the middle marks the area.
     const b = (await editor.locator('.la-ed-over').boundingBox())!;
     const cx = b.x + b.width / 2, cy = b.y + b.height / 2, half = Math.min(b.width, b.height) * 0.08;
+    // A selection in a far corner of the view reaches no drawing: it is not a whole-drawing edit, Edit waits.
+    for (let k = 0; k < 4; k++) await editor.getByRole('button', { name: 'Zoom out' }).click();
+    await page.mouse.move(b.x + 3, b.y + 3);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 12, b.y + 3, { steps: 4 });
+    await page.mouse.up();
+    await editor.getByText("The selection doesn't reach the drawing").waitFor();
+    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('x');
+    assert.ok(await editor.getByRole('button', { name: 'Edit', exact: true }).isDisabled(), 'Edit waits when the selection reaches no drawing');
+    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('');
+    // (Escape leaves the box, then drops the selection.)
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await editor.getByText('Edit the whole picture').waitFor();
     await page.mouse.move(cx - half, cy);
     await page.mouse.down();
     for (let k = 1; k <= 8; k++) await page.mouse.move(cx - half + (2 * half * k) / 8, cy);
