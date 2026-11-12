@@ -118,15 +118,42 @@ export function resizeTo(img: Raster, width: number, height: number): Raster {
 /**
  * The most a lined-up answer may still differ from what was sent over the area outside the mark:
  * the mean absolute difference per RGB channel (0..255) after the shift, scale and (with `tones`)
- * the tone match. Tuned on the synthetic pictures of test/pictureRaster.test.ts (colour gradients,
- * soft edged discs and boxes, a smooth texture; 400 x 300). Measured: a copy moved 7 px and scaled
- * 2 % lines up to 0.9 (1.1 when it came back at 512 x 512); re-toned (x 0.9 + 20) to 0.7 with
- * `tones` (6.5 without); with noise of sd 4 and sent back at 600 x 400, 2.0; noise of sd 8, 4.6;
- * posterized flat-colour versions at other sizes and aspects, at most 4.1. A different picture of
- * the same kind stays at 67 to 73 (42 to 46 with `tones`) and pure noise at 59 (43). 12 leaves room
- * for the image model's own small redraws outside the mark while staying far below a wrong picture.
+ * the tone match. This is a "same picture" test, not an alignment check: on flat-colour art most
+ * outside pixels are flat, so the error barely rises with a misalignment (clean art held 6 to 8 px
+ * off still scores about 9 to 10). That the answer lines up within a pixel comes from the search
+ * (exhaustive at the coarsest level, then refined to half pixels) and from following a fit held at
+ * the range's edge on past it; a sharper check here would reject answers that are right but redrawn.
+ * Tuned on the synthetic pictures of test/pictureRaster.test.ts (colour gradients, soft edged discs
+ * and boxes, a smooth texture; 400 x 300). Measured: a copy moved 7 px and scaled 2 % lines up to
+ * 0.9 (1.1 when it came back at 512 x 512); re-toned (x 0.9 + 20) to 0.7 with `tones` (6.5
+ * without); with noise of sd 4 and sent back at 600 x 400, 2.0; noise of sd 8, 4.6; posterized
+ * flat-colour versions at other sizes and aspects, at most 4.1. A different picture of the same kind
+ * stays at 67 to 73 (42 to 46 with `tones`) and pure noise at 59 (43). 12 leaves room for the image
+ * model's own small redraws outside the mark while staying far below a different picture.
  */
 export const ALIGN_MAX_ERROR = 12;
+
+/** The least part of the crop that must be outside the mark (after shrinking it) to line anything up. */
+const MIN_OUTSIDE = 0.05;
+/** The most of the mark whose source may lie off the answer (filled with the answer's edge instead). */
+const MAX_OFF_MARK = 0.005;
+
+/** Why an answer cannot be pasted. */
+export type AlignFailure = 'too little outside the mark' | 'moved past the range' | 'different picture' | 'mark leaves the answer';
+
+export interface Alignment {
+  /** The answer at the sent picture's size, moved (and toned) onto it. */
+  image: Raster;
+  shift: [number, number];
+  scale: number;
+  /** Mean absolute RGB difference outside the mark (0..255), pixels off the answer left out. */
+  error: number;
+  /** Mark pixels whose source lies off the answer (0 without `mark`). */
+  offMark: number;
+  ok: boolean;
+  /** Set when not ok. */
+  reason?: AlignFailure;
+}
 
 /** The contrast change a tone match may apply; outside it a match is not the same picture. */
 const GAIN_MIN = 0.5, GAIN_MAX = 2;
@@ -243,20 +270,24 @@ function levelError(L: Level, cx: number, cy: number, dx: number, dy: number, s:
  * search on luminance, for the result per RGB channel; the gain within 0.5..2) for answers with
  * shifted brightness and contrast. `shift` and `scale` say where the sent content sits in the
  * resized answer (content at sent pixel p is at c + scale * (p - c) + shift, c the centre);
- * `error` is the mean absolute RGB difference over the outside area after all this, and `ok` says it
- * is at most ALIGN_MAX_ERROR and the answer was not moved past the allowed range (a fit held at the
- * range's edge is followed on past it; one that keeps improving there is not ok). With no outside pixels there is nothing to match: the answer is only
- * resized and taken as is.
+ * `error` is the mean absolute RGB difference over the outside area after all this (pixels whose
+ * source lies off the answer left out). Not ok, with its `reason`, when: the shrunk outside area is
+ * under 5 % of the crop ('too little outside the mark'); the error is over ALIGN_MAX_ERROR
+ * ('different picture'); the answer was moved past the allowed range ('moved past the range': a
+ * fit held at the range's edge is followed on past it, and one that keeps improving there fails);
+ * or, given the `mark` (1 = inside, in `sent`'s grid), over 0.5 % of its pixels have their source
+ * off the answer, so the paste would fill them with the answer's edge ('mark leaves the answer').
  */
-export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opts: { maxShift?: number; maxScale?: number; tones?: boolean } = {}):
-  { image: Raster; shift: [number, number]; scale: number; error: number; ok: boolean } {
+export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opts: { maxShift?: number; maxScale?: number; tones?: boolean; mark?: Uint8Array } = {}): Alignment {
   const W = sent.width, H = sent.height, tones = !!opts.tones;
   const maxShift = opts.maxShift ?? 0.03, maxScale = opts.maxScale ?? 0.03;
-  if (outside.length !== W * H) throw new Error('alignTo: the outside mask is not the size of the sent picture');
+  if (outside.length !== W * H || (opts.mark && opts.mark.length !== W * H)) throw new Error('alignTo: a mask is not the size of the sent picture');
   const resized = resizeTo(returned, W, H);
   let use = erode(outside, W, H, 2);
   if (!use.some((v) => v)) use = outside;
-  if (!use.some((v) => v)) return { image: resized, shift: [0, 0], scale: 1, error: 0, ok: true };
+  let used = 0;
+  for (let p = 0; p < W * H; p++) used += use[p];
+  if (!used) return { image: resized, shift: [0, 0], scale: 1, error: 0, offMark: 0, ok: false, reason: 'too little outside the mark' };
 
   // The pyramid: full size, then halved while the smaller side stays at least 48 pixels (at most 1/16).
   const levels: Level[] = [];
@@ -338,8 +369,25 @@ export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opt
   }
 
   const image = warp(resized, best.dx, best.dy, best.s);
-  const error = finish(image, sent, use, tones);
-  return { image, shift: [best.dx, best.dy], scale: best.s, error, ok: error <= ALIGN_MAX_ERROR && !outOfRange };
+  // Which columns and rows read inside the answer (its pixels cover -0.5 .. size - 0.5).
+  const onAnswer = (n: number, c: number, d: number) => Uint8Array.from({ length: n }, (_, i) => {
+    const u = c + best.s * (i - c) + d;
+    return u >= -0.5 && u <= n - 0.5 ? 1 : 0;
+  });
+  const cols = onAnswer(W, cx, best.dx), rows = onAnswer(H, cy, best.dy);
+  const error = finish(image, sent, use, cols, rows, tones);
+  let offMark = 0, marked = 0;
+  if (opts.mark) for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    if (!opts.mark[j * W + i]) continue;
+    marked++;
+    if (!(cols[i] && rows[j])) offMark++;
+  }
+  const reason: AlignFailure | undefined = used < MIN_OUTSIDE * W * H ? 'too little outside the mark'
+    : !(error <= ALIGN_MAX_ERROR) ? 'different picture'
+    : outOfRange ? 'moved past the range'
+    : offMark > MAX_OFF_MARK * marked ? 'mark leaves the answer'
+    : undefined;
+  return { image, shift: [best.dx, best.dy], scale: best.s, error, offMark, ok: !reason, ...(reason ? { reason } : {}) };
 }
 
 /** The resized answer moved back onto the sent picture's pixels (bilinear, edges clamped). */
@@ -351,21 +399,24 @@ function warp(img: Raster, dx: number, dy: number, s: number): Raster {
 /**
  * With `tones`, matches each RGB channel of the lined-up answer to the sent picture over `use`
  * (least-squares gain and offset, in place); then the mean absolute RGB difference over `use`.
+ * Both leave out pixels whose source is off the answer (column `cols[i]` or row `rows[j]` is 0).
  */
-function finish(image: Raster, sent: Raster, use: Uint8Array, tones: boolean): number {
-  const n = image.width * image.height, a = image.data, b = sent.data;
+function finish(image: Raster, sent: Raster, use: Uint8Array, cols: Uint8Array, rows: Uint8Array, tones: boolean): number {
+  const w = image.width, n = w * image.height, a = image.data, b = sent.data;
+  const on = new Uint8Array(n);
   let count = 0;
-  for (let p = 0; p < n; p++) count += use[p];
+  for (let p = 0; p < n; p++) if (use[p] && cols[p % w] && rows[(p / w) | 0]) { on[p] = 1; count++; }
+  if (!count) return Infinity;
   if (tones) {
     for (let k = 0; k < 3; k++) {
       let sa = 0, sb = 0, saa = 0, sab = 0;
-      for (let p = 0; p < n; p++) if (use[p]) { const x = a[p * 4 + k], y = b[p * 4 + k]; sa += x; sb += y; saa += x * x; sab += x * y; }
+      for (let p = 0; p < n; p++) if (on[p]) { const x = a[p * 4 + k], y = b[p * 4 + k]; sa += x; sb += y; saa += x * x; sab += x * y; }
       const [g, o] = toneFit(count, sa, sb, saa, sab);
       for (let p = 0; p < n; p++) a[p * 4 + k] = Math.max(0, Math.min(255, Math.round(g * a[p * 4 + k] + o)));
     }
   }
   let sum = 0;
-  for (let p = 0; p < n; p++) if (use[p]) sum += Math.abs(a[p * 4] - b[p * 4]) + Math.abs(a[p * 4 + 1] - b[p * 4 + 1]) + Math.abs(a[p * 4 + 2] - b[p * 4 + 2]);
+  for (let p = 0; p < n; p++) if (on[p]) sum += Math.abs(a[p * 4] - b[p * 4]) + Math.abs(a[p * 4 + 1] - b[p * 4 + 1]) + Math.abs(a[p * 4 + 2] - b[p * 4 + 2]);
   return sum / (3 * count);
 }
 

@@ -208,6 +208,7 @@ test('alignTo fails on noise and on a different picture, with or without tones',
     const r = alignTo(returned, sent, outside, { tones });
     assert.equal(r.ok, false, `error ${r.error}`);
     assert.ok(r.error > ALIGN_MAX_ERROR);
+    assert.equal(r.reason, 'different picture');
   }
 });
 
@@ -216,9 +217,80 @@ test('alignTo does not pass an answer moved past the allowed range, though its e
   for (const [shift, scale] of [[[16, 0], 1], [[0, -12], 1], [[0, 0], 1.045]] as [[number, number], number][]) {
     const r = alignTo(answer(look, W, H, shift, scale, W, H, undefined, edit), sent, outside);
     assert.equal(r.ok, false, `${shift} ${scale}: error ${r.error}, shift ${r.shift}, scale ${r.scale}`);
+    assert.equal(r.reason, 'moved past the range');
   }
   const inside = alignTo(answer(look, W, H, [11.6, -8.6], 1.029, W, H, undefined, edit), sent, outside);
   assert.ok(inside.ok, `just inside: error ${inside.error}, shift ${inside.shift}, scale ${inside.scale}`);
+});
+
+/**
+ * Flat-colour art like an AI artwork: a background and flat discs with black outlines of about 3 px,
+ * drawn with 4 samples a pixel. Its error barely rises with a misalignment (most pixels are flat), so
+ * here the alignment rests on the search and the past-the-range follow, not on the threshold.
+ */
+function flatArt(seed: number, N: number): Look {
+  const rnd = random(seed);
+  const pal = [[230, 60, 50], [40, 120, 200], [250, 210, 60], [60, 170, 90], [240, 240, 235]];
+  const discs = Array.from({ length: 16 }, () => ({ x: rnd() * N, y: rnd() * N, r: (0.05 + rnd() * 0.15) * N, c: pal[Math.floor(rnd() * pal.length)] }));
+  const point = (x: number, y: number) => {
+    let c = [245, 240, 225];
+    for (const d of discs) { const q = Math.hypot(x - d.x, y - d.y); if (q < d.r) c = q > d.r - 3 ? [20, 20, 20] : d.c; }
+    return c;
+  };
+  return (x, y) => {
+    const acc: [number, number, number] = [0, 0, 0];
+    for (const [sx, sy] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) {
+      const c = point(x + sx, y + sy);
+      for (let k = 0; k < 3; k++) acc[k] += c[k] / 4;
+    }
+    return acc;
+  };
+}
+
+test('alignTo lines up flat-colour art within a pixel and does not pass it moved past the range', () => {
+  const N = 320, art = flatArt(3, N), flat = render(art, N, N);
+  const dot = { x: 160, y: 160, r: 45 }, out = outsideOf(N, N, { ...dot, r: dot.r + 4 });
+  const r = alignTo(answer(art, N, N, [5, -4], 1.015, 640, 640, undefined, dot), flat, out);
+  assert.ok(r.ok, `ok, error ${r.error}`);
+  assert.ok(Math.abs(r.shift[0] - 5) <= 1 && Math.abs(r.shift[1] + 4) <= 1 && Math.abs(r.scale - 1.015) * (N / 2) <= 1, `${r.shift} ${r.scale}`);
+  // 3 % of 320 is 9.6 px.
+  for (const shift of [[14, 0], [0, -12], [11, 8]] as [number, number][]) {
+    const past = alignTo(answer(art, N, N, shift, 1, N, N, undefined, dot), flat, out);
+    assert.equal(past.ok, false, `${shift}: error ${past.error}, shift ${past.shift}`);
+    assert.equal(past.reason, 'moved past the range');
+  }
+});
+
+test('alignTo is not ok when the mark leaves the answer', () => {
+  // A mark touching the right edge: moved 7 px, the answer holds nothing for its last 7 columns.
+  const edge = { x: W - 30, y: 150, r: 50 };
+  const mark = new Uint8Array(W * H);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (Math.hypot(i + 0.5 - edge.x, j + 0.5 - edge.y) < edge.r) mark[j * W + i] = 1;
+  const out = outsideOf(W, H, { ...edge, r: edge.r + 4 });
+  const returned = answer(look, W, H, [7, 0], 1, W, H, undefined, edge);
+  const r = alignTo(returned, sent, out, { mark });
+  assert.equal(r.ok, false, `error ${r.error}, offMark ${r.offMark}`);
+  assert.equal(r.reason, 'mark leaves the answer');
+  assert.ok(r.offMark > 0.005 * mark.reduce((a, b) => a + b, 0), String(r.offMark));
+  const without = alignTo(returned, sent, out);
+  assert.ok(without.ok, `without the mark: error ${without.error}`);
+  assert.equal(without.offMark, 0);
+  const middle = alignTo(answer(look, W, H, [7, 0], 1, W, H, undefined, edit), sent, outside, { mark: Uint8Array.from(outside, (v) => 1 - v) });
+  assert.ok(middle.ok, `a mark in the middle: error ${middle.error}`);
+  assert.equal(middle.offMark, 0);
+  assert.equal(middle.reason, undefined);
+});
+
+test('alignTo is not ok with too little outside the mark', () => {
+  // Only a 3 px frame is outside: under 5 % of the crop.
+  const frame = new Uint8Array(W * H);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (i < 3 || j < 3 || i >= W - 3 || j >= H - 3) frame[j * W + i] = 1;
+  const r = alignTo(answer(look, W, H, [2, 1], 1, W, H), sent, frame);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'too little outside the mark');
+  const none = alignTo(sent, sent, new Uint8Array(W * H));
+  assert.equal(none.ok, false);
+  assert.equal(none.reason, 'too little outside the mark');
 });
 
 test('alignTo lines up 1024 x 1024 at an interactive speed', () => {
