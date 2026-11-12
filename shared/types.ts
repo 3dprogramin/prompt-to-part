@@ -253,6 +253,21 @@ export interface ChatMessage {
   answers?: string[][];
 }
 
+/** A version made by a picture edit: what was asked, and whether its render lines up with the version it came from. */
+export interface PictureEditInfo {
+  /** The picture that was edited. */
+  picture: string;
+  /** What the owner asked to change. */
+  change: string;
+  /** Whether the edit was limited to a marked area. */
+  masked: boolean;
+  /** Index of the version it came from. */
+  parent: number;
+  /** Measured: masked, same bounding box as the parent, unchanged outside the mark. */
+  linesUp: boolean;
+  cost: number | null;
+}
+
 export interface DesignVersion {
   code: string;
   summary: string;
@@ -265,6 +280,8 @@ export interface DesignVersion {
   sources?: DimensionSource[];
   /** Claude's versions: the tipping check submit_model ran (missing if it couldn't run). */
   stability?: StabilityReport;
+  /** Set when this version came from editing a picture. */
+  pictureEdit?: PictureEditInfo;
 }
 
 export interface Design {
