@@ -24,6 +24,8 @@ interface Props {
   /** Filaments the user picked for parts (PART_COLORS_KEY), and changing one (null: back to the script's colour). */
   partColors: Record<string, PartFilament>;
   onPartColor: (part: string, filament: PartFilament | null) => void;
+  /** Why the shown version can't be changed (printed), or null: filaments and text/SVG switches are off, hiding parts still works. */
+  locked?: string | null;
 }
 
 /**
@@ -73,8 +75,8 @@ export function ObjectPanel(p: Props) {
                   : (
                     // Its filament: the picker changes it (the 3D view, the 3MF and the cost follow).
                     <span className="swatch-pick">
-                      <button className={`swatch ${pick ? 'picked' : ''}`} style={{ background: pick?.color ?? part.scriptColor ?? part.color }} aria-label={`Filament of ${part.name}`}
-                        title={`${pick?.name ? `${pick.brand ? `${pick.brand} ` : ''}${pick.name}: ` : ''}click to choose the filament it prints with${part.lineArt?.paintedIn ? ' (its lines change filament in Edit drawing too)' : ''}`}
+                      <button className={`swatch ${pick ? 'picked' : ''}`} style={{ background: pick?.color ?? part.scriptColor ?? part.color }} aria-label={`Filament of ${part.name}`} disabled={!!p.locked}
+                        title={p.locked ?? `${pick?.name ? `${pick.brand ? `${pick.brand} ` : ''}${pick.name}: ` : ''}click to choose the filament it prints with${part.lineArt?.paintedIn ? ' (its lines change filament in Edit drawing too)' : ''}`}
                         onClick={(e) => { trigger.current = e.currentTarget; setPicking(picking === part.name ? null : part.name); }} />
                     </span>
                   )}
@@ -83,7 +85,7 @@ export function ObjectPanel(p: Props) {
                   <div className="mono dim small">{(b.max[0] - b.min[0]).toFixed(1)} × {(b.max[1] - b.min[1]).toFixed(1)} × {(b.max[2] - b.min[2]).toFixed(1)} mm</div>
                 </button>
                 {p.partColors[part.name] && (
-                  <button className="icon-btn" title="Back to the suggested colour" aria-label={`Reset the filament of ${part.name}`} onClick={() => p.onPartColor(part.name, null)}><Icon name="restore" size={13} /></button>
+                  <button className="icon-btn" disabled={!!p.locked} title={p.locked ?? 'Back to the suggested colour'} aria-label={`Reset the filament of ${part.name}`} onClick={() => p.onPartColor(part.name, null)}><Icon name="restore" size={13} /></button>
                 )}
                 <button className="icon-btn" title="Export this part as STL" aria-label={`Export ${part.name} as STL`} onClick={() => p.onExport('stl', part.name)}><Icon name="download" size={14} /></button>
                 {/* The picker spans the row (it sizes to the row, as in the LayerTone section). */}
@@ -96,7 +98,7 @@ export function ObjectPanel(p: Props) {
                 <ul role="group">
                   {texts.map((f) => (
                     <li key={f.id} role="treeitem" aria-selected={false} className={`object-row child ${f.enabled ? '' : 'off'}`}>
-                      <button className="icon-btn" aria-pressed={f.enabled} aria-label={`${f.enabled ? 'Hide' : 'Show'} text "${f.text}"`} onClick={() => p.onTextFeatures(p.textFeatures.map((x) => (x.id === f.id ? { ...x, enabled: !x.enabled } : x)))}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={13} /></button>
+                      <button className="icon-btn" disabled={!!p.locked} title={p.locked ?? undefined} aria-pressed={f.enabled} aria-label={`${f.enabled ? 'Hide' : 'Show'} text "${f.text}"`} onClick={() => p.onTextFeatures(p.textFeatures.map((x) => (x.id === f.id ? { ...x, enabled: !x.enabled } : x)))}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={13} /></button>
                       <span className="tab-glyph" aria-hidden>T</span>
                       <button className="object-child-name" title="Edit in the Text tab" onClick={() => p.onEdit('text')}>{f.text.split('\n')[0] || '(empty)'}</button>
                       <span className={`text-mode ${f.mode}`}>{f.mode === 'emboss' ? 'Raised' : 'Engraved'}</span>
@@ -104,7 +106,7 @@ export function ObjectPanel(p: Props) {
                   ))}
                   {svgs.map((f) => (
                     <li key={f.id} role="treeitem" aria-selected={false} className={`object-row child ${f.enabled ? '' : 'off'}`}>
-                      <button className="icon-btn" aria-pressed={f.enabled} aria-label={`${f.enabled ? 'Hide' : 'Show'} SVG ${f.drawing.name}`} onClick={() => p.onSvgFeatures(p.svgFeatures.map((x) => (x.id === f.id ? { ...x, enabled: !x.enabled } : x)))}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={13} /></button>
+                      <button className="icon-btn" disabled={!!p.locked} title={p.locked ?? undefined} aria-pressed={f.enabled} aria-label={`${f.enabled ? 'Hide' : 'Show'} SVG ${f.drawing.name}`} onClick={() => p.onSvgFeatures(p.svgFeatures.map((x) => (x.id === f.id ? { ...x, enabled: !x.enabled } : x)))}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={13} /></button>
                       <Icon name="shapes" size={13} />
                       <button className="object-child-name" title="Edit in the SVG tab" onClick={() => p.onEdit('svg')}>{f.drawing.name}</button>
                       <span className={`text-mode ${f.mode}`}>{f.mode === 'emboss' ? 'Raised' : 'Engraved'}</span>

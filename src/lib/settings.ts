@@ -9,6 +9,14 @@ import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
+
+/** The hidden parts' names in a $hidden value (a JSON list); anything else hides nothing. */
+export function parseHidden(v: unknown): string[] {
+  try {
+    const a = JSON.parse(String(v ?? '[]'));
+    return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
 import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
 
 type Params = EvalResult['params'];

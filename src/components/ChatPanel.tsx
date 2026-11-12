@@ -35,6 +35,8 @@ interface Props {
   generating: boolean;
   /** Another browser tab is generating this design. */
   busyElsewhere: boolean;
+  /** Why the shown version can't be changed (it is printed), or null: the composer is off. */
+  locked: string | null;
   /** `drawings`: the exact shapes of SVG files among the attachments (for H.svg); `scad`: attached OpenSCAD files; `meshes`: attached mesh files, already imported. */
   onSend: (text: string, images: string[], drawings: SvgDrawing[], scad: ScadFile[], meshes: MeshUpload[]) => void;
   /** "Ask first": the answers chosen on the question card under reply `messageId` (sent as the user's message). */
@@ -244,7 +246,7 @@ export function ChatPanel(p: Props) {
   // Typing (or dictating) an answer to the concept pictures stops their countdown.
   useEffect(() => { if (text.trim() && p.autoBuild) p.onStopAutoBuild(); }, [text]);
   const send = (message = text, later = false) => {
-    if (p.busyElsewhere || p.claudeProblem || importing || (!message.trim() && !images.length && !scad.length && !readyMeshes.length)) return;
+    if (p.locked || p.busyElsewhere || p.claudeProblem || importing || (!message.trim() && !images.length && !scad.length && !readyMeshes.length)) return;
     // While Claude works the message goes into the reply now, or waits for its end ("Later").
     (p.generating ? (later ? p.onQueue : p.onSteer) : p.onSend)(message.trim(), images, images.flatMap((src) => (svgShapes[src] ? [svgShapes[src]] : [])), scad, readyMeshes);
     setSvgShapes({});
@@ -367,7 +369,7 @@ export function ChatPanel(p: Props) {
           return (
             <Message key={m.id} m={m} live={live} versions={p.versions} currentVersion={p.currentVersion} onRestore={p.onRestore} onImage={openLightbox}
               followed={followedMsgs.some((f) => f.id === m.id)} onFollow={(on) => follow(m.id, on)}
-              onAnswer={answerable ? (answers) => p.onAnswer(m.id, answers) : undefined} answerBlocked={p.busyElsewhere || !!p.claudeProblem}
+              onAnswer={answerable ? (answers) => p.onAnswer(m.id, answers) : undefined} answerBlocked={p.busyElsewhere || !!p.claudeProblem || !!p.locked}
               answerCountdown={seenLive.current.has(m.id)} answerHold={hasDraft} />
           );
         })}
@@ -445,6 +447,7 @@ export function ChatPanel(p: Props) {
             else send();
           }}
           readOnly={listening === 'on' || listening === 'stopping'}
+          disabled={!!p.locked}
           onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); addFiles(files); } }}
           rows={3}
         />
@@ -509,12 +512,13 @@ export function ChatPanel(p: Props) {
             </button>
           )}
           {(!p.generating || hasDraft) && (
-            <button className="btn primary" onClick={() => void sendNow()} disabled={p.busyElsewhere || !!p.claudeProblem || importing || listening === 'starting' || (!text.trim() && !images.length && !scad.length && !readyMeshes.length)}
-              title={importing ? 'Importing the 3D model…' : p.generating ? 'Send now: read at the next step, while the reply goes on' : p.hasModel ? 'Update' : 'Design'}>
+            <button className="btn primary" onClick={() => void sendNow()} disabled={!!p.locked || p.busyElsewhere || !!p.claudeProblem || importing || listening === 'starting' || (!text.trim() && !images.length && !scad.length && !readyMeshes.length)}
+              title={p.locked ?? (importing ? 'Importing the 3D model…' : p.generating ? 'Send now: read at the next step, while the reply goes on' : p.hasModel ? 'Update' : 'Design')}>
               <Icon name="send" /> <span className="btn-label">{p.generating ? 'Send' : p.hasModel ? 'Update' : 'Design'}</span>
             </button>
           )}
         </div>
+        {p.locked && <div className="composer-opts"><span className="busy-note" role="status">{p.locked}, or switch to another version.</span></div>}
         {p.busyElsewhere && <div className="composer-opts"><span className="busy-note" role="status">This design is being worked on in another tab</span></div>}
         {p.claudeProblem && <div className="composer-opts"><span className="bad-note" role="alert">{p.claudeProblem}</span></div>}
         {listening === 'on' && <div className="composer-opts"><span className="listening-note" role="status"><span className="rec-dot" /> Listening… Enter or Esc stops, the text stays</span></div>}

@@ -25,8 +25,9 @@ export function tagCounts(list: readonly DesignSummary[]): { tag: string; count:
   return [...all.filter((c) => builtinTag(c.tag)), ...own];
 }
 
-/** The filter as it applies now: a user tag no design has any more shows every design. */
+/** The filter as it applies now: a user tag no design has any more, or Printed with no printed version, shows every design. */
 export function liveFilter(filter: DesignFilter, list: readonly DesignSummary[]): DesignFilter {
+  if (filter.kind === 'printed') return list.some((d) => d.printed?.length) ? filter : ALL;
   return filter.kind === 'tag' && !builtinTag(filter.tag) && !list.some((d) => hasTag(d.tags, filter.tag)) ? ALL : filter;
 }
 

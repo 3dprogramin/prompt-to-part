@@ -56,6 +56,9 @@ import { useDesignEdits } from './app/useDesignEdits';
 import { useReplies } from './app/useReplies';
 import { usePrintSettings } from './app/usePrintSettings';
 import { designExports } from './app/exports';
+import { markProblem, printedActions } from './app/printed';
+import { PrintedBanner } from './components/PrintedBanner';
+import { printedFileUrl } from './lib/api';
 import { useDesignList } from './app/useDesignList';
 import { useModelLayout } from './app/useModelLayout';
 import { modelChecks } from './app/modelChecks';
@@ -73,6 +76,10 @@ export default function App() {
   const lockedRef = useRef<ReadonlySet<number>>(new Set());
   lockedRef.current = useMemo(() => new Set(designs.find((d) => d.id === design.id)?.printed?.map((m) => m.v)), [designs, design.id]);
   const lockBlocked = useRef<number | null>(null);
+  // The open design's printed versions, and the shown one's mark (it is locked while shown).
+  const marks = useMemo(() => new Map(designs.find((d) => d.id === design.id)?.printed?.map((m) => [m.v, m]) ?? []), [designs, design.id]);
+  const shownMark = marks.get(design.currentVersion);
+  const lockReason = shownMark ? `Printed v${shownMark.v + 1} is locked: clone it to change it` : null;
   const setDesign = useCallback<typeof setDesignRaw>((u) => {
     setDesignRaw((prev) => {
       const next = typeof u === 'function' ? u(prev) : u;
@@ -227,6 +234,14 @@ export default function App() {
   const [editingLineArt, setEditingLineArt] = useState(false);
   const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
   useEffect(() => { setEditingLineArt(false); setEditingArtwork(null); }, [design.id]);
+  // A printed version shown: the hand editors, repainting and placing close (nothing there can change it).
+  useEffect(() => {
+    if (!lockReason) return;
+    setEditingLineArt(false);
+    setEditingArtwork(null);
+    setPicking(null);
+    repaint.stop();
+  }, [lockReason]);
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
@@ -385,7 +400,8 @@ export default function App() {
   // Switching versions replaces the sliders with that version's settings: ask first if yours aren't saved.
   const [pendingRestore, setPendingRestore] = useState<number | null>(null);
   const onRestore = (vi: number) => {
-    if (vi !== design.currentVersion && unsavedSettings) setPendingRestore(vi);
+    // A printed version's changes can't be saved: there is nothing to ask.
+    if (vi !== design.currentVersion && unsavedSettings && !lockReason) setPendingRestore(vi);
     else restore(vi);
   };
 
@@ -428,7 +444,7 @@ export default function App() {
   ];
   const painter = painterItems.length ? {
     items: painterItems,
-    disabled: generating || busyElsewhere ? 'Wait for the reply to finish' : busy || !shown ? 'Wait for the model to finish building' : undefined,
+    disabled: lockReason ?? (generating || busyElsewhere ? 'Wait for the reply to finish' : busy || !shown ? 'Wait for the model to finish building' : undefined),
     onOpen: (kind: 'lineart' | 'artwork', name: string) => { if (kind === 'lineart') setEditingLineArt(true); else setEditingArtwork(name); },
   } : null;
 
@@ -500,11 +516,24 @@ export default function App() {
 
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
-  const { onExport, onExportProject } = designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
+  const { onExport, onExportProject, build3mf } = designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
     setExporting, setExportError, setExportStage, setNotice, setValidation, setValidationOpen, isUnsaved, saveNow });
 
-  const openDesign = async (id: string) => {
-    if (id === design.id) return;
+  // ---- printed versions: marking the shown one (its 3MF saved with it), unmarking
+  const [marking, setMarking] = useState(false);
+  const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings, hasCode: !!design.code });
+  const printed = printedActions({ design, problem, saveNow, build3mf, refreshList, setNotice, setMarking });
+
+  // A design opened on one of its versions (the Printed filter): that version is shown once the design's
+  // own model is in, so switching to it asks about unsaved settings as usual.
+  const openAt = useRef<{ id: string; v: number; ready: boolean } | null>(null);
+  const openDesign = async (id: string, at?: number) => {
+    openAt.current = null;
+    if (id === design.id) {
+      if (at != null && at !== design.currentVersion && design.versions[at]) onRestore(at);
+      return;
+    }
+    if (at != null) openAt.current = { id, v: at, ready: false };
     // Clicking A (slow to load) and then B ends on B: A's late answer is dropped.
     const isLatest = opening.current.begin();
     try {
@@ -516,6 +545,16 @@ export default function App() {
       if (isLatest()) setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
     }
   };
+
+  useEffect(() => {
+    const want = openAt.current;
+    if (!want || want.id !== design.id) return;
+    // The first render after the switch still has the last design's model.
+    if (!want.ready) { want.ready = true; return; }
+    if (design.code && (busy || (resultCode.current !== design.code && !error))) return;
+    openAt.current = null;
+    if (want.v !== design.currentVersion && design.versions[want.v]) onRestore(want.v);
+  }, [design.id, design.code, busy, result, error]);
 
   /** A new design; `tags` are given to it once it is saved (a new design in the Temp list is Temp). */
   const createNew = (tags?: string[]) => {
@@ -633,7 +672,12 @@ export default function App() {
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
         onRestore={onRestore}
         onFork={(vi) => void forkVersion(vi)}
-        unsavedSettings={unsavedSettings}
+        printed={marks}
+        markDisabled={marking ? 'Marking it as printed…' : problem}
+        onMark={() => void printed.mark()}
+        onUnmark={(vi) => void printed.unmark(vi)}
+        onOpenAt={(id, vi) => void openDesign(id, vi)}
+        unsavedSettings={unsavedSettings && !lockReason}
         onSaveSettings={saveSettings}
         saveError={saveErrors[design.id]}
         onRetrySave={() => saveNow(design).catch(() => {})}
@@ -672,6 +716,7 @@ export default function App() {
           currentVersion={design.currentVersion}
           generating={generating}
           busyElsewhere={busyElsewhere}
+          locked={lockReason}
           onSend={onSend}
           onAnswer={onAnswer}
           onStop={() => running[design.id]?.abort()}
@@ -723,7 +768,10 @@ export default function App() {
             <b>Size {sizes.viewed.label}</b>{' '}
             {sizes.viewResult && sizes.resolvedOf(sizes.viewed) ? <span className="mono">{sizeText(sizes.resolvedOf(sizes.viewed)!.size)}</span> : <><span className="spinner" /> building it…</>}
             <button className="link" onClick={() => sizes.view(null)}>Back to the design</button>
-          </> : null}
+          </> : shownMark && !playback ? (
+            <PrintedBanner v={shownMark.v} at={shownMark.at} file={shownMark.file} settings={shownMark.settings} fileUrl={printedFileUrl(design.id, shownMark.v)}
+              onClone={() => void forkVersion(design.currentVersion)} onMake3mf={() => void printed.mark()} making={marking} />
+          ) : null}
           recolor={playback ? null : recolor}
           previewColors={previewColors}
           error={error}
@@ -807,6 +855,7 @@ export default function App() {
           designId={design.id}
           designName={design.name}
           summary={design.versions[design.currentVersion]?.summary}
+          locked={lockReason}
           cost={cost}
           sources={dimensionSources}
           stability={stabilityFor(design.versions, design.currentVersion)}

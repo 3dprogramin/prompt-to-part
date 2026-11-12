@@ -60,6 +60,9 @@ test('the Designs menu filters by tag, stars or no tag, searches names and sorts
   assert.deepEqual(tagCounts([]).map((c) => c.tag), ['Product', 'Temp']);
   assert.deepEqual(liveFilter({ kind: 'tag', tag: 'Gone' }, list), ALL);
   assert.deepEqual(liveFilter({ kind: 'tag', tag: 'Temp' }, []), { kind: 'tag', tag: 'Temp' });
+  // Printed shows every design once no design has a printed version.
+  assert.deepEqual(liveFilter({ kind: 'printed' }, list), ALL);
+  assert.deepEqual(liveFilter({ kind: 'printed' }, [{ ...list[0], printed: [{ v: 0, at: 1, file: true, settings: true }] }]), { kind: 'printed' });
   assert.deepEqual(cleanFilter({ kind: 'tag', tag: 'Temp' }), { kind: 'tag', tag: 'Temp' });
   assert.deepEqual(cleanFilter({ kind: 'tag', tag: 3 }), ALL);
   assert.deepEqual(cleanFilter(null), ALL);

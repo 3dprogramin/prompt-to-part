@@ -45,6 +45,8 @@ interface Props {
   designName: string;
   /** Claude's summary of the shown version. */
   summary?: string;
+  /** Why the shown version can't be changed (it is printed), or null: its editing controls are off; viewing, Cost and Export still work. */
+  locked?: string | null;
   /** Cost of printing it (useCost). */
   cost: ReturnType<typeof useCost>;
   /** Where the real-world dimensions of the shown version came from (Claude's report). */
@@ -168,6 +170,8 @@ export function SidePanel(p: Props) {
       </section>
     );
   };
+  // A printed version's editing controls, off while it is shown.
+  const edits = (node: React.ReactNode) => <fieldset className="lock-fieldset" disabled={!!p.locked} title={p.locked ?? undefined}>{node}</fieldset>;
   const openSection = (t: Tab, id: string) => { setTab(t); setFolded((f) => f.filter((x) => x !== id)); };
   return (
     <div className="side-panel">
@@ -180,29 +184,30 @@ export function SidePanel(p: Props) {
         {tab === 'object' && <>
           {section('parts', 'Parts', () => (shown
             ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport} selected={p.selectedPart} onSelect={p.onSelectPart}
-              partColors={parsePartColors(p.values[PART_COLORS_KEY])} onPartColor={p.onPartColor}
+              partColors={parsePartColors(p.values[PART_COLORS_KEY])} onPartColor={p.onPartColor} locked={p.locked}
               textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={(t) => openSection('decorate', t)} />
             : noModel('The parts appear here once a model is generated.')))}
-          {shown && Object.values(parseMeshes(p.values[MESHES_KEY])).some((m) => m.palette?.length) && section('colors', 'Filament colours', () => <MeshColorsPanel result={shown} meshes={parseMeshes(p.values[MESHES_KEY])} onPalette={p.onMeshPalette} repaint={p.repaint} onRepaintStart={p.onRepaintStart} />)}
+          {shown && Object.values(parseMeshes(p.values[MESHES_KEY])).some((m) => m.palette?.length) && section('colors', 'Filament colours', () => edits(<MeshColorsPanel result={shown} meshes={parseMeshes(p.values[MESHES_KEY])} onPalette={p.onMeshPalette} repaint={p.repaint} onRepaintStart={p.onRepaintStart} />))}
           {section('params', 'Parameters', () => (shown
-            ? <><OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} size={sizeEdit(p.sizes)} /><SizesPanel sizes={p.sizes} result={shown} costSettings={p.cost.settings} bambu={!!p.bambu} /><ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} /></>
+            // The sale sizes are not part of a version: they stay usable on a printed one.
+            ? <>{edits(<OverallSize result={shown} onEdit={p.onEditDimension} scale={p.scale} onScale={p.onScale} size={sizeEdit(p.sizes)} />)}<SizesPanel sizes={p.sizes} result={shown} costSettings={p.cost.settings} bambu={!!p.bambu} />{edits(<ParamsTab result={shown} hiddenParts={p.hiddenParts} owners={p.paramOwners} onValue={p.onValue} onReset={p.onResetValues} fonts={p.fonts} />)}</>
             : noModel('Parameters appear here once a model is generated.')))}
         </>}
         {tab === 'decorate' && <>
           {section('text', 'Text', () => (shown
-            ? <TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />
+            ? edits(<TextPanel result={shown} features={p.textFeatures} onChange={p.onTextFeatures} fonts={p.fonts} picking={p.picking} onPick={p.onPick} />)
             : noModel('Generate a model first, then add text to it.')))}
           {section('svg', 'SVG', () => (shown
-            ? <SvgPanel result={shown} features={p.svgFeatures} onChange={p.onSvgFeatures} picking={p.picking} onPick={p.onPick} />
+            ? edits(<SvgPanel result={shown} features={p.svgFeatures} onChange={p.onSvgFeatures} picking={p.picking} onPick={p.onPick} />)
             : noModel('SVG drawings can be added once a model is generated.')))}
         </>}
         {tab === 'print' && <>
-          {shown && <OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />}
-          {shown && layerTonePart && section('layertone', 'LayerTone', () => <LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />)}
-          {shown && lithoPart && section('lithophane', 'Lithophane', () => <LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />)}
-          {shown && lineArt && section('lineart', 'Line art', () => <LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onValue={p.onValue} onShowJoins={p.onShowJoins} />)}
+          {shown && edits(<OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />)}
+          {shown && layerTonePart && section('layertone', 'LayerTone', () => edits(<LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />))}
+          {shown && lithoPart && section('lithophane', 'Lithophane', () => edits(<LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />))}
+          {shown && lineArt && section('lineart', 'Line art', () => edits(<LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onValue={p.onValue} onShowJoins={p.onShowJoins} />))}
           {section('print', 'Print settings', () => (shown
-            ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} printerInfo={p.printerInfo} onPrinter={p.onPrinter} />
+            ? <PrintPanel parts={shown.parts.map((x) => x.name)} ai={p.aiPrint} user={p.userPrint} base={p.printBase} onChange={p.onUserPrint} bambu={p.bambu} printerInfo={p.printerInfo} onPrinter={p.onPrinter} locked={p.locked} />
             : noModel('Print settings appear once a model is generated.')))}
           {section('cost', 'Cost', () => (shown
             ? <CostPanel designId={p.designId} designName={p.designName} summary={p.summary} settings={p.cost.settings} onSettings={p.cost.saveSettings}
@@ -211,7 +216,7 @@ export function SidePanel(p: Props) {
         </>}
         {tab === 'code' && <>
           {section('info', 'Model', () => (shown ? <InfoTab result={shown} sources={p.sources} /> : noModel('No model yet.')))}
-          {section('code', 'Code', () => <CodeTab code={p.code} stability={p.stability} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} />)}
+          {section('code', 'Code', () => <CodeTab code={p.code} stability={p.stability} error={p.error} onApply={(c) => { setDraft(null); p.onApplyCode(c); }} draft={draft} onDraft={setDraft} locked={p.locked} />)}
         </>}
       </div>
       <div className="export-bar">
@@ -714,8 +719,10 @@ function StabilityStrip({ report }: { report: StabilityReport }) {
 /** Code typed in the editor but not applied: `base` is the script it started from. */
 interface CodeDraft { base: string; text: string }
 
-function CodeTab({ code, stability, error, onApply, draft, onDraft }: {
+function CodeTab({ code, stability, error, onApply, draft, onDraft, locked }: {
   code: string; stability?: StabilityReport; error: ScriptErrorInfo | null; onApply: (c: string) => void; draft: CodeDraft | undefined; onDraft: (d: CodeDraft | null) => void;
+  /** Why the script can't change (a printed version), or null: it can be read and downloaded, not edited. */
+  locked?: string | null;
 }) {
   const text = draft?.text ?? code;
   const dirty = text !== code;
@@ -742,13 +749,13 @@ function CodeTab({ code, stability, error, onApply, draft, onDraft }: {
         {tokens.map((t, i) => (t.kind === 'plain' ? t.text : <span key={i} className={`tk-${t.kind}`}>{t.text}</span>))}
         {'\n'}
       </pre>
-      <textarea className="code-editor mono" spellCheck={false} value={text} aria-label="Model script (model.js)" aria-describedby={hintId}
+      <textarea className="code-editor mono" spellCheck={false} value={text} aria-label="Model script (model.js)" aria-describedby={hintId} readOnly={!!locked} title={locked ?? undefined}
         onScroll={(e) => { if (colours.current) { colours.current.scrollTop = e.currentTarget.scrollTop; colours.current.scrollLeft = e.currentTarget.scrollLeft; } }}
         onChange={(e) => onDraft(e.target.value === code ? null : { base: draft?.base ?? code, text: e.target.value })}
         onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) onApply(text); }
+          if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty && !locked) onApply(text); }
           if (e.key === 'Escape') { e.preventDefault(); escaped.current = true; return; }
-          if (e.key === 'Tab' && !e.shiftKey && !escaped.current) {
+          if (e.key === 'Tab' && !e.shiftKey && !escaped.current && !locked) {
             e.preventDefault();
             const t = e.currentTarget, s = t.selectionStart;
             onDraft({ base: draft?.base ?? code, text: text.slice(0, s) + '  ' + text.slice(t.selectionEnd) });
@@ -758,10 +765,10 @@ function CodeTab({ code, stability, error, onApply, draft, onDraft }: {
         }}
         placeholder="The model script appears here." />
       </div>
-      <div className="code-hint dim small" id={hintId}>Tab indents · Esc, then Tab, leaves the editor · Ctrl+S applies</div>
+      <div className="code-hint dim small" id={hintId}>{locked ? `${locked}.` : 'Tab indents · Esc, then Tab, leaves the editor · Ctrl+S applies'}</div>
       <div className="code-actions">
         <button className="btn ghost" disabled={!dirty} onClick={() => onDraft(null)}>Revert</button>
-        <button className="btn primary" disabled={!dirty} onClick={() => onApply(text)}>Apply (Ctrl+S)</button>
+        <button className="btn primary" disabled={!dirty || !!locked} title={locked ?? undefined} onClick={() => onApply(text)}>Apply (Ctrl+S)</button>
         <span className="spacer" />
         <button className="btn ghost" disabled={!code} onClick={() => download(new Blob([code], { type: 'text/javascript' }), 'model.js')} aria-label="Download model.js">
           <Icon name="download" size={14} /> .js
