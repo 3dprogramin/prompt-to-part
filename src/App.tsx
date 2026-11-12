@@ -27,6 +27,7 @@ import { PrinterDialog } from './components/PrinterPicker';
 import { LineArtEditor } from './components/LineArtEditor';
 import { ArtworkEditor } from './components/ArtworkEditor';
 import { PictureEditor } from './components/picture/PictureEditor';
+import { findLayerTonePart } from './components/LayerTonePanel';
 import { PhotosPanel, usePhotoJobs, type SizeShot } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
@@ -463,21 +464,22 @@ export default function App() {
     return drawing ? [{ name: u.name, drawing, fp: drawingFingerprint(drawing) }] : [];
   }), [shown, drawingsStored]);
   const artworkEditing = editingArtwork ? artworkItems.find((a) => a.name === editingArtwork) : undefined;
-  // The LayerTone photos the build uses (each picture once, from the first part built from it), for the picture editor.
+  // The LayerTone photo of the part the LayerTone panel shows, for the picture editor (with the image model only).
   const imagesStored = useMemo(() => parseLayerToneImages(design.values[LAYERTONE_IMAGES_KEY]), [design.values[LAYERTONE_IMAGES_KEY]]);
-  const pictureItems = useMemo(() => (shown?.parts ?? []).flatMap((p, i, all) => {
+  const pictureItems = useMemo(() => {
+    const part = artworkModel ? findLayerTonePart(shown) : undefined;
     // How the part was built, sent with an edit (a marked one keeps automatic swap layers as they were).
-    const layerTone = layerToneBuild(p);
-    const image = layerTone && all.findIndex((q) => q.layerTone?.image === p.layerTone!.image) === i ? imagesStored[p.layerTone!.image] : undefined;
+    const layerTone = part && layerToneBuild(part, shown!.parts);
+    const image = layerTone ? imagesStored[part!.layerTone!.image] : undefined;
     return image && layerTone ? [{ name: image.name, image, fp: photoFingerprint(image), layerTone, mmPerUnit: layerTone.options.width / (image.width / image.height) }] : [];
-  }), [shown, imagesStored]);
+  }, [shown, imagesStored, artworkModel]);
   const pictureEditing = editingPicture ? pictureItems.find((a) => a.name === editingPicture) : undefined;
   // Editing a picture with the image model (from the artwork brush or the picture editor), and its mark.
   const pictureEdit = usePictureEdit({ design, setDesign, result, busy, locked: lockReason });
   const painterItems = [
     ...(shownLineArt?.lineArt.frames.length ? [{ kind: 'lineart' as const, name: '', label: 'Edit drawing' }] : []),
     ...artworkItems.map((a) => ({ kind: 'artwork' as const, name: a.name, label: `Paint ${a.name}` })),
-    ...pictureItems.map((a, _, all) => ({ kind: 'picture' as const, name: a.name, label: all.length > 1 ? `Edit the picture ${a.name}` : 'Edit the picture' })),
+    ...pictureItems.map((a) => ({ kind: 'picture' as const, name: a.name, label: 'Edit the picture' })),
   ];
   const painter = painterItems.length ? {
     items: painterItems,

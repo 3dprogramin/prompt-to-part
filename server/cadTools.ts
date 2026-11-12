@@ -100,9 +100,10 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
   const layerToneBuilt = async (picture: string) => {
     const code = await readModel();
     if (code == null) return null;
-    const r = await geometry.evaluate(code, v(), undefined, signal);
+    // (Draft: only the options and the stack are read, which the quality does not change.)
+    const r = await geometry.evaluate(code, v(), 'draft', signal);
     const part = r.ok ? r.parts.find((p) => p.layerTone?.image === picture) : undefined;
-    return part ? layerToneBuild(part) : null;
+    return r.ok && part ? layerToneBuild(part, r.parts) : null;
   };
   const noFile = { content: [{ type: 'text' as const, text: `model.js does not exist yet. Write the script to ${file} first.` }], isError: true };
   // Code of model.js at the last successful render: submit requires the current file to have been looked at.

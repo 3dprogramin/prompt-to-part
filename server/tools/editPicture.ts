@@ -177,11 +177,13 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
         const next = withSet(base, r.set);
         for (const k of Object.keys(base)) if (!Object.hasOwn(next, k)) delete base[k];
         Object.assign(base, next);
-        emit({ type: 'pictureEdited', set: r.set, info: { picture: a.picture, change: a.change, masked: r.masked, outsideSame: r.outsideSame, cost: r.cost } });
+        // (Swaps not kept: the print outside may change, so the version does not line up.)
+        emit({ type: 'pictureEdited', set: r.set, info: { picture: a.picture, change: a.change, masked: r.masked, outsideSame: r.outsideSame && !r.swapsNotKept, cost: r.cost } });
         const cost = r.cost != null ? ` · ${formatCost(r.cost)}` : '';
         const notes = [
           r.masked ? (r.outsideSame ? `Outside the region the ${noun} is unchanged.` : `Outside the region the ${noun} changed too.`) : 'The whole picture was redrawn.',
           ...(r.swapsKept ? [r.swapsKept.note] : []),
+          ...(r.swapsNotKept ? [r.swapsNotKept.note] : []),
           ...(r.offPalette ? [r.offPalette.note] : []),
           ...(r.simplified ? ['The new shapes were simplified harder to stay within the drawing\'s point limit.'] : []),
         ];

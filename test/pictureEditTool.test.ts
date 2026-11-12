@@ -166,6 +166,15 @@ test('edit_picture says when the change wants a colour the design has no filamen
   assert.ok(r.content.find((c) => c.type === 'text')!.text!.includes(note));
 });
 
+test('edit_picture: swap layers that could not be kept are said, and the version is not taken to line up', async () => {
+  const note = 'Swap layers not kept: this design has more than one LayerTone picture, which share them, so the print outside the mark may change.';
+  const { edit, events } = setup(valuesWith(), { answer: { swapsNotKept: { note } } });
+  const r = await edit({ picture: 'santa.svg', change: 'a darker face', region: 'mark' }, {});
+  assert.ok(r.content.find((c) => c.type === 'text')!.text!.includes(note));
+  const ev = events.find((e) => e.type === 'pictureEdited');
+  assert.ok(ev && ev.type === 'pictureEdited' && ev.info.masked && ev.info.outsideSame === false);
+});
+
 /** The pixel (RGBA) at (i, j). */
 const at = (r: Raster, i: number, j: number) => [...r.data.subarray((j * r.width + i) * 4, (j * r.width + i) * 4 + 4)];
 

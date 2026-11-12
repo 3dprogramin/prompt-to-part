@@ -16,25 +16,29 @@ import type { AgentEvent, PictureEditRequest } from '../shared/api';
 import { autoSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, parseLayerToneSetup, toBase64, type LayerToneFilament, type LayerToneImage } from '../shared/layertone';
 import { markMask, PICTURE_MARKS_KEY, parsePictureMarks, type PictureMark } from '../shared/pictureEdit/mark';
 import { photoFingerprint } from '../shared/pictureEdit/photo';
+import { pictureChangedSince } from '../src/lib/pictureEdit';
+import type { Design } from '../shared/types';
 import { withSet } from '../shared/pictureEdit/set';
 import { evaluateScript } from '../shared/runtime';
 import type { Raster } from '../shared/meshFormats';
 import type { ParamValues } from '../shared/types';
 
-/** A 200 x 150 photo: a soft gradient with a few darker blobs and a brighter face in the middle. */
-const W = 200, H = 150;
-const photo = (() => {
-  const bytes = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let v = 60 + 120 * (x / W) + 30 * Math.sin(y / 9) + 20 * Math.cos((x + y) / 13);
-    for (const [cx, cy, r, d] of [[40, 40, 18, -50], [160, 110, 22, -40], [150, 30, 12, 60], [100, 75, 28, 70]]) {
-      const t = Math.hypot(x - cx, y - cy) / r;
+/** A `w` x `h` photo: a soft gradient with a few darker blobs and a brighter face in the middle (placed by fractions of its size). */
+function makePhoto(w: number, h: number): LayerToneImage {
+  const bytes = new Uint8Array(w * h), k = w / 200;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let v = 60 + 120 * (x / w) + 30 * Math.sin(y / (9 * k)) + 20 * Math.cos((x + y) / (13 * k));
+    for (const [cx, cy, r, d] of [[0.2, 0.27, 18, -50], [0.8, 0.73, 22, -40], [0.75, 0.2, 12, 60], [0.5, 0.5, 28, 70]]) {
+      const t = Math.hypot(x - cx * w, y - cy * h) / (r * k);
       if (t < 1) v += d * (1 - t * t);
     }
-    bytes[y * W + x] = Math.max(0, Math.min(255, Math.round(v)));
+    bytes[y * w + x] = Math.max(0, Math.min(255, Math.round(v)));
   }
-  return { name: 'photo-1', width: W, height: H, luma: toBase64(bytes) } satisfies LayerToneImage;
-})();
+  return { name: 'photo-1', width: w, height: h, luma: toBase64(bytes) };
+}
+/** A 200 x 150 photo. */
+const W = 200, H = 150;
+const photo = makePhoto(W, H);
 const aspect = W / H;
 /** The face in the middle of the picture (picture units: 1 = its height, centred, y up). */
 const face: PictureMark = { strokes: [{ width: 0.4, points: [[0, 0]] }] };
@@ -53,7 +57,7 @@ const values: ParamValues = {
 function builtWith(v: ParamValues): NonNullable<PictureEditRequest['layerTone']> {
   const part = evaluateScript(SCRIPT, v, 'draft').parts[0];
   const layers = part.layerColors!;
-  return { options: part.layerTone!.options, filaments: layers.map((l) => ({ name: l.name ?? l.color, ...(l.brand ? { brand: l.brand } : {}), color: l.color, td: l.td })), swaps: layers.slice(1).map((l) => l.layer) };
+  return { options: part.layerTone!.options, filaments: layers.map((l) => ({ name: l.name ?? l.color, ...(l.brand ? { brand: l.brand } : {}), color: l.color, td: l.td })), swaps: layers.slice(1).map((l) => l.layer), pictures: ['photo-1'] };
 }
 const request = (extra: Partial<PictureEditRequest> = {}): PictureEditRequest =>
   ({ mode: 'layertone', picture: 'photo-1', values, mark: face, change: 'a darker face', photos: [], layerTone: builtWith(values), ...extra });
@@ -180,6 +184,57 @@ test('swaps that are not automatic are left alone: the user\'s own, or the scrip
   const r2 = await edit(request({ layerTone: { ...builtWith(values), swaps: [2, 3] } }), darkInMark([]));
   assert.equal(LAYERTONE_KEY in r2.set, false);
   assert.equal(r2.swapsKept, undefined);
+});
+
+test('at a $scale of 5 the automatic swaps are found and kept as the scaled build made them', async () => {
+  const scaled = { ...values, $scale: 5 };
+  const built = builtWith(scaled);
+  assert.ok(Math.abs(built.options.layerHeight - 0.4) < 1e-9, 'the part\'s options are scaled with it');
+  const r = await edit(request({ values: scaled, layerTone: built }), darkInMark([]));
+  assert.deepEqual(r.swapsKept?.swaps, built.swaps);
+  assert.deepEqual(parseLayerToneSetup(r.set[LAYERTONE_KEY]).swaps, built.swaps);
+  // Built again with the edit: the same swap layers.
+  assert.deepEqual(builtWith(withSet(scaled, r.set)).swaps, built.swaps);
+});
+
+test('a design printing two LayerTone pictures: the shared automatic swaps are not kept, and the result says the print may change', async () => {
+  const r = await edit(request({ layerTone: { ...builtWith(values), pictures: ['photo-1', 'photo-2'] } }), darkInMark([]));
+  assert.equal(r.outsideSame, true, 'the picture itself is still the same outside the mark');
+  assert.equal(LAYERTONE_KEY in r.set, false);
+  assert.equal(r.swapsKept, undefined);
+  assert.match(r.swapsNotKept!.note, /more than one LayerTone picture/);
+  assert.match(r.swapsNotKept!.note, /may change/);
+});
+
+test('an odd-sized photo (517 x 389): outside the mark byte for byte the same', async () => {
+  const odd = makePhoto(517, 389), a = 517 / 389;
+  const mark: PictureMark = { strokes: [{ width: 0.23, points: [[-0.31, 0.12], [-0.05, 0.02]] }, { width: 0.1, points: [[0.5, -0.4]] }] };
+  const v: ParamValues = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'photo-1': odd }) };
+  const r = await edit(request({ values: v, mark, layerTone: { ...builtWith(values), swaps: undefined } }), darkInMark([]));
+  assert.equal(r.outsideSame, true);
+  const next = parseLayerToneImages(r.set[LAYERTONE_IMAGES_KEY])['photo-1'];
+  assert.equal(next.width, 517);
+  assert.equal(next.height, 389);
+  const before = layerToneLuma(odd), after = layerToneLuma(next), mask = markMask(mark, { w: 517, h: 389, px: 1 / 389, x0: -a / 2, y1: 0.5 });
+  let changed = 0;
+  for (let p = 0; p < before.length; p++) {
+    if (!mask[p]) assert.equal(after[p], before[p], `pixel ${p % 517}, ${Math.floor(p / 517)} outside the mark`);
+    else if (after[p] !== before[p]) changed++;
+  }
+  assert.ok(changed > 0.5 * mask.reduce((n, x) => n + x, 0), `${changed} pixels of the mark changed`);
+});
+
+test('pictureChangedSince: a photo\'s edit is refused once its pictures or LayerTone setup changed after the request', () => {
+  const d = { id: 'd1', values: { [LAYERTONE_IMAGES_KEY]: 'pics', [LAYERTONE_KEY]: 'setup', size: 3 } } as unknown as Design;
+  const sent = { designId: 'd1', drawings: undefined, edits: undefined, others: { [LAYERTONE_IMAGES_KEY]: 'pics', [LAYERTONE_KEY]: 'setup' } };
+  assert.equal(pictureChangedSince(d, sent), false);
+  assert.equal(pictureChangedSince({ ...d, values: { ...d.values, size: 4 } }, sent), false);
+  assert.equal(pictureChangedSince({ ...d, values: { ...d.values, [LAYERTONE_IMAGES_KEY]: 'other pics' } }, sent), true);
+  assert.equal(pictureChangedSince({ ...d, values: { ...d.values, [LAYERTONE_KEY]: '{"swaps":[3]}' } }, sent), true);
+  const { [LAYERTONE_KEY]: _gone, ...noSetup } = d.values;
+  assert.equal(pictureChangedSince({ ...d, values: noSetup }, sent), true);
+  // A setup that was missing and still is: unchanged.
+  assert.equal(pictureChangedSince({ ...d, values: noSetup }, { ...sent, others: { [LAYERTONE_IMAGES_KEY]: 'pics', [LAYERTONE_KEY]: undefined } }), false);
 });
 
 test('the whole LayerTone picture: sent padded to an allowed shape, the answer back at the stored size, no swaps kept', async () => {

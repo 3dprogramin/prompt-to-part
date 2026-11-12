@@ -3,7 +3,7 @@
 // as they were, so that a marked edit leaves the print outside the mark exactly as it was (the
 // automatic swaps are chosen from the whole picture's tones, which the edit changes).
 import type { PictureEditRequest } from '../../shared/api';
-import { autoSwaps, checkSwaps, cleanFilaments, cleanLayerToneSource, LAYERTONE_KEY, layerToneLuma, parseLayerToneSetup, type LayerToneImage } from '../../shared/layertone';
+import { autoSwaps, checkSwaps, cleanFilaments, cleanLayerToneSource, LAYERTONE_KEY, layerToneLuma, MAX_LAYERTONE_IMAGES, parseLayerToneSetup, type LayerToneImage } from '../../shared/layertone';
 import type { Raster } from '../../shared/meshFormats';
 import { SCALE_KEY } from '../../shared/params';
 import type { ParamValues } from '../../shared/types';
@@ -25,7 +25,8 @@ export function cleanBuild(raw: unknown): LayerToneBuild | null {
   const filaments = cleanFilaments(o.filaments);
   if (!source || !filaments) return null;
   if (o.swaps !== undefined && !(Array.isArray(o.swaps) && o.swaps.length < filaments.length && o.swaps.every((n) => Number.isInteger(n) && n >= 0))) return null;
-  return { options: source.options, filaments, ...(o.swaps ? { swaps: o.swaps } : {}) };
+  if (o.pictures !== undefined && !(Array.isArray(o.pictures) && o.pictures.length <= MAX_LAYERTONE_IMAGES && o.pictures.every((n) => typeof n === 'string'))) return null;
+  return { options: source.options, filaments, ...(o.swaps ? { swaps: o.swaps } : {}), ...(o.pictures ? { pictures: o.pictures } : {}) };
 }
 
 /**
@@ -45,6 +46,12 @@ export function swapsToKeep(img: LayerToneImage, build: LayerToneBuild, values: 
   if (build.swaps && (build.swaps.length !== auto.length || build.swaps.some((s, i) => s !== auto[i]))) return null;
   return auto;
 }
+
+/** Whether the build prints more than one LayerTone picture (they all share the setup's swaps, so none can be kept for one of them). */
+export const sharedSwaps = (build: LayerToneBuild) => new Set(build.pictures ?? []).size > 1;
+
+/** What the user is told when automatic swap layers could not be kept. */
+export const SWAPS_NOT_KEPT_NOTE = 'Swap layers not kept: this design has more than one LayerTone picture, which share them, so the print outside the mark may change.';
 
 /** What the user is told when the swap layers were kept. */
 export const swapsKeptNote = (swaps: number[]) =>

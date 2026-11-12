@@ -135,7 +135,8 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
       const sentEdits = sent.request.values[ARTWORK_EDITS_KEY];
       if (sentEdits != null) values[ARTWORK_EDITS_KEY] = sentEdits; else delete values[ARTWORK_EDITS_KEY];
       const next = applyPictureEdit({ ...d, values }, r, info, images);
-      watchLinesUp({ designId: d.id, version: next.currentVersion, values: next.values, parentBox: sent.parentBox, masked: r.masked, outsideSame: r.outsideSame });
+      // (A photo whose swap layers could not be kept may print differently outside the mark: it does not line up.)
+      watchLinesUp({ designId: d.id, version: next.currentVersion, values: next.values, parentBox: sent.parentBox, masked: r.masked, outsideSame: r.outsideSame && !r.swapsNotKept });
       kept = true;
       return next;
     }));

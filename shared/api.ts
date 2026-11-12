@@ -293,9 +293,10 @@ export interface PictureEditRequest {
   /**
    * LayerTone: how the picture's part was built, from the part as built (its `layerTone.options`,
    * and from its `layerColors` the filaments and the layer each one after the first starts at).
-   * A marked LayerTone edit needs it: automatic swap layers are kept as they were.
+   * A marked LayerTone edit needs it: automatic swap layers are kept as they were. `pictures`: the
+   * LayerTone pictures the whole build uses (the swaps are shared by all of them).
    */
-  layerTone?: { options: LayerToneSource['options']; filaments: LayerToneFilament[]; swaps?: number[] };
+  layerTone?: { options: LayerToneSource['options']; filaments: LayerToneFilament[]; swaps?: number[]; pictures?: string[] };
 }
 
 export interface PictureEditResponse {
@@ -325,6 +326,12 @@ export interface PictureEditResponse {
    * (set in the LayerTone setup), so the print outside the mark stays the same; `note` says so.
    */
   swapsKept?: { swaps: number[]; note: string };
+  /**
+   * A marked LayerTone edit whose automatic swap layers could not be kept: the design prints more than
+   * one LayerTone picture, which all share the swaps. The print outside the mark may change, so the
+   * version does not line up; `note` says so.
+   */
+  swapsNotKept?: { note: string };
   prompt: string;
   model: string;
   cost: number | null;

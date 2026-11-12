@@ -16,7 +16,7 @@ import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pic
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, toLayerToneImage } from '../../shared/layertone';
 import { alignTo, chooseCrop, featherPaste, resizeTo, type AlignFailure } from './raster';
-import { cleanBuild, greyRaster, swapsKeptNote, swapsToKeep } from './layerTone';
+import { cleanBuild, greyRaster, sharedSwaps, SWAPS_NOT_KEPT_NOTE, swapsKeptNote, swapsToKeep } from './layerTone';
 import { combineDrawing, offPalette, traceCrop } from './artwork';
 import { pictureEditPrompt } from './prompt';
 
@@ -487,7 +487,8 @@ async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEd
  * stored picture inside the mark only, so every byte outside it stays as it was. The picture is
  * stored under the same name at the same size. A marked edit of a picture whose part was built with
  * automatic swap layers keeps them (swapsToKeep, set in the LayerTone setup), so the print outside
- * the mark keeps its heights too; nothing else in the setup changes.
+ * the mark keeps its heights too; nothing else in the setup changes. When the build prints another
+ * LayerTone picture too (the swaps are shared), they are not kept, and the result says so.
  */
 async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const img = parseLayerToneImages(r.values[LAYERTONE_IMAGES_KEY])[r.picture];
@@ -499,9 +500,12 @@ async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<Picture
   const whole = resizeTo(full, Math.max(1, Math.round(wholeHeight * aspect)), wholeHeight);
 
   let before: string, after: string, shown: PictureWindow, pasted: Raster, asked: Asked;
-  let align: PictureEditResponse['align'], kept: number[] | null = null, fullMask: Uint8Array | null = null;
+  let align: PictureEditResponse['align'], kept: number[] | null = null, notKept = false, fullMask: Uint8Array | null = null;
   if (mark) {
-    kept = swapsToKeep(img, cleanBuild(r.layerTone)!, r.values);
+    const build = cleanBuild(r.layerTone)!;
+    kept = swapsToKeep(img, build, r.values);
+    // Swaps shared with another LayerTone picture would change its print: not kept, and said.
+    if (kept && sharedSwaps(build)) { kept = null; notKept = true; }
     fullMask = markMask(mark, { w: W, h: H, px: 1 / H, x0: -aspect / 2, y1: 0.5 });
     const b = markBounds(mark)!;
     const c = chooseCrop({ x: (b.min[0] + aspect / 2) * H, y: (0.5 - b.max[1]) * H, w: (b.max[0] - b.min[0]) * H, h: (b.max[1] - b.min[1]) * H }, { width: W, height: H }, ASPECTS, CONTEXT_MARGIN);
@@ -544,6 +548,7 @@ async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<Picture
     set, before, after, window: shown, masked: !!mark, outsideSame,
     ...(align ? { align } : {}),
     ...(kept ? { swapsKept: { swaps: kept, note: swapsKeptNote(kept) } } : {}),
+    ...(notKept ? { swapsNotKept: { note: SWAPS_NOT_KEPT_NOTE } } : {}),
     prompt: asked.prompt, model: asked.model, cost: asked.cost,
   };
 }
