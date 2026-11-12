@@ -58,7 +58,7 @@ export function markContours(m: PictureMark, segments = 24): [number, number][][
 }
 
 /** Fills a convex polygon into `out` (a pixel is in when its centre is, as `rasterize` decides), looking only at the rows it spans. */
-function fillConvex(c: [number, number][], g: LineArtGrid, out: Uint8Array) {
+export function fillConvex(c: [number, number][], g: LineArtGrid, out: Uint8Array) {
   let lo = Infinity, hi = -Infinity;
   for (const p of c) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
   const jTop = Math.max(0, Math.ceil((g.y1 - hi) / g.px - 0.5) - 1), jBot = Math.min(g.h - 1, Math.floor((g.y1 - lo) / g.px - 0.5) + 1);
