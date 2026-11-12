@@ -14,7 +14,7 @@ import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../../shared/layerto
 import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import type { Raster } from '../../shared/meshFormats';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
-import { drawingFingerprint, drawingPicture, LINEART_EDITS_KEY, parseLineArtEdits } from '../../shared/lineart';
+import { drawingFingerprint, drawingPicture, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtStyle } from '../../shared/lineart';
 import { boxMark, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow } from '../../shared/pictureEdit/render';
 import { withSet } from '../../shared/pictureEdit/set';
@@ -109,10 +109,10 @@ function sideBySide(a: Raster, b: Raster): Raster {
  * how a photo's part is built now, which a marked edit needs; null when no part is built from it)
  * or a lithophane's photo (nothing to pin: each pixel is its own thickness), or line art's drawings
  * (`frame`: where a drawing sits in the piece now, to draw its hand edits at their width; null when
- * the model does not use it).
+ * the model does not use it; `style`: the menu's line-art style, which the edit draws for then).
  */
 export type PictureTools = { mode: 'artwork' } | { mode: 'lithophane' } | { mode: 'layertone'; built: (picture: string) => Promise<PictureEditRequest['layerTone'] | null> }
-  | { mode: 'lineart'; frame: (picture: string) => Promise<PictureEditRequest['lineArt'] | null> };
+  | { mode: 'lineart'; frame: (picture: string) => Promise<PictureEditRequest['lineArt'] | null>; style?: LineArtStyle };
 
 /** The tools' words for each kind of picture (artwork's as they always were). */
 const WORDS = {
@@ -203,7 +203,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       }
       emit({ type: 'step', step: { kind: 'status', text: `Changing "${a.picture}"…` } });
       try {
-        const r = await edit({ mode, picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos, ...(layerTone ? { layerTone } : {}), ...(frame ? { lineArt: frame } : {}) }, {
+        const r = await edit({ mode, picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos, ...(layerTone ? { layerTone } : {}), ...(frame ? { lineArt: frame } : kind.mode === 'lineart' && kind.style ? { lineArt: { k: 0, lineWidth: 0, style: kind.style } } : {}) }, {
           image: drawImage, signal: images.signal, onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
         });
         // From now on every check and render uses the new picture; the app keeps the same values.
@@ -215,7 +215,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
         emit({ type: 'pictureEdited', set: r.set, info: { picture: a.picture, change: a.change, masked: r.masked, outsideSame: r.outsideSame && !r.swapsNotKept, cost: r.cost } });
         const cost = r.cost != null ? ` · ${formatCost(r.cost)}` : '';
         const notes = [
-          r.masked ? (r.outsideSame ? `Outside the region the ${noun} is unchanged.` : `Outside the region the ${noun} changed too.`) : 'The whole picture was redrawn.',
+          r.masked ? (r.outsideSame ? (r.swapsNotKept ? `The ${noun} is unchanged outside the region; the print there may change (swap layers not kept).` : `Outside the region the ${noun} is unchanged.`) : `Outside the region the ${noun} changed too.`) : 'The whole picture was redrawn.',
           ...(r.swapsKept ? [r.swapsKept.note] : []),
           ...(r.swapsNotKept ? [r.swapsNotKept.note] : []),
           ...(r.lineArtJoins ? [r.lineArtJoins.note] : []),

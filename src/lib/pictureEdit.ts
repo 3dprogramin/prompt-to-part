@@ -83,7 +83,8 @@ export async function requestPictureEdit(designId: string, r: PictureEditRequest
 /** What a picture edit's result says about itself: whether outside the mark is unchanged (a masked edit only), the swap layers kept, the line art's joins to check, and its warnings. */
 export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsideSame' | 'offPalette' | 'simplified' | 'swapsKept' | 'swapsNotKept' | 'lineArtJoins'>): { text: string; warn?: boolean }[] {
   const out: { text: string; warn?: boolean }[] = [];
-  if (r.masked) out.push(r.outsideSame ? { text: 'Outside the mark: unchanged' } : { text: 'Outside the mark: changed too, so it won\'t line up with the version it came from', warn: true });
+  // (Swap layers not kept: the picture is the same outside the mark, but the print there may not be.)
+  if (r.masked) out.push(r.outsideSame ? (r.swapsNotKept ? { text: 'The picture is unchanged outside the mark; the print there may change (swap layers not kept)', warn: true } : { text: 'Outside the mark: unchanged' }) : { text: 'Outside the mark: changed too, so it won\'t line up with the version it came from', warn: true });
   if (r.swapsKept) out.push({ text: r.swapsKept.note });
   if (r.swapsNotKept) out.push({ text: r.swapsNotKept.note, warn: true });
   if (r.lineArtJoins) out.push({ text: r.lineArtJoins.note });

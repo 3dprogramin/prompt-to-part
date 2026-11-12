@@ -170,6 +170,9 @@ test('pictureEditNotes: outside unchanged only for a masked edit, warnings marke
   assert.deepEqual(pictureEditNotes(response()), [{ text: 'Outside the mark: unchanged' }]);
   assert.equal(pictureEditNotes(response({ outsideSame: false }))[0].warn, true);
   assert.deepEqual(pictureEditNotes(response({ masked: false, outsideSame: false })), []);
+  // Swap layers not kept: the picture is the same outside the mark, the print may not be (a warning, not "unchanged").
+  const swaps = pictureEditNotes(response({ swapsNotKept: { note: 'Swaps not kept.' } }));
+  assert.deepEqual(swaps, [{ text: 'The picture is unchanged outside the mark; the print there may change (swap layers not kept)', warn: true }, { text: 'Swaps not kept.', warn: true }]);
   const notes = pictureEditNotes(response({ simplified: true, offPalette: { share: 0.3, colour: '#8b5a2b', note: 'Brown wanted.' } }));
   assert.deepEqual(notes.map((n) => !!n.warn), [false, true, true]);
 });

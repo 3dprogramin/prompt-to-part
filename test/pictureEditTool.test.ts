@@ -170,7 +170,10 @@ test('edit_picture: swap layers that could not be kept are said, and the version
   const note = 'Swap layers not kept: this design has more than one LayerTone picture, which share them, so the print outside the mark may change.';
   const { edit, events } = setup(valuesWith(), { answer: { swapsNotKept: { note } } });
   const r = await edit({ picture: 'santa.svg', change: 'a darker face', region: 'mark' }, {});
-  assert.ok(r.content.find((c) => c.type === 'text')!.text!.includes(note));
+  const said = r.content.find((c) => c.type === 'text')!.text!;
+  assert.ok(said.includes(note));
+  assert.ok(said.includes('is unchanged outside the region; the print there may change (swap layers not kept)'));
+  assert.ok(!said.includes('Outside the region'));
   const ev = events.find((e) => e.type === 'pictureEdited');
   assert.ok(ev && ev.type === 'pictureEdited' && ev.info.masked && ev.info.outsideSame === false);
 });
@@ -370,6 +373,11 @@ test('edit_picture and show_picture in line art mode: the drawing with its hand 
   assert.ok(!(await unbuilt({ picture: 'frame', change: 'a winter scene' }, {})).isError);
   assert.equal(requests.at(-1)!.lineArt, undefined);
   assert.equal(requests.at(-1)!.mark, undefined);
+  // ...unless the menu's style is known: the edit draws for that style, the rest at its defaults.
+  const withStyle = editPictureTools({ base: lineValues(), emit: () => {}, drawImage: (async () => { throw new Error('not asked'); }) as typeof requestImage } as unknown as ToolContext,
+    { references: [] }, edit, { mode: 'lineart', frame: async () => null, style: 'sign' }).map((t) => t.handler as unknown as Handler);
+  assert.ok(!(await withStyle[1]({ picture: 'frame', change: 'a winter scene' }, {})).isError);
+  assert.equal(requests.at(-1)!.lineArt?.style, 'sign');
   // A mark made on another drawing is not used, and the fix is named.
   const [, stale] = tools(lineValues({ frame: { fp: 'an older drawing', mark: face } }));
   assert.match((await stale({ picture: 'frame', change: 'a round window', region: 'mark' }, {})).content[0].text!, /Edit drawing brush/);

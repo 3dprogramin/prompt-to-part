@@ -38,7 +38,8 @@ export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked
 /**
  * The prompt for changing part of a LayerTone photo: a greyscale photo printed as a LayerTone
  * filament painting (its brightness becomes the print's height), so the change is a realistic
- * photo edit in grey tones that blends in. The attached pictures as for artwork.
+ * photo edit in grey tones that blends in. The attached pictures as for artwork. Serves LayerTone
+ * and lithophane (`lithophane`: the grey is the panel's thickness, not a filament painting).
  */
 function photoPrompt(r: { change: string; masked: boolean; photos: number; padded?: boolean }, lithophane = false): string {
   // What the print does with the picture, and what the change must keep for it.
@@ -79,7 +80,7 @@ function lineArtPrompt(r: { change: string; masked: boolean; photos: number; pad
   if (!r.masked) return lineArtEditPrompt({ change: r.change, references: Array.from({ length: r.photos }, () => ''), width: r.width, style });
   const photos = r.photos === 1 ? 'The attached photo shows' : `The ${r.photos} attached photos show`;
   return [
-    `Edit the first attached picture: it is part of black line art for a one-piece wall cut-out, about ${Math.round(r.width ?? LINE_ART_WIDTH[style])} mm wide, 3D-printed in black. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole drawing, for context only.`,
+    `Edit the first attached picture: it is a crop of black line art for a one-piece wall cut-out about ${Math.round(r.width ?? LINE_ART_WIDTH[style])} mm wide, 3D-printed in black. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole drawing, for context only.`,
     `Change only this inside the outlined area: ${r.change.trim()}`,
     r.photos ? `${photos} the real subject: use ${r.photos === 1 ? 'it' : 'them'} for the part you change.` : '',
     'Keep everything else exactly as it is: the same picture size and framing, and every line outside the outlined area where it is, at the same weight; copy them, don\'t redraw them. Answer with the first picture changed, without the magenta outline.',

@@ -165,7 +165,7 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       ...(!artwork && lithophane && pictures ? editPictureTools(ctx, pictures, editPicture, { mode: 'lithophane' }) : []),
       ...(lineArt ? lineArtTools(ctx, lineArt) : []),
       // ...and line art's drawings, with the image model (a design is one kind of picture print: the tools have one name; a line-art design with the menu on AI artwork edits as line art, so its hand edits keep applying).
-      ...(lineArt?.pictures && !((layerTone || lithophane) && pictures) ? editPictureTools(ctx, lineArt, editPicture, { mode: 'lineart', frame: lineArtFrameOf(ctx, lineArt.signal) }) : []),
+      ...(lineArt?.pictures && !((layerTone || lithophane) && pictures) ? editPictureTools(ctx, lineArt, editPicture, { mode: 'lineart', frame: lineArtFrameOf(ctx, lineArt.signal), style: lineArt.style }) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
       ...(designImage ? designImageTools(ctx, designImage) : []),
       ...(askFirst ? questionTools(ctx) : []),
