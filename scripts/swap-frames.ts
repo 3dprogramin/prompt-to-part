@@ -7,13 +7,14 @@
 //     --out <dir> [--password <pw>] [--reel /path/to/swap-reel.sh]
 //
 // The design itself is never changed: each version is put into a TEMPORARY design, exported from there
-// and the temporary design is deleted again. Prints the swap-reel.sh command (runs it with --reel).
+// and the temporary design is deleted again (also on Ctrl+C or a kill; a warning names one that could
+// not be deleted). Prints the swap-reel.sh command (runs it with --reel).
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import type { Page } from 'playwright-core';
+import type { Browser, Page } from 'playwright-core';
 import type { DesignVersion } from '../shared/types';
 
 export interface PixelBox { x: number; y: number; w: number; h: number }
@@ -61,7 +62,43 @@ export function cropBox(bounds: PixelBox, size: number, frame = FRAME): PixelBox
   return { x: start(bounds.x, bounds.w), y: start(bounds.y, bounds.h), w: size, h: size };
 }
 
+/** The body that creates a temporary design holding only `version`, which is not marked as a picture edit there. */
+export function temporaryDesign(version: DesignVersion, id: string, now: number) {
+  const { pictureEdit: _, ...plain } = version;
+  return { id, name: 'swap-frames temp', createdAt: now, updatedAt: now, code: plain.code, values: plain.values ?? {}, messages: [], versions: [plain], currentVersion: 0 };
+}
+
+/** Deletes a temporary design; when that fails, warns with its id (to delete it by hand) and returns false. */
+export async function deleteTemporary(app: string, auth: Record<string, string>, id: string, send: typeof fetch = fetch): Promise<boolean> {
+  let why: string;
+  try {
+    const res = await send(`${app}/api/designs/${id}`, { method: 'DELETE', headers: { 'X-PTP': '1', ...auth } });
+    if (res.ok) return true;
+    why = `HTTP ${res.status}`;
+  } catch (e) {
+    why = e instanceof Error ? e.message : String(e);
+  }
+  console.warn(`warning: could not delete the temporary design ${id} (${why}): delete it in the app`);
+  return false;
+}
+
 // ---- the browser part -------------------------------------------------------------------------
+
+/** What a Ctrl+C or a kill must clean up: the temporary design being exported and the browser. */
+const open: { temporary?: { app: string; auth: Record<string, string>; id: string }; browser?: Browser } = {};
+
+/** On SIGINT or SIGTERM: delete the temporary design, close the browser, exit non-zero. */
+function cleanUpOnSignals() {
+  const stop = async (signal: NodeJS.Signals) => {
+    console.error(`\n${signal}: cleaning up`);
+    const t = open.temporary;
+    if (t) await deleteTemporary(t.app, t.auth, t.id);
+    await open.browser?.close().catch(() => undefined);
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+}
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -94,8 +131,10 @@ async function main() {
   for (const i of picked) if (!design.versions?.[i]) throw new Error(`the design has no version ${i + 1}`);
   mkdirSync(out, { recursive: true });
 
+  cleanUpOnSignals();
   const { chromium } = await import('playwright-core');
   const browser = await chromium.launch();
+  open.browser = browser;
   try {
     const context = await browser.newContext({ viewport: { width: 1400, height: 850 }, acceptDownloads: true, ...(password ? { httpCredentials: { username: 'ptp', password } } : {}) });
     context.setDefaultTimeout(120_000);
@@ -155,10 +194,10 @@ async function main() {
 /** Puts `version` into a temporary design, exports its GLB through the app's own Export GLB, deletes the temporary design. */
 async function exportGlb(page: Page, app: string, auth: Record<string, string>, version: DesignVersion): Promise<Buffer> {
   const id = randomUUID();
-  const now = Date.now();
-  const body = { id, name: 'swap-frames temp', createdAt: now, updatedAt: now, code: version.code, values: version.values ?? {}, messages: [], versions: [version], currentVersion: 0 };
-  const put = await fetch(`${app}/api/designs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1', ...auth }, body: JSON.stringify(body) });
-  if (!put.ok) throw new Error(`could not create the temporary design: ${put.status}`);
+  // Known before it exists: a Ctrl+C while it is being created still deletes it.
+  open.temporary = { app, auth, id };
+  const put = await fetch(`${app}/api/designs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-PTP': '1', ...auth }, body: JSON.stringify(temporaryDesign(version, id, Date.now())) });
+  if (!put.ok) { open.temporary = undefined; throw new Error(`could not create the temporary design: ${put.status}`); }
   try {
     await page.setViewportSize({ width: 1400, height: 850 });
     await page.goto(`${app}/?design=${id}`);
@@ -168,7 +207,9 @@ async function exportGlb(page: Page, app: string, auth: Record<string, string>, 
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export GLB' }).click()]);
     return readFileSync((await download.path())!);
   } finally {
-    await fetch(`${app}/api/designs/${id}`, { method: 'DELETE', headers: { 'X-PTP': '1', ...auth } }).catch(() => {});
+    // Still known while it is deleted: a Ctrl+C meanwhile deletes it again (a DELETE of a design that is gone is fine).
+    await deleteTemporary(app, auth, id);
+    open.temporary = undefined;
   }
 }
 

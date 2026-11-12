@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cropBox, plaqueBounds, transitions } from '../scripts/swap-frames';
+import { cropBox, deleteTemporary, plaqueBounds, temporaryDesign, transitions } from '../scripts/swap-frames';
 import type { DesignVersion } from '../shared/types';
 
 const version = (pictureEdit?: { parent: number; linesUp: boolean }): DesignVersion => ({
@@ -34,4 +34,37 @@ test('cropBox centres on the plaque and stays inside the frame', () => {
   assert.deepEqual(cropBox({ x: 340, y: 340, w: 400, h: 400 }, 900), { x: 90, y: 90, w: 900, h: 900 });
   assert.deepEqual(cropBox({ x: 0, y: 0, w: 100, h: 100 }, 900), { x: 0, y: 0, w: 900, h: 900 });
   assert.deepEqual(cropBox({ x: 1000, y: 1000, w: 80, h: 80 }, 900), { x: 180, y: 180, w: 900, h: 900 });
+});
+
+test('the temporary copy of a version is not marked as a picture edit', () => {
+  const v = { ...version({ parent: 0, linesUp: true }), code: 'cube(1);', values: { a: '1' } } as DesignVersion;
+  const body = temporaryDesign(v, 'tmp-id', 5);
+  assert.equal(body.id, 'tmp-id');
+  assert.equal(body.code, 'cube(1);');
+  assert.deepEqual(body.values, { a: '1' });
+  assert.equal(body.versions.length, 1);
+  assert.equal('pictureEdit' in body.versions[0], false);
+  assert.ok(v.pictureEdit, 'the version itself is left as it was');
+});
+
+test('a temporary design that could not be deleted is named in a warning', async () => {
+  const warned: string[] = [], warn = console.warn;
+  console.warn = (...a: unknown[]) => { warned.push(a.join(' ')); };
+  try {
+    const calls: [string, RequestInit | undefined][] = [];
+    const ok = (async (url: string, init?: RequestInit) => { calls.push([url, init]); return new Response(null, { status: 200 }); }) as typeof fetch;
+    assert.equal(await deleteTemporary('http://app', { Authorization: 'x' }, 'id-ok', ok), true);
+    assert.equal(calls[0][0], 'http://app/api/designs/id-ok');
+    assert.equal(calls[0][1]?.method, 'DELETE');
+    assert.deepEqual(warned, []);
+    const refused = (async () => new Response(null, { status: 409 })) as typeof fetch;
+    assert.equal(await deleteTemporary('http://app', {}, 'id-409', refused), false);
+    const down = (async () => { throw new Error('connection refused'); }) as typeof fetch;
+    assert.equal(await deleteTemporary('http://app', {}, 'id-down', down), false);
+    assert.equal(warned.length, 2);
+    assert.match(warned[0], /id-409/);
+    assert.match(warned[0], /409/);
+    assert.match(warned[1], /id-down/);
+    assert.match(warned[1], /connection refused/);
+  } finally { console.warn = warn; }
 });
