@@ -32,6 +32,7 @@ type Image = typeof requestImage;
 type Call = { prompt: string; aspect: string; references: string[]; size?: string };
 let calls: Call[] = [];
 let answer: Image = async () => { throw new Error('no stand-in set'); };
+let releaseReply = () => {};
 const { createApp } = await import('../server/app');
 server.on('request', createApp({
   port,
@@ -39,6 +40,12 @@ server.on('request', createApp({
     calls.push({ prompt, aspect, references: references ?? [], size });
     return answer(prompt, aspect, references, signal, onStatus, size);
   },
+  // A stand-in for a reply: it runs until released or stopped.
+  generate: (_req, send, abort) => new Promise((resolve) => {
+    send({ type: 'live', text: 'working' });
+    releaseReply = () => resolve();
+    abort.signal.addEventListener('abort', () => resolve());
+  }),
 }));
 after(() => {
   server.close();
@@ -152,6 +159,7 @@ test('a marked edit of artwork: the crop and its outline sent, only the mark cha
   assert.equal(Math.max(whole.width, whole.height), 1024);
   assert.equal(call.prompt, body.prompt);
   assert.match(call.prompt, /a red face/);
+  assert.doesNotMatch(call.prompt, /padding/);
 
   // The drawing: same name, red inside the mark, as before outside it.
   const drawings = parseDrawings(body.set[DRAWINGS_KEY]);
@@ -198,9 +206,11 @@ test('without a mark the whole picture is sent, padded to an allowed shape, and 
   const body = await res.json() as PictureEditResponse;
   assert.equal(res.status, 200, JSON.stringify(body));
   assert.equal(body.masked, false);
-  assert.equal(body.outsideSame, true);
+  // No outside to compare: nothing claimed.
+  assert.equal(body.outsideSame, false);
   assert.equal(calls[0].references.length, 1);
   assert.equal(calls[0].aspect, '5:4');
+  assert.match(calls[0].prompt, /white bands .* are only padding/);
   const sent = raster(calls[0].references[0]);
   assert.ok(Math.abs(sent.width / sent.height - 1.25) < 0.01, `${sent.width} x ${sent.height}`);
   // Back to the picture's own shape: what is shown is not padded.
@@ -284,6 +294,8 @@ test('requests that cannot be edited are refused before the image model is asked
     assert.match((await res.json() as { error: string }).error, why);
   };
   await bad(request({ picture: 'nope.svg' }), /no drawing "nope.svg"/);
+  // Names an object has from its prototype are not drawings.
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) await bad(request({ picture: name }), /no drawing/);
   await bad(request({ change: ' ' }), /what to change/i);
   await bad(request({ mode: 'layertone' }), /not yet/);
   await bad(request({ photos: ['https://example.com/a.png'] }), /photo/i);
@@ -301,6 +313,67 @@ test('without an OpenRouter key a picture edit says what is missing', async () =
     assert.equal(res.status, 503);
     assert.match((await res.json() as { error: string }).error, /OPENROUTER_API_KEY/);
   } finally { process.env.OPENROUTER_API_KEY = 'test'; }
+});
+
+test('a running reply and a running picture edit keep each other off the design, and a design being edited is not deleted', async () => {
+  const id = 'test-pe-00000011';
+  const reply = () => fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: id, prompt: 'a cube' }) });
+  const del = () => fetch(`${A}/api/designs/${id}`, { method: 'DELETE', headers: W });
+  // A reply first: no picture edit.
+  const first = await reply();
+  assert.equal(first.status, 200);
+  calls = [];
+  const blocked = await post(id, request());
+  assert.equal(blocked.status, 409);
+  assert.match((await blocked.json() as { error: string }).error, /reply is being written/);
+  assert.equal(calls.length, 0);
+  releaseReply();
+  await first.text();
+
+  // A picture edit first: no reply, no delete.
+  let release!: () => void;
+  answer = () => new Promise((_, reject) => { release = () => reject(new Error('The image model refused: done')); });
+  const edit = post(id, request());
+  await until(() => calls.length === 1);
+  assert.equal((await reply()).status, 409);
+  assert.equal((await del()).status, 409);
+  release();
+  assert.equal((await edit).status, 502);
+  // Free again.
+  assert.equal((await del()).status, 200);
+});
+
+test('a crop that fits no allowed shape is padded to the one asked for and cut back', async () => {
+  // A picture 4 times as wide as high, a strip 3.5 wide: its crop is 3.5:1, wider than 21:9.
+  const wide: SvgDrawing = {
+    name: 'wide.svg', aspect: 4,
+    shapes: [
+      { rule: 'EvenOdd', contours: [[[-1.95, -0.45], [1.95, -0.45], [1.95, 0.45], [-1.95, 0.45]]], color: BLACK },
+      { rule: 'EvenOdd', contours: [[[-1.5, -0.2], [1.5, -0.2], [1.5, 0.2], [-1.5, 0.2]]], color: GOLD },
+    ],
+  };
+  const strip: PictureMark = { strokes: [{ width: 0.1, points: [[-1.7, 0], [1.7, 0]] }] };
+  calls = [];
+  answer = fillMarked([0x11, 0x11, 0x11]);
+  const res = await post('test-pe-00000012', request({ picture: 'wide.svg', mark: strip, values: { [DRAWINGS_KEY]: JSON.stringify({ 'wide.svg': wide }) } }));
+  const body = await res.json() as PictureEditResponse;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  const [call] = calls;
+  assert.equal(call.aspect, '21:9');
+  const sent = raster(call.references[0]), outlined = raster(call.references[1]);
+  assert.ok(Math.abs(sent.width / sent.height / ratio('21:9') - 1) < 0.01, `${sent.width} x ${sent.height}`);
+  assert.equal(outlined.height, sent.height);
+  assert.match(call.prompt, /only padding/);
+  // What is shown is the crop itself, not padded.
+  const before = raster(body.before), afterPic = raster(body.after);
+  assert.ok(before.width / before.height > 3, `${before.width} x ${before.height}`);
+  assert.equal(afterPic.height, before.height);
+  assert.equal(body.outsideSame, true);
+  // The strip is black now, the gold outside it as it was.
+  const d = parseDrawings(body.set[DRAWINGS_KEY])['wide.svg'];
+  assert.equal(colourAt(d, 0, 0), BLACK);
+  assert.equal(colourAt(d, 1, 0.15), GOLD);
+  assert.equal(colourAt(d, -1, -0.15), GOLD);
 });
 
 test('the paste ramps in from every edge of the mark that is not the picture\'s own border', () => {

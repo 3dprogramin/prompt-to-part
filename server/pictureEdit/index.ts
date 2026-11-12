@@ -78,8 +78,10 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
   if (photos.length > MAX_PHOTOS) return `Send at most ${MAX_PHOTOS} photos`;
   if (!photos.every((p) => typeof p === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(p))) return 'Each photo must be a PNG, JPEG or WebP data URL';
   if (!r.values || typeof r.values !== 'object' || typeof r.picture !== 'string') return 'Send the design\'s values and the picture\'s name';
-  const d = parseDrawings(r.values[DRAWINGS_KEY])[r.picture];
-  if (!d || !(r.picture in rawObject(r.values[DRAWINGS_KEY]))) return `There is no drawing "${r.picture}" in this design`;
+  // Own keys only: 'constructor' or '__proto__' must not find the object's prototype.
+  const drawings = parseDrawings(r.values[DRAWINGS_KEY]);
+  if (!Object.hasOwn(drawings, r.picture) || !Object.hasOwn(rawObject(r.values[DRAWINGS_KEY]), r.picture)) return `There is no drawing "${r.picture}" in this design`;
+  const d = drawings[r.picture];
   const bad = drawingColors(d).filter((c) => !/^#[0-9a-f]{6}$/i.test(c));
   if (bad.length) return `Only a drawing in #rrggbb colours can be edited; "${r.picture}" has ${bad.map((c) => `"${c}"`).join(', ')}`;
   const mark = cleanMark(r.mark);
@@ -180,6 +182,23 @@ function padTo(img: Raster, ratio: number): { padded: Raster; x: number; y: numb
   return { padded: { width: W, height: H, data }, x, y };
 }
 
+/**
+ * The picture in the shape the image model is asked for (`ratio`, width / height): padded with
+ * white when it is more than 1 % off (`bands`), else as it is (resizing the answer back covers the
+ * rounding). With where the picture sits in what is sent.
+ */
+function fitShape(img: Raster, ratio: number): { padded: Raster; x: number; y: number; bands: boolean } {
+  if (Math.abs(Math.log(img.width / img.height / ratio)) <= 0.01) return { padded: img, x: 0, y: 0, bands: false };
+  return { ...padTo(img, ratio), bands: true };
+}
+
+/** A mask (one byte per pixel of a `w`-wide picture) placed at (x, y) in a larger picture `W` x `H`, 0 around it. */
+function padMask(mask: Uint8Array, w: number, W: number, H: number, x: number, y: number): Uint8Array {
+  const out = new Uint8Array(W * H);
+  for (let j = 0; j < mask.length / w; j++) out.set(mask.subarray(j * w, (j + 1) * w), (j + y) * W + x);
+  return out;
+}
+
 /** A part of a picture. */
 function cut(img: Raster, x: number, y: number, w: number, h: number): Raster {
   const data = new Uint8Array(w * h * 4);
@@ -236,16 +255,18 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
   const d = parseDrawings(r.values[DRAWINGS_KEY])[r.picture];
   const colours = drawingColors(d);
   const photos = r.photos ?? [];
-  const own = parseArtworkEdits(r.values[ARTWORK_EDITS_KEY])[r.picture];
+  const edits = parseArtworkEdits(r.values[ARTWORK_EDITS_KEY]);
+  const own = Object.hasOwn(edits, r.picture) ? edits[r.picture] : undefined;
   const strokes = own && own.fp === drawingFingerprint(d) ? own.strokes : [];
   const mark = cleanMark(r.mark);
   const C = await crossSection();
-  const prompt = pictureEditPrompt({ mode: r.mode, change: r.change, masked: !!mark, colours, photos: photos.length });
-  const ask = async (aspect: string, references: string[]) => {
+  /** Asks the image model; `padded`: the picture sent has white bands added to give it the aspect asked for. */
+  const ask = async (aspect: string, references: string[], padded: boolean) => {
+    const prompt = pictureEditPrompt({ mode: r.mode, change: r.change, masked: !!mark, colours, photos: photos.length, padded });
     deps.onStatus?.(`Changing "${r.picture}" with ${imageModel()}…`);
     const out = await deps.image(prompt, aspect, references, deps.signal, deps.onStatus, PICTURE_EDIT_SIZE);
     if (deps.signal?.aborted) throw new Error('Stopped');
-    return { ...out, answer: decodeImage(Buffer.from(out.image.data, 'base64')) };
+    return { ...out, prompt, answer: decodeImage(Buffer.from(out.image.data, 'base64')) };
   };
   const background = (labels: Int16Array) => Uint8Array.from(labels, (l) => (l < 0 ? 1 : 0));
 
@@ -256,22 +277,26 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     const pic = renderDrawing(d, strokes, crop.win, crop.height), raster: Raster = { width: pic.width, height: pic.height, data: pic.data };
     const inMark = markMask(mark, { w: crop.width, h: crop.height, px: crop.win.h / crop.height, x0: crop.win.x0, y1: crop.win.y1 });
     const whole = renderDrawing(d, strokes, wholeWindow(d), Math.round(SENT_LONG_SIDE / Math.max(d.aspect, 1)));
+    // A crop that fits no allowed aspect (a mark wider than 21:9) is padded to the one asked for, and cut back.
+    const { padded, x, y, bands } = fitShape(raster, ratioOf(crop.aspect));
+    const sentMark = bands ? padMask(inMark, crop.width, padded.width, padded.height, x, y) : inMark;
     sent = pngUrl(raster);
-    asked = await ask(crop.aspect, [sent, pngUrl(outlined(raster, inMark, OUTLINE_PX)), pngUrl(whole), ...photos]);
-    const fit = alignTo(asked.answer, raster, inMark.map((v) => 1 - v), { mark: inMark });
+    asked = await ask(crop.aspect, [pngUrl(padded), pngUrl(outlined(padded, sentMark, OUTLINE_PX)), pngUrl(whole), ...photos], bands);
+    const fit = alignTo(asked.answer, padded, sentMark.map((v) => 1 - v), { mark: sentMark });
     if (!fit.ok) throw new PictureEditError(502, ALIGN_MESSAGES[fit.reason!]);
-    pasted = pasteMark(raster, fit.image, inMark, FEATHER_PX, crop.open);
+    const lined = bands ? cut(fit.image, x, y, crop.width, crop.height) : fit.image;
+    pasted = pasteMark(raster, lined, inMark, FEATHER_PX, crop.open);
     fresh = traceCrop(pasted, colours, crop.win, background(pic.labels), d.name, MAX_SVG_POINTS);
     area = mark;
     // The colour check: the answer's colours in the mark, where they do not trace as paper.
     const traced = renderDrawing(fresh, [], crop.win, crop.height).labels;
-    note = offPaletteNote(fit.image, inMark.map((v, p) => (v && traced[p] >= 0 ? 1 : 0)), colours);
+    note = offPaletteNote(lined, inMark.map((v, p) => (v && traced[p] >= 0 ? 1 : 0)), colours);
   } else {
     const heightPx = Math.round(SENT_LONG_SIDE / Math.max(d.aspect, 1));
     const pic = renderDrawing(d, strokes, wholeWindow(d), heightPx), raster: Raster = { width: pic.width, height: pic.height, data: pic.data };
-    const aspect = nearestAspect(pic.width / pic.height), { padded, x, y } = padTo(raster, ratioOf(aspect));
+    const aspect = nearestAspect(pic.width / pic.height), { padded, x, y, bands } = fitShape(raster, ratioOf(aspect));
     sent = pngUrl(raster);
-    asked = await ask(aspect, [pngUrl(padded), ...photos]);
+    asked = await ask(aspect, [pngUrl(padded), ...photos], bands);
     pasted = cut(resizeTo(asked.answer, padded.width, padded.height), x, y, pic.width, pic.height);
     // Paper: where it was, and what touches the picture's edges (the whole subject may change).
     const paper = background(pic.labels);
@@ -309,9 +334,10 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
   set[PICTURE_MARKS_KEY] = Object.keys(marks).length ? JSON.stringify(marks) : null;
 
   return {
-    set, before: sent, after: pngUrl(pasted), masked: !!mark, outsideSame: combined.outsideSame,
+    // A whole-picture edit has no outside: nothing to say about it.
+    set, before: sent, after: pngUrl(pasted), masked: !!mark, outsideSame: !!mark && combined.outsideSame,
     ...(combined.simplified ? { simplified: true } : {}),
     ...(note ? { offPalette: note } : {}),
-    prompt, model: asked.model, cost: asked.cost,
+    prompt: asked.prompt, model: asked.model, cost: asked.cost,
   };
 }

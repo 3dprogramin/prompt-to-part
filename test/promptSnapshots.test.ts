@@ -91,6 +91,10 @@ test('prompt for picture-edit-artwork', async () => {
     pictureEditPrompt({ mode: 'artwork', change: 'give him a big, friendly smile', masked: true, colours, photos: 1 }),
     '# the whole picture',
     pictureEditPrompt({ mode: 'artwork', change: 'make the hat green', masked: false, colours, photos: 0 }),
+    '# the whole picture, padded to the aspect asked for',
+    pictureEditPrompt({ mode: 'artwork', change: 'make the hat green', masked: false, colours, photos: 0, padded: true }),
+    '# marked, padded, with two photos',
+    pictureEditPrompt({ mode: 'artwork', change: 'a longer beard', masked: true, colours, photos: 2, padded: true }),
     '',
   ].join('\n');
   const file = path.join(FIXTURES, 'picture-edit-artwork.md');

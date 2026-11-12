@@ -7,8 +7,9 @@ import type { PictureMode } from '../../shared/api';
  * The prompt for changing part of a picture. `masked`: the attached pictures are the crop to edit,
  * the same crop with the area outlined in magenta and the whole picture; otherwise the whole picture
  * alone. `photos` of the real subject come after them. `colours`: the drawing's own (artwork).
+ * `padded`: white bands were added to the picture to give it the aspect asked for.
  */
-export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number }): string {
+export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number; padded?: boolean }): string {
   if (r.mode !== 'artwork') throw new Error(`Picture edits for ${r.mode} are not written yet`);
   const colours = r.colours ?? [];
   const where = r.masked ? ' inside the outlined area' : '';
@@ -22,6 +23,7 @@ export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked
     r.masked
       ? 'Keep everything else exactly as it is: the same picture size and framing, and every shape, edge and colour outside the outlined area where it is; copy them, don\'t redraw them. Answer with the first picture changed, without the magenta outline.'
       : 'Keep everything else exactly as it is: the same picture size and framing, the same subjects in the same places and poses, and every shape, edge and colour you are not asked to change; copy them, don\'t redraw them.',
+    r.padded ? `The plain white bands along two opposite edges of the ${r.masked ? 'first two pictures' : 'picture'} are only padding: leave them plain white, with nothing drawn in them.` : '',
     `Colours: only these ${colours.length} flat colours, the design's filaments, and no others: ${colours.join(', ')}.`,
     'Rules for what you change:',
     '- the same style as the rest of the picture: flat colour areas with hard, clean edges; no gradients, soft shading, textures, noise, halftone dots or hatching',

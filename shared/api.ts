@@ -294,7 +294,7 @@ export interface PictureEditResponse {
   before: string;
   after: string;
   masked: boolean;
-  /** Checked: outside the mark the picture is unchanged. */
+  /** Checked: outside the mark the picture is unchanged. Only meaningful for a masked edit (always false without a mark: there is no outside). */
   outsideSame: boolean;
   /** The new shapes were simplified harder to stay within the drawing's point limit. */
   simplified?: boolean;
