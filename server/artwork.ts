@@ -244,12 +244,20 @@ export function lineArtEditPrompt(r: { change: string; references?: string[]; wi
     `Change only this: ${r.change.trim()}`,
     r.references?.length ? 'The other attached photo(s) show the real subject: use them for the part you change.' : '',
     'Keep everything else exactly as it is: the same picture size and framing, the same subjects in the same places and poses, and every other line where it is, at the same weight – copy them, don\'t redraw them.',
-    'Rules for what you change:',
-    '- pure black (#000000) lines on pure white (#FFFFFF), the same line weight and bold, simplified style as the rest of the picture; no grey, shading, hatching or textures',
-    '- it joins the lines around it, so the drawing stays ONE connected piece with nothing floating or dangling',
-    '- no detail smaller than about three line widths; no text, signature or watermark',
+    ...LINE_ART_EDIT_RULES,
   ].filter(Boolean).join('\n');
 }
+
+/** The print rules for what an edit of line art changes (lineArtEditPrompt, and a marked picture edit of a line-art drawing). */
+export const LINE_ART_EDIT_RULES = [
+  'Rules for what you change:',
+  '- pure black (#000000) lines on pure white (#FFFFFF), the same line weight and bold, simplified style as the rest of the picture; no grey, shading, hatching or textures',
+  '- it joins the lines around it, so the drawing stays ONE connected piece with nothing floating or dangling',
+  '- no detail smaller than about three line widths; no text, signature or watermark',
+];
+
+/** The longest side traceLineArt traces at: a larger picture is box-filtered down by a whole factor first. */
+export const LINE_TRACE_MAX_SIDE = 2400;
 
 /**
  * Line art (black on white: the image model's, or an attached picture that already is line art)
@@ -276,7 +284,7 @@ export function traceLineArt(input: Raster, name: string): Pick<Artwork, 'drawin
   // The ink traced straight from the picture's own pixels (not the colour tracer, which would cut
   // curves into a few chords and drop short lines): marching squares on the darkness, at the
   // threshold, so anti-aliased edges land between pixels. A 2-pixel empty border closes every outline.
-  const img = downscale(input, 2400);
+  const img = downscale(input, LINE_TRACE_MAX_SIDE);
   const W = img.width + 4, H = img.height + 4, ink = new Float32Array(W * H);
   for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
     const i = (y * img.width + x) * 4;

@@ -80,12 +80,16 @@ export const filamentKey = (f: PartFilament) => `${f.color.toLowerCase()}|${f.na
 
 /**
  * A drawing as a black-on-white picture `heightPx` high (RGBA, anti-aliased), with its hand edits
- * drawn in – what the image model gets to change part of a drawing. `mmPerUnit`: the drawing's
- * size in the piece (its frame's k), for the strokes' widths; `drawnAt`: its k0.
+ * drawn in: what the image model gets to change part of a drawing. `mmPerUnit`: the drawing's
+ * size in the piece (its frame's k), for the strokes' widths; `drawnAt`: its k0. `win`: only that
+ * part of the drawing (its top-left corner and size in drawing units), `heightPx` high; the whole
+ * drawing without one.
  */
-export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx: number, mmPerUnit: number, lineWidth = 1, drawnAt = mmPerUnit): { width: number; height: number; rgba: Uint8Array } {
-  const S = 2, H = Math.round(heightPx) * S, W = Math.round(d.aspect * heightPx) * S;
-  const g: LineArtGrid = { w: W, h: H, px: 1 / H, x0: -d.aspect / 2, y1: 0.5 };
+export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx: number, mmPerUnit: number, lineWidth = 1, drawnAt = mmPerUnit, win?: { x0: number; y1: number; w: number; h: number }): { width: number; height: number; rgba: Uint8Array } {
+  const S = 2, H = Math.round(heightPx) * S, W = Math.round((win ? win.w / win.h : d.aspect) * heightPx) * S;
+  // Pixels per drawing unit (the whole drawing: its height is the picture's).
+  const ppu = win ? H / win.h : H;
+  const g: LineArtGrid = win ? { w: W, h: H, px: 1 / ppu, x0: win.x0, y1: win.y1 } : { w: W, h: H, px: 1 / H, x0: -d.aspect / 2, y1: 0.5 };
   const ink = new Uint8Array(W * H);
   // Shapes in paint order: the line colours add ink, the others (white-ish paper) cover it.
   const dark = defaultColors(d), lines = dark ? new Set(dark) : null;
@@ -94,13 +98,13 @@ export function drawingPicture(d: SvgDrawing, strokes: LineArtStroke[], heightPx
     const on = !lines || lines.has(sh.color ?? '');
     for (let i = 0; i < m.length; i++) if (m[i]) ink[i] = on ? 1 : 0;
   }
-  const toPx = ([x, y]: [number, number]): Pt => [(x - g.x0) * H - 0.5, (g.y1 - y) * H - 0.5];
+  const toPx = ([x, y]: [number, number]): Pt => [(x - g.x0) * ppu - 0.5, (g.y1 - y) * ppu - 0.5];
   // (Paint adds no ink; fills stay strokes of their own, kept by colourStrokes. A clear puts the drawing's own ink back.)
   const own = strokes.some((st) => st.mode === 'restore') ? ink.slice() : null;
   for (const st of strokes) {
     if (st.mode === 'paint' || st.mode === 'fill') continue;
     // (A width in mm at the size it was drawn at: `k`, else `drawnAt`.)
-    const r = (st.width != null ? st.width / 2 / (st.k ?? drawnAt) : (st.mode === 'draw' ? lineWidth : 3) / 2 / mmPerUnit) * H;
+    const r = (st.width != null ? st.width / 2 / (st.k ?? drawnAt) : (st.mode === 'draw' ? lineWidth : 3) / 2 / mmPerUnit) * ppu;
     const m = new Uint8Array(W * H), pts = st.points.map(toPx);
     // (A square brush: its outlines on the pixels, y up as rasterize has it.)
     if (st.shape === 'square') for (const c of squareOutlines([pts.map(([x, y]): Pt => [x, -y])], r)) rasterize([c], { w: W, h: H, px: 1, x0: -0.5, y1: 0.5 }, m);

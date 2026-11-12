@@ -3,14 +3,15 @@
 // so a small face gets full detail, sent with the same crop outlined and the whole picture; the
 // answer is lined up with what was sent using only the area outside the mark, pasted inside the
 // mark with a soft edge, and brought back to the picture's source (artwork: traced in the drawing's
-// own colours and joined to the old drawing so outside the mark nothing changes).
+// own colours and joined to the old drawing so outside the mark nothing changes; line art: traced as
+// line art and joined the same way, the hand edits in the mark taken back).
 import Module, { type CrossSection } from 'manifold-3d';
 import { encode as encodePng } from 'fast-png';
 import { ASPECTS, decodeImage, imageModel, rgb, type ImageSize, type requestImage } from '../artwork';
 import type { PictureEditRequest, PictureEditResponse, PictureMode } from '../../shared/api';
 import type { Raster } from '../../shared/meshFormats';
 import { ARTWORK_EDITS_KEY, cutStrokes, parseArtworkEdits } from '../../shared/artworkEdits';
-import { drawingFingerprint } from '../../shared/lineart/strokes';
+import { drawingFingerprint, drawingPicture, LINE_ART_STYLES, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtEdits, type LineArtStroke, type LineArtStyle } from '../../shared/lineart';
 import { markBounds, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pictureEdit/render';
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
@@ -19,6 +20,7 @@ import { alignTo, chooseCrop, featherPaste, resizeTo, type AlignFailure } from '
 import { cleanBuild, greyRaster, sharedSwaps, SWAPS_NOT_KEPT_NOTE, swapsKeptNote, swapsToKeep } from './layerTone';
 import { combineDrawing, offPalette, traceCrop } from './artwork';
 import { pictureEditPrompt } from './prompt';
+import { editWholeLineArt, markClears, traceLineCrop, type LineArtFrame } from './lineArt';
 
 /** The picture size asked of the image model; the picture sent is drawn at the same size. */
 export const PICTURE_EDIT_SIZE: ImageSize = '1K';
@@ -59,6 +61,8 @@ export const MAX_MARK_POINTS = 20_000;
 /** The modes whose picture is a stored photo (greyscale under $images): LayerTone's and the lithophane's. */
 const isPhoto = (m: PictureMode) => m === 'layertone' || m === 'lithophane';
 const MODES: readonly PictureMode[] = ['artwork', 'layertone', 'lithophane', 'lineart'];
+/** What a marked line-art edit says about the piece built from it. */
+export const LINE_ART_JOINS_NOTE = 'Joins and bridges are worked out again for the whole piece: check them near the mark.';
 
 /** A picture edit that failed with an HTTP status: 400 the request, 502 the image model's answer. */
 export class PictureEditError extends Error {
@@ -97,7 +101,6 @@ function cleanMark(mark: unknown): PictureMark | null {
 export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undefined): string | null {
   if (!r || typeof r !== 'object') return 'Send a picture edit';
   if (!MODES.includes(r.mode as PictureMode)) return `mode: one of ${MODES.join(', ')}`;
-  if (r.mode === 'lineart') return `Editing a ${r.mode} picture is not yet supported`;
   if (typeof r.change !== 'string' || !r.change.trim() || r.change.length > MAX_CHANGE) return `Say what to change (up to ${MAX_CHANGE} characters)`;
   const photos = r.photos ?? [];
   if (!Array.isArray(photos)) return 'photos: a list of data URLs';
@@ -116,6 +119,8 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
     const d = drawings[r.picture];
     const bad = drawingColors(d).filter((c) => !/^#[0-9a-f]{6}$/i.test(c));
     if (bad.length) return `Only a drawing in #rrggbb colours can be edited; "${r.picture}" has ${bad.map((c) => `"${c}"`).join(', ')}`;
+    // Line art is one shape in one colour (traceLineArt's black): what is traced in the mark takes it.
+    if (r.mode === 'lineart' && drawingColors(d).length !== 1) return `Only a line-art drawing in one colour can be edited; "${r.picture}" has ${drawingColors(d).length}`;
     aspect = d.aspect;
   }
   const mark = cleanMark(r.mark);
@@ -128,6 +133,9 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
     if (b.max[0] <= w.x0 || b.min[0] >= w.x0 + w.w || b.max[1] <= w.y1 - w.h || b.min[1] >= w.y1) return 'The mark is outside the picture';
     // Its automatic swap layers are kept as the part was built with them (editPhoto).
     if (r.mode === 'layertone' && !cleanBuild(r.layerTone)) return 'A marked LayerTone edit needs how the picture\'s part was built (its options and filaments): build the model first';
+    // The mark goes after the drawing's hand edits as clears of them: the strokes kept are the last MAX_LINEART_STROKES.
+    const hand = r.mode === 'lineart' ? handStrokes(r.values, r.picture).length : 0;
+    if (hand && hand + mark.strokes.length > MAX_LINEART_STROKES) return `The drawing has ${hand} hand edits and the mark ${mark.strokes.length} strokes, over the ${MAX_LINEART_STROKES} a drawing keeps: select the area with fewer strokes, or clear some hand edits first`;
   }
   return null;
 }
@@ -317,6 +325,8 @@ function offPaletteNote(answer: Raster, mask: Uint8Array, colours: string[]): Pi
 }
 
 type Deps = { image: typeof requestImage; signal?: AbortSignal; onStatus?: (t: string) => void; id?: string };
+/** A line-art edit's prompt: the piece the drawing is for and its width. */
+type LineArtPiece = { style: LineArtStyle; width?: number };
 /** The image model's answer to an edit, decoded, with the prompt it was asked with. */
 type Asked = Awaited<ReturnType<typeof requestImage>> & { prompt: string; answer: Raster };
 /** Asks the image model with the mode's prompt; `padded`: the picture sent has white bands added to give it the aspect asked for. */
@@ -324,9 +334,9 @@ type Ask = (aspect: string, references: string[], padded: boolean) => Promise<As
 /** One line per edit in the server log with the numbers to tune the alignment by (no prompt, no picture). */
 type Log = (fields: Record<string, unknown>) => void;
 
-function asker(r: PictureEditRequest, deps: Deps, masked: boolean, colours?: string[]): Ask {
+function asker(r: PictureEditRequest, deps: Deps, masked: boolean, colours?: string[], piece?: LineArtPiece): Ask {
   return async (aspect, references, padded) => {
-    const prompt = pictureEditPrompt({ mode: r.mode, change: r.change, masked, colours, photos: (r.photos ?? []).length, padded });
+    const prompt = pictureEditPrompt({ mode: r.mode, change: r.change, masked, colours, photos: (r.photos ?? []).length, padded, ...piece });
     deps.onStatus?.(`Changing "${r.picture}" with ${imageModel()}…`);
     const out = await deps.image(prompt, aspect, references, deps.signal, deps.onStatus, PICTURE_EDIT_SIZE);
     if (deps.signal?.aborted) throw new Error('Stopped');
@@ -386,19 +396,19 @@ function marksWithout(values: PictureEditRequest['values'], picture: string): st
 }
 
 /**
- * Edits the picture: AI artwork (the drawing named `picture` in the values' $drawings, with its
- * hand edits) or a LayerTone photo (the picture named `picture` in $images). With a mark, only the
- * marked area changes: the answer that does not line up with what was sent fails
- * (PictureEditError 502) rather than paste a moved piece. Without one, the whole picture is sent,
- * padded to the nearest aspect the model draws, and replaced. Returns the values to set: the drawing
- * or picture under the same name, for artwork the hand edits cut by the mark (dropped for a
- * whole-picture edit) and re-keyed, for LayerTone the swap layers kept (editPhoto), and the
- * picture's mark removed.
+ * Edits the picture: AI artwork or line art (the drawing named `picture` in the values' $drawings,
+ * with its hand edits) or a LayerTone or lithophane photo (the picture named `picture` in $images).
+ * With a mark, only the marked area changes: the answer that does not line up with what was sent
+ * fails (PictureEditError 502) rather than paste a moved piece. Without one, the whole picture is
+ * sent, padded to the nearest aspect the model draws, and replaced (line art: as generate_line_art's
+ * edit does it, editLineArt). Returns the values to set: the drawing or picture under the same name,
+ * for artwork the hand edits cut by the mark (dropped for a whole-picture edit) and re-keyed, for
+ * LayerTone the swap layers kept (editPhoto), and the picture's mark removed.
  */
 export async function editPicture(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const problem = pictureEditProblem(r);
   if (problem) throw new PictureEditError(400, problem);
-  return isPhoto(r.mode) ? editPhoto(r, deps) : editArtwork(r, deps);
+  return isPhoto(r.mode) ? editPhoto(r, deps) : r.mode === 'lineart' ? editLineArt(r, deps) : editArtwork(r, deps);
 }
 
 async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
@@ -554,6 +564,91 @@ async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEdit
     ...(align ? { align } : {}),
     ...(kept ? { swapsKept: { swaps: kept, note: swapsKeptNote(kept) } } : {}),
     ...(notKept ? { swapsNotKept: { note: SWAPS_NOT_KEPT_NOTE } } : {}),
+    prompt: asked.prompt, model: asked.model, cost: asked.cost,
+  };
+}
+
+/** The line-art hand edits of drawing `name` in the values, made on it as it is now (own keys only); none else. */
+function handStrokes(values: PictureEditRequest['values'], name: string): LineArtStroke[] {
+  const all = parseLineArtEdits(values[LINEART_EDITS_KEY]), d = parseDrawings(values[DRAWINGS_KEY]);
+  const own = Object.hasOwn(all, name) && Object.hasOwn(d, name) ? all[name] : undefined;
+  return own && own.fp === drawingFingerprint(d[name]) ? own.strokes : [];
+}
+
+/** Where the drawing sits in the piece, as the request says, checked: what is not a positive number is generate_line_art's default without a model. */
+function lineArtPiece(f: PictureEditRequest['lineArt']): LineArtFrame & LineArtPiece {
+  const pos = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined);
+  const k = pos(f?.k) ?? 80;
+  return { k, k0: pos(f?.k0) ?? k, lineWidth: pos(f?.lineWidth) ?? 1, style: LINE_ART_STYLES.includes(f?.style as LineArtStyle) ? f!.style! : 'outline', width: pos(f?.width) };
+}
+
+/**
+ * A line-art drawing's edit (one shape in one colour, H.lineart). Its hand edits are drawn in at
+ * the size the piece is built (`lineArt` in the request). Without a mark: editWholeLineArt, the way
+ * generate_line_art's edit goes (the answer traced at its own shape, the hand edits baked, their
+ * colours kept). With one: the crop rendered at the size sent, the answer pasted inside the mark,
+ * traced as line art and joined to the old drawing (combineDrawing: the lines crossing the mark's
+ * edge meet, so it stays one piece where it was), and the mark appended to the hand edits as clears
+ * ('restore'): inside it the model saw them drawn in, so the new drawing already has them.
+ */
+async function editLineArt(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
+  const d = parseDrawings(r.values[DRAWINGS_KEY])[r.picture];
+  const ink = drawingColors(d)[0], photos = r.photos ?? [], mark = cleanMark(r.mark);
+  const strokes = handStrokes(r.values, r.picture), piece = lineArtPiece(r.lineArt);
+  const log = logger(r, deps, !!mark);
+  const set: Record<string, string | null> = {};
+  /** The drawing as the app will read it back (so the hand edits' fingerprint matches), or why it can't be kept. */
+  const keepable = (drawing: SvgDrawing, status: number) => {
+    const clean = cleanDrawing(drawing);
+    if (!clean) throw new PictureEditError(status, `The edited drawing is empty or too detailed to keep (at most ${MAX_SVG_POINTS.toLocaleString('en')} points)`);
+    return clean;
+  };
+  /** The hand edits on the new drawing: `next` (none: dropped), the other drawings' as they were. */
+  const withEdits = (drawing: SvgDrawing, next: LineArtStroke[]) => {
+    const edits = rawObject(r.values[LINEART_EDITS_KEY]);
+    if (next.length) edits[r.picture] = { fp: drawingFingerprint(drawing), strokes: next }; else delete edits[r.picture];
+    set[LINEART_EDITS_KEY] = Object.keys(edits).length ? JSON.stringify(edits) : null;
+  };
+
+  if (!mark) {
+    deps.onStatus?.(`Changing "${r.picture}" with ${imageModel()}…`);
+    const w = await editWholeLineArt({ drawing: d, name: r.picture, strokes, frame: piece, change: r.change, photos, width: piece.width, style: piece.style, aspect: nearestAspect(d.aspect) }, deps);
+    if (deps.signal?.aborted) throw new Error('Stopped');
+    log({ answer: size(w.answer), sent: size(w.sent) });
+    const drawing = keepable(w.traced.drawing, 502);
+    set[DRAWINGS_KEY] = withEntry(r.values[DRAWINGS_KEY], r.picture, drawing);
+    if (strokes.length) withEdits(drawing, w.edits?.strokes ?? []);
+    set[PICTURE_MARKS_KEY] = marksWithout(r.values, r.picture);
+    // A whole-picture edit has no outside: nothing to say about it.
+    return { set, before: pngUrl(w.sent), after: pngUrl(w.answer), window: wholeWindow(d), masked: false, outsideSame: false, prompt: w.prompt, model: w.model, cost: w.cost };
+  }
+
+  const C = await crossSection();
+  const render = (heightPx: number, win?: PictureWindow): Raster => {
+    const pic = drawingPicture(d, strokes, heightPx, piece.k, piece.lineWidth, piece.k0, win);
+    return { width: pic.width, height: pic.height, data: pic.rgba };
+  };
+  const crop = cropAround(d, mark);
+  const raster = render(crop.height, crop.win);
+  const inMark = markMask(mark, { w: crop.width, h: crop.height, px: crop.win.h / crop.height, x0: crop.win.x0, y1: crop.win.y1 });
+  const whole = render(Math.round(SENT_LONG_SIDE / Math.max(d.aspect, 1)));
+  const { lined, asked, align } = await askInMark(raster, inMark, crop.aspect, whole, photos, asker(r, deps, true, undefined, piece), log, false);
+  const pasted = pasteMark(raster, lined, inMark, FEATHER_PX, crop.open);
+  let combined: ReturnType<typeof combineDrawing>;
+  try {
+    combined = combineDrawing(d, traceLineCrop(pasted, crop.win, d.name, ink), mark, C);
+  } catch (e) {
+    throw new PictureEditError(400, (e as Error).message);
+  }
+  const drawing = keepable(combined.drawing, 400);
+  set[DRAWINGS_KEY] = withEntry(r.values[DRAWINGS_KEY], r.picture, drawing);
+  // (No hand edits: nothing to take back.)
+  if (strokes.length) withEdits(drawing, [...strokes, ...markClears(mark)]);
+  set[PICTURE_MARKS_KEY] = marksWithout(r.values, r.picture);
+  return {
+    set, before: pngUrl(raster), after: pngUrl(pasted), window: crop.win, masked: true, outsideSame: combined.outsideSame,
+    ...(combined.simplified ? { simplified: true } : {}),
+    align, lineArtJoins: { note: LINE_ART_JOINS_NOTE },
     prompt: asked.prompt, model: asked.model, cost: asked.cost,
   };
 }

@@ -297,6 +297,13 @@ export interface PictureEditRequest {
    * LayerTone pictures the whole build uses (the swaps are shared by all of them).
    */
   layerTone?: { options: LayerToneSource['options']; filaments: LayerToneFilament[]; swaps?: number[]; pictures?: string[] };
+  /**
+   * Line art: where the drawing sits in the piece as built (from the part's `lineArt`): mm per drawing
+   * unit now (`k`) and at the script's own size (`k0`), the line width, the style and the piece's
+   * width (mm). The hand edits are drawn in at that size; without it as generate_line_art does
+   * without a model (80 mm per unit, 1 mm lines).
+   */
+  lineArt?: { k: number; k0?: number; lineWidth: number; style?: LineArtStyle; width?: number };
 }
 
 export interface PictureEditResponse {
@@ -332,6 +339,11 @@ export interface PictureEditResponse {
    * version does not line up; `note` says so.
    */
   swapsNotKept?: { note: string };
+  /**
+   * A marked line-art edit: the drawing outside the mark is the same, but the app's clean-up (joins of
+   * loose ends, bridges) runs again on the whole piece when it is built; `note` says to check it near the mark.
+   */
+  lineArtJoins?: { note: string };
   prompt: string;
   model: string;
   cost: number | null;

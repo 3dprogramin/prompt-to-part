@@ -108,7 +108,7 @@ test('a marked lithophane edit needs no build from the app; a missing picture or
   await editPicture(request(photo), { image: darkInMark() });
   await assert.rejects(editPicture(request(photo, { picture: 'nope' }), { image: darkInMark() }), (e: unknown) => e instanceof PictureEditError && /no picture "nope"/i.test((e as Error).message));
   await assert.rejects(editPicture(request(photo, { picture: 'constructor' }), { image: darkInMark() }), PictureEditError);
-  await assert.rejects(editPicture(request(photo, { mode: 'lineart' }), { image: darkInMark() }), /not yet supported/);
+  await assert.rejects(editPicture(request(photo, { mode: 'lineart' }), { image: darkInMark() }), /no drawing "photo-1"/);
 });
 
 test('the lithophane prompt asks for a realistic photo with a full tonal range; the LayerTone one does not', async () => {

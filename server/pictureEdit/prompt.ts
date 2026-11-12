@@ -1,7 +1,9 @@
 // The image model's prompt for a picture edit: the mode's own rules (artwork: the design's filament
 // colours and flat areas, as artworkPrompt asks for them; LayerTone: a realistic photo in grey
-// tones) around "change only this", with what each attached picture is.
+// tones; line art: lineArtEditPrompt's) around "change only this", with what each attached picture is.
 import type { PictureMode } from '../../shared/api';
+import type { LineArtStyle } from '../../shared/lineart';
+import { LINE_ART_EDIT_RULES, LINE_ART_WIDTH, lineArtEditPrompt } from '../artwork';
 
 /**
  * The prompt for changing part of a picture. `masked`: the attached pictures are the crop to edit,
@@ -9,9 +11,9 @@ import type { PictureMode } from '../../shared/api';
  * alone. `photos` of the real subject come after them. `colours`: the drawing's own (artwork).
  * `padded`: white bands were added to the picture to give it the aspect asked for.
  */
-export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number; padded?: boolean }): string {
+export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number; padded?: boolean; style?: LineArtStyle; width?: number }): string {
   if (r.mode === 'layertone' || r.mode === 'lithophane') return photoPrompt(r, r.mode === 'lithophane');
-  if (r.mode !== 'artwork') throw new Error(`Picture edits for ${r.mode} are not written yet`);
+  if (r.mode === 'lineart') return lineArtPrompt(r);
   const colours = r.colours ?? [];
   const where = r.masked ? ' inside the outlined area' : '';
   const photos = r.photos === 1 ? 'The attached photo shows' : `The ${r.photos} attached photos show`;
@@ -63,5 +65,26 @@ function photoPrompt(r: { change: string; masked: boolean; photos: number; padde
     lithophane ? '- a full tonal range in the change too (real shadows and highlights, not flat grey): the lit panel shows the tones' : '',
     '- in grey tones only, as the rest of the picture (the print has no colour)',
     '- no outline, border or frame around the change, and no text, signature or watermark',
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * The prompt for changing a line-art drawing (`style`: the piece it is drawn for; `width`: the
+ * piece's width, mm). The whole drawing: lineArtEditPrompt, as generate_line_art's edit sends it.
+ * Marked: the same print rules, the change inside the outlined area only, and the lines that cross
+ * the area's edge carried on where they were, so the drawing stays one piece.
+ */
+function lineArtPrompt(r: { change: string; masked: boolean; photos: number; padded?: boolean; style?: LineArtStyle; width?: number }): string {
+  const style = r.style ?? 'outline';
+  if (!r.masked) return lineArtEditPrompt({ change: r.change, references: Array.from({ length: r.photos }, () => ''), width: r.width, style });
+  const photos = r.photos === 1 ? 'The attached photo shows' : `The ${r.photos} attached photos show`;
+  return [
+    `Edit the first attached picture: it is part of black line art for a one-piece wall cut-out, about ${Math.round(r.width ?? LINE_ART_WIDTH[style])} mm wide, 3D-printed in black. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole drawing, for context only.`,
+    `Change only this inside the outlined area: ${r.change.trim()}`,
+    r.photos ? `${photos} the real subject: use ${r.photos === 1 ? 'it' : 'them'} for the part you change.` : '',
+    'Keep everything else exactly as it is: the same picture size and framing, and every line outside the outlined area where it is, at the same weight; copy them, don\'t redraw them. Answer with the first picture changed, without the magenta outline.',
+    r.padded ? 'The plain white bands along two opposite edges of the first two pictures are only padding: leave them plain white, with nothing drawn in them.' : '',
+    ...LINE_ART_EDIT_RULES,
+    '- every line that crosses the edge of the outlined area carries on across it where it was, at the same weight',
   ].filter(Boolean).join('\n');
 }

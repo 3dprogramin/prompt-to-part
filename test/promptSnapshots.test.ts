@@ -167,3 +167,17 @@ test('prompt for picture-edit-lithophane', async () => {
   if (update) writeFileSync(file, actual);
   else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-lithophane changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
 });
+
+test('prompt for picture-edit-lineart', async () => {
+  const { pictureEditPrompt } = await import('../server/pictureEdit/prompt');
+  const actual = [
+    '# marked, with a photo',
+    pictureEditPrompt({ mode: 'lineart', change: 'make the rider look like the man in the photo', masked: true, photos: 1, style: 'keyholder', width: 240 }),
+    '# marked, padded, with two photos, no size known',
+    pictureEditPrompt({ mode: 'lineart', change: 'swap the exhaust for a short silencer', masked: true, photos: 2, padded: true }),
+    '',
+  ].join('\n');
+  const file = path.join(FIXTURES, 'picture-edit-lineart.md');
+  if (update) writeFileSync(file, actual);
+  else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-lineart changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
+});
