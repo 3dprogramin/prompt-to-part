@@ -3,7 +3,9 @@
 // before / after with its checks and cost, to Keep, Try again or Discard.
 import { useEffect, useRef, useState } from 'react';
 import type { PictureEditResponse } from '../../../shared/api';
-import type { PictureMark } from '../../../shared/pictureEdit/mark';
+import { markContours, type PictureMark } from '../../../shared/pictureEdit/mark';
+import type { PictureWindow } from '../../../shared/pictureEdit/render';
+import { SELECT_RING } from '../lineart/editorDraw';
 import { formatCost } from '../../../shared/duration';
 import { pictureEditNotes } from '../../lib/pictureEdit';
 import { prepareImage } from '../../lib/files';
@@ -25,6 +27,7 @@ interface Props {
   /** The edit made, waiting for Keep, Try again or Discard. */
   result: PictureEditResponse | null;
   onKeep: () => void;
+  /** Try again on a result: the same request (the brush is locked meanwhile, so it is still current). */
   onRetry: () => void;
   onDiscard: () => void;
   /** Why the last edit failed (the server's words) or couldn't be kept. */
@@ -33,6 +36,40 @@ interface Props {
   startedAt?: number;
   /** The result is being kept (its pictures stored). */
   keeping?: boolean;
+}
+
+/**
+ * The mark's edge over a picture of `win` (picture units): a thin dashed line, white under blue, on
+ * the outside of the area only (each piece's outline drawn, then every piece's inside taken away, so
+ * where pieces overlap no line shows).
+ */
+function MarkEdge({ mark, win }: { mark: PictureMark; win: PictureWindow }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const draw = () => {
+      const r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      c.width = Math.max(1, Math.round(r.width * dpr)); c.height = Math.max(1, Math.round(r.height * dpr));
+      const ctx = c.getContext('2d')!;
+      const k = c.width / win.w, ky = c.height / win.h;
+      const path = new Path2D();
+      for (const piece of markContours(mark)) {
+        piece.forEach(([x, y], i) => { const px = (x - win.x0) * k, py = (win.y1 - y) * ky; if (i) path.lineTo(px, py); else path.moveTo(px, py); });
+        path.closePath();
+      }
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4 * dpr; ctx.strokeStyle = '#ffffff'; ctx.stroke(path);
+      ctx.setLineDash([4 * dpr, 3 * dpr]); ctx.strokeStyle = SELECT_RING; ctx.stroke(path);
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fill(path, 'nonzero');
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, [mark, win]);
+  return <canvas ref={ref} className="la-ed-edit-edge" aria-hidden />;
 }
 
 export function EditPicturePanel(p: Props) {
@@ -75,8 +112,15 @@ export function EditPicturePanel(p: Props) {
       {p.result ? (
         <>
           <div className="la-ed-edit-compare">
-            <figure><img src={p.result.before} alt="Before" /><figcaption>Before</figcaption></figure>
-            <figure><img src={p.result.after} alt="After" /><figcaption>After</figcaption></figure>
+            {([['Before', p.result.before], ['After', p.result.after]] as const).map(([label, src]) => (
+              <figure key={label}>
+                <span className="la-ed-edit-shot">
+                  <img src={src} alt={label} />
+                  {p.mark && p.result!.window && <MarkEdge mark={p.mark} win={p.result!.window} />}
+                </span>
+                <figcaption>{label}</figcaption>
+              </figure>
+            ))}
           </div>
           {notes.length > 0 && (
             <ul className="la-ed-edit-checks">
@@ -98,6 +142,8 @@ export function EditPicturePanel(p: Props) {
           <textarea className="la-ed-edit-change" value={change} rows={3} maxLength={MAX_CHANGE} disabled={locked} aria-label="What to change"
             placeholder="What to change, e.g. make him look like the man in the photo"
             onChange={(e) => setChange(e.target.value)}
+            // Escape here only leaves the box: the mark stays and the editor stays open (useEscape skips it).
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.currentTarget.blur(); } }}
             onPaste={(e) => { const f = files(e.clipboardData.files); if (f.length) { e.preventDefault(); void add(f); } }} />
           {photos.length > 0 && (
             <div className="la-ed-edit-photos">
@@ -125,7 +171,8 @@ export function EditPicturePanel(p: Props) {
                   title={`Photos of the real person or subject for the part changed (pick, paste or drop), at most ${MAX_PHOTOS}`}>
                   <Icon name="paperclip" size={14} />Attach photo
                 </button>
-                {p.error && <button className="btn" onClick={p.onRetry} title="Ask the image model again">Try again</button>}
+                {/* (As Edit: with the mark, the strokes and the words as they are now, which may have changed since.) */}
+                {p.error && <button className="btn" disabled={!change.trim()} onClick={() => p.onEdit(change.trim(), photos)} title="Ask the image model again">Try again</button>}
                 <button className="btn primary" disabled={!change.trim()} onClick={() => p.onEdit(change.trim(), photos)}
                   title={p.mark ? 'Change the area marked with the image model' : 'Change the whole picture with the image model'}>Edit</button>
               </>

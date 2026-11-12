@@ -32,3 +32,10 @@ test('a picture mark is not a setting, and builds the same as without it', () =>
   assert.equal(sameBuild({ w: 31 }, { w: 31, $drawings: '{}' }), false);
   assert.equal(sameBuild({ w: 31, $drawings: '{}' }, { w: 31, $text: '{}' }), false);
 });
+
+test('without marks, values build again whenever they are a new object (as before marks existed)', () => {
+  const a = { w: 31, $drawings: '{}' };
+  assert.equal(sameBuild(a, a), true);
+  assert.equal(sameBuild(a, { ...a }), false);
+  assert.equal(sameBuild({}, {}), false);
+});

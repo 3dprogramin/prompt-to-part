@@ -6,7 +6,8 @@ import type { GeometryClient } from '../geometry/client';
 /**
  * Evaluates the open design whenever its code, values or the preview quality change. `lastGood`
  * is the last model that built (shown while a broken edit is fixed) and is never carried over
- * from another design; `resultCode` is the code `result` was built from.
+ * from another design; `resultCode` is the code `result` was built from; `builtValues` the values
+ * object built, the same while only the picture marks change.
  */
 /** `printerId`: the chosen printer; a new one builds the model again (what fits, its checks and line art splits follow the bed). */
 export function useLiveModel(geo: GeometryClient, design: Design, quality: Quality, printerId = '') {
@@ -43,5 +44,5 @@ export function useLiveModel(geo: GeometryClient, design: Design, quality: Quali
     return () => { cancelled = true; };
   }, [geo, design.id, design.code, values, quality, printerId]);
 
-  return { result, lastGood, error, busy, resultCode };
+  return { result, lastGood, error, busy, resultCode, builtValues: values };
 }

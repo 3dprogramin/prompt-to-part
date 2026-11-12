@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { applyPictureEdit, linesUp, pictureEditNotes, versionNote } from '../src/lib/pictureEdit';
+import { applyPictureEdit, linesUp, pictureChangedSince, pictureEditNotes, versionNote } from '../src/lib/pictureEdit';
 import type { PictureEditResponse } from '../shared/api';
 import type { Box3, Design, DesignVersion } from '../shared/types';
 
@@ -144,6 +144,19 @@ test('applyPictureEdit: no photos, no cost; the warnings go in the reply', () =>
   // A whole-picture edit says nothing about an outside.
   const whole = applyPictureEdit(design(), response({ masked: false, outsideSame: false }), { ...info, masked: false }, stored);
   assert.doesNotMatch(whole.messages[2].text, /Outside the mark/);
+});
+
+test('pictureChangedSince: a result is refused when the drawings or hand edits changed after the request, or for another design', () => {
+  const d = design();
+  const sent = { designId: 'd1', drawings: d.values.$drawings, edits: d.values.$artworkEdits };
+  assert.equal(pictureChangedSince(d, sent), false);
+  // A slider or a mark moved meanwhile changes nothing the edit depends on.
+  assert.equal(pictureChangedSince({ ...d, values: { ...d.values, size: 9, $pictureMarks: '{}' } }, sent), false);
+  assert.equal(pictureChangedSince({ ...d, values: { ...d.values, $drawings: '{"art":"from a reply"}' } }, sent), true);
+  assert.equal(pictureChangedSince({ ...d, values: { ...d.values, $artworkEdits: '{"art":"painted"}' } }, sent), true);
+  const { $artworkEdits: _gone, ...noEdits } = d.values;
+  assert.equal(pictureChangedSince({ ...d, values: noEdits }, sent), true);
+  assert.equal(pictureChangedSince({ ...d, id: 'd2' }, sent), true);
 });
 
 test('pictureEditNotes: outside unchanged only for a masked edit, warnings marked', () => {

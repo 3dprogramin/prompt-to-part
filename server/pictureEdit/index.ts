@@ -270,7 +270,7 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
   };
   const background = (labels: Int16Array) => Uint8Array.from(labels, (l) => (l < 0 ? 1 : 0));
 
-  let sent: string, pasted: Raster, fresh: SvgDrawing, area: PictureMark, note: PictureEditResponse['offPalette'];
+  let sent: string, shown: PictureWindow, pasted: Raster, fresh: SvgDrawing, area: PictureMark, note: PictureEditResponse['offPalette'];
   let asked: Awaited<ReturnType<typeof ask>>;
   if (mark) {
     const crop = cropAround(d, mark);
@@ -281,6 +281,7 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     const { padded, x, y, bands } = fitShape(raster, ratioOf(crop.aspect));
     const sentMark = bands ? padMask(inMark, crop.width, padded.width, padded.height, x, y) : inMark;
     sent = pngUrl(raster);
+    shown = crop.win;
     asked = await ask(crop.aspect, [pngUrl(padded), pngUrl(outlined(padded, sentMark, OUTLINE_PX)), pngUrl(whole), ...photos], bands);
     // Outside: the crop's own pixels outside the mark. The padding is neither (the model may redraw
     // it, and it must not count toward the outside a match needs).
@@ -306,6 +307,7 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     for (let i = 0; i < pic.width; i++) paper[i] = paper[(pic.height - 1) * pic.width + i] = 1;
     for (let j = 0; j < pic.height; j++) paper[j * pic.width] = paper[j * pic.width + pic.width - 1] = 1;
     const win = { ...wholeWindow(d), w: pic.width / heightPx };
+    shown = win;
     fresh = traceCrop(pasted, colours, win, paper, d.name, MAX_SVG_POINTS);
     // The whole picture is the area replaced: a square past every side of it.
     area = { strokes: [{ width: 2 * Math.max(d.aspect, 1) + 1, points: [[0, 0]], shape: 'square' }] };
@@ -338,7 +340,7 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
 
   return {
     // A whole-picture edit has no outside: nothing to say about it.
-    set, before: sent, after: pngUrl(pasted), masked: !!mark, outsideSame: !!mark && combined.outsideSame,
+    set, before: sent, after: pngUrl(pasted), window: shown, masked: !!mark, outsideSame: !!mark && combined.outsideSame,
     ...(combined.simplified ? { simplified: true } : {}),
     ...(note ? { offPalette: note } : {}),
     prompt: asked.prompt, model: asked.model, cost: asked.cost,

@@ -14,7 +14,7 @@
 // Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { Socket } from 'node:net';
 import os from 'node:os';
@@ -69,9 +69,19 @@ const blackInMark = (references: string[]) => {
   }
   return { image: { data: Buffer.from(encodePng({ width: w, height: crop.height, data, channels: 4 })).toString('base64'), mediaType: 'image/png' }, model: 'test/image', cost: 0.04 };
 };
-const image = async (prompt: string, aspect: string, references: string[] | undefined, _signal?: AbortSignal, _onStatus?: unknown, size?: string) => {
+/** How the next picture edit is answered: at once, held until it is stopped, or refused. */
+let nextEdit: 'answer' | 'hold' | 'fail' = 'answer';
+let editStopped = false;
+const image = async (prompt: string, aspect: string, references: string[] | undefined, signal?: AbortSignal, _onStatus?: unknown, size?: string) => {
   // (A picture edit is answered at once, and kept apart from the photos asked for.)
-  if (prompt.includes('outlined in magenta')) { editAsks.push({ prompt, aspect, size, references: references?.length ?? 0 }); return blackInMark(references!); }
+  if (prompt.includes('outlined in magenta')) {
+    editAsks.push({ prompt, aspect, size, references: references?.length ?? 0 });
+    const how = nextEdit;
+    nextEdit = 'answer';
+    if (how === 'fail') throw new Error('test/image is busy');
+    if (how === 'hold') return new Promise<never>((_, reject) => signal!.addEventListener('abort', () => { editStopped = true; reject(new Error('Stopped')); }));
+    return blackInMark(references!);
+  }
   imageAsks.push({ prompt, aspect, size });
   await imagesOpen;
   if (refuseCloseUp && prompt.includes('CLOSE-UP DETAIL')) { refuseCloseUp = false; throw new Error('test/image is busy'); }
@@ -1429,20 +1439,48 @@ test('the artwork editor edits only the marked area: a new version that lines up
     await until(async () => !!JSON.parse((await getDesign(aid)).values.$pictureMarks ?? '{}').art, 'the mark saved with the design');
     assert.equal(JSON.parse((await getDesign(aid)).values.$pictureMarks).art.fp, drawingFingerprint(art));
 
-    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('make the middle black');
+    const change = editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo');
+    await change.fill('make the middle black');
+    // Escape in the text box only leaves it: the mark and the editor stay.
+    await change.press('Escape');
+    await editor.getByRole('button', { name: 'Deselect' }).waitFor();
+    await editor.getByText('Edit this picture here').waitFor();
     const photo = Buffer.from(encodePng({ width: 4, height: 4, data: new Uint8Array(64).fill(200), channels: 4 }));
     await editor.locator('input[type=file]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: photo });
     await editor.getByRole('img', { name: 'Photo 1' }).waitFor();
-    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+    const editButton = editor.getByRole('button', { name: 'Edit', exact: true });
+
+    // Cancel while it works stops the request (the image model's call is aborted).
+    nextEdit = 'hold';
+    await editButton.click();
+    await editor.getByText(/Editing the picture\.\.\. \d+ s/).waitFor();
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).last().click();
+    await until(async () => editStopped, 'Cancel aborts the picture edit');
+    await until(async () => !existsSync(path.join(os.tmpdir(), `ptp-busy-picture-edit-${aid}`)), 'the server is done with the stopped edit');
+    await editButton.waitFor();
+
+    // An edit that fails says why; painted after it, Try again sends the strokes as they are now.
+    nextEdit = 'fail';
+    await editButton.click();
+    await editor.getByRole('alert').filter({ hasText: 'test/image is busy' }).waitFor();
+    await editor.getByRole('radio', { name: 'Paint' }).click();
+    await page.mouse.move(cx, cy - half);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(cx, cy - half + (2 * half * k) / 8);
+    await page.mouse.up();
+    await editor.getByRole('button', { name: 'Try again' }).click();
+
     const keep = editor.getByRole('button', { name: 'Keep' });
     await keep.waitFor();
     await editor.getByText('Outside the mark: unchanged').waitFor();
     await editor.getByText('Cost $0.04').waitFor();
+    // The mark's edge over the before / after pictures.
+    assert.equal(await editor.locator('.la-ed-edit-edge').count(), 2);
     await page.screenshot({ path: path.join(shots, '21-artwork-edit-result.png') });
-    // Sent: the crop, the crop outlined, the whole picture and the photo.
-    assert.equal(editAsks.length, 1);
-    assert.equal(editAsks[0].references, 4);
-    assert.match(editAsks[0].prompt, /make the middle black/);
+    // Sent each time: the crop, the crop outlined, the whole picture and the photo.
+    assert.equal(editAsks.length, 3);
+    assert.ok(editAsks.every((a) => a.references === 4));
+    assert.match(editAsks[2].prompt, /make the middle black/);
     // Escape doesn't drop the result: the editor stays open.
     await page.keyboard.press('Escape');
     await keep.waitFor();
@@ -1456,7 +1494,9 @@ test('the artwork editor edits only the marked area: a new version that lines up
     assert.equal(d.currentVersion, 1);
     assert.deepEqual(d.versions[1].pictureEdit, { picture: 'art', change: 'make the middle black', masked: true, parent: 0, linesUp: true, cost: 0.04 });
     assert.notEqual(d.values.$drawings, values.$drawings, 'the drawing changed');
+    // The stroke saved and the one painted after the failed edit, both cut by the mark.
     const strokes = JSON.parse(d.values.$artworkEdits).art.strokes;
+    assert.equal(strokes.length, 2);
     assert.ok(strokes.every((s: { cut?: unknown[] }) => s.cut?.length), 'the strokes carry the cut');
     assert.equal(d.values.$pictureMarks, undefined, 'the mark is used up');
     // The chat: the change with the photo, and the result with its version, stored pictures only.

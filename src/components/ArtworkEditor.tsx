@@ -89,7 +89,11 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     if (changed) onEdits((e) => { const { [name]: _old, ...rest } = e; return strokes.length ? { ...rest, [name]: { fp, strokes } } : rest; }, visitLabel());
     onClose();
   };
-  const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
+  const cancel = () => {
+    // (A picture edit waiting for Keep goes too: ask first.)
+    if (edit.result && !window.confirm('Drop the edited picture?')) return;
+    if (!changed || window.confirm('Close without the changes made now?')) onClose();
+  };
   useEscape(true, () => finish.current());
   // The area selected for a picture edit (drawing units), as saved with the design for this picture.
   const [selection, setSelection] = useState<MarkStroke[]>(() => {

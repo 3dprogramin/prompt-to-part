@@ -33,7 +33,8 @@ function changedKeys(from: ParamValues, to: ParamValues, params: Params): string
 
 /** The same values for the build: alike but for the picture marks (they build nothing). */
 export function sameBuild(a: ParamValues, b: ParamValues): boolean {
-  if (a === b) return true;
+  // Without marks on either side, only the same object (as before marks existed: any new values build again).
+  if (a === b || (!(PICTURE_MARKS_KEY in a) && !(PICTURE_MARKS_KEY in b))) return a === b;
   const keys = (v: ParamValues) => Object.keys(v).filter((k) => k !== PICTURE_MARKS_KEY);
   const ka = keys(a), kb = keys(b);
   return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && a[k] === b[k]);

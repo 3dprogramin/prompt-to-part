@@ -1,6 +1,7 @@
 import type { Box3, ChatMessage, Design, DesignVersion, PictureEditInfo } from '../../shared/types';
 import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
-import type { ArtworkStroke } from '../../shared/artworkEdits';
+import { ARTWORK_EDITS_KEY, type ArtworkStroke } from '../../shared/artworkEdits';
+import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import type { PictureMark } from '../../shared/pictureEdit/mark';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { formatCost } from '../../shared/duration';
@@ -57,6 +58,14 @@ export interface PictureEditUi {
   keep: () => Promise<boolean>;
   retry: () => void;
   discard: () => void;
+}
+
+/**
+ * Whether a picture edit's result can no longer be kept in `d`: it is another design, or its drawings
+ * or artwork hand edits are not those the edit was asked with (`sent`, the values as they were then).
+ */
+export function pictureChangedSince(d: Design, sent: { designId: string; drawings: unknown; edits: unknown }): boolean {
+  return d.id !== sent.designId || d.values[DRAWINGS_KEY] !== sent.drawings || d.values[ARTWORK_EDITS_KEY] !== sent.edits;
 }
 
 /** Asks the server to edit a picture with the image model (10 to 60 s); throws an HttpError with the server's words. */

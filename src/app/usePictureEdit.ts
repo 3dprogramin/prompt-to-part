@@ -3,13 +3,14 @@
 // and chat entry, and whether the build that follows lines up with the version it came from. Also
 // the mark on each picture (PICTURE_MARKS_KEY), saved with the design as the user selects.
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { flushSync } from 'react-dom';
 import type { Box3, Design, EvalResult, ParamValue } from '../../shared/types';
 import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { api } from '../lib/api';
-import { applyPictureEdit, linesUp, requestPictureEdit, type PictureEditUi } from '../lib/pictureEdit';
+import { applyPictureEdit, linesUp, pictureChangedSince, requestPictureEdit, type PictureEditUi } from '../lib/pictureEdit';
 import { withoutEditHistory } from './designValues';
 
 /** Said when the picture was changed by something else between the request and Keep. */
@@ -83,7 +84,7 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
     const j = jobRef.current;
     if (!j?.result || j.keeping) return false;
     const { sent, result: r } = j;
-    const changed = (d: Design) => d.id !== sent.designId || d.values[DRAWINGS_KEY] !== sent.drawings || d.values[ARTWORK_EDITS_KEY] !== sent.edits;
+    const changed = (d: Design) => pictureChangedSince(d, sent);
     // (A result made from a picture that has changed since can't be kept at all: it goes.)
     const refuse = (error: string) => { setJob((x) => (x?.sent === sent ? { ...x, result: error === PICTURE_CHANGED ? null : x.result, keeping: false, error } : x)); return false; };
     if (changed(designRef.current)) return refuse(PICTURE_CHANGED);
@@ -97,7 +98,10 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
     }
     if (changed(designRef.current)) return refuse(PICTURE_CHANGED);
     const info = { picture: sent.picture, change: sent.request.change, masked: r.masked, cost: r.cost };
-    setDesign((d) => {
+    // Applied at once (flushSync), so whether the design had changed by then is known here.
+    let kept = false as boolean;
+    flushSync(() => setDesign((d) => {
+      kept = false;
       if (changed(d)) return d;
       // The hand edits as sent (with the editor's unsaved strokes), then what the edit sets.
       const values = { ...d.values };
@@ -105,8 +109,10 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
       if (sentEdits != null) values[ARTWORK_EDITS_KEY] = sentEdits; else delete values[ARTWORK_EDITS_KEY];
       const next = applyPictureEdit({ ...d, values }, r, info, images);
       measure.current = { designId: d.id, version: next.currentVersion, values: next.values, parentBox: sent.parentBox, masked: r.masked, outsideSame: r.outsideSame, before: resultRef.current };
+      kept = true;
       return next;
-    });
+    }));
+    if (!kept) return refuse(PICTURE_CHANGED);
     setJob(null);
     return true;
   };

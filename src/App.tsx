@@ -153,7 +153,7 @@ export default function App() {
     const c = await api.capabilities().catch(() => null);
     setPrintBase(c?.printDefaults ?? printDefaultsFor(info.printer));
   };
-  const { result, lastGood, error, busy, resultCode } = useLiveModel(geo, design, quality, printerInfo?.printer.id);
+  const { result, lastGood, error, busy, resultCode, builtValues } = useLiveModel(geo, design, quality, printerInfo?.printer.id);
   // Line art's joins of loose ends, shown in the 3D view while the Print tab's Line art section asks for them.
   const [showJoins, setShowJoins] = useState(false);
   const snapshotRef = useRef<(() => string | null) | null>(null);
@@ -437,7 +437,7 @@ export default function App() {
   };
   const designDims: Vec3 | null = shown ? visibleSize(shown, hiddenParts) : null;
 
-  // Any change to the model ends the animation and makes validation results stale.
+  // Any change to the model ends the animation and makes validation results stale (brushing a picture mark changes none).
   useEffect(() => {
     if (design === adopted.current) { adopted.current = null; return; }
     setPlayback(null);
@@ -446,7 +446,7 @@ export default function App() {
     // A notice about the switch itself (e.g. the design was deleted elsewhere) outlives it.
     setNotice(switchNotice.current);
     switchNotice.current = null;
-  }, [design.id, design.code, design.values]);
+  }, [design.id, design.code, builtValues]);
   // So does another printer: the check report was for the old one's bed and nozzle.
   useEffect(() => { setValidation(null); setValidationOpen(false); }, [printerInfo?.printer.id]);
 

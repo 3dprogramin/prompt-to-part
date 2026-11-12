@@ -14,6 +14,7 @@ import type { UsageWindow } from './usage';
 import type { ChatQuestion } from './questions';
 import type { StabilityReport } from './stability';
 import type { PictureMark } from './pictureEdit/mark';
+import type { PictureWindow } from './pictureEdit/render';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -293,6 +294,8 @@ export interface PictureEditResponse {
   /** PNG data URLs: what was sent and the pasted result (the crop, or the whole picture). */
   before: string;
   after: string;
+  /** The part of the picture `before` and `after` show (picture units), to draw the mark's edge over them. */
+  window?: PictureWindow;
   masked: boolean;
   /** Checked: outside the mark the picture is unchanged. Only meaningful for a masked edit (always false without a mark: there is no outside). */
   outsideSame: boolean;

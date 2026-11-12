@@ -144,6 +144,8 @@ test('a marked edit of artwork: the crop and its outline sent, only the mark cha
   assert.match(body.before, /^data:image\/png;base64,/);
   assert.match(body.after, /^data:image\/png;base64,/);
   assert.equal(body.offPalette, undefined);
+  // The before / after pictures show the crop's window (to draw the mark's edge over them).
+  assert.deepEqual(body.window, cropAround(santa, face).win);
 
   // Sent: the crop, the crop outlined, the whole picture, then the photo; the crop in an allowed shape at 1K.
   assert.equal(calls.length, 1);
@@ -208,6 +210,11 @@ test('without a mark the whole picture is sent, padded to an allowed shape, and 
   assert.equal(body.masked, false);
   // No outside to compare: nothing claimed.
   assert.equal(body.outsideSame, false);
+  // The pictures shown are the whole picture.
+  assert.equal(body.window!.x0, -0.6);
+  assert.equal(body.window!.y1, 0.5);
+  assert.equal(body.window!.h, 1);
+  assert.ok(Math.abs(body.window!.w - 1.2) < 0.002, String(body.window!.w));
   assert.equal(calls[0].references.length, 1);
   assert.equal(calls[0].aspect, '5:4');
   assert.match(calls[0].prompt, /white bands .* are only padding/);
