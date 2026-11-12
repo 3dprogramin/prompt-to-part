@@ -81,3 +81,19 @@ for (const c of cases) {
     }
   });
 }
+
+// The image model's prompt for a picture edit (the app sends it, not Claude).
+test('prompt for picture-edit-artwork', async () => {
+  const { pictureEditPrompt } = await import('../server/pictureEdit/prompt');
+  const colours = ['#111111', '#ffffff', '#d01c1f', '#e0a868'];
+  const actual = [
+    '# marked, with a photo',
+    pictureEditPrompt({ mode: 'artwork', change: 'give him a big, friendly smile', masked: true, colours, photos: 1 }),
+    '# the whole picture',
+    pictureEditPrompt({ mode: 'artwork', change: 'make the hat green', masked: false, colours, photos: 0 }),
+    '',
+  ].join('\n');
+  const file = path.join(FIXTURES, 'picture-edit-artwork.md');
+  if (update) writeFileSync(file, actual);
+  else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-artwork changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
+});

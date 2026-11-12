@@ -13,6 +13,7 @@ import type { ImportReport } from './meshRepair';
 import type { UsageWindow } from './usage';
 import type { ChatQuestion } from './questions';
 import type { StabilityReport } from './stability';
+import type { PictureMark } from './pictureEdit/mark';
 
 /** A base64 image as sent to Claude. */
 export interface ImageData { mediaType: string; data: string }
@@ -266,5 +267,41 @@ export interface PriceSuggestion {
   high: number;
   reasoning: string;
   currency: string;
+}
+
+/** The kind of picture a picture edit changes: the design's picture mode. */
+export type PictureMode = 'artwork' | 'layertone' | 'lithophane' | 'lineart';
+
+/** POST /api/designs/:id/picture-edit: change part of a design's picture with the image model. */
+export interface PictureEditRequest {
+  mode: PictureMode;
+  /** The picture's name (artwork: the drawing's name in $drawings). */
+  picture: string;
+  /** The design's values as they are now (they hold the picture and its hand edits). */
+  values: ParamValues;
+  /** Where the change goes (picture units); without one the whole picture is edited. */
+  mark?: PictureMark;
+  /** What to change, in the user's words. */
+  change: string;
+  /** Photos of the real subject for the part changed, as data URLs (at most 4). */
+  photos: string[];
+}
+
+export interface PictureEditResponse {
+  /** Value keys to set (null = delete): the drawing or picture, $artworkEdits (strokes cut), $pictureMarks (the mark removed). */
+  set: Record<string, string | null>;
+  /** PNG data URLs: what was sent and the pasted result (the crop, or the whole picture). */
+  before: string;
+  after: string;
+  masked: boolean;
+  /** Checked: outside the mark the picture is unchanged. */
+  outsideSame: boolean;
+  /** The new shapes were simplified harder to stay within the drawing's point limit. */
+  simplified?: boolean;
+  /** Only when more of the mark than OFF_PALETTE_SHARE wants a colour the design has no filament for; `note` says so in plain words. */
+  offPalette?: { share: number; colour: string; note: string };
+  prompt: string;
+  model: string;
+  cost: number | null;
 }
 

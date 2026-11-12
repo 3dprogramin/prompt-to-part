@@ -15,6 +15,7 @@ import { checkConnection } from './connection';
 import { DESIGNS, TAGS_FILE, readTags, writeAtomically, type RouteContext } from './routes/store';
 import { registerDesignRoutes } from './routes/designs';
 import { registerImageRoutes } from './routes/images';
+import { registerPictureEditRoutes } from './routes/pictureEdit';
 import { registerMeshRoutes } from './routes/meshes';
 import { registerSystemRoutes } from './routes/system';
 import { openRouterModels } from './openRouterModels';
@@ -122,6 +123,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   const ctx: RouteContext = { json, designFile, imageDir, generatingDesigns, deleted, serially, changeTags, putTags };
   registerDesignRoutes(app, ctx);
   registerImageRoutes(app, ctx, { image, sceneWriter });
+  registerPictureEditRoutes(app, ctx, { image });
   registerMeshRoutes(app, ctx);
   registerSystemRoutes(app, { connection, models: () => models() });
   registerCostRoutes(app, ctx, { suggest });

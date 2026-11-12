@@ -92,3 +92,37 @@ test('colour shares of labels agree with drawingSection areas within 1 %', () =>
     });
   }
 });
+
+test('a window with strokes renders pixel for pixel as the same region of a whole render', () => {
+  // Outlines at odd coordinates; a paint stroke across the window's edge, a square erase, a cut.
+  const blob = (r: number, cx: number, cy: number, n: number): [number, number][] => Array.from({ length: n }, (_, i) => {
+    const a = (2 * Math.PI * i) / n, k = r * (1 + 0.07 * Math.sin(5 * a + 0.4));
+    return [cx + k * Math.cos(a), cy + k * Math.sin(a)];
+  });
+  const art: SvgDrawing = {
+    name: 'w.svg', aspect: 1.25,
+    shapes: [
+      { rule: 'EvenOdd', contours: [blob(0.43, 0.013, -0.007, 300), blob(0.1, 0.21, 0.13, 90)], color: BLACK },
+      { rule: 'EvenOdd', contours: [blob(0.17, -0.052, 0.031, 170)], color: GOLD },
+    ],
+  };
+  const strokes: ArtworkStroke[] = [
+    stroke({ points: [[-0.31, 0.12], [0.07, 0.19], [0.29, -0.03]], width: 0.061 }),
+    stroke({ mode: 'erase', color: BLACK, points: [[0.12, -0.22], [0.33, -0.18]], width: 0.043, shape: 'square' }),
+    stroke({ color: BLACK, points: [[-0.11, -0.05], [0.02, 0.04]], width: 0.05, cut: [sq(0.03, -0.05, 0)] }),
+  ];
+  // 400 px high: the window starts and ends on whole pixels of the whole render.
+  const H = 400, whole = renderDrawing(art, strokes, wholeWindow(art), H), plain = renderDrawing(art, [], wholeWindow(art), H);
+  const i0 = 137, j0 = 61, w = 180, h = 150;
+  const part = renderDrawing(art, strokes, { x0: -art.aspect / 2 + i0 / H, y1: 0.5 - j0 / H, w: w / H, h: h / H }, h);
+  assert.equal(part.width, w);
+  assert.equal(part.height, h);
+  let differ = 0, stroked = 0;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i, q = (j + j0) * whole.width + i + i0;
+    if (part.labels[p] !== whole.labels[q] || part.data.slice(p * 4, p * 4 + 4).join() !== whole.data.slice(q * 4, q * 4 + 4).join()) differ++;
+    if (whole.labels[q] !== plain.labels[q]) stroked++;
+  }
+  assert.ok(stroked > 500, `the strokes change ${stroked} pixels of the window`);
+  assert.equal(differ, 0);
+});
