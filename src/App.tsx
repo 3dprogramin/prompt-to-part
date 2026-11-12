@@ -11,6 +11,7 @@ import type { FontEntry } from './lib/api';
 import { api } from './lib/api';
 import type { AutoBuild } from './lib/autoBuild';
 import { describeSettings, settingsChanged } from './lib/settings';
+import { blockedChange } from './lib/printedLock';
 import { GeometryClient } from './geometry/client';
 import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
@@ -62,12 +63,27 @@ import { modelChecks } from './app/modelChecks';
 const geo = new GeometryClient();
 
 export default function App() {
-  const [design, setDesign] = useState<Design>(newDesign);
+  const [design, setDesignRaw] = useState<Design>(newDesign);
   // The browser tab names the open design.
   useEffect(() => { document.title = design.name.trim() ? `prompt-to-part - ${design.name.trim()}` : 'prompt-to-part'; }, [design.name]);
   const currentId = useRef(design.id);
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
+  // A printed version is locked: changes to its code or settings are dropped (the server refuses them too).
+  const lockedRef = useRef<ReadonlySet<number>>(new Set());
+  lockedRef.current = useMemo(() => new Set(designs.find((d) => d.id === design.id)?.printed?.map((m) => m.v)), [designs, design.id]);
+  const lockBlocked = useRef<number | null>(null);
+  const setDesign = useCallback<typeof setDesignRaw>((u) => {
+    setDesignRaw((prev) => {
+      const next = typeof u === 'function' ? u(prev) : u;
+      if (!blockedChange(prev, next, lockedRef.current)) return next;
+      lockBlocked.current = prev.currentVersion;
+      return prev;
+    });
+    // A dropped change renders nothing, so look for it shortly after the update ran.
+    setTimeout(() => flushLockRef.current(), 0);
+  }, []);
+  const flushLockRef = useRef(() => {});
   // Generations started in this tab, per design (they keep running when another design is opened).
   const [running, setRunning] = useState<Record<string, AbortController>>({});
   const runningRef = useRef(running);
@@ -163,6 +179,13 @@ export default function App() {
   const [validationOpen, setValidationOpen] = useState(false);
   const [validating, setValidating] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  flushLockRef.current = () => {
+    const v = lockBlocked.current;
+    if (v === null) return;
+    lockBlocked.current = null;
+    setNotice({ text: `Printed v${v + 1} is locked: clone it to change it.`, level: 'info', details: false });
+  };
+  useEffect(() => flushLockRef.current());
   const switchNotice = useRef<Notice | null>(null);
   // In-memory copies of designs that are generating, or not saved yet, while another design is open.
   const background = useRef(new Map<string, Design>());
