@@ -1,6 +1,7 @@
 import type { Box3, ChatMessage, Design, DesignVersion, PictureEditInfo } from '../../shared/types';
 import type { GenerateRequest, PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { ARTWORK_EDITS_KEY, type ArtworkStroke } from '../../shared/artworkEdits';
+import type { LineArtEdits } from '../../shared/lineart';
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import type { PictureMark } from '../../shared/pictureEdit/mark';
 import { withSet } from '../../shared/pictureEdit/set';
@@ -47,7 +48,8 @@ export function versionNote(v: DesignVersion, count?: number): string {
  * A picture edit as an editor shows it (usePictureEdit): running (since `startedAt`), its result
  * waiting for Keep / Try again / Discard, why it failed, being kept; and what the editor's buttons do.
  * `start`: the mark (none: the whole picture), the change, photos as data URLs, and the editor's
- * strokes not saved yet (null: none; they go with the request, as Done would save them).
+ * strokes not saved yet (null: none; they go with the request, as Done would save them): the artwork
+ * brush's strokes of the picture, or (`lineArtEdits`) the Edit drawing brush's edits of every drawing.
  */
 export interface PictureEditUi {
   busy: boolean;
@@ -55,7 +57,7 @@ export interface PictureEditUi {
   result: PictureEditResponse | null;
   error: string | null;
   keeping: boolean;
-  start: (o: { mark: PictureMark | null; change: string; photos: string[]; draft: ArtworkStroke[] | null }) => void;
+  start: (o: { mark: PictureMark | null; change: string; photos: string[]; draft: ArtworkStroke[] | null; lineArtEdits?: LineArtEdits | null }) => void;
   cancel: () => void;
   /** Resolves true when the edit was kept (the editor closes then). */
   keep: () => Promise<boolean>;
@@ -78,12 +80,13 @@ export async function requestPictureEdit(designId: string, r: PictureEditRequest
   return (await request(`/api/designs/${designId}/picture-edit`, { method: 'POST', body: JSON.stringify(r), signal })).json() as Promise<PictureEditResponse>;
 }
 
-/** What a picture edit's result says about itself: whether outside the mark is unchanged (a masked edit only), the swap layers kept, and its warnings. */
-export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsideSame' | 'offPalette' | 'simplified' | 'swapsKept' | 'swapsNotKept'>): { text: string; warn?: boolean }[] {
+/** What a picture edit's result says about itself: whether outside the mark is unchanged (a masked edit only), the swap layers kept, the line art's joins to check, and its warnings. */
+export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsideSame' | 'offPalette' | 'simplified' | 'swapsKept' | 'swapsNotKept' | 'lineArtJoins'>): { text: string; warn?: boolean }[] {
   const out: { text: string; warn?: boolean }[] = [];
   if (r.masked) out.push(r.outsideSame ? { text: 'Outside the mark: unchanged' } : { text: 'Outside the mark: changed too, so it won\'t line up with the version it came from', warn: true });
   if (r.swapsKept) out.push({ text: r.swapsKept.note });
   if (r.swapsNotKept) out.push({ text: r.swapsNotKept.note, warn: true });
+  if (r.lineArtJoins) out.push({ text: r.lineArtJoins.note });
   if (r.offPalette) out.push({ text: r.offPalette.note, warn: true });
   if (r.simplified) out.push({ text: 'The new shapes were simplified to stay within the drawing\'s point limit', warn: true });
   return out;

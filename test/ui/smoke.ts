@@ -1635,6 +1635,86 @@ test('a lithophane\'s picture editor edits only the marked area: a new version t
   }
 });
 
+test('the line art editor edits only the selected area: a new version that lines up, the hand edits outside kept', TEST, async () => {
+  // As if the app had an OpenRouter key; the image model is the stand-in (black inside the mark).
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  const { drawingFingerprint } = await import('../../shared/lineart');
+  const lid = 'ui-smoke-00000013';
+  const box = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  // A 2:1 frame with a bar across its middle, 120 mm wide, and a line drawn by hand down its right part.
+  const frame = { name: 'frame', aspect: 2, shapes: [{ rule: 'EvenOdd' as const, contours: [box(-1, -0.5, 1, 0.5), box(-0.97, -0.47, 0.97, 0.47), box(-0.97, -0.02, 0.97, 0.02)], color: '#000000' }] };
+  const line = { mode: 'draw', width: 1.5, points: [[0.7, -0.47], [0.7, 0.47]] };
+  const art = "function build() { return H.lineart('frame', { style: 'outline', width: 120 }); }";
+  const values = { $drawings: JSON.stringify({ frame }), $lineartEdits: JSON.stringify({ frame: { fp: drawingFingerprint(frame), strokes: [line] } }) };
+  const r = await putDesign({ id: lid, name: 'Barred frame', createdAt: 1, updatedAt: 1, code: art, values, messages: [], currentVersion: 0,
+    versions: [{ code: art, summary: 'A frame', createdAt: 1, source: 'manual', values }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.goto(`${A}/?design=${lid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Barred frame');
+    await built(page);
+    await page.getByRole('button', { name: 'Paint and fix the picture by hand' }).click();
+    const editor = page.getByRole('dialog', { name: 'Edit the drawing' });
+    await editor.waitFor();
+    await editor.getByRole('radio', { name: 'Select' }).click();
+    // One drawing and nothing selected: the whole drawing.
+    await editor.getByText('Edit the whole picture').waitFor();
+    // A short stroke along the bar in the middle marks the area.
+    const b = (await editor.locator('.la-ed-over').boundingBox())!;
+    const cx = b.x + b.width / 2, cy = b.y + b.height / 2, half = Math.min(b.width, b.height) * 0.08;
+    await page.mouse.move(cx - half, cy);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(cx - half + (2 * half * k) / 8, cy);
+    await page.mouse.up();
+    await editor.getByText('Edit this picture here').waitFor();
+    // The selection is saved with the design as the drawing's mark (the chat can use it).
+    await until(async () => !!JSON.parse((await getDesign(lid)).values.$pictureMarks ?? '{}').frame, 'the mark saved with the design');
+    assert.equal(JSON.parse((await getDesign(lid)).values.$pictureMarks).frame.fp, drawingFingerprint(frame));
+
+    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('a solid block in the middle of the bar');
+    const asked = editAsks.length;
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+    const keep = editor.getByRole('button', { name: 'Keep' });
+    await keep.waitFor();
+    await editor.getByText('Outside the mark: unchanged').waitFor();
+    await editor.getByText('Joins and bridges are worked out again for the whole piece: check them near the mark.').waitFor();
+    // Sent: the crop, the crop outlined and the whole drawing, with the line-art prompt.
+    assert.equal(editAsks.length, asked + 1);
+    assert.equal(editAsks[asked].references, 3);
+    assert.match(editAsks[asked].prompt, /black line art/);
+    // While the result waits, the brush is locked and Escape keeps the editor open.
+    assert.ok(await editor.getByRole('button', { name: 'Done' }).isDisabled(), 'Done waits for Keep or Discard');
+    assert.ok(await editor.getByRole('radio', { name: 'Draw' }).isDisabled(), 'the brush is locked');
+    await page.keyboard.press('Escape');
+    await keep.waitFor();
+    await page.screenshot({ path: path.join(shots, '21-lineart-edit-result.png') });
+    await keep.click();
+    await editor.waitFor({ state: 'detached' });
+
+    // A new version, measured once its build is in: it lines up with the one it came from.
+    await until(async () => (await getDesign(lid)).versions[1]?.pictureEdit?.linesUp === true, 'the kept edit lines up', 30_000);
+    const d = await getDesign(lid);
+    assert.equal(d.currentVersion, 1);
+    assert.deepEqual(d.versions[1].pictureEdit, { picture: 'frame', change: 'a solid block in the middle of the bar', masked: true, parent: 0, linesUp: true, cost: 0.04 });
+    const next = JSON.parse(d.values.$drawings).frame;
+    assert.notDeepEqual(next, frame, 'the drawing changed');
+    // The hand-drawn line outside the mark stays, re-keyed to the new drawing, the mark after it as a clear; the mark is used up.
+    const edits = JSON.parse(d.values.$lineartEdits).frame;
+    assert.equal(edits.fp, drawingFingerprint(next));
+    assert.deepEqual(edits.strokes[0], line);
+    assert.ok(edits.strokes.length > 1 && edits.strokes.slice(1).every((s: { mode: string; k?: number }) => s.mode === 'restore' && s.k === 1), JSON.stringify(edits.strokes.slice(1)));
+    assert.equal(d.values.$pictureMarks, undefined);
+    await page.locator('.msg.assistant', { hasText: 'Picture edit kept as v2' }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+  }
+});
+
 test('a picture edit in the chat: its values applied, the reply\'s version records it and lines up; the editor\'s edits go along', TEST, async () => {
   const { drawingFingerprint } = await import('../../shared/lineart');
   const cid = 'ui-smoke-0000000f';

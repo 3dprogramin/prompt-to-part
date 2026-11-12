@@ -986,6 +986,9 @@ export default function App() {
           onEdits={setLineArtEdits}
           onClose={() => setEditingLineArt(false)}
           original={lineArtOriginal}
+          // With the image model: Select (C) also marks where to change a drawing with it.
+          edit={artworkModel ? (picture, fp, lineArt) => pictureEdit.ui(picture, fp, { mode: 'lineart', lineArt }) : undefined}
+          onMark={(picture, fp, mark) => pictureEdit.setMark(picture, fp, mark)}
         />
       )}
       {artworkEditing && shown && (

@@ -1,5 +1,5 @@
-// A picture edit started in a picture editor (the artwork brush, a LayerTone photo's): the request
-// to the image model (one at a time, sent for the design open then), its result waiting for Keep /
+// A picture edit started in a picture editor (the artwork brush, a photo's, line art's Edit drawing
+// brush): the request to the image model (one at a time, sent for the design open then), its result waiting for Keep /
 // Try again / Discard, Keep's new version and chat entry, and whether the build that follows lines
 // up with the version it came from. Also the mark on each picture (PICTURE_MARKS_KEY), saved with
 // the design as the user selects.
@@ -10,6 +10,7 @@ import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
+import { LINEART_EDITS_KEY } from '../../shared/lineart';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { api } from '../lib/api';
 import { applyPictureEdit, pictureChangedSince, requestPictureEdit, type PictureEditUi } from '../lib/pictureEdit';
@@ -20,8 +21,12 @@ import { useLinesUp } from './useLinesUp';
 export const PICTURE_CHANGED = 'The picture changed while editing; try again';
 
 type StartArgs = Parameters<PictureEditUi['start']>[0];
-/** A stored photo's edit: LayerTone's (how its part was built, from the part as built; a marked edit needs it) or a lithophane's (nothing to send). */
-export interface PhotoEdit { mode: 'layertone' | 'lithophane'; layerTone?: PictureEditRequest['layerTone'] | null }
+/**
+ * An edit of another kind of picture than an AI artwork drawing: a stored photo's, LayerTone's (how
+ * its part was built, from the part as built; a marked edit needs it) or a lithophane's (nothing to
+ * send), or a line-art drawing's (where it sits in the piece as built).
+ */
+export type PhotoEdit = { mode: 'layertone' | 'lithophane'; layerTone?: PictureEditRequest['layerTone'] | null } | { mode: 'lineart'; lineArt: NonNullable<PictureEditRequest['lineArt']> };
 /**
  * What an edit was asked for, and the design as it was then: its id, the picture and its hand edits
  * as saved (a photo's: its pictures and LayerTone setup, in `others`), the model's box.
@@ -78,7 +83,8 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
   };
   /**
    * The request for the open design as it is now: its values with the editor's unsaved strokes in, as
-   * Done would save them. With `photo`, of a stored photo (LayerTone's or a lithophane's) (its picture under $images).
+   * Done would save them. With `photo`, of a stored photo (LayerTone's or a lithophane's) (its picture under $images),
+   * or of a line-art drawing (with the Edit drawing brush's edits not saved yet, `args.lineArtEdits`).
    */
   const start = (picture: string, fp: string, args: StartArgs, photo?: PhotoEdit) => {
     const d = designRef.current, saved = d.values[ARTWORK_EDITS_KEY];
@@ -88,12 +94,18 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
       const next = args.draft.length ? { ...rest, [picture]: { fp, strokes: args.draft } } : rest;
       if (Object.keys(next).length) values[ARTWORK_EDITS_KEY] = JSON.stringify(next); else delete values[ARTWORK_EDITS_KEY];
     }
+    const lineArt = photo?.mode === 'lineart';
+    if (lineArt && args.lineArtEdits) {
+      if (Object.keys(args.lineArtEdits).length) values[LINEART_EDITS_KEY] = JSON.stringify(args.lineArtEdits); else delete values[LINEART_EDITS_KEY];
+    }
     const request: PictureEditRequest = {
       mode: photo ? photo.mode : 'artwork', picture, values, ...(args.mark ? { mark: args.mark } : {}), change: args.change, photos: args.photos,
-      ...(photo?.layerTone ? { layerTone: photo.layerTone } : {}),
+      ...(photo?.mode !== 'lineart' && photo?.layerTone ? { layerTone: photo.layerTone } : {}),
+      ...(photo?.mode === 'lineart' ? { lineArt: photo.lineArt } : {}),
     };
-    // A photo's edit sets its picture and may set the setup's swap layers: kept only if neither changed meanwhile.
-    const others = photo ? { [LAYERTONE_IMAGES_KEY]: d.values[LAYERTONE_IMAGES_KEY], [LAYERTONE_KEY]: d.values[LAYERTONE_KEY] } : undefined;
+    // A photo's edit sets its picture and may set the setup's swap layers: kept only if neither changed
+    // meanwhile; a line-art drawing's sets its hand edits.
+    const others = lineArt ? { [LINEART_EDITS_KEY]: d.values[LINEART_EDITS_KEY] } : photo ? { [LAYERTONE_IMAGES_KEY]: d.values[LAYERTONE_IMAGES_KEY], [LAYERTONE_KEY]: d.values[LAYERTONE_KEY] } : undefined;
     run({ designId: d.id, picture, fp, args, ...(photo ? { photo } : {}), request, drawings: d.values[DRAWINGS_KEY], edits: saved, ...(others ? { others } : {}), parentBox: resultRef.current?.bbox ?? null });
   };
   const drop = () => { jobRef.current?.abort?.abort(); setJob(null); };
@@ -134,6 +146,11 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
       const values = { ...d.values };
       const sentEdits = sent.request.values[ARTWORK_EDITS_KEY];
       if (sentEdits != null) values[ARTWORK_EDITS_KEY] = sentEdits; else delete values[ARTWORK_EDITS_KEY];
+      // (The Edit drawing brush's, as sent: Keep closes it without Done.)
+      if (sent.request.mode === 'lineart') {
+        const sentLineArt = sent.request.values[LINEART_EDITS_KEY];
+        if (sentLineArt != null) values[LINEART_EDITS_KEY] = sentLineArt; else delete values[LINEART_EDITS_KEY];
+      }
       const next = applyPictureEdit({ ...d, values }, r, info, images);
       // (A photo whose swap layers could not be kept may print differently outside the mark: it does not line up.)
       watchLinesUp({ designId: d.id, version: next.currentVersion, values: next.values, parentBox: sent.parentBox, masked: r.masked, outsideSame: r.outsideSame && !r.swapsNotKept });

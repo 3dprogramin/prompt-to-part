@@ -5,6 +5,10 @@ import { colourCost } from './LineArtPanel';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import { SCALE_KEY, type PartFilament } from '../../shared/params';
 import { addStroke, clearArea, frameAt, leanStroke, niceLength, removeStroke, sameFilament, snapEnd, staleEdits, strokeFilaments, strokesOf, toDrawing, toPiece, withoutDrawings } from '../lib/lineArtEdit';
+import type { PictureEditRequest } from '../../shared/api';
+import { parsePictureMarks, PICTURE_MARKS_KEY, type MarkStroke, type PictureMark } from '../../shared/pictureEdit/mark';
+import type { PictureEditUi } from '../lib/pictureEdit';
+import { EditPicturePanel } from './picture/EditPicturePanel';
 import { describeChange, EDIT_HISTORY_KEY, historyFor, historyTime, parseEditHistory } from '../../shared/editHistory';
 import { EditHistory } from './EditHistory';
 import { useLayoutMode } from '../hooks/useLayoutMode';
@@ -27,7 +31,16 @@ interface Props {
   onClose: () => void;
   /** The piece built without any hand edits (as the AI made it), shown where edits are cleared. */
   original: () => Promise<(PartMesh & { lineArt: LineArtInfo; paints?: { color: string; from: number; to: number }[] }) | null | undefined>;
+  /**
+   * With the image model: a picture edit of one of the piece's drawings (`fp`: its fingerprint;
+   * `lineArt`: where it sits in the piece), as the editor shows it.
+   */
+  edit?: (picture: string, fp: string, lineArt: NonNullable<PictureEditRequest['lineArt']>) => PictureEditUi;
+  /** The area selected, saved with the design as the mark on a drawing (null: taken away). */
+  onMark?: (picture: string, fp: string, mark: PictureMark | null) => void;
 }
+
+type Frame = LineArtInfo['frames'][number];
 
 /**
  * The Edit drawing brush: the piece large and straight on, to draw lines on (they go through the app's
@@ -37,8 +50,11 @@ interface Props {
  * drawn over the piece, until Done (or Escape) saves them in the design at once (LINEART_EDITS_KEY,
  * in the drawing's own units) and the model rebuilds a single time; Cancel drops the draft. Each
  * visit saved is a restore point: History puts the edits as they were before one in the draft.
+ * With the image model, Select (C) also marks where to change a drawing with it (the Edit panel, or
+ * the whole drawing with nothing selected when the piece has one): while that works and its result
+ * waits for Keep / Try again / Discard, the brush is locked and Escape keeps the editor open.
  */
-export function LineArtEditor({ part, values, busy, error, onEdits, onClose, original }: Props) {
+export function LineArtEditor({ part, values, busy, error, onEdits, onClose, original, edit, onMark }: Props) {
   const layout = useLayoutMode();
   const la = part.lineArt;
   // A piece split into pieces: its seams, shown (read-only) over it.
@@ -55,13 +71,43 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   const history = useMemo(() => historyFor(parseEditHistory(values[EDIT_HISTORY_KEY]).lineart ?? [], frameNames.split('\n')), [values[EDIT_HISTORY_KEY], frameNames]);
   const savedHere = useMemo(() => { const names = frameNames.split('\n'); return Object.fromEntries(Object.entries(saved).filter(([n]) => names.includes(n))); }, [saved, frameNames]);
   const finish = useRef(() => {});
-  finish.current = () => { if (changed) onEdits(() => edits, visitLabel()); onClose(); };
-  const cancel = () => { if (!changed || window.confirm('Close without the changes made now?')) onClose(); };
+  finish.current = () => { if (locked) return; if (changed) onEdits(() => edits, visitLabel()); onClose(); };
+  const cancel = () => {
+    // (A picture edit waiting for Keep goes too: ask first.)
+    if (pe?.result && !window.confirm('Drop the edited picture?')) return;
+    if (!changed || window.confirm('Close without the changes made now?')) onClose();
+  };
   useEscape(true, () => finish.current());
-  // The area selected to clear edits in (mm, the piece's XY): Escape drops it first.
-  const [selection, setSelection] = useState<ShownStroke[]>([]);
-  useEscape(selection.length > 0, () => setSelection([]));
+  // The area selected to clear edits in, or to change with the image model (mm, the piece's XY):
+  // Escape drops it first. With the image model it starts as the mark saved on one of the drawings.
+  const [selection, setSelection] = useState<ShownStroke[]>(() => (edit ? savedSelection(values, la.frames) : []));
   const drawings = useMemo(() => parseDrawings(values[DRAWINGS_KEY]), [values[DRAWINGS_KEY]]);
+
+  // ---- a picture edit with the image model: the selection is its mark, on the drawing it starts on
+  // (with nothing selected, the whole drawing of a piece of one drawing)
+  const target = selection.length ? frameAt(la.frames, selection[0].points[0], (n) => drawings[n]?.aspect ?? 1) : la.frames.length === 1 ? la.frames[0] : undefined;
+  const mark = target && selection.length ? markOn(target, selection, drawings[target.name]?.aspect ?? 1) : null;
+  const pe = edit && target ? edit(target.name, target.fp, { k: target.k, k0: target.k0 ?? target.k, lineWidth: la.lineWidth, style: la.style, width: la.size[0] }) : null;
+  // Running or waiting for Keep / Try again / Discard: the brush is locked (its edits and mark were sent).
+  const locked = !!pe && (pe.busy || !!pe.result || pe.keeping);
+  useEscape(selection.length > 0 && !locked, () => setSelection([]));
+  // (While locked, Escape does nothing: the result is dropped with Discard.)
+  useEscape(locked, () => {});
+  // Closing the editor stops the edit under way, or drops its result.
+  const discard = useRef(pe?.discard);
+  discard.current = pe?.discard ?? discard.current;
+  useEffect(() => () => discard.current?.(), []);
+  // The selection saved with the design as the mark on its drawing as it changes (the chat's region "mark").
+  const marked = useRef<Frame | null>(edit && selection.length ? target ?? null : null);
+  const firstSelection = useRef(true);
+  useEffect(() => {
+    if (firstSelection.current) { firstSelection.current = false; return; }
+    if (!onMark || !edit) return;
+    const was = marked.current, on = mark && target ? target : null;
+    if (was && was.name !== on?.name) onMark(was.name, was.fp, null);
+    if (on) onMark(on.name, on.fp, mark);
+    marked.current = on;
+  }, [selection]);
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
   const image = useMemo(() => pieceImage(part, la.thickness), [part, la.thickness]);
 
@@ -141,8 +187,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   const hover = useRef<{ at: Pt; snap: Pt | null; show: boolean }>({ at: [0, 0], snap: null, show: false });
   const keys = useRef({ space: false, shift: false });
   // The latest of everything the pointer and key handlers use.
-  const now = useRef({ tool, width, square, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own });
-  now.current = { tool, width, square, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own };
+  const now = useRef({ tool, width, square, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own, locked });
+  now.current = { tool, width, square, snap, image, ink, la, edits, scale, shown, hist, filament, selection, own, locked };
 
   // Focus moves into the editor (its keys) and back where it was when it closes.
   useEffect(() => {
@@ -566,7 +612,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
     if (pointers.current.size > 1 || a.mode !== 'idle') return;
     a.id = e.pointerId; a.last = p;
     if (e.button === 1 || e.button === 2 || (e.button === 0 && keys.current.space)) { a.mode = 'pan'; setPanning(true); return; }
-    if (e.button !== 0) return;
+    // (A picture edit under way locks the brush: only the view moves.)
+    if (e.button !== 0 || now.current.locked) return;
     const m = toMm(...p);
     a.mode = 'draw'; a.points = [m]; a.startSnap = snapAt(m); a.endSnap = null;
     setNote(null);
@@ -636,6 +683,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       if (e.key === 'Escape' || typing(e.target)) return;
       e.stopPropagation();
       const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
+      // A picture edit under way locks the brush: only the view's keys work.
+      if (now.current.locked && !(e.key === ' ' || e.key === 'Shift' || (!ctrl && ['f', '0', '+', '=', '-', '_'].includes(k)))) return;
       if (e.key === 'Shift') { keys.current.shift = true; updateEndSnap(); repaintOver(); return; }
       if (ctrl && (k === 'z' || k === 'y')) { e.preventDefault(); if (k === 'y' || e.shiftKey) redo(); else undo(); return; }
       if (ctrl || e.altKey) return;
@@ -672,6 +721,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   // ---- the scale bar: a round length about 90 px long
   const barMm = niceLength(90 / zoom);
   const phone = layout === 'phone';
+  // The Edit panel (with the image model): while selecting, with an area selected, or while an edit is under way.
+  const editing = !!pe && (tool === 'clear' || selection.length > 0 || locked);
   // The filament the brush puts down, when it isn't the piece's own (a line is drawn in it too).
   const using = coloured && filament ? ` in ${filament.name ?? filament.color}` : '';
   // Clearing edits the piece was built with only shows once it is rebuilt.
@@ -686,9 +737,9 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
       <EditorToolbar tool={tool} setTool={setTool} filament={filament} setFilament={setFilament} coloured={coloured} part={part} palette={palette} pickButton={pickButton}
         picking={picking} setPicking={setPicking} width={width} setWidths={setWidths} square={square} setShape={setShape} snap={snap} setSnap={setSnap}
         hist={hist} undo={undo} redo={redo} selection={selection} setSelection={setSelection} clearHere={clearHere} clear={clear} applied={applied}
-        la={la} edits={edits} busy={busy} changed={changed} swaps={swaps} cancel={cancel} finish={finish}
+        la={la} edits={edits} busy={busy} changed={changed} swaps={swaps} cancel={cancel} finish={finish} locked={locked}
         history={<EditHistory entries={history} current={savedHere} onPick={(to, e) => restoreTo(to, e.at)} />} />
-      <div className={`la-ed-stage ${panning ? 'panning' : ''}`} ref={stage}>
+      <div className={`la-ed-stage ${panning ? 'panning' : ''} ${editing ? 'with-edit' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
         <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The piece: drag to draw, paint, fill, erase or select" />
@@ -722,7 +773,32 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
               : `${tool === 'clear' ? 'Drag to select where to clear edits (strokes add up) · Esc: deselect' : `Drag to ${tool}${using}`} · Shift: straight line · Space, middle or right button: move · wheel: zoom · [ ]: width · Q: square`}
           </div>
         )}
+        {editing && pe && (
+          <EditPicturePanel mark={mark} busy={pe.busy} startedAt={pe.startedAt} result={pe.result} error={pe.error} keeping={pe.keeping}
+            onEdit={(change, photos) => pe.start({ mark, change, photos, draft: null, lineArtEdits: changed ? edits : null })}
+            onCancel={pe.cancel} onRetry={pe.retry} onDiscard={pe.discard}
+            // (Kept: the edits as sent are saved with it, so the editor closes without Done.)
+            onKeep={() => { void pe.keep().then((kept) => { if (kept) onClose(); }); }} />
+        )}
       </div>
     </div>
   );
+}
+
+/** The mark saved on one of the frames' drawings (made on it as it is now), as a selection in the piece's mm; none else. */
+function savedSelection(values: ParamValues, frames: Frame[]): ShownStroke[] {
+  const marks = parsePictureMarks(values[PICTURE_MARKS_KEY]);
+  for (const f of frames) {
+    const m = Object.hasOwn(marks, f.name) ? marks[f.name] : undefined;
+    if (m && m.fp === f.fp) return m.mark.strokes.map((st) => ({ mode: 'clear', width: st.width * f.k, points: st.points.map((p) => toPiece(f, p)), ...(st.shape ? { shape: st.shape } : {}) }));
+  }
+  return [];
+}
+
+/** The selection (mm) as a mark on frame `f`'s drawing (its units; `aspect` its width / height): the strokes that reach the drawing. */
+function markOn(f: Frame, selection: ShownStroke[], aspect: number): PictureMark | null {
+  const strokes = selection.map((st): MarkStroke => ({
+    width: round(st.width / f.k, 6), points: st.points.map((p) => toDrawing(f, p).map((v) => round(v, 6)) as [number, number]), ...(st.shape === 'square' ? { shape: 'square' as const } : {}),
+  })).filter((st) => st.points.some(([x, y]) => Math.abs(x) <= aspect / 2 + st.width / 2 && Math.abs(y) <= 0.5 + st.width / 2));
+  return strokes.length ? { strokes } : null;
 }
