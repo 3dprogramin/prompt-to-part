@@ -5,6 +5,7 @@ import { mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/Buffer
 import type { PartMesh } from '../../shared/types';
 import { vertexColors as layerToneColors } from '../../shared/layertone';
 import { linearColors, paintedGeometry, usableColors } from '../geometry/vertexColors';
+import { isFlatPicture, pictureRelief, type Picture } from './glbPicture';
 
 export interface GlbOptions {
   /** Stand a flat piece up, its face to the front, as it hangs on a wall; otherwise it lies as it prints. */
@@ -22,6 +23,26 @@ export function isFlat(parts: PartMesh[]): boolean {
 
 /** PLA: matte, not metal. */
 const ROUGHNESS = 0.7;
+/** JPEG quality (0-1) of a flat picture's colours, and of its fine relief (normal map: shading only, it stands more loss). */
+const JPEG_QUALITY = 0.85;
+const NORMAL_QUALITY = 0.75;
+
+/** A picture (RGBA) as a JPEG file. */
+export type JpegEncoder = (image: Picture, quality: number) => Promise<Uint8Array>;
+
+/** The browser's own encoder; in Node (tests) jpeg-js, which needs Node's Buffer. */
+export const encodeJpeg: JpegEncoder = async ({ width, height, rgba }, quality) => {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const canvas = new OffscreenCanvas(width, height);
+    canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+    return new Uint8Array(await (await canvas.convertToBlob({ type: 'image/jpeg', quality })).arrayBuffer());
+  }
+  const { default: jpeg } = await import('jpeg-js');
+  return new Uint8Array(jpeg.encode({ data: rgba, width, height }, Math.round(quality * 100)).data);
+};
+
+/** The part's colours per vertex as sRGB 0-1, if it has them (LayerTone's from its heights). */
+const srgbColors = (part: PartMesh) => usableColors(part.vertexColors, part.positions) ?? (part.layerColors?.length ? layerToneColors(part.positions, part.layerColors) : undefined);
 
 /**
  * The part as a three.js geometry with its colours per vertex (linear) when it has them, and normals
@@ -33,7 +54,7 @@ function partGeometry(part: PartMesh): { geom: THREE.BufferGeometry; perVertex: 
   if (!g) {
     g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
-    const srgb = usableColors(part.vertexColors, part.positions) ?? (part.layerColors?.length ? layerToneColors(part.positions, part.layerColors) : undefined);
+    const srgb = srgbColors(part);
     if (srgb) g.setAttribute('color', new THREE.BufferAttribute(linearColors(srgb), 3));
     g.setIndex(new THREE.BufferAttribute(part.indices, 1));
   }
@@ -47,7 +68,11 @@ function partGeometry(part: PartMesh): { geom: THREE.BufferGeometry; perVertex: 
   return { geom, perVertex, normals: true };
 }
 
-export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob {
+/**
+ * The model as a GLB. A flat colour relief (a LayerTone picture, a flat lithophane) becomes a coarse
+ * relief with the picture as a JPEG texture (glbPicture.ts): a few MB instead of tens.
+ */
+export async function toGlb(parts: PartMesh[], title: string, opts: GlbOptions, encode: JpegEncoder = encodeJpeg): Promise<Blob> {
   // One move for the whole model: centred, standing on the ground (y = 0), in metres.
   const min = [0, 1, 2].map((k) => Math.min(...parts.map((p) => p.bbox.min[k])));
   const max = [0, 1, 2].map((k) => Math.max(...parts.map((p) => p.bbox.max[k])));
@@ -63,9 +88,9 @@ export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob 
   let offset = 0;
   const bufferViews: object[] = [];
   const accessors: object[] = [];
-  const add = (data: Float32Array | Uint16Array | Uint32Array, target: number) => {
+  const add = (data: Float32Array | Uint16Array | Uint32Array | Uint8Array, target?: number) => {
     const bytes = new Uint8Array(data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
-    bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: bytes.byteLength, target });
+    bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: bytes.byteLength, ...(target ? { target } : {}) });
     chunks.push(bytes);
     offset += bytes.byteLength;
     const pad = (4 - (offset % 4)) % 4;
@@ -84,9 +109,52 @@ export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob 
     return accessors.length - 1;
   };
 
+  const indexAccessor = (idx: ArrayLike<number>, vertices: number) => {
+    const small = vertices < 65536;
+    const data = small ? Uint16Array.from(idx) : Uint32Array.from(idx);
+    accessors.push({ bufferView: add(data, 34963), componentType: small ? 5123 : 5125, count: data.length, type: 'SCALAR' });
+    return accessors.length - 1;
+  };
+  const placed = (P: Float32Array, f: (x: number, y: number, z: number) => number[]) => {
+    const out = new Float32Array(P.length);
+    for (let i = 0; i < P.length; i += 3) out.set(f(P[i], P[i + 1], P[i + 2]), i);
+    return out;
+  };
+
   const meshes: object[] = [];
   const materials: object[] = [];
+  const images: object[] = [];
+  const textures: object[] = [];
+  const matte = (name: string, extra: object = {}, normalTexture?: number) => {
+    materials.push({ name, pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], ...extra, metallicFactor: 0, roughnessFactor: ROUGHNESS }, ...(normalTexture != null ? { normalTexture: { index: normalTexture } } : {}) });
+    return materials.length - 1;
+  };
   for (const part of parts) {
+    const srgb = isFlatPicture(part) ? srgbColors(part) : undefined;
+    const relief = srgb && pictureRelief(part, srgb);
+    if (relief) {
+      const { front, rest, image, normalMap } = relief;
+      const texture = async (picture: Picture, quality: number) => {
+        images.push({ bufferView: add(await encode(picture, quality)), mimeType: 'image/jpeg' });
+        textures.push({ sampler: 0, source: images.length - 1 });
+        return textures.length - 1;
+      };
+      const colour = await texture(image, JPEG_QUALITY), bumps = await texture(normalMap, NORMAL_QUALITY);
+      accessors.push({ bufferView: add(front.uvs, 34962), componentType: 5126, count: front.uvs.length / 2, type: 'VEC2' });
+      const uv = accessors.length - 1;
+      const face = {
+        attributes: { POSITION: vec3(placed(front.positions, place), true), NORMAL: vec3(placed(front.normals, turn), false), TEXCOORD_0: uv },
+        indices: indexAccessor(front.indices, front.positions.length / 3),
+        material: matte(part.name, { baseColorTexture: { index: colour } }, bumps), mode: 4,
+      };
+      const sides = {
+        attributes: { POSITION: vec3(placed(rest.positions, place), true), COLOR_0: vec3(rest.colors, false) },
+        indices: indexAccessor(rest.indices, rest.positions.length / 3),
+        material: matte(`${part.name} (sides)`), mode: 4,
+      };
+      meshes.push({ name: part.name, primitives: rest.indices.length ? [face, sides] : [face] });
+      continue;
+    }
     const { geom, perVertex, normals } = partGeometry(part);
     const P = geom.getAttribute('position'), N = geom.getAttribute('normal'), C = geom.getAttribute('color');
     const pos = new Float32Array(P.count * 3);
@@ -103,11 +171,7 @@ export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob 
       attributes.NORMAL = vec3(nor, false);
     }
     if (perVertex && C) attributes.COLOR_0 = vec3(Float32Array.from(C.array as ArrayLike<number>), false);
-    const idx = geom.getIndex()!.array as ArrayLike<number>;
-    const small = P.count < 65536;
-    const indexData = small ? Uint16Array.from(idx) : Uint32Array.from(idx);
-    accessors.push({ bufferView: add(indexData, 34963), componentType: small ? 5123 : 5125, count: indexData.length, type: 'SCALAR' });
-    const indices = accessors.length - 1;
+    const indices = indexAccessor(geom.getIndex()!.array as ArrayLike<number>, P.count);
     geom.dispose();
 
     // A per-vertex part is white, so its colours show as they are; any other its filament colour.
@@ -121,7 +185,9 @@ export function toGlb(parts: PartMesh[], title: string, opts: GlbOptions): Blob 
     scene: 0,
     scenes: [{ name: title, nodes: meshes.map((_, i) => i) }],
     nodes: meshes.map((m, i) => ({ name: (m as { name: string }).name, mesh: i })),
-    meshes, materials, accessors, bufferViews,
+    meshes, materials,
+    ...(images.length ? { images, textures, samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }] } : {}),
+    accessors, bufferViews,
     buffers: [{ byteLength: offset }],
   };
   let jsonBytes = new TextEncoder().encode(JSON.stringify(json));
