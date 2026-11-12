@@ -9,7 +9,7 @@
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
 // resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene), and a picture edit from the artwork brush (the
-// stand-in fills the area marked), also on a version marked printed meanwhile. Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
+// stand-in fills the area marked), also on a version marked printed meanwhile, and from a LayerTone photo's picture editor. Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // PTP_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
@@ -1510,6 +1510,68 @@ test('the artwork editor edits only the marked area: a new version that lines up
     assert.equal(reply.versionIndex, 1);
     assert.match(reply.text, /^Picture edit kept as v2\. Outside the mark: unchanged\. Cost \$0\.04\.$/);
     assert.doesNotMatch(JSON.stringify(d.messages), /data:/);
+    await page.locator('.msg.assistant', { hasText: 'Picture edit kept as v2' }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+  }
+});
+
+test('a LayerTone photo\'s picture editor edits only the marked area: a new version that lines up, its automatic swaps kept', TEST, async () => {
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  const { toBase64 } = await import('../../shared/layertone');
+  const lid = 'ui-smoke-00000011';
+  // A grey photo: dark at the left, bright at the right, a lighter disc in the middle.
+  const W = 120, H = 90, luma = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) luma[y * W + x] = Math.min(255, Math.round(20 + 235 * (x / (W - 1)) * 0.8 + (Math.hypot(x - 60, y - 45) < 15 ? 40 : 0)));
+  const photo = { name: 'photo-1', width: W, height: H, luma: toBase64(luma) };
+  const script = "function build() { return { name: 'Picture', ...H.layertone('photo-1', { width: 60 }) }; }";
+  const values = { $images: JSON.stringify({ 'photo-1': photo }) };
+  const r = await putDesign({ id: lid, name: 'Grey photo', createdAt: 1, updatedAt: 1, code: script, values, messages: [], currentVersion: 0,
+    versions: [{ code: script, summary: 'A grey photo', createdAt: 1, source: 'manual', values }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.goto(`${A}/?design=${lid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Grey photo');
+    await built(page);
+    await page.getByRole('button', { name: 'Edit the picture' }).click();
+    const editor = page.getByRole('dialog', { name: 'Edit the picture' });
+    await editor.waitFor();
+    await editor.getByText('Edit the whole picture').waitFor();
+    // A short stroke across the middle of the picture marks the area.
+    const b = (await editor.locator('.la-ed-over').boundingBox())!;
+    const cx = b.x + b.width / 2, cy = b.y + b.height / 2, half = Math.min(b.width, b.height) * 0.06;
+    await page.mouse.move(cx - half, cy);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(cx - half + (2 * half * k) / 8, cy);
+    await page.mouse.up();
+    await editor.getByText('Edit this picture here').waitFor();
+    await until(async () => !!JSON.parse((await getDesign(lid)).values.$pictureMarks ?? '{}')['photo-1'], 'the mark saved with the design');
+
+    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('a dark face');
+    const asked = editAsks.length;
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+    const keep = editor.getByRole('button', { name: 'Keep' });
+    await keep.waitFor();
+    await editor.getByText('Outside the mark: unchanged').waitFor();
+    await editor.getByText(/Swap layers kept as they were \(layer \d+\)/).waitFor();
+    assert.equal(editAsks.length, asked + 1);
+    assert.equal(editAsks.at(-1)!.references, 3);
+    assert.match(editAsks.at(-1)!.prompt, /LayerTone/);
+    await page.screenshot({ path: path.join(shots, '22-layertone-edit-result.png') });
+    await keep.click();
+    await editor.waitFor({ state: 'detached' });
+
+    await until(async () => (await getDesign(lid)).versions[1]?.pictureEdit?.linesUp === true, 'the kept edit lines up', 30_000);
+    const d = await getDesign(lid);
+    assert.deepEqual(d.versions[1].pictureEdit, { picture: 'photo-1', change: 'a dark face', masked: true, parent: 0, linesUp: true, cost: 0.04 });
+    assert.notEqual(d.values.$images, values.$images, 'the picture changed');
+    assert.equal(JSON.parse(d.values.$layertone).swaps.length, 1, 'the automatic swap kept');
+    assert.equal(d.values.$pictureMarks, undefined, 'the mark is used up');
     await page.locator('.msg.assistant', { hasText: 'Picture edit kept as v2' }).waitFor();
     assert.deepEqual(errors, []);
   } finally {

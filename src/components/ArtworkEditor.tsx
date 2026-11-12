@@ -8,7 +8,8 @@ import { describeChange, EDIT_HISTORY_KEY, historyFor, historyTime, parseEditHis
 import { EditHistory } from './EditHistory';
 import { useEscape } from './useEscape';
 import { Icon } from './Icon';
-import { clamp, ERASE, MAX_ZOOM, round, SELECT, SELECT_RING, strokeOn, type Pt } from './lineart/editorDraw';
+import { clamp, ERASE, MAX_ZOOM, round, SELECT_RING, strokeOn, type Pt } from './lineart/editorDraw';
+import { drawBrush, drawSelection, SEL_MM, SEL_PCT, selectionStrokes } from './picture/markCanvas';
 import { BACKDROP, builtView, colourNames, colourOps, drawBuilt, drawPicture, mmPerUnit, nearestPart, pictureBox, registerDrawing, shapePaths } from './artwork/artworkCanvas';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type MarkStroke, type PictureMark } from '../../shared/pictureEdit/mark';
 import type { PictureEditUi } from '../lib/pictureEdit';
@@ -44,8 +45,6 @@ type Restored = { at: number; strokes: ArtworkStroke[] };
 type Snap = { strokes: ArtworkStroke[]; restored: Restored | null };
 /** Brush widths: in mm when the picture's printed size is known, else in % of its height. */
 const MM = { min: 0.3, max: 15, start: 2 }, PCT = { min: 0.1, max: 10, start: 1 };
-/** The selection brush's widths, the same ways. */
-const SEL_MM = { min: 1, max: 60, start: 10 }, SEL_PCT = { min: 0.5, max: 40, start: 5 };
 /** The model as built, drawn while the view moves: a bitmap of at most this many pixels. */
 const QUICK_PX = 4_000_000;
 
@@ -263,17 +262,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     const live = a.mode === 'draw' && a.points.length ? { width: n.width, points: a.points, ...(n.square ? { shape: 'square' as const } : {}) } : null;
     // The area selected (with the stroke adding to it), see-through: drawn whole off screen.
     const sel = [...n.selection, ...(live && n.tool === 'select' ? [live] : [])];
-    if (sel.length) {
-      const S = (selLayer.current ??= document.createElement('canvas'));
-      if (S.width !== c.width || S.height !== c.height) { S.width = c.width; S.height = c.height; }
-      const sctx = S.getContext('2d')!;
-      sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, S.width, S.height);
-      sctx.setTransform(...matrix());
-      for (const st of sel) strokeOn(sctx, { mode: 'clear', ...st }, SELECT[0]);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = SELECT[1]; ctx.drawImage(S, 0, 0); ctx.globalAlpha = 1;
-      ctx.setTransform(...matrix());
-    }
+    if (sel.length) drawSelection(ctx, (selLayer.current ??= document.createElement('canvas')), matrix(), sel);
     if (live && n.tool !== 'select') {
       // The stroke being drawn: paint in its colour (inside the box, as it will be), erasing in red.
       const st = { mode: n.tool, ...live };
@@ -289,16 +278,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (hover.current.show && a.mode !== 'pan' && a.mode !== 'pinch' && !space.current && !n.locked) {
       const [x, y] = hover.current.at, r = Math.max(1.5, (n.width / 2) * v.s);
-      const mark = n.tool === 'erase' ? '#c0392b' : n.tool === 'select' ? SELECT_RING : n.ink;
-      const outline = (color: string, lw: number) => {
-        ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
-        if (n.square) ctx.rect(x - r, y - r, 2 * r, 2 * r); else ctx.arc(x, y, r, 0, 2 * Math.PI);
-        ctx.stroke();
-      };
-      // (Edged light and dark: a white or a black brush shows on any colour.)
-      outline('#ffffffcc', 4.4); outline('#1d1d1f', 2.6); outline(mark, 1.2);
-      ctx.fillStyle = mark;
-      ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
+      drawBrush(ctx, [x, y], r, n.square, n.tool === 'erase' ? '#c0392b' : n.tool === 'select' ? SELECT_RING : n.ink);
     }
   }, [box]);
   const repaintOver = useCallback(() => {
@@ -388,17 +368,15 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     const a = act.current, n = now.current;
     a.mode = 'idle';
     if (!a.points.length) return;
-    // Made lean in mm (or as if the picture were 100 mm high), saved in drawing units.
-    const pts = leanStroke(a.points.map(([x, y]): Pt => [x * per, y * per])).map(([x, y]): [number, number] => [round(x / per, 5), round(y / per, 5)]);
     if (n.tool === 'select') {
       // The stroke adds to the area selected (in pieces the mark can hold), saved with the design at once.
       if (n.selection.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} selection strokes: deselect (Esc) and select again.`); return; }
-      const st = { mode: 'paint' as const, color: '', width: round(clamp(n.width, 1e-5, 2), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
-      const added = splitLongStroke(st).map(({ width: w, points, shape }): MarkStroke => ({ width: w, points, ...(shape ? { shape } : {}) }));
-      select([...n.selection, ...added].slice(0, MAX_ARTWORK_STROKES));
+      select([...n.selection, ...selectionStrokes(a.points, n.width, n.square, per)].slice(0, MAX_ARTWORK_STROKES));
       setNote(null);
       return;
     }
+    // Made lean in mm (or as if the picture were 100 mm high), saved in drawing units.
+    const pts = leanStroke(a.points.map(([x, y]): Pt => [x * per, y * per])).map(([x, y]): [number, number] => [round(x / per, 5), round(y / per, 5)]);
     if (n.strokes.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} strokes per picture: undo or clear some first.`); return; }
     const st: ArtworkStroke = { mode: n.tool === 'erase' ? 'erase' : 'paint', color: n.colour, width: round(clamp(n.width, 1e-5, 1), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
     // (A very long stroke is saved as several: the build reads at most MAX_ARTWORK_POINTS per stroke.)

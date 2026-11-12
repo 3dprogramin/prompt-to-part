@@ -67,7 +67,7 @@ interface Props {
   onNoticeDetails?: () => void;
   onNoticeClose?: () => void;
   /** The brush button at the bottom right: the hand editors this model has (line art, each artwork drawing). */
-  painter?: { items: { kind: 'lineart' | 'artwork'; name: string; label: string }[]; disabled?: string; onOpen: (kind: 'lineart' | 'artwork', name: string) => void } | null;
+  painter?: { items: { kind: 'lineart' | 'artwork' | 'picture'; name: string; label: string }[]; disabled?: string; onOpen: (kind: 'lineart' | 'artwork' | 'picture', name: string) => void } | null;
 }
 
 const STEP_SECONDS = 1.6;
@@ -92,6 +92,8 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
   const [painterMenu, setPainterMenu] = useState(false);
   const painterRef = useRef<HTMLDivElement>(null);
   const painterKey = `${painter?.disabled ?? ''}|${painter?.items.map((i) => `${i.kind}:${i.name}`).join(',') ?? ''}`;
+  // A photo's picture editor only selects and edits: then the button says so.
+  const painterLabel = painter?.items.every((i) => i.kind === 'picture') ? 'Edit the picture' : 'Paint and fix the picture by hand';
   useEffect(() => setPainterMenu(false), [painterKey]);
   useEscape(painterMenu, () => setPainterMenu(false));
   useEffect(() => {
@@ -345,8 +347,8 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
               ))}
             </div>
           )}
-          <button className="tb-btn" disabled={!!painter.disabled} aria-label="Paint and fix the picture by hand" aria-haspopup={painter.items.length > 1 ? 'menu' : undefined}
-            title={painter.disabled || 'Paint and fix the picture by hand'}
+          <button className="tb-btn" disabled={!!painter.disabled} aria-label={painterLabel} aria-haspopup={painter.items.length > 1 ? 'menu' : undefined}
+            title={painter.disabled || painterLabel}
             onClick={() => {
               const items = painter!.items;
               if (items.length === 1) painter!.onOpen(items[0].kind, items[0].name); else setPainterMenu((o) => !o);

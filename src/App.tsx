@@ -4,7 +4,8 @@ import { stabilityFor } from '../shared/stability';
 import { SCALE_KEY } from '../shared/params';
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
-import { LAYERTONE_IMAGES_KEY } from '../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../shared/layertone';
+import { layerToneBuild, photoFingerprint } from '../shared/pictureEdit/photo';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } from '../shared/meshes';
 import type { MeshyBalance, PrinterInfo } from '../shared/api';
 import type { FontEntry } from './lib/api';
@@ -25,6 +26,7 @@ import { RestoreDialog } from './components/RestoreDialog';
 import { PrinterDialog } from './components/PrinterPicker';
 import { LineArtEditor } from './components/LineArtEditor';
 import { ArtworkEditor } from './components/ArtworkEditor';
+import { PictureEditor } from './components/picture/PictureEditor';
 import { PhotosPanel, usePhotoJobs, type SizeShot } from './components/PhotosPanel';
 import { useEscape } from './components/useEscape';
 import { useDesignSaving } from './hooks/useDesignSaving';
@@ -238,12 +240,15 @@ export default function App() {
   const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
   const [editingLineArt, setEditingLineArt] = useState(false);
   const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
-  useEffect(() => { setEditingLineArt(false); setEditingArtwork(null); }, [design.id]);
+  // The LayerTone photo open in the picture editor (its name under $images).
+  const [editingPicture, setEditingPicture] = useState<string | null>(null);
+  useEffect(() => { setEditingLineArt(false); setEditingArtwork(null); setEditingPicture(null); }, [design.id]);
   // A printed version shown: the hand editors, repainting and placing close (nothing there can change it).
   useEffect(() => {
     if (!lockReason) return;
     setEditingLineArt(false);
     setEditingArtwork(null);
+    setEditingPicture(null);
     setPicking(null);
     repaint.stop();
   }, [lockReason]);
@@ -458,16 +463,28 @@ export default function App() {
     return drawing ? [{ name: u.name, drawing, fp: drawingFingerprint(drawing) }] : [];
   }), [shown, drawingsStored]);
   const artworkEditing = editingArtwork ? artworkItems.find((a) => a.name === editingArtwork) : undefined;
-  // Editing a picture with the image model (from the artwork brush), and its mark.
+  // The LayerTone photos the build uses (each picture once, from the first part built from it), for the picture editor.
+  const imagesStored = useMemo(() => parseLayerToneImages(design.values[LAYERTONE_IMAGES_KEY]), [design.values[LAYERTONE_IMAGES_KEY]]);
+  const pictureItems = useMemo(() => (shown?.parts ?? []).flatMap((p, i, all) => {
+    // How the part was built, sent with an edit (a marked one keeps automatic swap layers as they were).
+    const layerTone = layerToneBuild(p);
+    const image = layerTone && all.findIndex((q) => q.layerTone?.image === p.layerTone!.image) === i ? imagesStored[p.layerTone!.image] : undefined;
+    return image && layerTone ? [{ name: image.name, image, fp: photoFingerprint(image), layerTone, mmPerUnit: layerTone.options.width / (image.width / image.height) }] : [];
+  }), [shown, imagesStored]);
+  const pictureEditing = editingPicture ? pictureItems.find((a) => a.name === editingPicture) : undefined;
+  // Editing a picture with the image model (from the artwork brush or the picture editor), and its mark.
   const pictureEdit = usePictureEdit({ design, setDesign, result, busy, locked: lockReason });
   const painterItems = [
     ...(shownLineArt?.lineArt.frames.length ? [{ kind: 'lineart' as const, name: '', label: 'Edit drawing' }] : []),
     ...artworkItems.map((a) => ({ kind: 'artwork' as const, name: a.name, label: `Paint ${a.name}` })),
+    ...pictureItems.map((a, _, all) => ({ kind: 'picture' as const, name: a.name, label: all.length > 1 ? `Edit the picture ${a.name}` : 'Edit the picture' })),
   ];
   const painter = painterItems.length ? {
     items: painterItems,
     disabled: lockReason ?? (generating || busyElsewhere ? 'Wait for the reply to finish' : busy || !shown ? 'Wait for the model to finish building' : undefined),
-    onOpen: (kind: 'lineart' | 'artwork', name: string) => { if (kind === 'lineart') setEditingLineArt(true); else setEditingArtwork(name); },
+    onOpen: (kind: 'lineart' | 'artwork' | 'picture', name: string) => {
+      if (kind === 'lineart') setEditingLineArt(true); else if (kind === 'picture') setEditingPicture(name); else setEditingArtwork(name);
+    },
   } : null;
 
   // ---- cost: slice the exported parts in Bambu Studio (the print layout, not an assembled view)
@@ -972,6 +989,17 @@ export default function App() {
           onMark={(mark) => pictureEdit.setMark(artworkEditing.name, artworkEditing.fp, mark)}
           edit={pictureEdit.ui(artworkEditing.name, artworkEditing.fp)}
           onClose={() => setEditingArtwork(null)}
+        />
+      )}
+      {pictureEditing && shown && (
+        <PictureEditor
+          image={pictureEditing.image}
+          fp={pictureEditing.fp}
+          values={design.values}
+          mmPerUnit={pictureEditing.mmPerUnit}
+          onMark={(mark) => pictureEdit.setMark(pictureEditing.name, pictureEditing.fp, mark)}
+          edit={pictureEdit.ui(pictureEditing.name, pictureEditing.fp, { layerTone: pictureEditing.layerTone })}
+          onClose={() => setEditingPicture(null)}
         />
       )}
       {printerInfo?.firstStart && <PrinterDialog info={printerInfo} onSave={onPrinter} />}

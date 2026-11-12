@@ -1,13 +1,15 @@
-// A picture edit started in the artwork brush: the request to the image model (one at a time, sent
-// for the design open then), its result waiting for Keep / Try again / Discard, Keep's new version
-// and chat entry, and whether the build that follows lines up with the version it came from. Also
-// the mark on each picture (PICTURE_MARKS_KEY), saved with the design as the user selects.
+// A picture edit started in a picture editor (the artwork brush, a LayerTone photo's): the request
+// to the image model (one at a time, sent for the design open then), its result waiting for Keep /
+// Try again / Discard, Keep's new version and chat entry, and whether the build that follows lines
+// up with the version it came from. Also the mark on each picture (PICTURE_MARKS_KEY), saved with
+// the design as the user selects.
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import type { Box3, Design, EvalResult, ParamValue } from '../../shared/types';
 import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { api } from '../lib/api';
 import { applyPictureEdit, pictureChangedSince, requestPictureEdit, type PictureEditUi } from '../lib/pictureEdit';
@@ -18,8 +20,16 @@ import { useLinesUp } from './useLinesUp';
 export const PICTURE_CHANGED = 'The picture changed while editing; try again';
 
 type StartArgs = Parameters<PictureEditUi['start']>[0];
-/** What an edit was asked for, and the design as it was then: its id, the picture and its hand edits as saved, the model's box. */
-interface Sent { designId: string; picture: string; fp: string; args: StartArgs; request: PictureEditRequest; drawings: ParamValue | undefined; edits: ParamValue | undefined; parentBox: Box3 | null }
+/** A LayerTone photo's edit: how its part was built (from the part as built; a marked edit needs it). */
+export interface PhotoEdit { layerTone: PictureEditRequest['layerTone'] | null }
+/**
+ * What an edit was asked for, and the design as it was then: its id, the picture and its hand edits
+ * as saved (a photo's: its pictures and LayerTone setup, in `others`), the model's box.
+ */
+interface Sent {
+  designId: string; picture: string; fp: string; args: StartArgs; photo?: PhotoEdit; request: PictureEditRequest;
+  drawings: ParamValue | undefined; edits: ParamValue | undefined; others?: Record<string, ParamValue | undefined>; parentBox: Box3 | null;
+}
 interface Job { sent: Sent; startedAt: number; abort: AbortController | null; result: PictureEditResponse | null; error: string | null; keeping: boolean }
 
 /** Before and after side by side on white, as one PNG data URL (for the chat). */
@@ -66,8 +76,11 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
       (e: Error) => { if (!abort.signal.aborted) setJob((j) => (j?.abort === abort ? { ...j, abort: null, error: e.message } : j)); },
     );
   };
-  /** The request for the open design as it is now: its values with the editor's unsaved strokes in, as Done would save them. */
-  const start = (picture: string, fp: string, args: StartArgs) => {
+  /**
+   * The request for the open design as it is now: its values with the editor's unsaved strokes in, as
+   * Done would save them. With `photo`, of a LayerTone photo (its picture under $images).
+   */
+  const start = (picture: string, fp: string, args: StartArgs, photo?: PhotoEdit) => {
     const d = designRef.current, saved = d.values[ARTWORK_EDITS_KEY];
     const values = withoutEditHistory(d.values);
     if (args.draft) {
@@ -75,12 +88,17 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
       const next = args.draft.length ? { ...rest, [picture]: { fp, strokes: args.draft } } : rest;
       if (Object.keys(next).length) values[ARTWORK_EDITS_KEY] = JSON.stringify(next); else delete values[ARTWORK_EDITS_KEY];
     }
-    const request: PictureEditRequest = { mode: 'artwork', picture, values, ...(args.mark ? { mark: args.mark } : {}), change: args.change, photos: args.photos };
-    run({ designId: d.id, picture, fp, args, request, drawings: d.values[DRAWINGS_KEY], edits: saved, parentBox: resultRef.current?.bbox ?? null });
+    const request: PictureEditRequest = {
+      mode: photo ? 'layertone' : 'artwork', picture, values, ...(args.mark ? { mark: args.mark } : {}), change: args.change, photos: args.photos,
+      ...(photo?.layerTone ? { layerTone: photo.layerTone } : {}),
+    };
+    // A photo's edit sets its picture and may set the setup's swap layers: kept only if neither changed meanwhile.
+    const others = photo ? { [LAYERTONE_IMAGES_KEY]: d.values[LAYERTONE_IMAGES_KEY], [LAYERTONE_KEY]: d.values[LAYERTONE_KEY] } : undefined;
+    run({ designId: d.id, picture, fp, args, ...(photo ? { photo } : {}), request, drawings: d.values[DRAWINGS_KEY], edits: saved, ...(others ? { others } : {}), parentBox: resultRef.current?.bbox ?? null });
   };
   const drop = () => { jobRef.current?.abort?.abort(); setJob(null); };
   /** The same edit asked again, of the picture as it is now. */
-  const retry = () => { const j = jobRef.current; if (j) start(j.sent.picture, j.sent.fp, j.sent.args); };
+  const retry = () => { const j = jobRef.current; if (j) start(j.sent.picture, j.sent.fp, j.sent.args, j.sent.photo); };
 
   /**
    * Keeps the result in the design it was asked for: its pictures stored with the design, the values
@@ -135,12 +153,12 @@ export function usePictureEdit({ design, setDesign, result, busy, locked }: {
     return { ...d, values, updatedAt: Date.now() };
   });
 
-  /** The edit as the editor of `picture` (fingerprint `fp`) shows it. */
-  const ui = (picture: string, fp: string): PictureEditUi => {
+  /** The edit as the editor of `picture` (fingerprint `fp`; with `photo`, a LayerTone photo) shows it. */
+  const ui = (picture: string, fp: string, photo?: PhotoEdit): PictureEditUi => {
     const mine = job?.sent.picture === picture ? job : null;
     return {
       busy: !!mine?.abort, startedAt: mine?.startedAt ?? 0, result: mine?.result ?? null, error: mine?.error ?? null, keeping: !!mine?.keeping,
-      start: (args) => start(picture, fp, args), cancel: drop, keep, retry, discard: drop,
+      start: (args) => start(picture, fp, args, photo), cancel: drop, keep, retry, discard: drop,
     };
   };
   return { ui, setMark };

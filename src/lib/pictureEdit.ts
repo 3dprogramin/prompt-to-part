@@ -65,10 +65,12 @@ export interface PictureEditUi {
 
 /**
  * Whether a picture edit's result can no longer be kept in `d`: it is another design, or its drawings
- * or artwork hand edits are not those the edit was asked with (`sent`, the values as they were then).
+ * or artwork hand edits are not those the edit was asked with (`sent`, the values as they were then),
+ * or a value in `sent.others` (by key) is not (a LayerTone edit's pictures and setup).
  */
-export function pictureChangedSince(d: Design, sent: { designId: string; drawings: unknown; edits: unknown }): boolean {
-  return d.id !== sent.designId || d.values[DRAWINGS_KEY] !== sent.drawings || d.values[ARTWORK_EDITS_KEY] !== sent.edits;
+export function pictureChangedSince(d: Design, sent: { designId: string; drawings: unknown; edits: unknown; others?: Record<string, unknown> }): boolean {
+  return d.id !== sent.designId || d.values[DRAWINGS_KEY] !== sent.drawings || d.values[ARTWORK_EDITS_KEY] !== sent.edits
+    || Object.entries(sent.others ?? {}).some(([k, v]) => d.values[k] !== v);
 }
 
 /** Asks the server to edit a picture with the image model (10 to 60 s); throws an HttpError with the server's words. */
@@ -76,10 +78,11 @@ export async function requestPictureEdit(designId: string, r: PictureEditRequest
   return (await request(`/api/designs/${designId}/picture-edit`, { method: 'POST', body: JSON.stringify(r), signal })).json() as Promise<PictureEditResponse>;
 }
 
-/** What a picture edit's result says about itself: whether outside the mark is unchanged (a masked edit only), and its warnings. */
-export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsideSame' | 'offPalette' | 'simplified'>): { text: string; warn?: boolean }[] {
+/** What a picture edit's result says about itself: whether outside the mark is unchanged (a masked edit only), the swap layers kept, and its warnings. */
+export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsideSame' | 'offPalette' | 'simplified' | 'swapsKept'>): { text: string; warn?: boolean }[] {
   const out: { text: string; warn?: boolean }[] = [];
   if (r.masked) out.push(r.outsideSame ? { text: 'Outside the mark: unchanged' } : { text: 'Outside the mark: changed too, so it won\'t line up with the version it came from', warn: true });
+  if (r.swapsKept) out.push({ text: r.swapsKept.note });
   if (r.offPalette) out.push({ text: r.offPalette.note, warn: true });
   if (r.simplified) out.push({ text: 'The new shapes were simplified to stay within the drawing\'s point limit', warn: true });
   return out;
