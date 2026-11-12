@@ -39,6 +39,9 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
   throw new HttpError(typeof body.error === 'string' ? body.error : `HTTP ${r.status}`, r.status, body);
 }
 
+/** Where a printed version's saved 3MF downloads from. */
+export const printedFileUrl = (id: string, v: number): string => `/api/designs/${id}/printed/${v}/3mf`;
+
 const getJson = async <T>(path: string, init?: RequestInit): Promise<T> => (await request(path, init)).json() as Promise<T>;
 
 // Images already stored on the server, by design and the data URL they came from (each design keeps
@@ -101,6 +104,11 @@ export const api = {
   },
   async deleteDesign(id: string): Promise<void> {
     await request(`/api/designs/${id}`, { method: 'DELETE' });
+  },
+  /** Marks a version printed, saving its 3MF (null: no file) and whether it has print settings. */
+  markPrinted: (id: string, v: number, file: Blob | null, settings: boolean) => getJson<NonNullable<DesignSummary['printed']>[number]>(`/api/designs/${id}/printed/${v}${settings ? '?settings=1' : ''}`, { method: 'POST', body: file ?? new Blob([]), headers: { 'Content-Type': 'application/octet-stream' } }),
+  async unmarkPrinted(id: string, v: number): Promise<void> {
+    await request(`/api/designs/${id}/printed/${v}`, { method: 'DELETE' });
   },
   capabilities: () => getJson<Capabilities>('/api/capabilities'),
   connection: (fresh = false) => getJson<Connection>(`/api/connection${fresh ? '?fresh=1' : ''}`),

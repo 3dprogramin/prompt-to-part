@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanTag, cleanTagMap, cleanTags, hasTag, MAX_TAG_CHARS, MAX_TAGS, tagsProblem, withTag } from '../shared/tags';
-import { ALL, cleanFilter, deletePlan, liveFilter, shownDesigns, someNames, tagCounts, tagState } from '../src/lib/designList';
+import { ALL, cleanFilter, deletePlan, liveFilter, printedRows, shownDesigns, someNames, tagCounts, tagState } from '../src/lib/designList';
 import { pickIds } from '../src/lib/picking';
 import type { DesignSummary } from '../shared/types';
 
@@ -93,4 +93,21 @@ test('a bulk delete asks once, naming the designs, and leaves the ones still bei
   const many = deletePlan(Array.from({ length: 15 }, (_, i) => d(`id${i}`, `n${i}`, i)), () => false);
   assert.match(many.question!, /- n11\nand 3 more$/);
   assert.equal(someNames(['a', 'b', 'c', 'd'], 2), '"a", "b" and 2 more');
+});
+
+test('the Printed filter lists versions, newest first, and searches names', () => {
+  const mark = (v: number, at: number) => ({ v, at, file: true, settings: false });
+  const l = [d('a', 'Alpha', 1, { printed: [mark(1, 5), mark(4, 9)] }), d('b', 'Brad', 2, { printed: [mark(0, 7)] }), d('c', 'Plain', 3)];
+  const key = (r: ReturnType<typeof printedRows>) => r.map((x) => `${x.design.id}${x.v}`);
+  assert.deepEqual(key(printedRows(l, '')), ['a4', 'b0', 'a1']);
+  assert.deepEqual(key(printedRows(l, 'brad')), ['b0']);
+  assert.deepEqual(cleanFilter({ kind: 'printed' }), { kind: 'printed' });
+});
+
+test('bulk delete keeps designs with printed versions', () => {
+  const a = d('a', 'Alpha', 1, { printed: [{ v: 0, at: 1, file: true, settings: false }] }), b = d('b', 'Brad', 2);
+  const plan = deletePlan([a, b], () => false);
+  assert.deepEqual(plan.remove.map((x) => x.id), ['b']);
+  assert.deepEqual(plan.printed.map((x) => x.id), ['a']);
+  assert.match(plan.question!, /Kept, it has printed versions: "Alpha"/);
 });
