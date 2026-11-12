@@ -7,10 +7,18 @@ import { LINEART_EDITS_KEY } from '../../shared/lineart';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
+import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
-import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
+
+/** The hidden parts' names in a $hidden value (a JSON list); anything else hides nothing. */
+export function parseHidden(v: unknown): string[] {
+  try {
+    const a = JSON.parse(String(v ?? '[]'));
+    return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
 
 type Params = EvalResult['params'];
 

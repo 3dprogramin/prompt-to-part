@@ -4,13 +4,13 @@ import { channel, TAB_ID, tell, type TabMessage } from '../lib/tabs';
 
 /**
  * Keeps this tab in step with the app's other tabs: their saves and deletes arrive through `onSaved`
- * and `onDeleted`, and the designs they are generating are returned (id → last heartbeat). This
+ * and `onDeleted` (a version marked or unmarked printed through `onPrinted`), and the designs they are generating are returned (id → last heartbeat). This
  * tab's generations are announced every few seconds, so a closed tab's ones are forgotten.
  */
-export function useCrossTabSync(runningRef: MutableRefObject<Record<string, AbortController>>, onSaved: (d: Design) => void, onDeleted: (id: string) => void) {
+export function useCrossTabSync(runningRef: MutableRefObject<Record<string, AbortController>>, onSaved: (d: Design) => void, onDeleted: (id: string) => void, onPrinted?: (id: string) => void) {
   const [remoteRunning, setRemoteRunning] = useState<Record<string, number>>({});
-  const handlers = useRef({ onSaved, onDeleted });
-  handlers.current = { onSaved, onDeleted };
+  const handlers = useRef({ onSaved, onDeleted, onPrinted });
+  handlers.current = { onSaved, onDeleted, onPrinted };
   useEffect(() => {
     if (!channel) return;
     const onMsg = (ev: MessageEvent<TabMessage>) => {
@@ -28,6 +28,8 @@ export function useCrossTabSync(runningRef: MutableRefObject<Record<string, Abor
         handlers.current.onSaved(m.design);
       } else if (m.type === 'deleted') {
         handlers.current.onDeleted(m.id);
+      } else if (m.type === 'printed') {
+        handlers.current.onPrinted?.(m.id);
       }
     };
     channel.addEventListener('message', onMsg);

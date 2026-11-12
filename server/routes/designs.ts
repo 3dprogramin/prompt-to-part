@@ -8,9 +8,11 @@ import { DATA_DIR } from '../config';
 import type { Design, DesignSummary } from '../../shared/types';
 import { designKind } from '../../shared/designKind';
 import { cleanTags, hasTag, MAX_TAGS, tagsProblem, withTag } from '../../shared/tags';
+import type { PrintedMap } from '../../shared/printed';
+import { printedGuard, readPrinted } from '../printed';
 import { DESIGNS, ID_RE, STARRED_FILE, readStarred, readTags, isDesign, writeAtomically, type RouteContext } from './store';
 
-type Summary = Omit<DesignSummary, 'starred' | 'tags'>;
+type Summary = Omit<DesignSummary, 'starred' | 'tags' | 'printed'>;
 
 /** A design file's summary for the list, or null when it isn't one (corrupt). */
 function summarize(text: string): Summary | null {
@@ -35,6 +37,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     const out: DesignSummary[] = [];
     const starred = new Set(await readStarred().catch(() => []));
     const tags = await readTags().catch(() => ({} as Record<string, string[]>));
+    const printed = await readPrinted().catch(() => ({} as PrintedMap));
     const files = (await readdir(DESIGNS)).filter((f) => f.endsWith('.json'));
     const here = new Set(files);
     for (const f of summaries.keys()) if (!here.has(f)) summaries.delete(f);
@@ -51,7 +54,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
       }
       const d = cached.summary;
       if (!d) continue; // corrupt
-      out.push({ ...d, ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }) });
+      out.push({ ...d, ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }), ...(Object.hasOwn(printed, d.id) && { printed: printed[d.id].map(({ fp: _fp, ...m }) => m) }) });
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
     res.json(out);
@@ -79,6 +82,10 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
       const base = d.rev ?? 0;
       if (stored === null && (deleted.has(d.id) || base > 0)) return void res.status(410).json({ error: 'This design was deleted' });
       if (stored !== null && base !== stored) return void res.status(409).json({ error: 'A newer version of this design was saved in another tab', rev: stored });
+      // A printed version stays as it was printed: a save that changes or drops one is refused.
+      const marks = (await readPrinted())[d.id];
+      const broken = marks && printedGuard(d, marks);
+      if (broken) return void res.status(423).json({ error: `Printed v${broken.v + 1} is locked: clone it to change it.` });
       const rev = (stored ?? 0) + 1;
       await mkdir(DESIGNS, { recursive: true });
       await writeAtomically(file, JSON.stringify({ ...d, rev }));
@@ -148,13 +155,21 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
     if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'This design is being worked on: stop it first.' });
+    let kept = false;
     await serially(id, async () => {
+      // Checked in the queue, so a mark being written can't slip in between.
+      const marks = (await readPrinted())[id];
+      if (marks) {
+        kept = true;
+        return void res.status(409).json({ error: `Kept: it has printed versions (${marks.map((m) => `v${m.v + 1}`).join(', ')}). Unmark them first.` });
+      }
       deleted.add(id);
       await rm(designFile(id), { force: true });
       summaries.delete(path.basename(designFile(id)));
       await rm(imageDir(id), { recursive: true, force: true });
       await rm(workspaceDir(id), { recursive: true, force: true });
     });
+    if (kept) return;
     // Its tags go with it (its star stays, as before: harmless).
     await changeTags((all) => { delete all[id]; }).catch(() => undefined);
     res.json({ ok: true });

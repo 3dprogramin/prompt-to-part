@@ -2,7 +2,8 @@
 // checked at high resolution first.
 import type { Dispatch, SetStateAction } from 'react';
 import type { Design, ParamValues } from '../../shared/types';
-import { defaultsFromTemplate, type PrintProfile, type PrintSettings } from '../../shared/print';
+import { defaultsFromTemplate, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRINT_KEY, type PrintProfile, type PrintSettings } from '../../shared/print';
+import { bambuProjectSupported } from '../../shared/printer';
 import { api } from '../lib/api';
 import { download, slug } from '../lib/files';
 import { exportParts, type ExportFormat } from '../lib/export';
@@ -11,12 +12,16 @@ import { chooseTarget, exportProject, type ProjectTarget } from '../lib/projectE
 import { oneColourFilament } from '../lib/bambu3mf';
 import { exportedParts } from '../geometry/parts';
 import type { GeometryClient } from '../geometry/client';
+import type { ValidationReport } from '../geometry/validate';
 import { summarize, type ValidationState } from '../components/ValidationPanel';
 import type { useDesignSaving } from '../hooks/useDesignSaving';
 import type { Notice } from './notice';
 import type { usePrintSettings } from './usePrintSettings';
 
 type PrintState = ReturnType<typeof usePrintSettings>;
+
+/** A built export file, or why it couldn't be built. */
+type Built = { blob: Blob; file: string; settings: boolean; report?: ValidationReport } | { error: string; level: 'error' | 'warning' };
 
 /** Export and Export project… for the design as it is now (App makes them each render). */
 export function designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
@@ -32,41 +37,62 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
   setValidation: Dispatch<SetStateAction<ValidationState | null>>; setValidationOpen: Dispatch<SetStateAction<boolean>>;
   isUnsaved: ReturnType<typeof useDesignSaving>['isUnsaved']; saveNow: ReturnType<typeof useDesignSaving>['saveNow'];
 }) {
+  /**
+   * The file of the model (or one part) built from these values with these parts hidden: evaluated and
+   * validated at high resolution, nothing downloaded. `settings`: a 3MF with print settings in it.
+   * `withPrint`: put print settings in a 3MF (the Export menu's tick by default).
+   */
+  const build = async (format: ExportFormat, values: ParamValues, hidden: string[], partName?: string, glb?: GlbOptions, withPrint = threeMf.print): Promise<Built> => {
+    // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
+    // the parts being exported). If that fails, nothing is built: the preview mesh is coarser
+    // or may be from other settings, and the file would not be what the user expects.
+    const choice = { exclude: hidden, only: partName };
+    const o = await geo.evaluate(design.code, values, 'high', { validate: { layoutValue, ...choice, ...printHints() } });
+    if (!o.result) return { error: `the high-resolution model failed - ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error' };
+    const r = o.result;
+    const parts = exportedParts(r, choice);
+    if (!parts.length) return { error: partName ? `the model has no part "${partName}" any more.` : 'every part is hidden in the viewer.', level: 'warning' };
+    const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
+    // Print settings and one colour as the values say (the same as the Print tab shows for the design's own).
+    const colour = parseOneColour(values[ONE_COLOUR_KEY]);
+    const print = withPrint && bambu ? { ai: r.print, user: parseProfile(values[PRINT_KEY]) } : null;
+    const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
+      oneColour: colour ? oneColourFilament(parts, colour).colour : null,
+      print,
+      // The template's profile becomes the baseline shown in the Print tab.
+      onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
+      glb,
+    });
+    return { blob, file: `${name}.${format}`, settings: format === '3mf' && !!print && bambuProjectSupported(), report: o.report };
+  };
+
+  /** A 3MF for these values and hidden parts (a printed version's own), always with print settings when Bambu Studio is there. */
+  const build3mf = async (values: ParamValues, hidden: string[]): Promise<{ blob: Blob; settings: boolean } | { error: string }> => {
+    try {
+      const b = await build('3mf', values, hidden, undefined, undefined, true);
+      return 'error' in b ? { error: b.error } : b;
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  };
+
   const onExport = async (format: ExportFormat, partName?: string, glb?: GlbOptions) => {
     if (!design.code) return;
     setExporting(true);
     setExportError(null);
     try {
-      // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
-      // the parts being exported). If that fails, nothing is exported: the preview mesh is coarser
-      // or may be from other settings, and the file would not be what the user expects.
-      const choice = { exclude: hiddenParts, only: partName };
-      const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, ...choice, ...printHints() } });
-      if (!o.result) {
-        setNotice({ text: `Not exported: the high-resolution model failed – ${o.error.message}${o.error.line ? ` (line ${o.error.line})` : ''}`, level: 'error', details: false });
+      const b = await build(format, fullValues(), hiddenParts, partName, glb);
+      if ('error' in b) {
+        setNotice({ text: `Not exported: ${b.error}`, level: b.level, details: false });
         return;
       }
-      const r = o.result;
-      const parts = exportedParts(r, choice);
-      if (!parts.length) {
-        setNotice({ text: partName ? `Not exported: the model has no part "${partName}" any more.` : 'Not exported: every part is hidden in the viewer.', level: 'warning', details: false });
-        return;
-      }
-      const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
-      const file = `${name}.${format}`;
-      const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
-        oneColour: oneColour ? oneColourFilament(parts, oneColour).colour : null,
-        print: threeMf.print && bambu ? { ai: r.print, user: userPrint } : null,
-        // The template's profile becomes the baseline shown in the Print tab.
-        onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
-        glb,
-      });
-      download(blob, file); // always export – problems are reported, not blocking
+      const { blob, file } = b;
+      download(blob, file); // always export: problems are reported, not blocking
       // A shop's 3D view loads on phones: say when the file is heavy.
       const mb = blob.size / 1048576;
       const heavy = format === 'glb' && mb > 15 ? ` · ${mb.toFixed(0)} MB, heavy for a shop's 3D view on phones` : '';
-      if (o.report) {
-        const report = o.report;
+      if (b.report) {
+        const report = b.report;
         const sum = summarize(report.issues);
         setValidation({ report, label: `Exported ${file}` });
         setValidationOpen(false);
@@ -146,5 +172,5 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
       setExportStage(null);
     }
   };
-  return { onExport, onExportProject };
+  return { onExport, onExportProject, build3mf };
 }

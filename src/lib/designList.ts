@@ -3,7 +3,7 @@
 import type { DesignSummary } from '../../shared/types';
 import { BUILTIN_TAGS, builtinTag, foldText, hasTag } from '../../shared/tags';
 
-export type DesignFilter = { kind: 'all' } | { kind: 'starred' } | { kind: 'untagged' } | { kind: 'tag'; tag: string };
+export type DesignFilter = { kind: 'all' } | { kind: 'starred' } | { kind: 'untagged' } | { kind: 'printed' } | { kind: 'tag'; tag: string };
 export type DesignSort = 'updated' | 'created' | 'name';
 export const DESIGN_SORTS: Record<DesignSort, string> = { updated: 'Last changed', created: 'Newest', name: 'Name' };
 
@@ -25,8 +25,9 @@ export function tagCounts(list: readonly DesignSummary[]): { tag: string; count:
   return [...all.filter((c) => builtinTag(c.tag)), ...own];
 }
 
-/** The filter as it applies now: a user tag no design has any more shows every design. */
+/** The filter as it applies now: a user tag no design has any more, or Printed with no printed version, shows every design. */
 export function liveFilter(filter: DesignFilter, list: readonly DesignSummary[]): DesignFilter {
+  if (filter.kind === 'printed') return list.some((d) => d.printed?.length) ? filter : ALL;
   return filter.kind === 'tag' && !builtinTag(filter.tag) && !list.some((d) => hasTag(d.tags, filter.tag)) ? ALL : filter;
 }
 
@@ -36,6 +37,7 @@ export function inFilter(d: DesignSummary, filter: DesignFilter): boolean {
     case 'all': return true;
     case 'starred': return !!d.starred;
     case 'untagged': return !d.tags?.length;
+    case 'printed': return !!d.printed?.length;
     case 'tag': return hasTag(d.tags, filter.tag);
   }
 }
@@ -49,10 +51,17 @@ export function shownDesigns(list: readonly DesignSummary[], filter: DesignFilte
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/** Every printed version of the designs matching the search (name only), newest mark first. */
+export function printedRows(list: readonly DesignSummary[], query: string): { design: DesignSummary; v: number; at: number; file: boolean }[] {
+  const q = foldText(query.trim());
+  const rows = list.filter((d) => !q || foldText(d.name).includes(q)).flatMap((design) => (design.printed ?? []).map((m) => ({ design, v: m.v, at: m.at, file: m.file })));
+  return rows.sort((a, b) => b.at - a.at);
+}
+
 /** A saved filter (localStorage) if it is still one, else every design. */
 export function cleanFilter(v: unknown): DesignFilter {
   const f = v as DesignFilter | null;
-  if (f?.kind === 'starred' || f?.kind === 'untagged') return { kind: f.kind };
+  if (f?.kind === 'starred' || f?.kind === 'untagged' || f?.kind === 'printed') return { kind: f.kind };
   if (f?.kind === 'tag' && typeof f.tag === 'string' && f.tag.trim()) return { kind: 'tag', tag: f.tag };
   return ALL;
 }
@@ -70,13 +79,17 @@ export function someNames(names: readonly string[], max = 8): string {
 }
 
 /**
- * A bulk delete: the designs to delete, those being worked on (left alone: stop them first), and
+ * A bulk delete: the designs to delete, those being worked on (left alone: stop them first), those with printed
+ * versions (kept: unmark them first), and
  * the question asked once for all of them (null when there is nothing to delete).
  */
-export function deletePlan(list: readonly DesignSummary[], isRunning: (id: string) => boolean): { remove: DesignSummary[]; busy: DesignSummary[]; question: string | null } {
-  const remove = list.filter((d) => !isRunning(d.id)), busy = list.filter((d) => isRunning(d.id));
+export function deletePlan(list: readonly DesignSummary[], isRunning: (id: string) => boolean): { remove: DesignSummary[]; busy: DesignSummary[]; printed: DesignSummary[]; question: string | null } {
+  const busy = list.filter((d) => isRunning(d.id));
+  const printed = list.filter((d) => !isRunning(d.id) && d.printed?.length);
+  const remove = list.filter((d) => !isRunning(d.id) && !d.printed?.length);
+  const kept = printed.length ? `\n\nKept, ${printed.length === 1 ? 'it has' : 'they have'} printed versions: ${someNames(printed.map((d) => d.name), 3)}.` : '';
   const skip = busy.length ? `\n\nNot deleted, ${busy.length === 1 ? 'it is' : 'they are'} still being worked on: ${someNames(busy.map((d) => d.name), 3)}.` : '';
   const what = remove.length === 1 ? 'this design' : `these ${remove.length} designs`;
   const lines = remove.slice(0, 12).map((d) => `- ${d.name}`).join('\n') + (remove.length > 12 ? `\nand ${remove.length - 12} more` : '');
-  return { remove, busy, question: remove.length ? `Delete ${what} permanently, with ${remove.length === 1 ? 'its' : 'their'} photos?\n\n${lines}${skip}` : null };
+  return { remove, busy, printed, question: remove.length ? `Delete ${what} permanently, with ${remove.length === 1 ? 'its' : 'their'} photos?\n\n${lines}${skip}${kept}` : null };
 }

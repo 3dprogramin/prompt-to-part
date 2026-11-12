@@ -17,6 +17,8 @@ import { registerDesignRoutes } from './routes/designs';
 import { registerImageRoutes } from './routes/images';
 import { registerPictureEditRoutes } from './routes/pictureEdit';
 import { registerMeshRoutes } from './routes/meshes';
+import { registerPrintedRoutes } from './routes/printed';
+import { PRINTED_JSON, readPrinted } from './printed';
 import { registerSystemRoutes } from './routes/system';
 import { openRouterModels } from './openRouterModels';
 import { registerCostRoutes } from './routes/cost';
@@ -119,12 +121,26 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   /** Sets one design's tags in `all` (none: its entry goes). */
   const putTags = (all: Record<string, string[]>, id: string, tags: string[]) => { if (tags.length) all[id] = tags; else delete all[id]; };
 
+  // Printed marks: one change at a time, like the tags.
+  let printing = Promise.resolve();
+  const changePrinted: RouteContext['changePrinted'] = (change) => {
+    const next = printing.then(async () => {
+      const all = await readPrinted();
+      await change(all);
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeAtomically(PRINTED_JSON, JSON.stringify({ printed: all }));
+    });
+    printing = next.catch(() => undefined);
+    return next;
+  };
+
   // The API's route groups (server/routes/), in the order Express matches them.
-  const ctx: RouteContext = { json, designFile, imageDir, generatingDesigns, deleted, serially, changeTags, putTags };
+  const ctx: RouteContext = { json, designFile, imageDir, generatingDesigns, deleted, serially, changeTags, putTags, changePrinted };
   registerDesignRoutes(app, ctx);
   registerImageRoutes(app, ctx, { image, sceneWriter });
   registerPictureEditRoutes(app, ctx, { image });
   registerMeshRoutes(app, ctx);
+  registerPrintedRoutes(app, ctx);
   registerSystemRoutes(app, { connection, models: () => models() });
   registerCostRoutes(app, ctx, { suggest });
   registerPrinterRoutes(app, ctx);

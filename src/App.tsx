@@ -11,6 +11,8 @@ import type { FontEntry } from './lib/api';
 import { api } from './lib/api';
 import type { AutoBuild } from './lib/autoBuild';
 import { describeSettings, settingsChanged } from './lib/settings';
+import { blockedChange, VIEW_KEYS } from './lib/printedLock';
+import { tell } from './lib/tabs';
 import { GeometryClient } from './geometry/client';
 import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
@@ -56,6 +58,9 @@ import { useReplies } from './app/useReplies';
 import { usePictureEdit } from './app/usePictureEdit';
 import { usePrintSettings } from './app/usePrintSettings';
 import { designExports } from './app/exports';
+import { markProblem, printedActions } from './app/printed';
+import { PrintedBanner } from './components/PrintedBanner';
+import { printedFileUrl } from './lib/api';
 import { useDesignList } from './app/useDesignList';
 import { useModelLayout } from './app/useModelLayout';
 import { modelChecks } from './app/modelChecks';
@@ -63,12 +68,34 @@ import { modelChecks } from './app/modelChecks';
 const geo = new GeometryClient();
 
 export default function App() {
-  const [design, setDesign] = useState<Design>(newDesign);
+  const [design, setDesignRaw] = useState<Design>(newDesign);
   // The browser tab names the open design.
   useEffect(() => { document.title = design.name.trim() ? `prompt-to-part - ${design.name.trim()}` : 'prompt-to-part'; }, [design.name]);
   const currentId = useRef(design.id);
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
+  // A printed version is locked: changes to its code or settings are dropped (the server refuses them too).
+  // `viewKeys`: the script's own layout choice, only for looking (set once the model's layout is known).
+  const lockedRef = useRef<{ versions: ReadonlySet<number>; viewKeys: readonly string[] }>({ versions: new Set(), viewKeys: [] });
+  const lockedVersions = useMemo(() => new Set(designs.find((d) => d.id === design.id)?.printed?.map((m) => m.v)), [designs, design.id]);
+  const lockBlocked = useRef<number | null>(null);
+  // The open design's printed versions, and the shown one's mark (it is locked while shown).
+  const marks = useMemo(() => new Map(designs.find((d) => d.id === design.id)?.printed?.map((m) => [m.v, m]) ?? []), [designs, design.id]);
+  const shownMark = marks.get(design.currentVersion);
+  // While it is being marked nothing changes either: the 3MF is built from what is shown.
+  const [marking, setMarking] = useState(false);
+  const lockReason = shownMark ? `Printed v${shownMark.v + 1} is locked: clone it to change it` : marking ? 'Wait while it is marked as printed' : null;
+  const setDesign = useCallback<typeof setDesignRaw>((u) => {
+    setDesignRaw((prev) => {
+      const next = typeof u === 'function' ? u(prev) : u;
+      if (!blockedChange(prev, next, lockedRef.current.versions, lockedRef.current.viewKeys)) return next;
+      lockBlocked.current = prev.currentVersion;
+      return prev;
+    });
+    // A dropped change renders nothing, so look for it shortly after the update ran.
+    if (lockedRef.current.versions.size) setTimeout(() => flushLockRef.current(), 0);
+  }, []);
+  const flushLockRef = useRef(() => {});
   // Generations started in this tab, per design (they keep running when another design is opened).
   const [running, setRunning] = useState<Record<string, AbortController>>({});
   const runningRef = useRef(running);
@@ -96,7 +123,7 @@ export default function App() {
   }), (id) => {
     stopSaving(id);
     forgetDesign(id);
-  });
+  }, () => refreshList());
   const generating = !!running[design.id];
   const { tabIds, setTabIds, unseen, setUnseen } = useDesignTabs({ design, currentId, runningRef });
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
@@ -164,6 +191,13 @@ export default function App() {
   const [validationOpen, setValidationOpen] = useState(false);
   const [validating, setValidating] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  flushLockRef.current = () => {
+    const v = lockBlocked.current;
+    if (v === null) return;
+    lockBlocked.current = null;
+    setNotice({ text: `Printed v${v + 1} is locked: clone it to change it.`, level: 'info', details: false });
+  };
+  useEffect(() => flushLockRef.current());
   const switchNotice = useRef<Notice | null>(null);
   // In-memory copies of designs that are generating, or not saved yet, while another design is open.
   const background = useRef(new Map<string, Design>());
@@ -205,6 +239,14 @@ export default function App() {
   const [editingLineArt, setEditingLineArt] = useState(false);
   const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
   useEffect(() => { setEditingLineArt(false); setEditingArtwork(null); }, [design.id]);
+  // A printed version shown: the hand editors, repainting and placing close (nothing there can change it).
+  useEffect(() => {
+    if (!lockReason) return;
+    setEditingLineArt(false);
+    setEditingArtwork(null);
+    setPicking(null);
+    repaint.stop();
+  }, [lockReason]);
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
@@ -363,7 +405,8 @@ export default function App() {
   // Switching versions replaces the sliders with that version's settings: ask first if yours aren't saved.
   const [pendingRestore, setPendingRestore] = useState<number | null>(null);
   const onRestore = (vi: number) => {
-    if (vi !== design.currentVersion && unsavedSettings) setPendingRestore(vi);
+    // A printed version's changes can't be saved: there is nothing to ask.
+    if (vi !== design.currentVersion && unsavedSettings && !lockReason) setPendingRestore(vi);
     else restore(vi);
   };
 
@@ -391,6 +434,21 @@ export default function App() {
     });
   };
   const { shownLineArt, splitArt, editorPart, lineArtOriginal, layoutKey, fitKey, canAssemble, layoutDef, printLayout } = useModelLayout({ design, shown, editingLineArt, quality, geo });
+  lockedRef.current = { versions: lockedVersions, viewKeys: layoutKey ? [layoutKey] : [] };
+  // A printed version shows its own code and settings: a change made before this tab knew it was
+  // printed (marked in another tab) is put back. View choices stay, and drawings and pictures
+  // attached later in the chat (they are not settings).
+  useEffect(() => {
+    const v = shownMark && design.versions[shownMark.v];
+    if (!v || !shown) return;
+    const own = v.values ?? {};
+    const viewKeys = [...VIEW_KEYS, ...lockedRef.current.viewKeys];
+    const strip = (o: ParamValues) => Object.fromEntries(Object.entries(o).filter(([k]) => !viewKeys.includes(k)));
+    if (design.code === v.code && !settingsChanged(strip(own), strip(design.values), shown.params)) return;
+    const kept = Object.fromEntries(Object.entries(design.values).filter(([k]) => viewKeys.includes(k)
+      || ((k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY) && own[k] == null)));
+    setDesignRaw((d) => (d.id !== design.id || d.currentVersion !== shownMark.v ? d : { ...d, code: v.code, values: { ...strip(own), ...kept } }));
+  }, [shownMark, design.id, design.code, design.values, design.versions, shown]);
 
   // ---- the brush button in the view: hand editors for the line art and for each drawing the script reads
   // Only the drawings value: the rest changes with every slider tick, and parsing is not cheap.
@@ -408,7 +466,7 @@ export default function App() {
   ];
   const painter = painterItems.length ? {
     items: painterItems,
-    disabled: generating || busyElsewhere ? 'Wait for the reply to finish' : busy || !shown ? 'Wait for the model to finish building' : undefined,
+    disabled: lockReason ?? (generating || busyElsewhere ? 'Wait for the reply to finish' : busy || !shown ? 'Wait for the model to finish building' : undefined),
     onOpen: (kind: 'lineart' | 'artwork', name: string) => { if (kind === 'lineart') setEditingLineArt(true); else setEditingArtwork(name); },
   } : null;
 
@@ -480,22 +538,50 @@ export default function App() {
 
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
-  const { onExport, onExportProject } = designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
+  const { onExport, onExportProject, build3mf } = designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
     setExporting, setExportError, setExportStage, setNotice, setValidation, setValidationOpen, isUnsaved, saveNow });
 
-  const openDesign = async (id: string) => {
-    if (id === design.id) return;
+  // ---- printed versions: marking the shown one (its 3MF saved with it), unmarking
+  // The 3MF comes from the stored version: a locked version's view changes don't count.
+  const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings: unsavedSettings && !lockReason, hasCode: !!design.code });
+  const markDisabled = marking ? 'Marking it as printed...' : problem;
+  // A mark or unmark changes the list here and in the other tabs (they lock or unlock it at once).
+  const printed = printedActions({ design, problem, saveNow, build3mf, setNotice, setMarking,
+    refreshList: () => { refreshList(); tell({ type: 'printed', id: design.id }); } });
+
+  // A design opened on one of its versions (the Printed filter): that version is shown once the design's
+  // own model is in, so switching to it asks about unsaved settings as usual.
+  const openAt = useRef<{ id: string; v: number; ready: boolean } | null>(null);
+  const openDesign = async (id: string, at?: number) => {
+    openAt.current = null;
+    if (id === design.id) {
+      if (at != null && at !== design.currentVersion && design.versions[at]) onRestore(at);
+      return;
+    }
+    if (at != null) openAt.current = { id, v: at, ready: false };
     // Clicking A (slow to load) and then B ends on B: A's late answer is dropped.
     const isLatest = opening.current.begin();
     try {
       const d = background.current.get(id) ?? (await api.getDesign(id));
       if (!isLatest()) return;
       if (d) switchTo(d);
-      else { setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
+      else { openAt.current = null; setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
     } catch (e) {
-      if (isLatest()) setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
+      if (!isLatest()) return;
+      openAt.current = null;
+      setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
     }
   };
+
+  useEffect(() => {
+    const want = openAt.current;
+    if (!want || want.id !== design.id) return;
+    // The first render after the switch still has the last design's model.
+    if (!want.ready) { want.ready = true; return; }
+    if (design.code && (busy || (resultCode.current !== design.code && !error))) return;
+    openAt.current = null;
+    if (want.v !== design.currentVersion && design.versions[want.v]) onRestore(want.v);
+  }, [design.id, design.code, busy, result, error]);
 
   /** A new design; `tags` are given to it once it is saved (a new design in the Temp list is Temp). */
   const createNew = (tags?: string[]) => {
@@ -613,7 +699,12 @@ export default function App() {
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
         onRestore={onRestore}
         onFork={(vi) => void forkVersion(vi)}
-        unsavedSettings={unsavedSettings}
+        printed={marks}
+        markDisabled={markDisabled}
+        onMark={() => void printed.mark()}
+        onUnmark={(vi) => void printed.unmark(vi)}
+        onOpenAt={(id, vi) => void openDesign(id, vi)}
+        unsavedSettings={unsavedSettings && !lockReason}
         onSaveSettings={saveSettings}
         saveError={saveErrors[design.id]}
         onRetrySave={() => saveNow(design).catch(() => {})}
@@ -652,6 +743,7 @@ export default function App() {
           currentVersion={design.currentVersion}
           generating={generating}
           busyElsewhere={busyElsewhere}
+          locked={lockReason}
           onSend={onSend}
           onAnswer={onAnswer}
           onStop={() => running[design.id]?.abort()}
@@ -704,6 +796,11 @@ export default function App() {
             {sizes.viewResult && sizes.resolvedOf(sizes.viewed) ? <span className="mono">{sizeText(sizes.resolvedOf(sizes.viewed)!.size)}</span> : <><span className="spinner" /> building it…</>}
             <button className="link" onClick={() => sizes.view(null)}>Back to the design</button>
           </> : null}
+          pinnedBanner={shownMark && !playback ? (
+            <PrintedBanner v={shownMark.v} at={shownMark.at} file={shownMark.file} settings={shownMark.settings} fileUrl={printedFileUrl(design.id, shownMark.v)}
+              onClone={() => void forkVersion(design.currentVersion)} onMake3mf={() => void printed.mark()} makeDisabled={markDisabled} making={marking}
+              onUnmark={() => void printed.unmark(shownMark.v)} />
+          ) : null}
           recolor={playback ? null : recolor}
           previewColors={previewColors}
           error={error}
@@ -787,6 +884,7 @@ export default function App() {
           designId={design.id}
           designName={design.name}
           summary={design.versions[design.currentVersion]?.summary}
+          locked={lockReason}
           cost={cost}
           sources={dimensionSources}
           stability={stabilityFor(design.versions, design.currentVersion)}

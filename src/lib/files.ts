@@ -17,7 +17,7 @@ export function download(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'model';
+export { slug } from '../../shared/slug';
 
 /** Downscale to Claude's sweet spot (≤1568 px long side) and re-encode as JPEG. */
 export async function prepareImage(file: Blob): Promise<string> {

@@ -585,6 +585,11 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .export-notice.error { background: #3a1e1df2; border: 1px solid #5c2c2a; color: #ffc6c0; }
 .export-notice .icon-btn { width: 22px; height: 22px; }
 .ui-hidden .validation-panel, .ui-hidden .export-notice { display: none; }
+/* A notice and the printed banner stack at the top of the view, the notice first. */
+.viewer-top-stack { position: absolute; top: calc(var(--toolbar-bottom, 42px) + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 15; pointer-events: none; }
+/* Two classes: beats the notice's and the banner's own placement (absolute, centred) further down. */
+.viewer-top-stack > .export-notice, .viewer-top-stack > .size-banner { position: static; left: auto; transform: none; max-width: 100%; pointer-events: auto; }
+.size-banner.pinned { white-space: normal; }
 
 /* ---------- print settings ---------- */
 .print-panel { display: flex; flex-direction: column; gap: 10px; }
@@ -830,6 +835,11 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .param-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .param-fieldset:disabled { opacity: 0.45; }
 .param-fieldset:disabled .hint-line { opacity: 1; }
+/* A printed version's editing controls: no box of their own, greyed while it is locked. */
+.lock-fieldset { display: contents; }
+.lock-fieldset:disabled > * { opacity: 0.5; }
+/* The size boxes as grey as the parameters below (each of those is a disabled fieldset too). */
+.lock-fieldset:disabled > .overall .size-cell { opacity: 0.45; }
 
 /* ---------- resizable sidebars ---------- */
 .sidebar-resize { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 12; cursor: col-resize; touch-action: none; }
@@ -1494,6 +1504,17 @@ body.resizing { cursor: col-resize; user-select: none; }
 .size-chip { display: inline-block; align-self: flex-start; padding: 3px 9px; border-radius: 6px; background: #e0a43c26; color: var(--accent-2); font-size: 13px; }
 .size-banner { position: absolute; top: calc(var(--toolbar-bottom, 42px) + 10px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 5px 12px; border-radius: 9px; font-size: 12.5px; background: #2a2416f2; border: 1px solid #6b5326; color: #f3dcae; z-index: 14; white-space: nowrap; box-shadow: 0 8px 30px #0009; }
 .size-banner .mono { color: var(--text-2); }
+
+/* printed versions: the locked banner, the version menu's badge and mark button, the Designs menu's icon */
+/* One row (icon, title, date, the 3MF, Clone to change, Unmark), wrapping between items only when narrow. */
+.printed-banner { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.printed-banner > * { white-space: nowrap; }
+.printed-banner > svg { color: var(--accent); flex-shrink: 0; }
+.printed-badge { flex-shrink: 0; font-size: 10.5px; color: var(--accent); border: 1px solid #e0a43c66; border-radius: 999px; padding: 0 6px; }
+.icon-btn.printed-mark.on { color: var(--accent); }
+.kind-icon.printed-icon { color: var(--accent); margin-left: 4px; }
+.filter-chip.printed svg { color: var(--accent); }
+.composer textarea:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* sale sizes in the product photos */
 .ph-sizes { margin-top: 2px; }

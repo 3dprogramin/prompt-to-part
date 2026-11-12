@@ -4,17 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Design } from '../../shared/types';
 import type { GeometryClient } from '../geometry/client';
-import { HIDDEN_KEY } from '../lib/settings';
+import { HIDDEN_KEY, parseHidden } from '../lib/settings';
 import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 
 export function useHiddenParts({ design, setDesign, geo }: { design: Design; setDesign: Dispatch<SetStateAction<Design>>; geo: GeometryClient }) {
   // Hidden parts are saved with the design (they stay hidden after a reload or a new version).
-  const hiddenParts = useMemo<string[]>(() => {
-    try {
-      const a = JSON.parse(String(design.values[HIDDEN_KEY] ?? '[]'));
-      return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
-    } catch { return []; }
-  }, [design.values]);
+  const hiddenParts = useMemo(() => parseHidden(design.values[HIDDEN_KEY]), [design.values]);
   const setHiddenParts = (list: string[]) => setDesign((d) => {
     const values = { ...d.values };
     if (list.length) values[HIDDEN_KEY] = JSON.stringify([...new Set(list)]); else delete values[HIDDEN_KEY];

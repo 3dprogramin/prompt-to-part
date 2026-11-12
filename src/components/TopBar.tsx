@@ -23,6 +23,13 @@ interface Props {
   onRestore: (versionIndex: number) => void;
   /** New design from a version. */
   onFork: (versionIndex: number) => void;
+  /** The open design's printed versions, and marking the shown one (VersionMenu). */
+  printed: ReadonlyMap<number, { at: number; file: boolean }>;
+  markDisabled: string | null;
+  onMark: () => void;
+  onUnmark: (versionIndex: number) => void;
+  /** Open a design on one of its versions. */
+  onOpenAt: (id: string, versionIndex: number) => void;
   /** Slider/scale/text/print changes not saved in any version yet. */
   unsavedSettings: boolean;
   onSaveSettings: () => void;
@@ -62,6 +69,7 @@ export function TopBar(p: Props) {
   const listWrap = useRef<HTMLDivElement>(null);
   usePopover(showList, () => setShowList(false), listWrap);
   const open = (id: string) => { setShowList(false); p.onOpen(id); };
+  const openAt = (id: string, v: number) => { setShowList(false); p.onOpenAt(id, v); };
   // The tag (or the stars) the Designs menu shows, remembered; while it shows Temp, new designs are Temp too.
   const [filter, setFilterState] = useState<DesignFilter>(() => cleanFilter(load('designFilter', null)));
   const setFilter = (f: DesignFilter) => { setFilterState(f); store('designFilter', f); };
@@ -102,7 +110,8 @@ export function TopBar(p: Props) {
       <KindIcon kind={p.kind} size={14} />
       <input className="design-name" aria-label="Design name" value={p.design.name} onChange={(e) => p.onRename(e.target.value)}
         style={{ '--name-chars': p.design.name.length } as React.CSSProperties} />
-      {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} onFork={p.onFork} />}
+      {p.design.versions.length > 0 && <VersionMenu versions={p.design.versions} current={p.design.currentVersion} onRestore={p.onRestore} onFork={p.onFork}
+        printed={p.printed} markDisabled={p.markDisabled} onMark={p.onMark} onUnmark={p.onUnmark} />}
       <DesignTagsButton tags={p.tags} allTags={allTags} onChange={(tags) => p.onSetTags(p.design.id, tags)} compact={p.compact} />
       {p.unsavedSettings && (
         <button className="btn save-settings" onClick={p.onSaveSettings} title="Your slider, scale, text or print changes are not saved in any version yet – save them as a new version">
@@ -131,7 +140,7 @@ export function TopBar(p: Props) {
           onClick={() => { p.onRefreshList(); if (!importing) setBackupNote(null); setShowList(!showList); }}><Icon name="folder" size={14} /> <span className="btn-label">Designs</span></button>
         {showList && (
           <DesignsMenu designs={p.designs} listError={p.listError} currentId={p.design.id} onRefreshList={p.onRefreshList} isRunning={p.isRunning}
-            onOpen={open} onDelete={p.onDelete} onDeleteMany={p.onDeleteMany} onStar={p.onStar} onSetTags={p.onSetTags} onTag={p.onTag} filter={filter} onFilter={setFilter}>
+            onOpen={open} onOpenAt={openAt} onDelete={p.onDelete} onDeleteMany={p.onDeleteMany} onStar={p.onStar} onSetTags={p.onSetTags} onTag={p.onTag} filter={filter} onFilter={setFilter}>
               {p.compact && (
                 <a className="menu-action" href="/" title={newTitle} onClick={(e) => { setShowList(false); newHere(e); }}><Icon name="plus" size={13} /> New design</a>
               )}

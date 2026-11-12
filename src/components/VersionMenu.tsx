@@ -11,10 +11,17 @@ interface Props {
   onRestore: (index: number) => void;
   /** Start a new design from this version (its own chat and Claude session). */
   onFork: (index: number) => void;
+  /** The versions marked printed: when, and whether a 3MF was saved. */
+  printed: ReadonlyMap<number, { at: number; file: boolean }>;
+  /** Why the shown version can't be marked printed now, or null. */
+  markDisabled: string | null;
+  /** Mark the shown version printed. */
+  onMark: () => void;
+  onUnmark: (index: number) => void;
 }
 
 /** "v2 of 5" in the top bar; opens the version list (newest first) to jump to any of them. */
-export function VersionMenu({ versions, current, onRestore, onFork }: Props) {
+export function VersionMenu({ versions, current, onRestore, onFork, printed, markDisabled, onMark, onUnmark }: Props) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   usePopover(open, () => setOpen(false), wrap);
@@ -31,11 +38,17 @@ export function VersionMenu({ versions, current, onRestore, onFork }: Props) {
                 <span className="version-line">
                   <span className={`version-chip ${v.source}`}>v{i + 1}</span>
                   <span className="version-summary">{v.summary}</span>
+                  {printed.has(i) && <span className="printed-badge" title={`Marked printed ${whenFull(printed.get(i)!.at)}: locked`}>Printed</span>}
                 </span>
                 <span className="dim small">
                   <time title={whenFull(v.createdAt)}>{whenShort(v.createdAt)}</time> · {versionNote(v, versions.length)}{i === current ? ' · shown now' : ''}
                 </span>
               </button>
+              {i === current && (printed.has(i)
+                ? <button className="icon-btn printed-mark on" title={`Unmark v${i + 1}: deletes its saved 3MF and unlocks it`} aria-label={`Unmark version ${i + 1} as printed`}
+                    onClick={() => { setOpen(false); onUnmark(i); }}><Icon name="printer" size={14} /></button>
+                : <button className="icon-btn printed-mark" disabled={!!markDisabled} title={markDisabled ?? 'Mark as printed: saves its 3MF and locks it'} aria-label={`Mark version ${i + 1} as printed`}
+                    onClick={() => { setOpen(false); onMark(); }}><Icon name="printer" size={14} /></button>)}
               <button className="icon-btn" title={`New design from v${i + 1} (a fresh chat; this design stays as it is)`} aria-label={`New design from version ${i + 1}`} onClick={() => { setOpen(false); onFork(i); }}>
                 <Icon name="branch" size={14} />
               </button>

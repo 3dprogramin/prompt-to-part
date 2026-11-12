@@ -2,7 +2,8 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { DesignSummary } from '../../shared/types';
 import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
 import { builtinTag, hasTag, MAX_TAGS, withTag } from '../../shared/tags';
-import { DESIGN_SORTS, liveFilter, shownDesigns, tagCounts, tagState, type DesignFilter, type DesignSort } from '../lib/designList';
+import { DESIGN_SORTS, liveFilter, printedRows, shownDesigns, tagCounts, tagState, type DesignFilter, type DesignSort } from '../lib/designList';
+import { printedFileUrl } from '../lib/api';
 import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
 import { whenFull, whenShort } from '../lib/when';
@@ -30,6 +31,8 @@ interface Props {
   onRefreshList: () => void;
   isRunning: (id: string) => boolean;
   onOpen: (id: string) => void;
+  /** Opens a design on one of its versions (a printed one, from the Printed filter). */
+  onOpenAt: (id: string, v: number) => void;
   onDelete: (id: string) => void;
   /** Deletes the picked designs after one question; resolves when done (or not asked). */
   onDeleteMany: (ids: string[]) => Promise<void>;
@@ -59,6 +62,10 @@ export function DesignsMenu(p: Props) {
   const setFilter = (f: DesignFilter) => { p.onFilter(f); setShown(PAGE); setEditing(null); };
   const matches = useMemo(() => shownDesigns(p.designs, filter, query, sort), [p.designs, filter, query, sort]);
   const counts = useMemo(() => tagCounts(p.designs), [p.designs]);
+  // The Printed filter lists printed versions, not designs.
+  const printedOnly = filter.kind === 'printed';
+  const marks = useMemo(() => (printedOnly ? printedRows(p.designs, query) : []), [printedOnly, p.designs, query]);
+  const markCount = p.designs.reduce((n, d) => n + (d.printed?.length ?? 0), 0);
   const allTags = counts.map((c) => c.tag);
   // The designs picked for a bulk action: only the shown ones count, so a filter or a search can
   // never leave a hidden design picked for deleting.
@@ -85,7 +92,7 @@ export function DesignsMenu(p: Props) {
       </button>
     );
   };
-  const filterName = filter.kind === 'tag' ? `tagged ${filter.tag}` : filter.kind === 'starred' ? 'starred' : filter.kind === 'untagged' ? 'without a tag' : '';
+  const filterName = filter.kind === 'tag' ? `tagged ${filter.tag}` : filter.kind === 'starred' ? 'starred' : filter.kind === 'untagged' ? 'without a tag' : printedOnly ? 'with a printed version' : '';
 
   const row = (d: DesignSummary) => (
     <div key={d.id} className="menu-row">
@@ -94,7 +101,7 @@ export function DesignsMenu(p: Props) {
           title="Pick it for starring, tagging or deleting several at once (shift-click: every design from the last one picked)"
           onClick={(e) => pick(d.id, e.shiftKey)} />
         <button className="menu-open" onClick={() => p.onOpen(d.id)}>
-          <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} /></span>
+          <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} />{d.printed?.length ? <span className="kind-icon printed-icon" title={`Printed: ${d.printed.map((m) => `v${m.v + 1}`).join(', ')}`} aria-label="Has printed versions" role="img"><Icon name="printer" size={12} /></span> : null}</span>
           <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} /><time title={`${sort === 'created' ? 'Created' : 'Last changed'} ${whenFull(sort === 'created' ? d.createdAt : d.updatedAt)}`}>{whenShort(sort === 'created' ? d.createdAt : d.updatedAt)}</time> · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
         </button>
         <button className={`icon-btn menu-star ${d.starred ? 'on' : ''}`} title={d.starred ? 'Unstar' : 'Star: mark it as important'}
@@ -110,6 +117,18 @@ export function DesignsMenu(p: Props) {
     </div>
   );
 
+  // A printed version in the Printed filter: opens the design on it, or downloads its saved 3MF.
+  const markRow = (m: (typeof marks)[number]) => (
+    <div key={`${m.design.id}:${m.v}`} className="menu-row">
+      <div className={`menu-item ${m.design.id === p.currentId ? 'on' : ''}`}>
+        <button className="menu-open" onClick={() => p.onOpenAt(m.design.id, m.v)} title={`Open ${m.design.name} on v${m.v + 1}`}>
+          <span>{m.design.name} · v{m.v + 1} · <time title={`Marked printed ${whenFull(m.at)}`}>{whenShort(m.at)}</time></span>
+        </button>
+        {m.file && <a className="icon-btn" href={printedFileUrl(m.design.id, m.v)} download title="Download the 3MF saved when it was marked" aria-label={`Download the 3MF of ${m.design.name} v${m.v + 1}`}><Icon name="download" size={14} /></a>}
+      </div>
+    </div>
+  );
+
   const allPicked = matches.length > 0 && pickedShown.length === matches.length;
   return (
     <div className="menu designs-menu">
@@ -119,7 +138,7 @@ export function DesignsMenu(p: Props) {
             <Icon name="search" size={13} />
             <input autoFocus type="search" placeholder="Search designs" aria-label="Search designs" value={query}
               onChange={(e) => { setQuery(e.target.value); setShown(PAGE); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && matches[0]) p.onOpen(matches[0].id); }} />
+              onKeyDown={(e) => { if (e.key !== 'Enter') return; if (printedOnly) { if (marks[0]) p.onOpenAt(marks[0].design.id, marks[0].v); } else if (matches[0]) p.onOpen(matches[0].id); }} />
             {query && <button className="icon-btn" title="Clear the search" aria-label="Clear the search" onClick={() => { setQuery(''); setShown(PAGE); }}><Icon name="x" size={12} /></button>}
             <select className="menu-sort" aria-label="Sort designs" title="Sort designs" value={sort} onChange={(e) => setSort(e.target.value as DesignSort)}>
               {Object.entries(DESIGN_SORTS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
@@ -134,10 +153,11 @@ export function DesignsMenu(p: Props) {
               const b = builtinTag(tag);
               return chip({ kind: 'tag', tag }, <>{b && <Icon name={b.icon} size={11} />}{tag}</>, count, b ? `${b.title}${tag === 'Temp' ? '. New designs get this tag while the list shows it.' : ''}` : `Designs tagged ${tag}`, `tag:${tag}`, b ? `tag-${b.name.toLowerCase()}` : '');
             })}
+            {markCount > 0 && chip({ kind: 'printed' }, <><Icon name="printer" size={11} />Printed</>, markCount, 'Printed versions: one row each, open it or download its 3MF', 'printed', 'printed')}
             {chip({ kind: 'untagged' }, 'No tag', p.designs.filter((d) => !d.tags?.length).length, 'Designs without a tag', 'untagged')}
           </div>
         )}
-        {matches.length > 0 && (
+        {matches.length > 0 && !printedOnly && (
           <div className={`menu-bulk ${pickedShown.length ? 'active' : ''}`}>
             <label className="menu-pick-all" title={allPicked ? 'Pick none' : `Pick all ${matches.length} designs listed${filterName ? ` (${filterName})` : ''}, also those under "Load more"`}>
               <input type="checkbox" checked={allPicked} ref={(el) => { if (el) el.indeterminate = pickedShown.length > 0 && !allPicked; }} onChange={() => pickAll(!allPicked)} />
@@ -165,9 +185,9 @@ export function DesignsMenu(p: Props) {
         : matches.length === 0 && (query.trim()
           ? <div className="menu-empty">{filterName ? `No design ${filterName} has a name containing` : 'No design\'s name contains'} “{query.trim()}”</div>
           : <div className="menu-empty">No designs {filterName} yet <button className="link" onClick={() => setFilter({ kind: 'all' })}>Show all</button></div>)}
-      {matches.slice(0, shown).map(row)}
-      {matches.length > shown && (
-        <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({matches.length - shown} more)</button>
+      {printedOnly ? marks.slice(0, shown).map(markRow) : matches.slice(0, shown).map(row)}
+      {(printedOnly ? marks : matches).length > shown && (
+        <button className="menu-more" onClick={() => setShown((n) => n + PAGE)}>Load more ({(printedOnly ? marks : matches).length - shown} more)</button>
       )}
       <div className="menu-foot">{p.children}</div>
     </div>

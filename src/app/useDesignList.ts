@@ -23,6 +23,12 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
 }) {
   const deletingHere = useRef(new Set<string>());
   const deleteDesign = async (id: string) => {
+    // A printed design is kept (the server refuses too): say so before asking or stopping anything.
+    const printed = designs.find((d) => d.id === id)?.printed;
+    if (printed?.length) {
+      setNotice({ text: `Kept: it has printed versions (${printed.map((m) => `v${m.v + 1}`).join(', ')}). Unmark them first.`, level: 'warning', details: false });
+      return;
+    }
     if (!confirm('Delete this design permanently?')) return;
     deletingHere.current.add(id);
     const saving = stopSaving(id);
@@ -60,7 +66,8 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
     const busy = (id: string) => !!running[id] || remoteRunning[id] != null;
     const plan = deletePlan(designs.filter((d) => ids.includes(d.id)), busy);
     if (!plan.question) {
-      if (plan.busy.length) setNotice({ text: `Nothing deleted: still working on ${someNames(plan.busy.map((d) => d.name), 3)}. Stop it first.`, level: 'warning', details: false });
+      if (plan.printed.length) setNotice({ text: `Nothing deleted: ${someNames(plan.printed.map((d) => d.name), 3)} ${plan.printed.length === 1 ? 'has' : 'have'} printed versions. Unmark them first.`, level: 'warning', details: false });
+      else if (plan.busy.length) setNotice({ text: `Nothing deleted: still working on ${someNames(plan.busy.map((d) => d.name), 3)}. Stop it first.`, level: 'warning', details: false });
       return;
     }
     if (!confirm(plan.question)) return;
@@ -84,7 +91,8 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
       done++;
     }
     refreshList();
-    const skipped = plan.busy.length ? ` Left alone, still working on ${someNames(plan.busy.map((x) => x.name), 3)}.` : '';
+    const skipped = (plan.busy.length ? ` Left alone, still working on ${someNames(plan.busy.map((x) => x.name), 3)}.` : '')
+      + (plan.printed.length ? ` Kept, printed: ${someNames(plan.printed.map((x) => x.name), 3)}.` : '');
     setNotice(failed.length
       ? { text: `Deleted ${done} of ${plan.remove.length} designs. Not deleted: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}.${skipped}`, level: 'error', details: false }
       : { text: `Deleted ${done === 1 ? 'the design' : `${done} designs`}.${skipped}`, level: skipped ? 'warning' : 'ok', details: false });

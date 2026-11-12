@@ -390,3 +390,50 @@ test('sale sizes: stored with the design; a photo for another size keeps an earl
     if (saved === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = saved;
   }
 });
+
+test('printed: a version is marked with its 3MF, listed, downloaded, guarded against saves and deletes, and unmarked', async () => {
+  const id = 'test-prnt-0000001';
+  const v = (n: number) => ({ code: `// v${n}`, summary: `v${n}`, createdAt: n, source: 'ai', values: { w: n } });
+  const mk = (versions: unknown[], rev?: number) => design({ id, name: 'Dog lamp', versions, currentVersion: versions.length - 1, ...(rev !== undefined && { rev }) });
+  assert.equal((await put(mk([v(1), v(2)]))).status, 200);
+  const url = `${A}/api/designs/${id}/printed`;
+  const post = (n: number, body: string | undefined, q = '') => fetch(`${url}/${n}${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-PTP': '1' }, body });
+
+  const r = await post(1, 'PK3mf', '?settings=1');
+  assert.equal(r.status, 200);
+  const mark = await r.json();
+  assert.deepEqual({ ...mark, at: typeof mark.at }, { v: 1, file: true, settings: true, at: 'number' });
+  const row = (await (await fetch(`${A}/api/designs`)).json()).find((d: { id: string }) => d.id === id);
+  assert.deepEqual(row.printed, [mark]);
+  const f = await fetch(`${url}/1/3mf`);
+  assert.equal(f.status, 200);
+  assert.equal(Buffer.from(await f.arrayBuffer()).toString(), 'PK3mf');
+  assert.match(f.headers.get('content-disposition')!, /dog-lamp-v2\.3mf/);
+
+  const changed = mk([v(1), { ...v(2), values: { w: 99 } }], 1);
+  const locked = await put(changed);
+  assert.equal(locked.status, 423);
+  assert.match((await locked.json()).error, /Printed v2 is locked/);
+  assert.deepEqual((await (await fetch(`${A}/api/designs/${id}`)).json()).versions[1].values, { w: 2 });
+  assert.equal((await put(mk([v(1), v(2), v(3)], 1))).status, 200);
+
+  const kept = await del(id);
+  assert.equal(kept.status, 409);
+  assert.match((await kept.json()).error, /v2/);
+  assert.ok((await (await fetch(`${A}/api/designs`)).json()).some((d: { id: string }) => d.id === id));
+
+  assert.equal((await post(5, 'x')).status, 400);
+  assert.equal((await fetch(`${A}/api/designs/test-prnt-missing1/printed/0`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-PTP': '1' }, body: 'x' })).status, 404);
+  const none = await post(0, undefined);
+  assert.equal(none.status, 200);
+  const noneMark = await none.json();
+  assert.equal(noneMark.file, false);
+  // Making its 3MF later re-marks it: the date it was marked stays.
+  await new Promise((r) => setTimeout(r, 5));
+  const made = await (await post(0, 'PK3mf')).json();
+  assert.deepEqual({ at: made.at, file: made.file }, { at: noneMark.at, file: true });
+
+  for (const n of [1, 0]) assert.equal((await fetch(`${url}/${n}`, { method: 'DELETE', headers: W })).status, 200);
+  assert.equal((await fetch(`${url}/1/3mf`)).status, 404);
+  assert.equal((await del(id)).status, 200);
+});

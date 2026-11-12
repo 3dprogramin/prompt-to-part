@@ -7,6 +7,7 @@ export const TAB_ID = uid();
 export type TabMessage =
   | { type: 'saved'; tab: string; design: Design }
   | { type: 'deleted'; tab: string; id: string }
+  | { type: 'printed'; tab: string; id: string }
   | { type: 'running'; tab: string; id: string; on: boolean }
   | { type: 'hello'; tab: string };
 

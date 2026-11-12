@@ -29,6 +29,8 @@ interface Props {
   /** The chosen printer and the ones to pick from (null until loaded). */
   printerInfo: PrinterInfo | null;
   onPrinter: (s: PrinterSetup) => Promise<void>;
+  /** Why the shown version's settings can't change (printed), or null: the printer can still be changed. */
+  locked?: string | null;
 }
 
 /** Who decided the value shown for this key in this scope. */
@@ -42,7 +44,7 @@ function source(ai: PrintProfile, user: PrintProfile, key: Key, part: string | n
 /** More parts than this and the part choice folds away. */
 const MANY_PARTS = 6;
 
-export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo, onPrinter }: Props) {
+export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo, onPrinter, locked }: Props) {
   const [choosing, setChoosing] = useState(false);
   const [scopeOpen, setScopeOpen] = useState<boolean>(() => load('printScopeOpen', false));
   useEffect(() => store('printScopeOpen', scopeOpen), [scopeOpen]);
@@ -80,6 +82,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
       {printerInfo?.missing && <div className="small warn-note" role="alert">Your saved printer wasn't found in Bambu Studio; using the Bambu Lab A1 until you pick another.</div>}
       {printer().extruders > 1 && <div className="dim small">Two nozzles: no Bambu Studio project for it yet, so print settings stay out of the export.</div>}
       {choosing && printerInfo && <PrinterDialog info={printerInfo} onCancel={() => setChoosing(false)} onSave={async (s) => { await onPrinter(s); setChoosing(false); }} />}
+      <fieldset className="lock-fieldset" disabled={!!locked} title={locked ?? undefined}>
       <div className="pp-profile">
         <b>PLA · {profileName()}</b>
         <span className="dim small">Only changes from this profile go into the 3MF (tick “Print settings” when exporting).{!bambu && ' Needs Bambu Studio installed.'}</span>
@@ -136,6 +139,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
       <div className="pp-actions">
         <button className="btn ghost" disabled={!Object.keys(user).length} onClick={() => onChange({})}><Icon name="restore" size={14} /> {aiHasAny ? 'Back to AI settings' : `Back to ${shortName()} defaults`}</button>
       </div>
+      </fieldset>
     </div>
   );
 }

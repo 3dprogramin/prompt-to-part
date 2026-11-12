@@ -39,6 +39,8 @@ interface Props {
   photoRef?: React.MutableRefObject<((view: PhotoView, aspect: number, result?: EvalResult, scale?: TrueScale) => string | null) | null>;
   /** A note over the view (the sale size it shows). */
   banner?: React.ReactNode;
+  /** A note over the view that stays while a notice shows (under it): the printed version's lock. */
+  pinnedBanner?: React.ReactNode;
   /** The product photos panel: open or not, toggled by the camera button; photos being made. */
   photos?: { open: boolean; onToggle: () => void; busy: number; panel: React.ReactNode };
   /** The model has an assembly sequence that can be played. */
@@ -75,7 +77,7 @@ const f2 = (n: number) => n.toFixed(2);
 /** A touch screen: the status bar's hints say tap and drag instead of click and wheel. */
 const touch = window.matchMedia('(pointer: coarse)').matches;
 
-export function ViewerPanel({ printerId, costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner, painter }: Props) {
+export function ViewerPanel({ printerId, costStatus, result, recolor, previewColors, error, busy, fitKey, options, onOptions, quality, onQuality, emptyState, onEditDimension, onPickSurface, repaint, onRepaintPick, onRepaintStroke, paintRef, snapshotRef, canAssemble, assembly, assemblyLoading, onAssemble, onAssemblyClose, layout, onLayout, leftOpen = true, rightOpen = true, onToggleLeft, leftName = 'chat sidebar', onToggleRight, validation, validationOpen, onValidationClose, notice, onNoticeDetails, onNoticeClose, photoRef, photos, banner, pinnedBanner, painter }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const [hover, setHover] = useState<{ p: Vec3; snapped: boolean } | null>(null);
@@ -368,18 +370,23 @@ export function ViewerPanel({ printerId, costStatus, result, recolor, previewCol
         </div>
       )}
       {toast && <div className={`viewer-toast ${toast.ok ? '' : 'bad'}`} role="status">{toast.text}</div>}
-      {banner && !notice && <div className="size-banner" role="status">{banner}</div>}
 
       {photos?.panel}
       {validation && validationOpen && (
         <ValidationPanel state={validation} highlight={highlight} onHighlight={setHighlight} onClose={() => onValidationClose?.()} />
       )}
-      {notice && (
-        <div className={`export-notice ${notice.level}`} role={notice.level === 'error' ? 'alert' : 'status'}>
-          <Icon name={notice.level === 'ok' ? 'check' : 'alert'} size={15} />
-          <span>{notice.text}</span>
-          {notice.details && <button className="link" onClick={() => onNoticeDetails?.()}>Details</button>}
-          <button className="icon-btn" onClick={() => onNoticeClose?.()} title="Dismiss" aria-label="Dismiss"><Icon name="x" size={13} /></button>
+      {(notice || banner || pinnedBanner) && (
+        <div className="viewer-top-stack">
+          {notice && (
+            <div className={`export-notice ${notice.level}`} role={notice.level === 'error' ? 'alert' : 'status'}>
+              <Icon name={notice.level === 'ok' ? 'check' : 'alert'} size={15} />
+              <span>{notice.text}</span>
+              {notice.details && <button className="link" onClick={() => onNoticeDetails?.()}>Details</button>}
+              <button className="icon-btn" onClick={() => onNoticeClose?.()} title="Dismiss" aria-label="Dismiss"><Icon name="x" size={13} /></button>
+            </div>
+          )}
+          {banner && !notice && <div className="size-banner" role="status">{banner}</div>}
+          {pinnedBanner && <div className="size-banner pinned" role="status">{pinnedBanner}</div>}
         </div>
       )}
 
