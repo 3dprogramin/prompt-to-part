@@ -48,4 +48,4 @@ export function swapsToKeep(img: LayerToneImage, build: LayerToneBuild, values: 
 
 /** What the user is told when the swap layers were kept. */
 export const swapsKeptNote = (swaps: number[]) =>
-  `Swap layers kept as they were (layers ${swaps.join(', ')}), so the print outside the mark stays the same: set them back to automatic in the Print tab if you like.`;
+  `Swap layers kept as they were (layer${swaps.length > 1 ? 's' : ''} ${swaps.join(', ')}), so the print outside the mark stays the same: set them back to automatic in the Print tab if you like.`;
