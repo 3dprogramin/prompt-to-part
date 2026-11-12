@@ -6,6 +6,7 @@ import { defaultsFromTemplate, type PrintProfile, type PrintSettings } from '../
 import { api } from '../lib/api';
 import { download, slug } from '../lib/files';
 import { exportParts, type ExportFormat } from '../lib/export';
+import type { GlbOptions } from '../lib/glb';
 import { chooseTarget, exportProject, type ProjectTarget } from '../lib/projectExport';
 import { oneColourFilament } from '../lib/bambu3mf';
 import { exportedParts } from '../geometry/parts';
@@ -31,7 +32,7 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
   setValidation: Dispatch<SetStateAction<ValidationState | null>>; setValidationOpen: Dispatch<SetStateAction<boolean>>;
   isUnsaved: ReturnType<typeof useDesignSaving>['isUnsaved']; saveNow: ReturnType<typeof useDesignSaving>['saveNow'];
 }) {
-  const onExport = async (format: ExportFormat, partName?: string) => {
+  const onExport = async (format: ExportFormat, partName?: string, glb?: GlbOptions) => {
     if (!design.code) return;
     setExporting(true);
     setExportError(null);
@@ -58,18 +59,22 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
         print: threeMf.print && bambu ? { ai: r.print, user: userPrint } : null,
         // The template's profile becomes the baseline shown in the Print tab.
         onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),
+        glb,
       });
       download(blob, file); // always export – problems are reported, not blocking
+      // A shop's 3D view loads on phones: say when the file is heavy.
+      const mb = blob.size / 1048576;
+      const heavy = format === 'glb' && mb > 15 ? ` · ${mb.toFixed(0)} MB, heavy for a shop's 3D view on phones` : '';
       if (o.report) {
         const report = o.report;
         const sum = summarize(report.issues);
         setValidation({ report, label: `Exported ${file}` });
         setValidationOpen(false);
         setNotice(sum.level === 'ok'
-          ? { text: `Exported ${file} · checked, no problems found`, level: 'ok', details: true }
-          : { text: `Exported ${file} · ${sum.text} found`, level: sum.level === 'error' ? 'error' : 'warning', details: true });
+          ? { text: `Exported ${file} · checked, no problems found${heavy}`, level: heavy ? 'warning' : 'ok', details: true }
+          : { text: `Exported ${file} · ${sum.text} found${heavy}`, level: sum.level === 'error' ? 'error' : 'warning', details: true });
       } else {
-        setNotice({ text: `Exported ${file} · could not validate`, level: 'warning', details: false });
+        setNotice({ text: `Exported ${file} · could not validate${heavy}`, level: 'warning', details: false });
       }
     } catch (e) {
       setExportError((e as Error).message);

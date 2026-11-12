@@ -29,6 +29,7 @@ import { FontPicker } from './FontPicker';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { FontEntry, PrinterInfo } from '../../shared/api';
 import type { ExportFormat } from '../lib/export';
+import { isFlat, type GlbOptions } from '../lib/glb';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
 import { bambuProjectSupported, printer, fitProblem, profileName, shortName, type PrinterSetup } from '../../shared/printer';
@@ -72,7 +73,7 @@ interface Props {
   onRepaintStart: (name: string) => void;
   onLayerToneImage: (name: string, image: LayerToneImage) => void;
   onApplyCode: (code: string) => void;
-  onExport: (format: ExportFormat, partName?: string) => void;
+  onExport: (format: ExportFormat, partName?: string, glb?: GlbOptions) => void;
   /** "Export project…": everything about the design in one folder (or zip). */
   onExportProject: () => void;
   /** What the project export is making ("3MF"), while it runs. */
@@ -223,7 +224,8 @@ export function SidePanel(p: Props) {
           <button className="btn ghost validate-btn" disabled={!shown || p.validating || p.exporting} onClick={p.onValidate} title="Check the export mesh for printing problems (also runs automatically on export)">
             <Icon name="check" size={14} /> {p.validating ? 'Checking…' : 'Validate'}
           </button>
-          <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f) => p.onExport(f)} blender={p.blender}
+          <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f, glb) => p.onExport(f, undefined, glb)} blender={p.blender}
+            flat={!!shown && isFlat(shown.parts.filter((x) => !p.hiddenParts.includes(x.name)))}
             bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} oneColour={!!p.oneColour} onOneColour={(on) => p.onOneColour(on ? 'main' : null)} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject} painted={!!shown?.parts.some((x) => x.paint)}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
         </div>
@@ -235,11 +237,13 @@ export function SidePanel(p: Props) {
 }
 
 /** What the export button does: the format last picked in its menu, kept until the page reloads. */
-type MainExport = 'stl' | '3mf' | 'blend' | 'project';
+type MainExport = 'stl' | '3mf' | 'blend' | 'glb' | 'project';
 let lastExport: MainExport = 'stl';
 
-function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, oneColour, onOneColour, onExport3mf, onExportProject, painted }: {
-  disabled: boolean; exporting: boolean; onExport: (f: ExportFormat) => void; blender: Props['blender']; count: number;
+function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, oneColour, onOneColour, onExport3mf, onExportProject, painted, flat }: {
+  disabled: boolean; exporting: boolean; onExport: (f: ExportFormat, glb?: GlbOptions) => void; blender: Props['blender']; count: number;
+  /** The model is a flat piece (wall art, a sign): its GLB stands upright unless unticked. */
+  flat: boolean;
   /** A part has a coloured mesh's colours, which only the 3MF keeps. */
   painted: boolean;
   bambu: string | null; printChanges: number; threeMf: { print: boolean };
@@ -247,7 +251,10 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
   /** The design prints in one colour (the Print tab's switch; "Colours (AMS)" is its opposite). */
   oneColour: boolean; onOneColour: (on: boolean) => void; onExport3mf: () => void; onExportProject: () => void;
 }) {
-  const [open, setOpen] = useState<false | 'menu' | '3mf'>(false);
+  const [open, setOpen] = useState<false | 'menu' | '3mf' | 'glb'>(false);
+  // GLB: upright follows the model (flat or not) until the user changes it for this model.
+  const [upright, setUpright] = useState(flat);
+  useEffect(() => setUpright(flat), [flat]);
   const wrap = useRef<HTMLDivElement>(null);
   const more = useRef<HTMLButtonElement>(null);
   usePopover(!!open, () => setOpen(false), wrap, more);
@@ -258,11 +265,12 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
   const printOn = threeMf.print && project;
   // Blender gone since it was picked: STL.
   const now: MainExport = main === 'blend' && (!blender || blender.problem) ? 'stl' : main;
-  const run = () => (now === '3mf' ? onExport3mf() : now === 'project' ? onExportProject() : onExport(now));
-  const label = { stl: 'Export STL', '3mf': 'Export 3MF', blend: 'Export .blend', project: 'Export project' }[now];
+  const run = () => (now === '3mf' ? onExport3mf() : now === 'project' ? onExportProject() : now === 'glb' ? onExport('glb', { upright }) : onExport(now));
+  const label = { stl: 'Export STL', '3mf': 'Export 3MF', blend: 'Export .blend', glb: 'Export GLB', project: 'Export project' }[now];
   const title = now === 'stl' ? `${count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}${painted ? ' (geometry only: the figure\'s colours are only in the 3MF)' : ''}`
     : now === '3mf' ? `Export 3MF for Bambu Studio (${oneColour ? 'one filament' : 'colours (AMS)'}${printOn ? ', with print settings' : ''}); the arrow changes the format`
-    : now === 'blend' ? 'Export a Blender file; the arrow changes the format' : 'Export the project folder; the arrow changes the format';
+    : now === 'blend' ? 'Export a Blender file; the arrow changes the format'
+    : now === 'glb' ? `Export a GLB for a shop's 3D view (${upright ? 'upright, as on a wall' : 'lying, as printed'}); the arrow changes the format` : 'Export the project folder; the arrow changes the format';
   return (
     <div className="export-split" ref={wrap}>
       <button className="btn primary export-main" disabled={disabled} onClick={run} title={title}>
@@ -273,6 +281,7 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
         <div className="export-menu">
           <button onClick={() => pick('stl')}><b>STL</b><span>{painted ? 'Geometry only: the figure\'s colours are lost – use 3MF for them' : 'Single mesh, works everywhere'}</span></button>
           <button onClick={() => setOpen('3mf')}><b>3MF…</b><span>For Bambu Studio – choose colours (AMS) and print settings</span></button>
+          <button onClick={() => setOpen('glb')}><b>GLB… (shop 3D view)</b><span>For Shopify's 360° view and “view in your room”: colours, real size</span></button>
           <button onClick={() => pick('blend')} disabled={!blender || !!blender.problem}><b>Blender (.blend)</b><span>{!blender ? 'Blender not found on this computer' : blender.problem ?? `One object per part, materials, dimensions, params · Blender ${blender.version}`}</span></button>
           <button onClick={() => { setOpen(false); setMain('project'); onExportProject(); }}><b>Export project…</b><span>Model, STL, 3MF, .blend, pictures and a README in one folder (a zip in Firefox)</span></button>
         </div>
@@ -292,6 +301,17 @@ function ExportButton({ disabled, exporting, onExport, blender, count, bambu, pr
                 : `${shortName()} · PLA · ${profileName().replace(' mm', '')} profile, no changes.`}</small></span>
           </label>
           <button className="btn primary wide" onClick={() => { setOpen(false); setMain('3mf'); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
+        </div>
+      )}
+      {open === 'glb' && (
+        <div className="export-menu threemf">
+          <div className="tm-title">Export GLB for a shop's 3D view</div>
+          <label className="check">
+            <input type="checkbox" checked={upright} onChange={(e) => setUpright(e.target.checked)} />
+            <span><b>Upright, as it hangs on the wall</b><small>{flat ? 'For wall art, signs and plaques. Untick for a flat piece that lies down (a coaster, a tray).' : 'Off = standing as it prints. On = its top face turned to the front, for a piece that hangs.'}</small></span>
+          </label>
+          <small className="glb-note">Shopify: Products → the product → Media → add the .glb. Colours and real size are in the file.</small>
+          <button className="btn primary wide" onClick={() => { setOpen(false); setMain('glb'); onExport('glb', { upright }); }}><Icon name="download" size={14} /> Export GLB</button>
         </div>
       )}
     </div>

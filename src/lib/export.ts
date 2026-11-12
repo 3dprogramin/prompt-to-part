@@ -9,8 +9,9 @@ import type { BambuTemplate, BlendRequest } from '../../shared/api';
 import { api, request } from './api';
 import { CONTENT_TYPES, colourIndex, colourSlots, esc, num } from './threeMf';
 import { boxDimensions } from './dimensions';
+import { isFlat, toGlb, type GlbOptions } from './glb';
 
-export type ExportFormat = 'stl' | '3mf' | 'blend';
+export type ExportFormat = 'stl' | '3mf' | 'blend' | 'glb';
 
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,8 @@ export interface ThreeMfOptions {
   print: { ai: PrintProfile; user: PrintProfile } | null;
   /** Gets the Bambu template the project was built on (it may have just been built). */
   onTemplate?: (tpl: BambuTemplate) => void;
+  /** GLB only: upright or lying; unset = upright when the model is flat. */
+  glb?: GlbOptions;
 }
 
 export async function exportParts(format: ExportFormat, result: EvalResult, parts: PartMesh[], title: string, code: string, threeMf: ThreeMfOptions = { oneColour: null, print: null }): Promise<Blob> {
@@ -117,5 +120,6 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
     return buildProject({ kind: 'bambu', parts, title, tpl, opts: { oneColour: threeMf.oneColour, print: print ?? { ai: result.print, user: {} } } });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
+  if (format === 'glb') return toGlb(parts, title, threeMf.glb ?? { upright: isFlat(parts) });
   return toBinaryStl(parts, title);
 }

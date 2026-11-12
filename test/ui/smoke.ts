@@ -298,6 +298,25 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', TEST,
   await page.close();
 });
 
+test('Export ▸ GLB… downloads the model for a shop\'s 3D view, standing as printed when it is not flat', TEST, async () => {
+  const page = await newPage();
+  await page.goto(`${A}/?design=${id}`);
+  await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
+  await page.getByRole('button', { name: 'More export formats' }).click();
+  await page.getByRole('button', { name: /GLB… \(shop 3D view\)/ }).click();
+  // A cube is not a wall piece: upright starts off.
+  const upright = page.getByRole('checkbox', { name: /Upright, as it hangs on the wall/ });
+  assert.equal(await upright.isChecked(), false);
+  await page.screenshot({ path: path.join(shots, '5-glb.png') });
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export GLB' }).click()]);
+  assert.equal(download.suggestedFilename(), 'smoke-cube.glb');
+  const glb = readFileSync((await download.path())!);
+  assert.equal(glb.readUInt32LE(0), 0x46546c67, 'glTF magic');
+  if (process.env.PTP_UI_SHOTS) writeFileSync(path.join(shots, 'smoke-cube.glb'), glb);
+  await page.getByText(/Exported smoke-cube\.glb/).waitFor();
+  await page.close();
+});
+
 test('Export project… downloads the design as one zip where there is no folder picker', TEST, async () => {
   const page = await newPage();
   // Playwright has no folder picker: the zip, as in Firefox.
