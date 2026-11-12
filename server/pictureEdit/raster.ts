@@ -145,7 +145,8 @@ export interface Alignment {
   /** The answer at the sent picture's size, moved (and toned) onto it. */
   image: Raster;
   shift: [number, number];
-  scale: number;
+  /** The scale on x and on y (they differ when the model kept its own picture's proportions). */
+  scale: [number, number];
   /** Mean absolute RGB difference outside the mark (0..255), pixels off the answer left out. */
   error: number;
   /** Mark pixels whose source lies off the answer (0 without `mark`). */
@@ -221,8 +222,8 @@ function halveMask(m: Uint8Array, w: number, h: number): Uint8Array {
   return out;
 }
 
-/** A transform: the content at sent pixel p is at returned pixel c + scale * (p - c) + shift. */
-interface Fit { dx: number; dy: number; s: number; err: number }
+/** A transform: the content at sent pixel p is at returned pixel c + scale * (p - c) + shift, scaled `sx` on x and `sy` on y. */
+interface Fit { dx: number; dy: number; sx: number; sy: number; err: number }
 
 /** Least-squares gain and offset taking `a` to `b`, the gain kept within GAIN_MIN..GAIN_MAX. */
 function toneFit(n: number, sa: number, sb: number, saa: number, sab: number): [number, number] {
@@ -236,14 +237,14 @@ function toneFit(n: number, sa: number, sb: number, saa: number, sab: number): [
  * moved by the transform (given in full-size pixels) and, with `tones`, matched by a least-squares
  * gain and offset. Samples whose source falls off the returned picture are left out.
  */
-function levelError(L: Level, cx: number, cy: number, dx: number, dy: number, s: number, tones: boolean): number {
+function levelError(L: Level, cx: number, cy: number, dx: number, dy: number, sx: number, sy: number, tones: boolean): number {
   const { f, w, h, ret, xs, ys, ts, buf } = L, count = ts.length, wEnd = w - 1, hEnd = h - 1;
   // A level pixel x is full-size pixel (x + 0.5) / f - 0.5; carry the transform through to the level.
-  const bx = s * 0.5 - 0.5 * f * s + f * (cx * (1 - s) + dx + 0.5) - 0.5;
-  const by = s * 0.5 - 0.5 * f * s + f * (cy * (1 - s) + dy + 0.5) - 0.5;
+  const bx = sx * 0.5 - 0.5 * f * sx + f * (cx * (1 - sx) + dx + 0.5) - 0.5;
+  const by = sy * 0.5 - 0.5 * f * sy + f * (cy * (1 - sy) + dy + 0.5) - 0.5;
   let n = 0, sa = 0, sb = 0, saa = 0, sab = 0, sum = 0;
   for (let k = 0; k < count; k++) {
-    const u = s * xs[k] + bx, v = s * ys[k] + by;
+    const u = sx * xs[k] + bx, v = sy * ys[k] + by;
     if (!(u >= 0 && v >= 0 && u < wEnd && v < hEnd)) { buf[k] = -1; continue; }
     const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0, p = y0 * w + x0;
     const top = ret[p] + (ret[p + 1] - ret[p]) * fx, bottom = ret[p + w] + (ret[p + w + 1] - ret[p + w]) * fx;
@@ -261,15 +262,18 @@ function levelError(L: Level, cx: number, cy: number, dx: number, dy: number, s:
 /**
  * Lines the image model's answer up with the picture that was sent, using only `outside` (1 = a
  * pixel of `sent` outside the mark). The answer is first resized to `sent`'s size (which also undoes
- * a different aspect), then a residual shift (up to `maxShift` x the size, default 3 %) and a uniform
- * scale about the centre (up to `maxScale`, default 3 %) are searched coarse to fine on luminance:
+ * a different aspect), then a residual shift (up to `maxShift` x the size, default 3 %) and a scale
+ * about the centre, on x and on y apart (each up to `maxScale`, default 3 %: the model may keep its
+ * own picture's proportions, a few percent off the aspect asked for, so the answer resized back is
+ * stretched on one axis), are searched coarse to fine on luminance:
  * every candidate on the smallest halved copy (down to 1/16, its smaller side at least 48 pixels),
  * the best few refined by hill climbing on each larger copy up to full size, then by half pixels.
  * The outside area is shrunk by 2 pixels first, so an edit spilling just past the mark does not pull
  * the match. `tones` also fits a gain and offset (least squares, during the
  * search on luminance, for the result per RGB channel; the gain within 0.5..2) for answers with
  * shifted brightness and contrast. `shift` and `scale` say where the sent content sits in the
- * resized answer (content at sent pixel p is at c + scale * (p - c) + shift, c the centre);
+ * resized answer (content at sent pixel p is at c + scale * (p - c) + shift, c the centre, `scale`
+ * [x, y]);
  * `error` is the mean absolute RGB difference over the outside area after all this (pixels whose
  * source lies off the answer left out). Not ok, with its `reason`, when: the shrunk outside area is
  * under 5 % of the crop ('too little outside the mark'); the error is over ALIGN_MAX_ERROR
@@ -287,7 +291,7 @@ export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opt
   if (!use.some((v) => v)) use = outside;
   let used = 0;
   for (let p = 0; p < W * H; p++) used += use[p];
-  if (!used) return { image: resized, shift: [0, 0], scale: 1, error: 0, offMark: 0, ok: false, reason: 'too little outside the mark' };
+  if (!used) return { image: resized, shift: [0, 0], scale: [1, 1], error: 0, offMark: 0, ok: false, reason: 'too little outside the mark' };
 
   // The pyramid: full size, then halved while the smaller side stays at least 48 pixels (at most 1/16).
   const levels: Level[] = [];
@@ -301,46 +305,48 @@ export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opt
   }
   const cx = (W - 1) / 2, cy = (H - 1) / 2, maxDim = Math.max(W, H);
   const rangeX = maxShift * W, rangeY = maxShift * H;
-  const clampFit = (dx: number, dy: number, s: number, wide = 1) => [
+  const clampScale = (s: number, wide: number) => Math.max(1 - maxScale * wide, Math.min(1 + maxScale * wide, s));
+  const clampFit = (dx: number, dy: number, sx: number, sy: number, wide = 1): [number, number, number, number] => [
     Math.max(-rangeX * wide, Math.min(rangeX * wide, dx)), Math.max(-rangeY * wide, Math.min(rangeY * wide, dy)),
-    Math.max(1 - maxScale * wide, Math.min(1 + maxScale * wide, s)),
+    clampScale(sx, wide), clampScale(sy, wide),
   ];
 
-  // Every candidate at the coarsest level, a level pixel apart (half a level pixel at the edges for scale).
+  // Every candidate at the coarsest level, a level pixel apart (half a level pixel at the edges for
+  // each scale), the two scales searched on their own.
   const top = levels[levels.length - 1];
   const step = 1 / top.f, ds = 1 / (top.f * maxDim);
   const nx = Math.max(1, Math.round(rangeX * top.f)), ny = Math.max(1, Math.round(rangeY * top.f)), ns = Math.max(1, Math.ceil(maxScale / ds));
+  const scales = Array.from({ length: 2 * ns + 1 }, (_, a) => 1 + Math.max(-maxScale, Math.min(maxScale, (a - ns) * ds)));
   const all: Fit[] = [];
-  for (let a = -ns; a <= ns; a++) {
-    const s = 1 + Math.max(-maxScale, Math.min(maxScale, a * ds));
-    for (let j = -ny; j <= ny; j++) for (let i = -nx; i <= nx; i++) {
-      const [dx, dy] = clampFit(i * step, j * step, s);
-      all.push({ dx, dy, s, err: levelError(top, cx, cy, dx, dy, s, tones) });
-    }
+  for (const sx of scales) for (const sy of scales) for (let j = -ny; j <= ny; j++) for (let i = -nx; i <= nx; i++) {
+    const [dx, dy] = clampFit(i * step, j * step, sx, sy);
+    all.push({ dx, dy, sx, sy, err: levelError(top, cx, cy, dx, dy, sx, sy, tones) });
   }
   all.sort((p, q) => p.err - q.err);
   // The best few distinct basins (not each other's neighbours) go on to the finer levels.
   let fits: Fit[] = [];
   for (const c of all) {
     if (fits.length >= 4 || !Number.isFinite(c.err)) break;
-    if (fits.every((o) => Math.abs(o.dx - c.dx) > step * 1.01 || Math.abs(o.dy - c.dy) > step * 1.01 || Math.abs(o.s - c.s) > ds * 1.01)) fits.push(c);
+    if (fits.every((o) => Math.abs(o.dx - c.dx) > step * 1.01 || Math.abs(o.dy - c.dy) > step * 1.01 || Math.abs(o.sx - c.sx) > ds * 1.01 || Math.abs(o.sy - c.sy) > ds * 1.01)) fits.push(c);
   }
-  if (!fits.length) fits = [{ dx: 0, dy: 0, s: 1, err: Infinity }];
+  if (!fits.length) fits = [{ dx: 0, dy: 0, sx: 1, sy: 1, err: Infinity }];
 
   // Hill climbing on level L from `start` (its error already measured on L): steps of `st` pixels
-  // (the 8 neighbours) and `sd` in scale, while one improves, within `wide` x the allowed range.
+  // (the 8 neighbours) and `sd` in scale (each axis, and both together), while one improves, within
+  // `wide` x the allowed range.
   const climb = (L: Level, start: Fit, st: number, sd: number, wide = 1): Fit => {
     let cur = start;
     for (let round = 0; round < 40; round++) {
       let best = cur;
-      const tries: [number, number, number][] = [];
-      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (i || j) tries.push([cur.dx + i * st, cur.dy + j * st, cur.s]);
-      tries.push([cur.dx, cur.dy, cur.s + sd], [cur.dx, cur.dy, cur.s - sd]);
+      const { dx: x, dy: y, sx, sy } = cur;
+      const tries: [number, number, number, number][] = [];
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (i || j) tries.push([x + i * st, y + j * st, sx, sy]);
+      tries.push([x, y, sx + sd, sy], [x, y, sx - sd, sy], [x, y, sx, sy + sd], [x, y, sx, sy - sd], [x, y, sx + sd, sy + sd], [x, y, sx - sd, sy - sd]);
       for (const t of tries) {
-        const [dx, dy, s] = clampFit(...t, wide);
-        if (dx === cur.dx && dy === cur.dy && s === cur.s) continue;
-        const err = levelError(L, cx, cy, dx, dy, s, tones);
-        if (err < best.err) best = { dx, dy, s, err };
+        const [dx, dy, tx, ty] = clampFit(...t, wide);
+        if (dx === x && dy === y && tx === sx && ty === sy) continue;
+        const err = levelError(L, cx, cy, dx, dy, tx, ty, tones);
+        if (err < best.err) best = { dx, dy, sx: tx, sy: ty, err };
       }
       if (best === cur) break;
       cur = best;
@@ -351,30 +357,31 @@ export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opt
   // the best one only at full size.
   for (let k = levels.length - 2; k >= 0; k--) {
     const L = levels[k];
-    fits = fits.map((c) => ({ ...c, err: levelError(L, cx, cy, c.dx, c.dy, c.s, tones) })).sort((p, q) => p.err - q.err);
+    fits = fits.map((c) => ({ ...c, err: levelError(L, cx, cy, c.dx, c.dy, c.sx, c.sy, tones) })).sort((p, q) => p.err - q.err);
     fits = fits.slice(0, k === 0 ? 1 : 2).map((c) => climb(L, c, 1 / L.f, 1 / (L.f * maxDim))).sort((p, q) => p.err - q.err);
   }
   if (levels.length === 1) fits = [climb(levels[0], fits[0], 1, 1 / maxDim)];
   let best = climb(levels[0], fits[0], 0.5, 0.5 / maxDim);
 
-  // A fit held at the edge of the range may be an answer moved further, which would paste a few
-  // pixels off with a small error: climb on past the edge (up to half the range again), and if the
-  // match keeps improving out there, the answer is not ok.
+  // A fit held at the edge of the range (on any axis) may be an answer moved further, which would
+  // paste a few pixels off with a small error: climb on past the edge (up to half the range again),
+  // and if the match keeps improving out there, the answer is not ok.
   const tolerance = 0.5;
-  const beyond = (c: Fit, by: number) => Math.abs(c.dx) > rangeX + by || Math.abs(c.dy) > rangeY + by || Math.abs(c.s - 1) > maxScale + by / maxDim;
+  const beyond = (c: Fit, by: number) => Math.abs(c.dx) > rangeX + by || Math.abs(c.dy) > rangeY + by
+    || Math.abs(c.sx - 1) > maxScale + by / maxDim || Math.abs(c.sy - 1) > maxScale + by / maxDim;
   let outOfRange = false;
   if (beyond(best, -tolerance)) {
     const past = climb(levels[0], best, 1, 1 / maxDim, 1.5);
     if (beyond(past, tolerance)) { best = past; outOfRange = true; }
   }
 
-  const image = warp(resized, best.dx, best.dy, best.s);
+  const image = warp(resized, best.dx, best.dy, best.sx, best.sy);
   // Which columns and rows read inside the answer (its pixels cover -0.5 .. size - 0.5).
-  const onAnswer = (n: number, c: number, d: number) => Uint8Array.from({ length: n }, (_, i) => {
-    const u = c + best.s * (i - c) + d;
+  const onAnswer = (n: number, c: number, s: number, d: number) => Uint8Array.from({ length: n }, (_, i) => {
+    const u = c + s * (i - c) + d;
     return u >= -0.5 && u <= n - 0.5 ? 1 : 0;
   });
-  const cols = onAnswer(W, cx, best.dx), rows = onAnswer(H, cy, best.dy);
+  const cols = onAnswer(W, cx, best.sx, best.dx), rows = onAnswer(H, cy, best.sy, best.dy);
   const error = finish(image, sent, use, cols, rows, tones);
   let offMark = 0, marked = 0;
   if (opts.mark) for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
@@ -387,13 +394,13 @@ export function alignTo(returned: Raster, sent: Raster, outside: Uint8Array, opt
     : outOfRange ? 'moved past the range'
     : offMark > MAX_OFF_MARK * marked ? 'mark leaves the answer'
     : undefined;
-  return { image, shift: [best.dx, best.dy], scale: best.s, error, offMark, ok: !reason, ...(reason ? { reason } : {}) };
+  return { image, shift: [best.dx, best.dy], scale: [best.sx, best.sy], error, offMark, ok: !reason, ...(reason ? { reason } : {}) };
 }
 
 /** The resized answer moved back onto the sent picture's pixels (bilinear, edges clamped). */
-function warp(img: Raster, dx: number, dy: number, s: number): Raster {
+function warp(img: Raster, dx: number, dy: number, sx: number, sy: number): Raster {
   const cx = (img.width - 1) / 2, cy = (img.height - 1) / 2;
-  return sampleLinear(img, img.width, img.height, s, cx * (1 - s) + dx, s, cy * (1 - s) + dy);
+  return sampleLinear(img, img.width, img.height, sx, cx * (1 - sx) + dx, sy, cy * (1 - sy) + dy);
 }
 
 /**

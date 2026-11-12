@@ -65,15 +65,15 @@ function render(look: Look, w: number, h: number, at: (i: number, j: number) => 
 
 /**
  * The image model's answer: the sent picture moved so that the content at sent pixel p sits at
- * c + scale * (p - c) + shift, a blob painted over the marked disc, drawn at outW x outH (another
+ * c + scale * (p - c) + shift (`scale` one number, or one for x and one for y), a blob painted over the marked disc, drawn at outW x outH (another
  * size and aspect is stretched back, as a model ignoring the asked ratio would).
  */
-function answer(look: Look, w: number, h: number, shift: [number, number], scale: number, outW = w, outH = h, post?: (c: number, k: number) => number, edit?: { x: number; y: number; r: number }) {
-  const cx = w / 2, cy = h / 2;
+function answer(look: Look, w: number, h: number, shift: [number, number], scale: number | [number, number], outW = w, outH = h, post?: (c: number, k: number) => number, edit?: { x: number; y: number; r: number }) {
+  const cx = w / 2, cy = h / 2, [sx, sy] = typeof scale === 'number' ? [scale, scale] : scale;
   const edited: Look = (x, y) => (edit && Math.hypot(x - edit.x, y - edit.y) < edit.r ? [250, 40 + 0.3 * x, 200] : look(x, y));
   return render(edited, outW, outH, (i, j) => {
     const qx = (i + 0.5) * w / outW, qy = (j + 0.5) * h / outH;
-    return [cx + (qx - cx - shift[0]) / scale, cy + (qy - cy - shift[1]) / scale];
+    return [cx + (qx - cx - shift[0]) / sx, cy + (qy - cy - shift[1]) / sy];
   }, post);
 }
 
@@ -101,6 +101,9 @@ const look = scene(7, W, H);
 const sent = render(look, W, H);
 const edit = { x: 210, y: 140, r: 55 };
 const outside = outsideOf(W, H, { ...edit, r: edit.r + 4 });
+
+/** Each axis's scale within a pixel at the far edges (`half`: half the picture's size). */
+const scaleNear = (scale: [number, number], want: number, half: number) => scale.every((v) => Math.abs(v - want) * half <= 1);
 
 const ratio = (a: string) => { const [x, y] = a.split(':').map(Number); return x / y; };
 
@@ -167,7 +170,7 @@ test('alignTo recovers a 7 px shift and a 2 % scale, from another size and aspec
     const r = alignTo(returned, sent, outside);
     assert.ok(r.ok, `ok, error ${r.error}`);
     assert.ok(Math.abs(r.shift[0] - 7) <= 1 && Math.abs(r.shift[1] + 5) <= 1, `shift ${r.shift}`);
-    assert.ok(Math.abs(r.scale - 1.02) * (W / 2) <= 1, `scale ${r.scale}`);
+    assert.ok(scaleNear(r.scale, 1.02, W / 2), `scale ${r.scale}`);
     assert.equal(r.image.width, W);
     assert.equal(r.image.height, H);
     assert.ok(meanDiff(r.image, sent, outside) < 4, `lined up ${meanDiff(r.image, sent, outside)}`);
@@ -178,7 +181,7 @@ test('alignTo lines up a picture too small to halve', () => {
   const w = 120, h = 90, small = scene(21, w, h), dot = { x: 66, y: 40, r: 16 };
   const r = alignTo(answer(small, w, h, [2, -2], 0.975, 160, 100, undefined, dot), render(small, w, h), outsideOf(w, h, { ...dot, r: dot.r + 3 }));
   assert.ok(r.ok, `ok, error ${r.error}`);
-  assert.ok(Math.abs(r.shift[0] - 2) <= 1 && Math.abs(r.shift[1] + 2) <= 1 && Math.abs(r.scale - 0.975) * (w / 2) <= 1, `${r.shift} ${r.scale}`);
+  assert.ok(Math.abs(r.shift[0] - 2) <= 1 && Math.abs(r.shift[1] + 2) <= 1 && scaleNear(r.scale, 0.975, w / 2), `${r.shift} ${r.scale}`);
 });
 
 test('alignTo with tones recovers a +20 brightness and 0.9 contrast change', () => {
@@ -188,7 +191,7 @@ test('alignTo with tones recovers a +20 brightness and 0.9 contrast change', () 
   assert.ok(r.ok, `ok, error ${r.error}`);
   assert.ok(r.error < plain.error, `${r.error} < ${plain.error}`);
   assert.ok(Math.abs(r.shift[0] + 6) <= 1 && Math.abs(r.shift[1] - 4) <= 1, `shift ${r.shift}`);
-  assert.ok(Math.abs(r.scale - 0.98) * (W / 2) <= 1, `scale ${r.scale}`);
+  assert.ok(scaleNear(r.scale, 0.98, W / 2), `scale ${r.scale}`);
   assert.ok(meanDiff(r.image, sent, outside) < 4, `lined up ${meanDiff(r.image, sent, outside)}`);
 });
 
@@ -252,7 +255,7 @@ test('alignTo lines up flat-colour art within a pixel and does not pass it moved
   const dot = { x: 160, y: 160, r: 45 }, out = outsideOf(N, N, { ...dot, r: dot.r + 4 });
   const r = alignTo(answer(art, N, N, [5, -4], 1.015, 640, 640, undefined, dot), flat, out);
   assert.ok(r.ok, `ok, error ${r.error}`);
-  assert.ok(Math.abs(r.shift[0] - 5) <= 1 && Math.abs(r.shift[1] + 4) <= 1 && Math.abs(r.scale - 1.015) * (N / 2) <= 1, `${r.shift} ${r.scale}`);
+  assert.ok(Math.abs(r.shift[0] - 5) <= 1 && Math.abs(r.shift[1] + 4) <= 1 && scaleNear(r.scale, 1.015, N / 2), `${r.shift} ${r.scale}`);
   // 3 % of 320 is 9.6 px.
   for (const shift of [[14, 0], [0, -12], [11, 8]] as [number, number][]) {
     const past = alignTo(answer(art, N, N, shift, 1, N, N, undefined, dot), flat, out);
@@ -303,8 +306,34 @@ test('alignTo lines up 1024 x 1024 at an interactive speed', () => {
   const ms = performance.now() - t0;
   assert.ok(r.ok, `ok, error ${r.error}`);
   assert.ok(Math.abs(r.shift[0] + 20) <= 1 && Math.abs(r.shift[1] - 13) <= 1, `shift ${r.shift}`);
-  assert.ok(Math.abs(r.scale - 1.025) * (N / 2) <= 1, `scale ${r.scale}`);
+  assert.ok(scaleNear(r.scale, 1.025, N / 2), `scale ${r.scale}`);
   assert.ok(ms < 1500, `${ms.toFixed(0)} ms`);
+  console.log(`alignTo 1024 x 1024: ${ms.toFixed(0)} ms`);
+});
+
+/**
+ * How far (pixels) the found transform puts the content at the sent picture's far edges from where
+ * `truth` has it: the worst of the four sides' midpoints along their own axis.
+ */
+function edgeOff(r: { shift: [number, number]; scale: [number, number] }, w: number, h: number, shift: [number, number], scale: [number, number]) {
+  // Pixel p (index) of the sent picture is at c + s * (p - c) + d in the answer, c = (size - 1) / 2.
+  const at = (p: number, size: number, s: number, d: number) => (size - 1) / 2 + s * (p - (size - 1) / 2) + d;
+  return Math.max(...[0, w - 1].map((x) => Math.abs(at(x, w, r.scale[0], r.shift[0]) - at(x, w, scale[0], shift[0]))),
+    ...[0, h - 1].map((y) => Math.abs(at(y, h, r.scale[1], r.shift[1]) - at(y, h, scale[1], shift[1]))));
+}
+
+test('alignTo recovers a different scale on x and y (an answer stretched back from the model\'s own size)', () => {
+  // Gemini's 1K sizes for 4:3 and the like are about 2.8 % off the ratio asked for: resized back, one
+  // axis comes out scaled and the other not.
+  const truth: [number, number] = [1.028, 1];
+  const r = alignTo(answer(look, W, H, [4, -3], truth, W, H, undefined, edit), sent, outside);
+  assert.ok(r.ok, `ok, error ${r.error}`);
+  assert.ok(edgeOff(r, W, H, [4, -3], truth) <= 1, `off ${edgeOff(r, W, H, [4, -3], truth).toFixed(2)} px: shift ${r.shift}, scale ${r.scale}`);
+  const N = 320, art = flatArt(3, N), flat = render(art, N, N), dot = { x: 160, y: 160, r: 45 };
+  const tall: [number, number] = [1, 0.975];
+  const a = alignTo(answer(art, N, N, [-3, 5], tall, 512, 640, undefined, dot), flat, outsideOf(N, N, { ...dot, r: dot.r + 4 }));
+  assert.ok(a.ok, `flat art ok, error ${a.error}`);
+  assert.ok(edgeOff(a, N, N, [-3, 5], tall) <= 1, `flat art off ${edgeOff(a, N, N, [-3, 5], tall).toFixed(2)} px: shift ${a.shift}, scale ${a.scale}`);
 });
 
 test('featherPaste keeps every pixel outside the mark byte-identical and takes the edit deep inside', () => {
