@@ -47,6 +47,25 @@ test('versionNote: a picture edit says whether it lines up, 1-based', () => {
   assert.equal(versionNote(v({ pictureEdit: { ...edit, masked: false } })), 'your picture edit');
 });
 
+test('versionNote: a missing, malformed or stale parent is not named', () => {
+  const note = (pe: unknown, count?: number) => versionNote(v({ pictureEdit: pe as DesignVersion['pictureEdit'] }), count);
+  assert.equal(note({}), 'your picture edit');
+  assert.equal(note({ masked: true, linesUp: true }), 'your picture edit');
+  assert.equal(note({ ...edit, parent: -1 }), 'your picture edit');
+  assert.equal(note({ ...edit, parent: '2' }), 'your picture edit');
+  assert.equal(note({ ...edit, parent: null }), 'your picture edit');
+  assert.equal(note({ ...edit, parent: 1.5 }), 'your picture edit');
+  assert.equal(note(edit, 3), 'your picture edit, lines up with v3');
+  assert.equal(note(edit, 2), 'your picture edit');
+});
+
+test('linesUp: a box missing min or max is false, not a throw', () => {
+  const bad = { min: [0, 0, 0] } as unknown as Box3;
+  assert.equal(linesUp(ok, bad, box()), false);
+  assert.equal(linesUp(ok, box(), bad), false);
+  assert.equal(linesUp(ok, box(), {} as Box3), false);
+});
+
 test('a design with and without pictureEdit round-trips through save and load unchanged', async () => {
   const W = { 'Content-Type': 'application/json', 'X-PTP': '1' };
   const id = 'test-picver-0001';
