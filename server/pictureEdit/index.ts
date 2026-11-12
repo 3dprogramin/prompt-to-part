@@ -282,7 +282,10 @@ export async function editPicture(r: PictureEditRequest, deps: { image: typeof r
     const sentMark = bands ? padMask(inMark, crop.width, padded.width, padded.height, x, y) : inMark;
     sent = pngUrl(raster);
     asked = await ask(crop.aspect, [pngUrl(padded), pngUrl(outlined(padded, sentMark, OUTLINE_PX)), pngUrl(whole), ...photos], bands);
-    const fit = alignTo(asked.answer, padded, sentMark.map((v) => 1 - v), { mark: sentMark });
+    // Outside: the crop's own pixels outside the mark. The padding is neither (the model may redraw
+    // it, and it must not count toward the outside a match needs).
+    const outside = inMark.map((v) => 1 - v);
+    const fit = alignTo(asked.answer, padded, bands ? padMask(outside, crop.width, padded.width, padded.height, x, y) : outside, { mark: sentMark });
     if (!fit.ok) throw new PictureEditError(502, ALIGN_MESSAGES[fit.reason!]);
     const lined = bands ? cut(fit.image, x, y, crop.width, crop.height) : fit.image;
     pasted = pasteMark(raster, lined, inMark, FEATHER_PX, crop.open);

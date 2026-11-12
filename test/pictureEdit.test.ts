@@ -354,7 +354,19 @@ test('a crop that fits no allowed shape is padded to the one asked for and cut b
   };
   const strip: PictureMark = { strokes: [{ width: 0.1, points: [[-1.7, 0], [1.7, 0]] }] };
   calls = [];
-  answer = fillMarked([0x11, 0x11, 0x11]);
+  // The model fills the strip and also scribbles over the padding (a band of 1/6 the height at the
+  // top and the bottom: the outer 10 % of rows lie in it): only the crop's own outside lines it up.
+  answer = async (prompt, aspect, refs, signal) => {
+    const out = await fillMarked([0x11, 0x11, 0x11])(prompt, aspect, refs, signal);
+    const filled = decodeImage(Buffer.from(out.image.data, 'base64'));
+    const { width: w, height: h } = filled, data = new Uint8Array(filled.data);
+    let s = 7;
+    for (let j = 0; j < h; j++) {
+      if (j >= 0.1 * h && j < 0.9 * h) continue;
+      for (let i = 0; i < w * 4; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; if (i % 4 !== 3) data[j * w * 4 + i] = s & 255; }
+    }
+    return answerOf({ width: w, height: h, data });
+  };
   const res = await post('test-pe-00000012', request({ picture: 'wide.svg', mark: strip, values: { [DRAWINGS_KEY]: JSON.stringify({ 'wide.svg': wide }) } }));
   const body = await res.json() as PictureEditResponse;
   assert.equal(res.status, 200, JSON.stringify(body));
@@ -374,6 +386,19 @@ test('a crop that fits no allowed shape is padded to the one asked for and cut b
   assert.equal(colourAt(d, 0, 0), BLACK);
   assert.equal(colourAt(d, 1, 0.15), GOLD);
   assert.equal(colourAt(d, -1, -0.15), GOLD);
+});
+
+test('the padding of a crop does not count as outside the mark', async () => {
+  // A square brush covering all but 2 % of its crop (3.5 x 1 of a 4:1 picture, padded to 21:9: a
+  // third of what is sent is padding). The answer is the picture sent, unchanged.
+  const wide: SvgDrawing = { name: 'wide.svg', aspect: 4, shapes: [{ rule: 'EvenOdd', contours: [[[-1.95, -0.45], [1.95, -0.45], [1.95, 0.45], [-1.95, 0.45]]], color: BLACK }] };
+  const block: PictureMark = { strokes: [{ width: 0.98, points: [[-1.26, 0], [1.26, 0]], shape: 'square' }] };
+  calls = [];
+  answer = async (_p, _a, refs) => answerOf(raster(refs![0]));
+  const res = await post('test-pe-00000013', request({ picture: 'wide.svg', mark: block, values: { [DRAWINGS_KEY]: JSON.stringify({ 'wide.svg': wide }) } }));
+  assert.equal(calls[0].aspect, '21:9');
+  assert.equal(res.status, 502);
+  assert.match((await res.json() as { error: string }).error, /mark covers nearly all/);
 });
 
 test('the paste ramps in from every edge of the mark that is not the picture\'s own border', () => {
