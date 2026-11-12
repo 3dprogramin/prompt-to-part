@@ -50,6 +50,8 @@ export const MAX_OUTLINE_SHARE = 0.05;
 export const OFF_PALETTE_SHARE = 0.05;
 /** The most photos sent with an edit, and the longest change. */
 const MAX_PHOTOS = 4, MAX_CHANGE = 2000;
+/** The most points a mark may have in all (a brushed mark has a few thousand; parsing alone allows 400 strokes of 2000). */
+export const MAX_MARK_POINTS = 20_000;
 const MODES: readonly PictureMode[] = ['artwork', 'layertone', 'lithophane', 'lineart'];
 
 /** A picture edit that failed with an HTTP status: 400 the request, 502 the image model's answer. */
@@ -106,6 +108,9 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
   if (mark) {
     const b = markBounds(mark), w = wholeWindow(d);
     if (!b) return 'The mark is empty';
+    if (mark.strokes.reduce((n, st) => n + st.points.length, 0) > MAX_MARK_POINTS) return `The mark has too many points (at most ${MAX_MARK_POINTS}): select the area with fewer strokes`;
+    // A brush stroke wider than twice the picture's longer side covers it all from anywhere: not a brushed mark.
+    if (mark.strokes.some((st) => st.width > 2 * Math.max(d.aspect, 1))) return 'A stroke of the mark is wider than twice the picture: select with a smaller brush';
     if (b.max[0] <= w.x0 || b.min[0] >= w.x0 + w.w || b.max[1] <= w.y1 - w.h || b.min[1] >= w.y1) return 'The mark is outside the picture';
   }
   return null;

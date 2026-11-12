@@ -370,6 +370,10 @@ test('requests that cannot be edited are refused before the image model is asked
   await bad(request({ photos: ['https://example.com/a.png'] }), /photo/i);
   await bad(request({ photos: [PHOTO, PHOTO, PHOTO, PHOTO, PHOTO] }), /at most 4/);
   await bad(request({ mark: { strokes: [{ width: 0.1, points: [[3, 3]] }] } }), /outside the picture/);
+  // A crafted mark: too many points in all (11 strokes of 2000), or a stroke wider than twice the picture.
+  const many = Array.from({ length: 11 }, () => ({ width: 0.01, points: Array.from({ length: 2000 }, (_, i): [number, number] => [-0.4 + i * 0.0004, 0]) }));
+  await bad(request({ mark: { strokes: many } }), /too many points/);
+  await bad(request({ mark: { strokes: [{ width: 2.01, points: [[0, 0]] }] } }), /wider than/);
   const named = { ...santa, shapes: santa.shapes.map((s, i) => (i ? s : { ...s, color: 'black' })) };
   await bad(request({ values: { ...values, [DRAWINGS_KEY]: JSON.stringify({ 'santa.svg': named }) } }), /#rrggbb/);
   assert.equal(calls.length, 0);
