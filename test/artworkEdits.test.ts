@@ -263,13 +263,13 @@ test('the regions kept between builds tell strokes with different cuts apart', (
 test('cutStrokes cuts the strokes that reach the mark and leaves the others as they are', () => {
   const mark = boxMark([0, 0, 0.5, 1], 1), right = boxMark([0.5, 0, 1, 1], 1);
   const far = stroke({ points: [[0.4, 0.4]] });
-  const [a, b] = cutStrokes([across, far], mark);
+  const [a, b] = cutStrokes([across, far], mark, C);
   assert.deepEqual(a.cut, markContours(mark));
   assert.equal(b, far);
   assert.equal(across.cut, undefined);
-  assert.equal(cutStrokes([across], { strokes: [] })[0], across);
+  assert.equal(cutStrokes([across], { strokes: [] }, C)[0], across);
   // A later edit adds its mark to the cut.
-  assert.deepEqual(cutStrokes([a], right)[0].cut, [...markContours(mark), ...markContours(right)]);
+  assert.deepEqual(cutStrokes([a], right, C)[0].cut, [...markContours(mark), ...markContours(right)]);
   // Built: only the gold outside the mark is left.
   near(area(drawingSection(onW(a), 100, [GOLD], C)), 9 + half, 0.01);
 });
@@ -277,24 +277,48 @@ test('cutStrokes cuts the strokes that reach the mark and leaves the others as t
 /** A heavy mark: a scribble over the left half of the picture. */
 const scribble: PictureMark = { strokes: [{ width: 0.06, points: Array.from({ length: 600 }, (_, i): [number, number] => [-0.25 + 0.22 * Math.sin(i / 7), 0.45 * Math.cos(i / 41)]) }] };
 const pointsIn = (cut?: [number, number][][]) => (cut ?? []).reduce((n, c) => n + c.length, 0);
-const section = (contours: [number, number][][]) => new C(contours.map((c) => c.map(([x, y]) => [x * 100, y * 100] as [number, number])), 'NonZero');
+const section = (contours: [number, number][][]) => (contours.length ? new C(contours.map((c) => c.map(([x, y]) => [x * 100, y * 100] as [number, number])), 'NonZero') : C.compose([]));
 
-test('cutStrokes keeps a heavy mark under the point limit', () => {
+/** How a stroke's cut lies against the mark: the area it cuts, and the area it cuts outside the mark (both at height 100). */
+const cutAgainst = (st: ArtworkStroke, mark: PictureMark) => {
+  const s = section(strokeContours(st)), inCut = s.intersect(section(st.cut ?? []));
+  return { stroke: s.area(), covered: s.intersect(section(markContours(mark))).area(), cut: inCut.area(), outside: inCut.subtract(section(markContours(mark))).area() };
+};
+
+test('cutStrokes keeps a heavy mark under the point limit, inside the mark', () => {
   assert.ok(pointsIn(markContours(scribble)) > 10 * MAX_CUT_POINTS);
-  const strokeArea = section(strokeContours(across));
-  const covered = strokeArea.intersect(section(markContours(scribble))).area();
-  // With Manifold: the mark's outline where the stroke reaches, simplified; it cuts about what the mark covers.
+  // The mark's outline where the stroke reaches: it cuts about what the mark covers, and nothing outside it.
   const exact = cutStrokes([across], scribble, C)[0];
   assert.ok(pointsIn(exact.cut) > 0 && pointsIn(exact.cut) <= MAX_CUT_POINTS, `${pointsIn(exact.cut)}`);
-  near(strokeArea.area() - strokeArea.subtract(section(exact.cut!)).area(), covered, 0.02);
+  const a = cutAgainst(exact, scribble);
+  near(a.cut, a.covered, 0.02);
+  assert.ok(a.outside < 0.001 * a.stroke, `${a.outside}`);
   // And what it had already stays within the limit.
   assert.ok(pointsIn(cutStrokes([exact], scribble, C)[0].cut) <= MAX_CUT_POINTS);
-  // A wide stroke over most of the scribble: its outline simplified to fit.
-  const wide = stroke({ width: 0.8, points: [[-0.3, 0], [-0.2, 0]] }), wideArea = section(strokeContours(wide));
-  const wideCut = cutStrokes([wide], scribble, C)[0].cut!;
-  assert.ok(pointsIn(wideCut) <= MAX_CUT_POINTS, `${pointsIn(wideCut)}`);
-  near(wideArea.area() - wideArea.subtract(section(wideCut)).area(), wideArea.intersect(section(markContours(scribble))).area(), 0.01);
-  // Without Manifold: coarser pieces, still under the limit.
-  const rough = cutStrokes([across], scribble)[0];
-  assert.ok(pointsIn(rough.cut) > 0 && pointsIn(rough.cut) <= MAX_CUT_POINTS, `${pointsIn(rough.cut)}`);
+  // A wide stroke over most of the scribble: the outline shrunk and simplified to fit.
+  const wide = cutStrokes([stroke({ width: 0.8, points: [[-0.3, 0], [-0.2, 0]] })], scribble, C)[0];
+  assert.ok(pointsIn(wide.cut) <= MAX_CUT_POINTS, `${pointsIn(wide.cut)}`);
+  const b = cutAgainst(wide, scribble);
+  near(b.cut, b.covered, 0.05);
+  assert.ok(b.outside < 0.001 * b.stroke, `${b.outside}`);
+});
+
+test('cutStrokes on many small rings: never cuts outside them, and an empty cut leaves the stroke as it is', () => {
+  // A grid of small rings (each an outline with a hole), far more than fits.
+  const ring = (cx: number, cy: number, r: number, width: number) => ({ width, points: Array.from({ length: 25 }, (_, i): [number, number] => [cx + r * Math.cos(i / 12 * Math.PI), cy + r * Math.sin(i / 12 * Math.PI)]) });
+  const rings = (n: number, r: number, width: number): PictureMark => ({ strokes: Array.from({ length: n * n }, (_, k) => ring(-0.3 + 0.6 * (k % n) / (n - 1), -0.3 + 0.6 * Math.floor(k / n) / (n - 1), r, width)) });
+  const big = stroke({ width: 0.8 });
+  // (64 rings cannot all fit in MAX_CUT_POINTS points: the cut is the largest it can keep.)
+  for (const [mark, share] of [[rings(3, 0.02, 0.008), 0.7], [rings(8, 0.02, 0.008), 0.1], [rings(8, 0.01, 0.001), 0.02]] as const) {
+    const st = cutStrokes([big], mark, C)[0];
+    assert.ok(st.cut!.length > 0 && pointsIn(st.cut) <= MAX_CUT_POINTS, `${pointsIn(st.cut)}`);
+    const a = cutAgainst(st, mark);
+    assert.ok(a.cut > share * a.covered, `${a.cut} of ${a.covered}`);
+    assert.ok(a.outside < 0.001 * a.stroke, `${a.outside}`);
+  }
+  // Pieces whose boxes reach the stroke but not the pieces themselves, more than fit: no `cut: []`, the stroke itself.
+  const corner: PictureMark = { strokes: [{ width: 0.02, points: Array.from({ length: 20 }, (): [number, number] => [0.11, 0.11]) }] };
+  const small = stroke({ width: 0.2 });
+  assert.ok(pointsIn(markContours(corner)) > MAX_CUT_POINTS);
+  assert.equal(cutStrokes([small], corner, C)[0], small);
 });

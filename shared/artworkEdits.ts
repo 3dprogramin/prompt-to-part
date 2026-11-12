@@ -137,35 +137,51 @@ const meeting = (contours: Vec2[][], r: Reach) => contours.filter((c) => {
   for (const [x, y] of c) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   return x0 <= r.x1 && r.x0 <= x1 && y0 <= r.y1 && r.y0 <= y1;
 });
-/** The first contours, whole, that fit in MAX_CUT_POINTS. */
-function fitting(contours: Vec2[][]): Vec2[][] {
-  let n = 0;
-  const out: Vec2[][] = [];
-  for (const c of contours) { if ((n += c.length) > MAX_CUT_POINTS) break; out.push(c); }
-  return out;
+/** The most a cut's outline is simplified, in picture heights. */
+const MAX_CUT_SIMPLIFY = 0.01;
+
+/** The pieces of `cs` (each with its own holes), largest first, while they fit in MAX_CUT_POINTS, and their area. */
+function largestPieces(cs: CrossSection): { polys: Vec2[][]; area: number } {
+  const polys: Vec2[][] = [];
+  let n = 0, area = 0;
+  for (const { piece, a } of cs.decompose().map((piece) => ({ piece, a: piece.area() })).sort((x, y) => y.a - x.a)) {
+    const k = piece.numVert();
+    if (n + k <= MAX_CUT_POINTS) { polys.push(...(piece.toPolygons() as Vec2[][])); n += k; area += a; }
+    piece.delete();
+  }
+  return { polys, area };
 }
 
-/** The NonZero union of `contours` inside `r`, simplified (more each time) until it has at most MAX_CUT_POINTS points. */
+/**
+ * The NonZero union of `contours` inside `r`, with at most MAX_CUT_POINTS points: as it is when it
+ * fits. Else the largest of: its own largest pieces, whole, and it shrunk by `eps` and simplified
+ * within `eps` (so it stays inside the area), all of it or its largest pieces, `eps` growing up to
+ * MAX_CUT_SIMPLIFY until it fits. Either way the cut only comes out smaller, never outside the area.
+ */
 function outline(contours: Vec2[][], r: Reach, C: typeof CrossSection): Vec2[][] {
   const all = new C(contours, 'NonZero'), box = C.square([r.x1 - r.x0, r.y1 - r.y0]).translate([r.x0, r.y0]), inR = all.intersect(box);
-  let out = inR.toPolygons() as Vec2[][];
-  for (let eps = 1e-4; pointsIn(out) > MAX_CUT_POINTS && eps < 1; eps *= 2) {
-    const s = inR.simplify(eps);
-    out = s.toPolygons() as Vec2[][];
-    s.delete();
+  all.delete(); box.delete();
+  if (inR.numVert() <= MAX_CUT_POINTS) { const out = inR.toPolygons() as Vec2[][]; inR.delete(); return out; }
+  let best = largestPieces(inR);
+  for (let eps = 1e-4; eps <= MAX_CUT_SIMPLIFY; eps *= 2) {
+    const shrunk = inR.offset(-eps, 'Miter'), shape = shrunk.simplify(eps), fits = shape.numVert() <= MAX_CUT_POINTS;
+    const got = fits ? { polys: shape.toPolygons() as Vec2[][], area: shape.area() } : largestPieces(shape);
+    shrunk.delete(); shape.delete();
+    if (got.area > best.area) best = got;
+    if (fits) break;
   }
-  all.delete(); box.delete(); inR.delete();
-  return fitting(out);
+  inR.delete();
+  return best.polys;
 }
 
 /**
  * The strokes with `mark` added to their cuts, for a picture edit that replaced the picture inside
  * it (the new picture there already shows them). A stroke the mark doesn't reach stays as it is
  * (the same object); the others get the mark's pieces that reach them. When that makes more than
- * MAX_CUT_POINTS points, the cut becomes its outline where the stroke reaches, simplified, with
- * `C` (Manifold's CrossSection); without it, the mark's pieces with coarser circles, as many as fit.
+ * MAX_CUT_POINTS points, the cut becomes its outline where the stroke reaches, simplified (`outline`,
+ * with `C`, Manifold's CrossSection); a stroke whose cut would come out empty stays as it is.
  */
-export function cutStrokes(strokes: ArtworkStroke[], mark: PictureMark, C?: typeof CrossSection): ArtworkStroke[] {
+export function cutStrokes(strokes: ArtworkStroke[], mark: PictureMark, C: typeof CrossSection): ArtworkStroke[] {
   const pieces = markContours(mark);
   if (!pieces.length) return strokes;
   return strokes.map((st) => {
@@ -177,7 +193,8 @@ export function cutStrokes(strokes: ArtworkStroke[], mark: PictureMark, C?: type
     if (!near.length) return st;
     const cut = [...(st.cut ?? []), ...near];
     if (pointsIn(cut) <= MAX_CUT_POINTS) return { ...st, cut };
-    return { ...st, cut: C ? outline(cut, r, C) : fitting([...(st.cut ?? []), ...meeting(markContours(mark, 8), r)]) };
+    const simple = outline(cut, r, C);
+    return simple.length ? { ...st, cut: simple } : st;
   });
 }
 
