@@ -355,8 +355,10 @@ export function decodeImage(buf: Buffer): Raster {
   throw new Error('The image model returned a picture format that can\'t be read (only PNG and JPEG)');
 }
 
-const hex = (c: number[]) => '#' + c.map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0')).join('');
-const rgb = (h: string) => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+/** An RGB triple as #rrggbb (each channel rounded and clamped). */
+export const hex = (c: number[]) => '#' + c.map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0')).join('');
+/** A #rrggbb colour as an RGB triple. */
+export const rgb = (h: string) => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 
 /** Pictures are traced at most this many pixels on the long side (larger ones are box-filtered down by a whole factor). */
 export const TRACE_MAX_SIDE = 2400;

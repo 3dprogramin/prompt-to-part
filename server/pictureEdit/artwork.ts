@@ -3,7 +3,7 @@
 // (the owner fades between the two versions in a product video: anything that moves shows), the
 // piece keeps its size and the colours still fit together.
 import type { CrossSection } from 'manifold-3d';
-import { TRACE_MAX_SIDE, traceArtwork } from '../artwork';
+import { hex, rgb, TRACE_MAX_SIDE, traceArtwork } from '../artwork';
 import type { Raster } from '../../shared/meshFormats';
 import { drawingColors, drawingSection, MAX_SVG_POINTS, type SvgDrawing } from '../../shared/svgFeatures';
 import { markContours, markMask, type PictureMark } from '../../shared/pictureEdit/mark';
@@ -13,14 +13,11 @@ import type { Vec2 } from '../../shared/types';
 type Shape = SvgDrawing['shapes'][number];
 type Box = { min: Vec2; max: Vec2 };
 
-function hexRgb(c: string): [number, number, number] {
-  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
-  if (!m) throw new Error(`Not a #rrggbb colour: ${c}`);
-  const h = m[1].length === 3 ? m[1].replace(/./g, (x) => x + x) : m[1];
-  const v = parseInt(h, 16);
-  return [v >> 16, (v >> 8) & 255, v & 255];
+/** The colours as RGB, each checked to be #rrggbb (what traced artwork has). */
+function rgbs(colours: string[]): number[][] {
+  for (const c of colours) if (!/^#[0-9a-f]{6}$/i.test(c)) throw new Error(`Not a #rrggbb colour: ${c}`);
+  return colours.map(rgb);
 }
-const toHex = (c: number[]) => '#' + c.map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0')).join('');
 
 /**
  * The edited crop as a drawing in `colours` (the drawing's own; no k-means), in the WHOLE drawing's
@@ -30,7 +27,7 @@ const toHex = (c: number[]) => '#' + c.map((x) => Math.round(Math.min(255, Math.
  * inside the subject stays that colour. At most `budget` points. `aspect` is the crop's.
  */
 export function traceCrop(crop: Raster, colours: string[], win: PictureWindow, background: Uint8Array, name: string, budget: number): SvgDrawing {
-  const hexes = colours.map((c) => toHex(hexRgb(c)));
+  const hexes = rgbs(colours).map(hex);
   const { drawing } = traceArtwork(crop, hexes, colours.length, name, [], { background, budget });
   const original = new Map(hexes.map((h, i) => [h, colours[i]]));
   // The tracer's units: 1 = the height of the picture it traced, centred, y up, its top-left corner
@@ -86,14 +83,32 @@ function crosses(c: Vec2[], m: MarkArea): boolean {
   return false;
 }
 
+/** Whether the point lies outside the cut region by at least `gap`. */
+function clearOf(p: Vec2, m: MarkArea, gap: number): boolean {
+  const b = m.box;
+  if (p[0] < b.min[0] - gap || p[0] > b.max[0] + gap || p[1] < b.min[1] - gap || p[1] > b.max[1] + gap) return true;
+  if (insideMark(p[0], p[1], m)) return false;
+  for (const c of m.polys) {
+    for (let k = 0; k < c.length; k++) {
+      const [ax, ay] = c[k], [bx, by] = c[(k + 1) % c.length], dx = bx - ax, dy = by - ay;
+      const t = dx || dy ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / (dx * dx + dy * dy))) : 0;
+      if (Math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy) < gap) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * The polygons with each point that lies within 1e-7 of a point of `from` put back on it exactly:
  * Manifold rounds what it returns, and a traced outline's points can sit exactly on a render's
- * sample rows, so a rounded copy away from the mark could render a pixel differently.
+ * sample rows, so a rounded copy away from the mark could render a pixel differently. Only old
+ * points clear of the cut region `m` by 2e-7 are snapped to, so a new point on the cut's outline is
+ * never pulled onto an old one (no doubled points or tiny bow-ties).
  */
-function snapTo(polys: Vec2[][], from: Vec2[][]): Vec2[][] {
+function snapTo(polys: Vec2[][], from: Vec2[][], m: MarkArea): Vec2[][] {
   const CELL = 1e-6, NEAR = 1e-7, grid = new Map<string, Vec2[]>();
   for (const c of from) for (const p of c) {
+    if (!clearOf(p, m, 2 * NEAR)) continue;
     const k = `${Math.floor(p[0] / CELL)},${Math.floor(p[1] / CELL)}`;
     const list = grid.get(k);
     if (list) list.push(p); else grid.set(k, [p]);
@@ -126,14 +141,14 @@ function withoutMark(sh: Shape, m: MarkArea, C: typeof CrossSection): Shape | nu
   if (!overlaps({ min: [x0, y0], max: [x1, y1] }, m.box)) return sh;
   if (sh.rule === 'NonZero') {
     const left = new C(sh.contours, 'NonZero').subtract(m.M);
-    return left.isEmpty() ? null : { ...sh, contours: snapTo(polygons(left), sh.contours) };
+    return left.isEmpty() ? null : { ...sh, contours: snapTo(polygons(left), sh.contours, m) };
   }
   const crossing = sh.contours.map((c) => crosses(c, m));
   const near = sh.contours.filter((_, i) => crossing[i]), far = sh.contours.filter((_, i) => !crossing[i]);
   const kept = near.length ? new C(near, 'EvenOdd').subtract(m.M) : C.compose([]);
   // Far contours may still hold the mark (a silhouette around it).
   const held = far.length ? new C(far, 'EvenOdd').intersect(m.M) : C.compose([]);
-  const tPrime = snapTo(polygons(kept.add(held)), near);
+  const tPrime = snapTo(polygons(kept.add(held)), near, m);
   if (!near.length && !tPrime.length) return sh;
   const contours = [...far, ...tPrime];
   return contours.length ? { ...sh, contours } : null;
@@ -164,7 +179,9 @@ function freshShapes(fresh: SvgDrawing, area: CrossSection, colours: string[], e
  * the old cut and the fresh shapes' clip met edge to edge on the mark's outline, Manifold rounds
  * the two copies differently at build size and leaves hairline slivers of the old colour; with the
  * old shapes reaching this far under the fresh ones, what is painted on top covers the seam, and
- * outside the mark the old shapes stay exactly as they were.
+ * outside the mark the old shapes stay exactly as they were. The overlap lies inside the mark:
+ * where the fresh result is background there, the old colour reaches 1e-6 into the mark, joined to
+ * its own region (no separate piece).
  */
 const SEAM = 1e-6;
 
@@ -182,7 +199,9 @@ export function combineDrawing(old: SvgDrawing, fresh: SvgDrawing, mark: Picture
   if (M.isEmpty()) throw new Error('The mark is empty');
   // The old shapes lose the mark shrunk by SEAM, so the fresh shapes painted on top overlap them.
   const cut = M.offset(-SEAM, 'Miter');
-  const kept = cut.isEmpty() ? old.shapes : old.shapes.map((sh) => withoutMark(sh, { M: cut, polys: polygons(cut), box: boxOf(cut) }, C)).filter((sh): sh is Shape => !!sh);
+  const markArea = cut.isEmpty() ? null : { M: cut, polys: polygons(cut), box: boxOf(cut) };
+  const after = old.shapes.map((sh) => (markArea ? withoutMark(sh, markArea, C) : sh));
+  const kept = after.filter((sh): sh is Shape => !!sh);
   const used = pointsOf(kept);
   if (used > MAX_SVG_POINTS) throw new Error(`The drawing is too detailed to edit: ${used} points`);
   const all = drawingSection(old, 1, undefined, C);
@@ -197,16 +216,37 @@ export function combineDrawing(old: SvgDrawing, fresh: SvgDrawing, mark: Picture
     added = freshShapes(fresh, area, colours, eps, C);
   }
   const drawing: SvgDrawing = { name: old.name, aspect: old.aspect, shapes: [...kept, ...added] };
-  return { drawing, outsideSame: sameOutside(old, drawing, mark), simplified: eps > 0 };
+  // What changed: the old contours taken out or put in (far ones are the same arrays), and the fresh shapes.
+  const changed: Vec2[][] = added.flatMap((sh) => sh.contours);
+  old.shapes.forEach((sh, i) => {
+    const now = after[i];
+    if (now === sh) return;
+    const was = new Set(sh.contours), is = new Set(now?.contours ?? []);
+    for (const c of sh.contours) if (!is.has(c)) changed.push(c);
+    for (const c of now?.contours ?? []) if (!was.has(c)) changed.push(c);
+  });
+  return { drawing, outsideSame: sameOutside(old, drawing, mark, changed), simplified: eps > 0 };
 }
 
-/** Whether two drawings render the same colour at every pixel outside the mark grown by 1 px, at 2400 px high. */
-function sameOutside(a: SvgDrawing, b: SvgDrawing, mark: PictureMark): boolean {
-  const H = 2400, win = wholeWindow(a);
-  const ra = renderDrawing(a, [], win, H), rb = renderDrawing(b, [], win, H);
+/**
+ * Whether two drawings render the same colour at every pixel outside the mark grown by 1 px, at
+ * 2400 px high. `changed`: every contour one has and the other has not. A point outside the box of
+ * those has the same winding (or parity) under every shape of both, so only the pixels of that
+ * box, grown by 2 px and on the whole picture's 2400 px grid, are rendered and compared.
+ */
+function sameOutside(a: SvgDrawing, b: SvgDrawing, mark: PictureMark, changed: Vec2[][]): boolean {
+  const H = 2400, whole = wholeWindow(a), cols = Math.max(1, Math.round(a.aspect * H));
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of changed) for (const [x, y] of c) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const i0 = Math.max(0, Math.floor((x0 - whole.x0) * H) - 2), i1 = Math.min(cols, Math.ceil((x1 - whole.x0) * H) + 2);
+  const j0 = Math.max(0, Math.floor((whole.y1 - y1) * H) - 2), j1 = Math.min(H, Math.ceil((whole.y1 - y0) * H) + 2);
+  if (!(i1 > i0 && j1 > j0)) return true;
+  const all = i0 === 0 && j0 === 0 && i1 === cols && j1 === H;
+  const win = all ? whole : { x0: whole.x0 + i0 / H, y1: whole.y1 - j0 / H, w: (i1 - i0) / H, h: (j1 - j0) / H };
+  const ra = renderDrawing(a, [], win, j1 - j0), rb = renderDrawing(b, [], win, j1 - j0);
   if (ra.width !== rb.width || ra.height !== rb.height) return false;
   const ca = drawingColors(a), toA = drawingColors(b).map((c) => ca.indexOf(c));
-  const W = ra.width, mask = markMask(mark, { w: W, h: ra.height, px: win.h / H, x0: win.x0, y1: win.y1 });
+  const W = ra.width, mask = markMask(mark, { w: W, h: ra.height, px: win.h / ra.height, x0: win.x0, y1: win.y1 });
   for (let j = 0; j < ra.height; j++) {
     for (let i = 0; i < W; i++) {
       const p = j * W + i;
@@ -234,11 +274,14 @@ export const OFF_PALETTE_DISTANCE = 70;
 
 /**
  * The share of the mark's pixels (`mask` 1, one byte per pixel of `returned`) farther than
- * OFF_PALETTE_DISTANCE from every colour of `colours` and from white (the paper is never off the
- * palette), and those pixels' mean colour as #rrggbb (null when there are none).
+ * OFF_PALETTE_DISTANCE from every colour of `colours`, and those pixels' mean colour as #rrggbb
+ * (null when there are none). White is not added: in a design without a white filament (none
+ * within 60 of white, the tracer's rule), white eyes the model paints inside the subject trace as
+ * another colour, so they are off the palette. The caller's `mask` must leave out the pixels that
+ * trace as background (the mark less the traced background), or the paper counts.
  */
 export function offPalette(returned: Raster, mask: Uint8Array, colours: string[]): { share: number; colour: string | null } {
-  const pal = [...colours.map(hexRgb), [255, 255, 255]];
+  const pal = rgbs(colours);
   const d2 = OFF_PALETTE_DISTANCE ** 2, d = returned.data;
   let n = 0, off = 0, r = 0, g = 0, b = 0;
   for (let p = 0; p < mask.length; p++) {
@@ -247,5 +290,5 @@ export function offPalette(returned: Raster, mask: Uint8Array, colours: string[]
     const R = d[p * 4], G = d[p * 4 + 1], B = d[p * 4 + 2];
     if (pal.every(([pr, pg, pb]) => (R - pr) ** 2 + (G - pg) ** 2 + (B - pb) ** 2 > d2)) { off++; r += R; g += G; b += B; }
   }
-  return { share: n ? off / n : 0, colour: off ? toHex([r / off, g / off, b / off]) : null };
+  return { share: n ? off / n : 0, colour: off ? hex([r / off, g / off, b / off]) : null };
 }

@@ -69,6 +69,7 @@ test('combineDrawing: outside the mark the old drawing, inside the fresh one, co
     assert.ok(Math.abs(got - want) <= 1e-6 * Math.max(want, 1e-3), `${c} inside: ${got} vs ${want}`);
   }
   assert.ok(section(r.drawing, RED).intersect(M).area() > 0.035, 'the mark is red now (but for the black square)');
+  // Kept as a guard, though drawingSection already resolves overlaps by paint order.
   for (let i = 0; i < SANTA.length; i++) for (let j = i + 1; j < SANTA.length; j++) {
     const both = section(r.drawing, SANTA[i]).intersect(section(r.drawing, SANTA[j])).area();
     assert.ok(both < 1e-9, `${SANTA[i]} and ${SANTA[j]} overlap by ${both}`);
@@ -187,6 +188,25 @@ test('traceCrop puts a traced window back where it came from', () => {
   }
 });
 
+test('traceCrop maps pixel edges exactly: a pixel-aligned rectangle comes back on its own edges', () => {
+  // At 400 px, and at 2501 px (the tracer halves it first) with edges on even pixels.
+  for (const [h, rows, cols, box] of [[0.6, 400, 300, [40, 60, 250, 330]], [0.6, 2501, 400, [100, 500, 300, 2000]]] as const) {
+    const px = h / rows, win = { x0: -0.2, y1: 0.3, w: cols * px, h };
+    const [i0, j0, i1, j1] = box;
+    const x0 = win.x0 + i0 * px, x1 = win.x0 + i1 * px, yTop = win.y1 - j0 * px, yBot = win.y1 - j1 * px;
+    const rect: SvgDrawing = { name: 'rect.svg', aspect: 1, shapes: [{ rule: 'EvenOdd', contours: [[[x0, yBot], [x1, yBot], [x1, yTop], [x0, yTop]]], color: BLACK }] };
+    const r = renderDrawing(rect, [], win, rows);
+    assert.equal(r.width, cols);
+    const fresh = traceCrop(rasterOf(r), [BLACK], win, Uint8Array.from(r.labels, (l) => (l < 0 ? 1 : 0)), 'rect.svg', MAX_SVG_POINTS);
+    const b = section(fresh, BLACK).bounds();
+    for (const [got, want, name] of [[b.min[0], x0, 'left'], [b.max[0], x1, 'right'], [b.min[1], yBot, 'bottom'], [b.max[1], yTop, 'top']] as const) {
+      // 1e-8: the tracer's smoothed field is float32 (crossings land within about 1e-5 px); a wrong
+      // mapping (half a pixel, or 2501 vs 2500 rows) is off by 1e-4 or more.
+      assert.ok(Math.abs(got - want) < 1e-8, `${rows} px, ${name}: ${got} vs ${want}`);
+    }
+  }
+});
+
 test('traceCrop: background where the crop was background plus new white joined to it; white inside stays white', () => {
   // A black ring with a white filament inside, cut by the window so the white touches the crop's edge.
   const ring: SvgDrawing = { name: 'ring.svg', aspect: 1, shapes: [{ rule: 'EvenOdd', contours: [disc(0.4)], color: BLACK }, { rule: 'EvenOdd', contours: [disc(0.25)], color: WHITE }] };
@@ -250,9 +270,18 @@ test('offPalette: a brown face against the Santa colours', () => {
   assert.ok(r.share > 0.5 && r.share < 0.7, `share ${r.share}`);
   const [R, G, B] = [1, 3, 5].map((k) => parseInt(r.colour!.slice(k, k + 2), 16));
   assert.ok(R > G && G > B && Math.abs(R - 0x8b) < 4, `a brown: ${r.colour}`);
-  // The design's own colours with a little noise, and the white paper, are on the palette.
+  // The design's own colours with a little noise (its white too) are on the palette.
   data.fill(0);
   for (let p = 0; p < W * H; p++) { const c = [[0x11, 0x11, 0x11], [0xd0, 0x1c, 0x1f], [0xe0, 0xa8, 0x68], [250, 251, 252]][p % 4]; data.set(c.map((v) => v + ((p % 7) - 3)), p * 4); }
-  assert.deepEqual(offPalette({ width: W, height: H, data }, mask, [BLACK, RED, SKIN]), { share: 0, colour: null });
+  assert.deepEqual(offPalette({ width: W, height: H, data }, mask, SANTA), { share: 0, colour: null });
   assert.ok(OFF_PALETTE_DISTANCE > 20 && OFF_PALETTE_DISTANCE < 93, 'between noise and the nearest Santa colour to brown');
+});
+
+test('offPalette: white the model paints inside a design without white is off the palette', () => {
+  // Black, red and gold: white eyes in the mark would trace to the nearest of them.
+  const W = 20, H = 20, data = new Uint8Array(W * H * 4), mask = new Uint8Array(W * H).fill(1);
+  for (let p = 0; p < W * H; p++) data.set(p < 100 ? [255, 255, 255, 255] : [0xd0, 0x1c, 0x1f, 255], p * 4);
+  assert.deepEqual(offPalette({ width: W, height: H, data }, mask, [BLACK, RED, '#c8a040']), { share: 0.25, colour: '#ffffff' });
+  // With a white filament (within 60 of white, as the tracer decides) it is on the palette.
+  assert.deepEqual(offPalette({ width: W, height: H, data }, mask, [BLACK, RED, '#f2f2f2']), { share: 0, colour: null });
 });
