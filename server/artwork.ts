@@ -358,14 +358,27 @@ export function decodeImage(buf: Buffer): Raster {
 const hex = (c: number[]) => '#' + c.map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0')).join('');
 const rgb = (h: string) => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 
+/** Pictures are traced at most this many pixels on the long side (larger ones are box-filtered down by a whole factor). */
+export const TRACE_MAX_SIDE = 2400;
+
+export interface TraceOptions {
+  /**
+   * 1 where the picture is background (one byte per pixel of `input`): the background is then the
+   * lightest colour flood-filled from these pixels instead of from the picture's edges.
+   */
+  background?: Uint8Array;
+  /** The most points the drawing may have (default MAX_SVG_POINTS); the outlines are simplified harder until it fits. */
+  budget?: number;
+}
+
 /**
  * The picture as an SvgDrawing with one shape per colour: pixels go to the nearest of the given
  * colours (or `tones` k-means colours), the white background touching the edges is dropped,
  * specks too small to print join their surroundings, and each colour is traced into polygons.
  * Colours in `omit` are traced (they are holes in the others) but left out of the drawing.
  */
-export function traceArtwork(input: Raster, colors: string[] | undefined, tones: number, name: string, omit: string[] = []): Pick<Artwork, 'drawing' | 'tones' | 'points'> {
-  const img = downscale(input, 2400);
+export function traceArtwork(input: Raster, colors: string[] | undefined, tones: number, name: string, omit: string[] = [], opts: TraceOptions = {}): Pick<Artwork, 'drawing' | 'tones' | 'points'> {
+  const img = downscale(input, TRACE_MAX_SIDE);
   const { width: W, height: H, data } = img;
   const N = W * H;
   const px = (i: number) => [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]];
@@ -407,12 +420,17 @@ export function traceArtwork(input: Raster, colors: string[] | undefined, tones:
   const label = new Uint8Array(N);
   for (let i = 0; i < N; i++) label[i] = nearest(classes, px(i));
 
-  // Background: the lightest class where it touches the edges, flood-filled.
+  // Background: the lightest class where it touches the edges (or the given background), flood-filled.
   const lightest = classes.map((c, j) => [lum(c), j]).sort((a, b) => b[0] - a[0])[0][1];
   const BG = 255;
   const stack: number[] = [];
-  for (let x = 0; x < W; x++) stack.push(x, (H - 1) * W + x);
-  for (let y = 0; y < H; y++) stack.push(y * W, y * W + W - 1);
+  if (opts.background) {
+    const seeds = downscaleMask(opts.background, input.width, input.height, W, H);
+    for (let i = 0; i < N; i++) if (seeds[i]) stack.push(i);
+  } else {
+    for (let x = 0; x < W; x++) stack.push(x, (H - 1) * W + x);
+    for (let y = 0; y < H; y++) stack.push(y * W, y * W + W - 1);
+  }
   while (stack.length) {
     const i = stack.pop()!;
     if (label[i] !== lightest) continue;
@@ -464,7 +482,7 @@ export function traceArtwork(input: Raster, colors: string[] | undefined, tones:
       points += contours.reduce((n, c) => n + c.length, 0);
       if (contours.length) shapes.push({ rule: 'EvenOdd', contours, color: colorOf(j) });
     });
-    if (points <= MAX_SVG_POINTS || tol > 8) out = { drawing: { name, aspect: W / H, shapes }, tones: order.map((j) => ({ color: colorOf(j), share: counts[j] / total })), points };
+    if (points <= (opts.budget ?? MAX_SVG_POINTS) || tol > 8) out = { drawing: { name, aspect: W / H, shapes }, tones: order.map((j) => ({ color: colorOf(j), share: counts[j] / total })), points };
   }
   return out;
 }
@@ -517,6 +535,19 @@ function mergeSpecks(label: Uint8Array, W: number, H: number, min: number) {
   }
 }
 
+
+/** A W x H mask of a w x h one box-filtered down as `downscale` does (by a whole factor): 1 where most of a block is. */
+function downscaleMask(m: Uint8Array, w: number, h: number, W: number, H: number): Uint8Array {
+  if (m.length !== w * h) throw new Error(`The background mask has ${m.length} pixels, the picture ${w * h}`);
+  if (W === w && H === h) return m;
+  const f = Math.ceil(Math.max(w, h) / TRACE_MAX_SIDE), out = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let s = 0;
+    for (let dy = 0; dy < f; dy++) for (let dx = 0; dx < f; dx++) s += m[(y * f + dy) * w + x * f + dx] ? 1 : 0;
+    out[y * W + x] = 2 * s >= f * f ? 1 : 0;
+  }
+  return out;
+}
 
 /** Box-filtered down to at most `max` pixels on the long side. */
 function downscale(img: Raster, max: number): Raster {
