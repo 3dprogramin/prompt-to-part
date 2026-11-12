@@ -6,6 +6,7 @@ import { readFile, writeFile, rename } from 'node:fs/promises';
 import { DATA_DIR } from '../config';
 import type { Design } from '../../shared/types';
 import { cleanTagMap } from '../../shared/tags';
+import type { PrintedMap } from '../../shared/printed';
 
 export const DESIGNS = path.join(DATA_DIR, 'designs');
 export const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
@@ -70,6 +71,8 @@ export interface RouteContext {
   serially: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
   /** Runs `change` on the stored tags (in the queue) and writes what it returns. */
   changeTags: (change: (all: Record<string, string[]>) => Promise<void> | void) => Promise<void>;
+  /** Runs `change` on the stored printed marks (in the queue) and writes what it leaves. */
+  changePrinted: (change: (all: PrintedMap) => Promise<void> | void) => Promise<void>;
   /** Sets one design's tags in `all` (none: its entry goes). */
   putTags: (all: Record<string, string[]>, id: string, tags: string[]) => void;
 }

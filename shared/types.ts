@@ -336,6 +336,8 @@ export interface DesignSummary {
   starred?: boolean;
   /** Its tags (shared/tags.ts), built-ins first; none: left out. */
   tags?: string[];
+  /** Its versions marked Printed (shared/printed.ts), without the fingerprint; none: left out. */
+  printed?: { v: number; at: number; file: boolean; settings: boolean }[];
   /** What kind of design its current code makes (shared/designKind.ts). */
   kind?: DesignKind;
 }

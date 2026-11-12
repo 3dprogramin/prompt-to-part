@@ -2,11 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_DIR } from './config';
+import { ID_RE } from './routes/store';
 import { cleanPrintedMap, type PrintedMap, type PrintedMark } from '../shared/printed';
 import type { Design, DesignVersion } from '../shared/types';
 
-// Same ids as server/routes/store.ts ID_RE (not imported, so the routes can import this file).
-const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
 
 /** JSON with object keys sorted at every depth, so equal content gives equal text. */
 function canonical(v: unknown): string {
