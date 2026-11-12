@@ -21,12 +21,13 @@ export const artwork: PromptMode = {
   picture: true,
   active: (m) => m.artwork,
   system: (o) => (o.artwork ? artworkOn() : ''),
-  turnNotes: ({ drawings, pictureValues, req }) => {
+  turnNotes: ({ drawings, pictureValues, req }, m) => {
     // The user chose AI artwork for this design: the picture comes first, whatever the subject.
     const names = Object.keys(drawings);
     return [`AI artwork mode is on: the user wants this as artwork – a flat multi-colour wall piece, relief, plaque or sign whose picture the image model draws, not a 3D model of the subject. ${names.length
       ? `Drawings in this design: ${names.map((n) => `"${n}"`).join(', ')}; keep using them unless the user asks for a new or different picture (then call generate_artwork again).`
       : 'There is no artwork yet: start with generate_artwork – for any subject, objects and machines included (a tommy gun, a car, a guitar are drawn as illustrations too) – then build the piece around it with H.svg.'} Model the subject in 3D geometry only if the user's message explicitly asks for a 3D object.`,
-    ...pictureEditNotes(Object.fromEntries(names.map((n) => [n, drawingFingerprint(drawings[n])])), pictureValues, req.pictureEdits, DRAWING_WORDS)];
+    // (A line-art design edits as line art: its own notes say how.)
+    ...(m.lineArt ? [] : pictureEditNotes(Object.fromEntries(names.map((n) => [n, drawingFingerprint(drawings[n])])), pictureValues, req.pictureEdits, DRAWING_WORDS))];
   },
 };

@@ -448,3 +448,18 @@ test('the picture edits kept in the brush editor since the chat\'s last version,
   assert.deepEqual(editorEditsSince([version(kept('a.svg', 'x'))]), [{ picture: 'a.svg', change: 'x', masked: true, version: 1 }]);
   assert.deepEqual(editorEditsSince([]), []);
 });
+
+test('a line-art design with the menu on AI artwork gets the line-art edit_picture, and artwork\'s notes leave out its own', async () => {
+  const registered = (extra: Parameters<typeof cadTools>[4]) => (cadTools('/nonexistent/model.js', () => {}, new Set(), {}, extra).server.instance as unknown as { _registeredTools: Record<string, { description: string }> })._registeredTools;
+  const both = registered({ artwork: { references: [] }, lineArt: { references: [], style: 'outline', pictures: true } });
+  assert.match(both.edit_picture.description, /line-art drawings/, 'the line-art variant');
+  assert.match(both.show_picture.description, /line-art drawings/);
+  assert.ok(both.generate_artwork, 'artwork\'s other tools stay');
+  // Artwork alone keeps its own.
+  assert.doesNotMatch(registered({ artwork: { references: [] } }).edit_picture.description, /line-art/);
+  const { artwork } = await import('../server/modes/artwork');
+  const ctx = { req: { designId: 'd', prompt: 'x' }, pictureValues: {}, drawings: { cat: { name: 'cat', aspect: 1, shapes: [] } } } as unknown as Parameters<typeof artwork.turnNotes>[0];
+  const modes = (lineArt: boolean) => ({ artwork: true, lineArt }) as Parameters<typeof artwork.turnNotes>[1];
+  assert.ok(artwork.turnNotes(ctx, modes(false)).some((n) => /use edit_picture/.test(n)));
+  assert.equal(artwork.turnNotes(ctx, modes(true)).some((n) => /use edit_picture/.test(n)), false);
+});
