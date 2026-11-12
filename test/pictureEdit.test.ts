@@ -416,6 +416,29 @@ test('a running reply and a running picture edit keep each other off the design,
   assert.equal((await del()).status, 200);
 });
 
+test('while a picture edit runs its design can\'t be marked printed; once marked, the design is kept from a delete', async () => {
+  const id = 'test-pe-00000012';
+  const code = 'function build() { return Manifold.cube([10, 10, 10]); }';
+  const put = await fetch(`${A}/api/designs/${id}`, { method: 'PUT', headers: W, body: JSON.stringify({ id, name: 'Printed', createdAt: 1, updatedAt: 1, code, values, messages: [], currentVersion: 0,
+    versions: [{ code, summary: 'A cube', createdAt: 1, source: 'manual', values }] }) });
+  assert.equal(put.status, 200, await put.text());
+  const mark = () => fetch(`${A}/api/designs/${id}/printed/0`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-PTP': '1' }, body: new Uint8Array(0) });
+  let release!: () => void;
+  calls = [];
+  answer = () => new Promise((_, reject) => { release = () => reject(new Error('The image model refused: done')); });
+  const edit = post(id, request());
+  await until(() => calls.length === 1);
+  const refused = await mark();
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json() as { error: string }).error, /being worked on/);
+  release();
+  assert.equal((await edit).status, 502);
+  assert.equal((await mark()).status, 200);
+  const del = await fetch(`${A}/api/designs/${id}`, { method: 'DELETE', headers: W });
+  assert.equal(del.status, 409);
+  assert.match((await del.json() as { error: string }).error, /printed versions \(v1\)/);
+});
+
 test('a crop that fits no allowed shape is padded to the one asked for and cut back', async () => {
   // A picture 4 times as wide as high, a strip 3.5 wide: its crop is 3.5:1, wider than 21:9.
   const wide: SvgDrawing = {

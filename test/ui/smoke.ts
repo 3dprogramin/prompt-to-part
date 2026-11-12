@@ -9,7 +9,7 @@
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
 // resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene), and a picture edit from the artwork brush (the
-// stand-in fills the area marked). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
+// stand-in fills the area marked), also on a version marked printed meanwhile. Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // PTP_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
@@ -1571,6 +1571,82 @@ test('a picture edit in the chat: its values applied, the reply\'s version recor
     assert.deepEqual(errors, []);
   } finally {
     chatEdit.prompt = '';
+  }
+});
+
+test('a printed picture edit: its note and the Printed mark in the version menu; an edit being kept as another tab marks it is not kept, the brush is off', TEST, async () => {
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  const pid = 'ui-smoke-00000010';
+  const BLACK = '#111111', GOLD = '#e0a868';
+  const square = (h: number): [number, number][] => [[-h, -h], [h, -h], [h, h], [-h, h]];
+  const disc = (r: number): [number, number][] => Array.from({ length: 64 }, (_, i) => [r * Math.cos((2 * Math.PI * i) / 64), r * Math.sin((2 * Math.PI * i) / 64)]);
+  const art = { name: 'art', aspect: 1, shapes: [{ rule: 'EvenOdd' as const, contours: [square(0.5)], color: BLACK }, { rule: 'EvenOdd' as const, contours: [disc(0.3)], color: GOLD }] };
+  const script = `function build() { return [
+    { name: 'Black', color: '${BLACK}', shape: H.svg('art', { height: 40, colors: ['${BLACK}'] }).extrude(1) },
+    { name: 'Gold', color: '${GOLD}', shape: H.svg('art', { height: 40, colors: ['${GOLD}'] }).extrude(2) },
+  ]; }`;
+  const values = { $drawings: JSON.stringify({ art }) };
+  // v2 is a picture edit of v1 that lines up with it; it is the version printed.
+  const kept = { picture: 'art', change: 'a gold disc', masked: true, parent: 0, linesUp: true, cost: 0.04 };
+  const r = await putDesign({ id: pid, name: 'Printed disc', createdAt: 1, updatedAt: 1, code: script, values, messages: [], currentVersion: 1,
+    versions: [{ code: script, summary: 'A disc', createdAt: 1, source: 'manual', values }, { code: script, summary: 'Picture edit: a gold disc', createdAt: 2, source: 'manual', values, pictureEdit: kept }] });
+  assert.equal(r.status, 200, await r.text());
+  const page = await newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.goto(`${A}/?design=${pid}`);
+    await built(page);
+    const brush = page.getByRole('button', { name: 'Paint and fix the picture by hand' });
+    await brush.click();
+    const editor = page.getByRole('dialog', { name: 'Paint the artwork' });
+    await editor.getByRole('radio', { name: 'Select' }).click();
+    // A short stroke across the middle marks the area (the stand-in fills it black).
+    const b = (await editor.locator('.la-ed-over').boundingBox())!;
+    const cx = b.x + b.width / 2, cy = b.y + b.height / 2, half = Math.min(b.width, b.height) * 0.08;
+    await page.mouse.move(cx - half, cy);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(cx - half + (2 * half * k) / 8, cy);
+    await page.mouse.up();
+    await editor.getByText('Edit this picture here').waitFor();
+    await editor.getByPlaceholder('What to change, e.g. make him look like the man in the photo').fill('make the middle black');
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+    const keep = editor.getByRole('button', { name: 'Keep' });
+    await keep.waitFor();
+    // Keep stores the before / after picture first: held here while another tab marks v2 printed.
+    const held: { continue: () => Promise<void> }[] = [];
+    await page.route(`**/api/designs/${pid}/images`, (route) => { held.push(route); });
+    await keep.click();
+    await until(async () => held.length === 1, 'Keep stores its picture');
+    const marked = await fetch(`${A}/api/designs/${pid}/printed/1`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-PTP': '1' }, body: new Uint8Array(0) });
+    assert.equal(marked.status, 200, await marked.text());
+    await page.evaluate((designId) => new BroadcastChannel('ptp').postMessage({ type: 'printed', tab: 'another-tab', id: designId }), pid);
+    // The lock closes the editor, and the brush stays off.
+    await editor.waitFor({ state: 'detached' });
+    await page.getByText('Printed v2 · locked').waitFor();
+    assert.equal(await brush.getAttribute('title'), 'Printed v2 is locked: clone it to change it');
+    assert.ok(await brush.isDisabled());
+    // The picture stored, Keep goes on: nothing is made from the printed version.
+    const stored = page.waitForResponse((res) => res.url().endsWith(`/api/designs/${pid}/images`));
+    await Promise.all(held.map((h) => h.continue()));
+    await stored;
+    await page.waitForTimeout(1500);
+    const versionsBtn = page.locator('.version-btn[title=Versions]');
+    assert.equal(await versionsBtn.textContent(), 'v2 of 2');
+    const d = await getDesign(pid);
+    assert.equal(d.versions.length, 2);
+    assert.equal(d.currentVersion, 1);
+    assert.equal(d.values.$drawings, values.$drawings, 'the picture is as printed');
+    // The version menu shows both: where v2 came from, and that it is printed.
+    await versionsBtn.click();
+    const row = page.locator('.menu-item', { hasText: 'Picture edit: a gold disc' });
+    await row.getByText('your picture edit, lines up with v1').waitFor();
+    await row.locator('.printed-badge', { hasText: 'Printed' }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = savedKey;
+    await fetch(`${A}/api/designs/${pid}/printed/1`, { method: 'DELETE', headers: { 'X-PTP': '1' } }).catch(() => undefined);
   }
 });
 

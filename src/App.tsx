@@ -459,7 +459,7 @@ export default function App() {
   }), [shown, drawingsStored]);
   const artworkEditing = editingArtwork ? artworkItems.find((a) => a.name === editingArtwork) : undefined;
   // Editing a picture with the image model (from the artwork brush), and its mark.
-  const pictureEdit = usePictureEdit({ design, setDesign, result, busy });
+  const pictureEdit = usePictureEdit({ design, setDesign, result, busy, locked: lockReason });
   const painterItems = [
     ...(shownLineArt?.lineArt.frames.length ? [{ kind: 'lineart' as const, name: '', label: 'Edit drawing' }] : []),
     ...artworkItems.map((a) => ({ kind: 'artwork' as const, name: a.name, label: `Paint ${a.name}` })),

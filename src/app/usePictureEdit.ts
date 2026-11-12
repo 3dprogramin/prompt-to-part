@@ -37,8 +37,12 @@ async function sideBySide(before: string, after: string): Promise<string> {
   return c.toDataURL('image/png');
 }
 
-export function usePictureEdit({ design, setDesign, result, busy }: {
-  design: Design; setDesign: Dispatch<SetStateAction<Design>>; result: EvalResult | null; busy: boolean;
+/**
+ * `locked`: why the shown version can't change (it is printed, or being marked), or null. The lock
+ * closes the editor (App), and an edit being kept then is not kept: no editor changes a printed version.
+ */
+export function usePictureEdit({ design, setDesign, result, busy, locked }: {
+  design: Design; setDesign: Dispatch<SetStateAction<Design>>; result: EvalResult | null; busy: boolean; locked: string | null;
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const jobRef = useRef(job);
@@ -47,6 +51,8 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
   designRef.current = design;
   const resultRef = useRef(result);
   resultRef.current = result;
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
   // Lines up is measured on the build of the kept edit's values (once).
   const watchLinesUp = useLinesUp({ design, setDesign, result, busy });
 
@@ -87,6 +93,8 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
     const changed = (d: Design) => pictureChangedSince(d, sent);
     // (A result made from a picture that has changed since can't be kept at all: it goes.)
     const refuse = (error: string) => { setJob((x) => (x?.sent === sent ? { ...x, result: error === PICTURE_CHANGED ? null : x.result, keeping: false, error } : x)); return false; };
+    // A printed version shown (marked here or in another tab, also while the pictures are stored): nothing is kept.
+    if (lockedRef.current) return refuse(`${lockedRef.current}.`);
     if (changed(designRef.current)) return refuse(PICTURE_CHANGED);
     setJob({ ...j, keeping: true, error: null });
     let images: { photos: string[]; render: string };
@@ -96,6 +104,7 @@ export function usePictureEdit({ design, setDesign, result, busy }: {
     } catch (e) {
       return refuse(`The edit could not be kept: ${(e as Error).message}`);
     }
+    if (lockedRef.current) return refuse(`${lockedRef.current}.`);
     if (changed(designRef.current)) return refuse(PICTURE_CHANGED);
     const info = { picture: sent.picture, change: sent.request.change, masked: r.masked, cost: r.cost };
     // Applied at once (flushSync), so whether the design had changed by then is known here.
