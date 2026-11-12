@@ -10,6 +10,7 @@ import { useEscape } from './useEscape';
 import { Icon } from './Icon';
 import { clamp, ERASE, MAX_ZOOM, round, SELECT_RING, strokeOn, type Pt } from './lineart/editorDraw';
 import { drawBrush, drawSelection, SEL_MM, SEL_PCT, selectionStrokes } from './picture/markCanvas';
+import { usePictureView } from './picture/usePictureView';
 import { BACKDROP, builtView, colourNames, colourOps, drawBuilt, drawPicture, mmPerUnit, nearestPart, pictureBox, registerDrawing, shapePaths } from './artwork/artworkCanvas';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type MarkStroke, type PictureMark } from '../../shared/pictureEdit/mark';
 import type { PictureEditUi } from '../lib/pictureEdit';
@@ -147,8 +148,6 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   const square = shape === 'square';
   const [hist, setHist] = useState<{ undo: Snap[]; redo: Snap[] }>({ undo: [], redo: [] });
   const [note, setNote] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [panning, setPanning] = useState(false);
   const touch = useMemo(() => window.matchMedia('(pointer: coarse)').matches, []);
 
   const box = useMemo(() => pictureBox(drawing), [drawing]);
@@ -166,19 +165,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     return { x0: Math.min(-a, (b.x0 - r.tx) / r.k), y0: Math.min(-0.5, (b.y0 - r.ty) / r.k), x1: Math.max(a, (b.x1 - r.tx) / r.k), y1: Math.max(0.5, (b.y1 - r.ty) / r.k) };
   }, [drawing, matched]);
 
-  const stage = useRef<HTMLDivElement>(null);
-  const base = useRef<HTMLCanvasElement>(null);
-  const over = useRef<HTMLCanvasElement>(null);
-  const dialog = useRef<HTMLDivElement>(null);
   const scratch = useRef<HTMLCanvasElement[]>([]);
-  /** Screen pixels per drawing unit, and the point at the stage's centre. */
-  const view = useRef({ s: 1, cx: 0, cy: 0, fitted: false });
-  const size = useRef({ w: 0, h: 0, dpr: 1 });
-  /** What the pointer is doing; the stroke being drawn (drawing units); the pointer's place (screen px). */
-  const act = useRef<{ mode: 'idle' | 'draw' | 'pan' | 'pinch'; id: number; points: Pt[]; last: Pt; pinch?: { d: number; at: Pt; s: number } }>({ mode: 'idle', id: -1, points: [], last: [0, 0] });
-  const pointers = useRef(new Map<number, Pt>());
-  const hover = useRef<{ at: Pt; show: boolean }>({ at: [0, 0], show: false });
-  const space = useRef(false);
   // The colour the picked one shows in.
   const ink = (matched ? shade.get(colour)?.color : colour) || '#000';
   // The latest of everything the pointer and key handlers and the painting use.
@@ -186,36 +173,42 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
   now.current = { tool, width, square, colour, ink, strokes, restored, hist, layers, matched, fresh, shade, fitBox, selection, locked };
   /** The selection put together off screen (where strokes cross it is no darker). */
   const selLayer = useRef<HTMLCanvasElement | null>(null);
-
-  // Focus moves into the editor (its keys) and back where it was when it closes.
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null;
-    dialog.current?.focus();
-    return () => before?.focus();
-  }, []);
-
-  // ---- the view: drawing units to screen
-  const toUnits = (x: number, y: number): Pt => {
-    const v = view.current, { w, h } = size.current;
-    return [v.cx + (x - w / 2) / v.s, v.cy - (y - h / 2) / v.s];
-  };
-  const matrix = (): [number, number, number, number, number, number] => {
-    const v = view.current, { w, h, dpr } = size.current;
-    return [dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s)];
-  };
-  const fitScale = () => {
-    const { w, h } = size.current, b = now.current.fitBox;
-    if (!w || !h) return 1;
-    const pad = Math.min(48, Math.min(w, h) * 0.08);
-    return Math.min((w - 2 * pad) / (b.x1 - b.x0), (h - 2 * pad) / (b.y1 - b.y0));
-  };
-
-  // ---- painting: the model as built with this session's strokes (or the picture with the strokes; redrawn when the view or the strokes
-  // change, the model as a quick bitmap while the view moves), and the stroke being drawn and the brush over it
-  const raf = useRef({ base: 0, over: 0 });
   /** The view is moving (the quick bitmap is up). */
   const moving = useRef(false);
   const crispTimer = useRef(0);
+  // ---- the view: drawing units to screen. While it moves the model shows as a quick bitmap, sharp
+  // once it rests (the picture is sharp at once). Keys: P paint, E erase, C select, [ ] width, Q round
+  // / square brush, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo (the view's own: F, + -, Space); while a
+  // picture edit locks the brush, only the view moves.
+  const { stage, base, over, dialog, view, size, act, hover, space, zoom, panning, matrix, fit, zoomAt, repaint, repaintOver, pointer } = usePictureView({
+    fitBox, maxScale: MAX_ZOOM * per,
+    paintBase: () => paintBase(), paintOver: () => paintOver(),
+    canDraw: () => !now.current.locked,
+    onDrawStart: () => setNote(null),
+    onDraw: (points) => commit(points),
+    onMove: () => {
+      if (!now.current.matched) return;
+      moving.current = true;
+      clearTimeout(crispTimer.current);
+      crispTimer.current = window.setTimeout(() => { moving.current = false; repaint(); }, 120);
+    },
+    onKey: (e, key) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && (key === 'z' || key === 'y')) { e.preventDefault(); if (locked) return; if (key === 'y' || e.shiftKey) redo(); else undo(); return; }
+      if (ctrl || e.altKey || locked) return;
+      const step = (d: number) => setWidth((w) => clamp(round(w * per + d * (selecting ? 2 : 0.5), 1), unit.min, unit.max) / per);
+      if (key === 'p') setTool('paint');
+      else if (key === 'e') setTool('erase');
+      else if (key === 'c') setTool('select');
+      else if (key === 'q') setShape((sh) => (sh === 'square' ? 'round' : 'square'));
+      else if (key === '[') step(-1);
+      else if (key === ']') step(1);
+    },
+  });
+  useEffect(() => () => clearTimeout(crispTimer.current), []);
+
+  // ---- painting: the model as built with this session's strokes (or the picture with the strokes; redrawn when the view or the strokes
+  // change, the model as a quick bitmap while the view moves), and the stroke being drawn and the brush over it
   /** The model with the strokes as a bitmap (drawing units: from x0, y1 down, r pixels per unit), kept while they stay the same. */
   const quick = useRef<{ key: unknown[]; canvas: HTMLCanvasElement; tmp: HTMLCanvasElement; x0: number; y1: number; r: number } | null>(null);
   const paintBase = useCallback(() => {
@@ -281,55 +274,8 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
       drawBrush(ctx, [x, y], r, n.square, n.tool === 'erase' ? '#c0392b' : n.tool === 'select' ? SELECT_RING : n.ink);
     }
   }, [box]);
-  const repaintOver = useCallback(() => {
-    cancelAnimationFrame(raf.current.over);
-    raf.current.over = requestAnimationFrame(paintOver);
-  }, [paintOver]);
-  const repaint = useCallback(() => {
-    cancelAnimationFrame(raf.current.base);
-    raf.current.base = requestAnimationFrame(() => { paintBase(); paintOver(); });
-  }, [paintBase, paintOver]);
-  /** The view moved: the model as a quick bitmap at once, sharp once it rests (the picture is sharp at once). */
-  const viewChanged = useCallback(() => {
-    if (now.current.matched) {
-      moving.current = true;
-      clearTimeout(crispTimer.current);
-      crispTimer.current = window.setTimeout(() => { moving.current = false; repaint(); }, 120);
-    }
-    repaint();
-    setZoom(view.current.s);
-  }, [repaint]);
-  const fit = useCallback(() => {
-    if (!size.current.w || !size.current.h) return;
-    const b = now.current.fitBox;
-    view.current = { s: fitScale(), cx: (b.x0 + b.x1) / 2, cy: (b.y0 + b.y1) / 2, fitted: true };
-    viewChanged();
-  }, [viewChanged]);
-  /** Zoom by `f` keeping the point under screen point `at` in place. */
-  const zoomAt = useCallback((f: number, at?: Pt) => {
-    const { w, h } = size.current;
-    const p = at ?? [w / 2, h / 2];
-    const m = toUnits(...p), v = view.current;
-    const s = clamp(v.s * f, fitScale() / 4, MAX_ZOOM * per);
-    view.current = { ...v, s, cx: m[0] - (p[0] - w / 2) / s, cy: m[1] + (p[1] - h / 2) / s };
-    viewChanged();
-  }, [viewChanged, per]);
-
-  // The stage's size, at the screen's pixel density.
-  useEffect(() => {
-    const el = stage.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-      size.current = { w: r.width, h: r.height, dpr };
-      for (const c of [base.current, over.current]) if (c) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
-      if (!view.current.fitted) fit(); else repaint();
-    });
-    ro.observe(el);
-    return () => { ro.disconnect(); cancelAnimationFrame(raf.current.base); cancelAnimationFrame(raf.current.over); clearTimeout(crispTimer.current); };
-  }, [fit, repaint]);
-  useEffect(repaint, [layers, fresh, matched, repaint]);
-  useEffect(repaintOver, [tool, width, square, colour, selection, locked, repaintOver]);
+  useEffect(repaint, [layers, fresh, matched, paintBase, paintOver, repaint]);
+  useEffect(repaintOver, [tool, width, square, colour, selection, locked, paintOver, repaintOver]);
 
   // ---- strokes (Undo and Redo step through the lists of strokes)
   const change = (next: ArtworkStroke[], back = now.current.restored) => {
@@ -364,140 +310,24 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
     setNote(null);
   };
   const clearAll = () => { if (window.confirm(`Clear all ${strokes.length} hand edits of this picture?`)) change([]); };
-  const commit = () => {
-    const a = act.current, n = now.current;
-    a.mode = 'idle';
-    if (!a.points.length) return;
+  /** A stroke drawn (drawing units): added to the selection, or painted or erased. */
+  const commit = (points: Pt[]) => {
+    const n = now.current;
     if (n.tool === 'select') {
       // The stroke adds to the area selected (in pieces the mark can hold), saved with the design at once.
       if (n.selection.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} selection strokes: deselect (Esc) and select again.`); return; }
-      select([...n.selection, ...selectionStrokes(a.points, n.width, n.square, per)].slice(0, MAX_ARTWORK_STROKES));
+      select([...n.selection, ...selectionStrokes(points, n.width, n.square, per)].slice(0, MAX_ARTWORK_STROKES));
       setNote(null);
       return;
     }
     // Made lean in mm (or as if the picture were 100 mm high), saved in drawing units.
-    const pts = leanStroke(a.points.map(([x, y]): Pt => [x * per, y * per])).map(([x, y]): [number, number] => [round(x / per, 5), round(y / per, 5)]);
+    const pts = leanStroke(points.map(([x, y]): Pt => [x * per, y * per])).map(([x, y]): [number, number] => [round(x / per, 5), round(y / per, 5)]);
     if (n.strokes.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} strokes per picture: undo or clear some first.`); return; }
     const st: ArtworkStroke = { mode: n.tool === 'erase' ? 'erase' : 'paint', color: n.colour, width: round(clamp(n.width, 1e-5, 1), 5), points: pts, ...(n.square ? { shape: 'square' as const } : {}) };
     // (A very long stroke is saved as several: the build reads at most MAX_ARTWORK_POINTS per stroke.)
     change([...n.strokes, ...splitLongStroke(st)].slice(0, MAX_ARTWORK_STROKES));
     setNote(null);
   };
-
-  // ---- pointer: one finger, the pen or the left button brushes; two fingers, the middle or right button or Space + drag pan (and pinch zooms)
-  const local = (e: { clientX: number; clientY: number }): Pt => {
-    const r = over.current!.getBoundingClientRect();
-    return [e.clientX - r.left, e.clientY - r.top];
-  };
-  const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const p = local(e), a = act.current;
-    if (e.button === 1 || e.button === 2) e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointers.current.set(e.pointerId, p);
-    hover.current = { at: p, show: e.pointerType !== 'touch' };
-    if (pointers.current.size === 2 && e.pointerType === 'touch') {
-      // A second finger: the stroke just begun was the start of a pinch.
-      const [p0, p1] = [...pointers.current.values()];
-      a.mode = 'pinch'; a.points = [];
-      a.pinch = { d: Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1, at: toUnits((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2), s: view.current.s };
-      repaintOver();
-      return;
-    }
-    if (pointers.current.size > 1 || a.mode !== 'idle') return;
-    a.id = e.pointerId; a.last = p;
-    if (e.button === 1 || e.button === 2 || (e.button === 0 && space.current)) { a.mode = 'pan'; setPanning(true); return; }
-    if (e.button !== 0 || now.current.locked) return;
-    a.mode = 'draw'; a.points = [toUnits(...p)];
-    setNote(null);
-    repaintOver();
-  };
-  const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const p = local(e), a = act.current;
-    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, p);
-    if (a.mode === 'pinch' && a.pinch) {
-      const pts = [...pointers.current.values()];
-      if (pts.length < 2) return;
-      const [p0, p1] = pts, { w, h } = size.current;
-      const mid: Pt = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-      const s = clamp(a.pinch.s * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / a.pinch.d, fitScale() / 4, MAX_ZOOM * per);
-      view.current = { ...view.current, s, cx: a.pinch.at[0] - (mid[0] - w / 2) / s, cy: a.pinch.at[1] + (mid[1] - h / 2) / s };
-      viewChanged();
-      return;
-    }
-    hover.current = { at: p, show: e.pointerType !== 'touch' || a.mode === 'draw' };
-    if (a.mode === 'pan' && e.pointerId === a.id) {
-      const v = view.current;
-      view.current = { ...v, cx: v.cx - (p[0] - a.last[0]) / v.s, cy: v.cy + (p[1] - a.last[1]) / v.s };
-      a.last = p;
-      viewChanged();
-      return;
-    }
-    if (a.mode === 'draw' && e.pointerId === a.id) {
-      // Every point the pointer passed (coalesced events), for a faithful stroke.
-      const evs = e.nativeEvent.getCoalescedEvents?.();
-      for (const ev of evs?.length ? evs : [e.nativeEvent]) a.points.push(toUnits(...local(ev)));
-    }
-    repaintOver();
-  };
-  const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const a = act.current;
-    pointers.current.delete(e.pointerId);
-    if (a.mode === 'pinch') { if (!pointers.current.size) a.mode = 'idle'; return; }
-    if (e.pointerId !== a.id) return;
-    if (a.mode === 'draw') { if (e.type === 'pointerup') commit(); else a.mode = 'idle'; a.points = []; }
-    else if (a.mode === 'pan') { a.mode = 'idle'; setPanning(false); }
-    if (e.pointerType === 'touch') hover.current.show = false;
-    repaintOver();
-  };
-  const onLeave = () => { if (act.current.mode !== 'draw') { hover.current.show = false; repaintOver(); } };
-
-  // The wheel zooms (not passive: the page mustn't scroll).
-  useEffect(() => {
-    const c = over.current;
-    if (!c) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), local(e));
-    };
-    c.addEventListener('wheel', onWheel, { passive: false });
-    return () => c.removeEventListener('wheel', onWheel);
-  }, [zoomAt]);
-
-  // Keys: P paint, E erase, C select, [ ] width, Q round / square brush, F fit, + - zoom, Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo,
-  // Space pans. The editor is on top: the app's own keys wait (Escape closes it). While a picture
-  // edit locks the brush, only the view moves.
-  useEffect(() => {
-    const typing = (t: EventTarget | null) => t instanceof Element && !!t.closest('textarea, [contenteditable], input:not([type="range"])');
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || typing(e.target)) return;
-      e.stopPropagation();
-      const key = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
-      if (ctrl && (key === 'z' || key === 'y')) { e.preventDefault(); if (locked) return; if (key === 'y' || e.shiftKey) redo(); else undo(); return; }
-      if (ctrl || e.altKey) return;
-      if (e.key === ' ') { e.preventDefault(); if (!space.current) { space.current = true; setPanning(true); repaintOver(); } return; }
-      const step = (d: number) => setWidth((w) => clamp(round(w * per + d * (selecting ? 2 : 0.5), 1), unit.min, unit.max) / per);
-      if (key === 'f' || key === '0') fit();
-      else if (key === '+' || key === '=') zoomAt(1.25);
-      else if (key === '-' || key === '_') zoomAt(0.8);
-      else if (locked) return;
-      else if (key === 'p') setTool('paint');
-      else if (key === 'e') setTool('erase');
-      else if (key === 'c') setTool('select');
-      else if (key === 'q') setShape((s) => (s === 'square' ? 'round' : 'square'));
-      else if (key === '[') step(-1);
-      else if (key === ']') step(1);
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      // (Not a click on the focused button either.)
-      if (e.key === ' ' && !typing(e.target)) { e.preventDefault(); space.current = false; if (act.current.mode !== 'pan') setPanning(false); repaintOver(); }
-    };
-    const onBlur = () => { space.current = false; setPanning(false); };
-    window.addEventListener('keydown', onKey, true);
-    window.addEventListener('keyup', onKeyUp, true);
-    window.addEventListener('blur', onBlur);
-    return () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('blur', onBlur); };
-  });
 
   const phone = layout === 'phone';
   const shown = round(width * per, 1);
@@ -573,8 +403,7 @@ export function ArtworkEditor({ drawing, fp, values, result, parts, busy, error,
       </div>
       <div className={`la-ed-stage ${panning ? 'panning' : ''} ${editing ? 'with-edit' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
-        <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-          onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label={`The picture: drag to ${doing}`} />
+        <canvas ref={over} className="la-ed-canvas la-ed-over" {...pointer} aria-label={`The picture: drag to ${doing}`} />
         <div className="la-ed-notes">
           {restored && <div className="la-ed-note"><Icon name="history" size={13} /> Going back to before {historyTime(restored.at)}: Done saves it</div>}
           {!matched && <div className="la-ed-note">Showing the picture as traced: the model's layout didn't match it</div>}

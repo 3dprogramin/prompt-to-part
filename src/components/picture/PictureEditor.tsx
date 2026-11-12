@@ -1,5 +1,5 @@
 // The picture editor for a stored photo (a LayerTone picture under $images): the picture large,
-// zoom and pan, Select (C) only, and the Edit panel that changes the area selected (or the whole
+// zoom and pan, Select only, and the Edit panel that changes the area selected (or the whole
 // picture) with the image model. Nothing here is painted: the only thing saved is the selection
 // (with the design, as it is made), and a kept edit, which makes a new version.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +13,8 @@ import { useEscape } from '../useEscape';
 import { Icon } from '../Icon';
 import { BACKDROP } from '../artwork/artworkCanvas';
 import { clamp, MAX_ZOOM, round, SELECT_RING, type Pt } from '../lineart/editorDraw';
-import { drawBrush, drawSelection, SEL_MM, SEL_PCT, selectionStrokes, type Matrix } from './markCanvas';
+import { drawBrush, drawSelection, SEL_MM, SEL_PCT, selectionStrokes } from './markCanvas';
+import { usePictureView } from './usePictureView';
 import { EditPicturePanel } from './EditPicturePanel';
 
 interface Props {
@@ -33,7 +34,7 @@ interface Props {
 }
 
 /**
- * The stored picture large, in picture units (1 = its height, centred, y up): Select (C) brushes the
+ * The stored picture large, in picture units (1 = its height, centred, y up): Select brushes the
  * area to change (strokes add up, Escape deselects; saved with the design as it is made) for the
  * Edit panel. While an edit runs and its result waits for Keep / Try again / Discard, the brush is
  * locked and Escape keeps the editor open. Done (or Escape) closes it.
@@ -67,7 +68,6 @@ export function PictureEditor({ image, fp, values, mmPerUnit, onMark, edit, onCl
   const [width, setWidth] = useState(() => unit.start / per);
   const [square, setSquare] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [panning, setPanning] = useState(false);
   const touch = useMemo(() => window.matchMedia('(pointer: coarse)').matches, []);
   // The picture as a bitmap, grey.
   const picture = useMemo(() => {
@@ -78,48 +78,28 @@ export function PictureEditor({ image, fp, values, mmPerUnit, onMark, edit, onCl
     c.getContext('2d')!.putImageData(new ImageData(rgba, image.width, image.height), 0, 0);
     return c;
   }, [image]);
-
-  const stage = useRef<HTMLDivElement>(null);
-  const base = useRef<HTMLCanvasElement>(null);
-  const over = useRef<HTMLCanvasElement>(null);
-  const dialog = useRef<HTMLDivElement>(null);
   const selLayer = useRef<HTMLCanvasElement | null>(null);
-  /** Screen pixels per picture unit, and the point at the stage's centre. */
-  const view = useRef({ s: 1, cx: 0, cy: 0, fitted: false });
-  const size = useRef({ w: 0, h: 0, dpr: 1 });
-  /** What the pointer is doing; the stroke being drawn (picture units); the pointer's place (screen px). */
-  const act = useRef<{ mode: 'idle' | 'draw' | 'pan' | 'pinch'; id: number; points: Pt[]; last: Pt; pinch?: { d: number; at: Pt; s: number } }>({ mode: 'idle', id: -1, points: [], last: [0, 0] });
-  const pointers = useRef(new Map<number, Pt>());
-  const hover = useRef<{ at: Pt; show: boolean }>({ at: [0, 0], show: false });
-  const space = useRef(false);
   const now = useRef({ width, square, selection, locked });
   now.current = { width, square, selection, locked };
 
-  // Focus moves into the editor (its keys) and back where it was when it closes.
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null;
-    dialog.current?.focus();
-    return () => before?.focus();
-  }, []);
-
-  // ---- the view: picture units to screen
-  const toUnits = (x: number, y: number): Pt => {
-    const v = view.current, { w, h } = size.current;
-    return [v.cx + (x - w / 2) / v.s, v.cy - (y - h / 2) / v.s];
-  };
-  const matrix = (): Matrix => {
-    const v = view.current, { w, h, dpr } = size.current;
-    return [dpr * v.s, 0, 0, -dpr * v.s, dpr * (w / 2 - v.cx * v.s), dpr * (h / 2 + v.cy * v.s)];
-  };
-  const fitScale = () => {
-    const { w, h } = size.current;
-    if (!w || !h) return 1;
-    const pad = Math.min(48, Math.min(w, h) * 0.08);
-    return Math.min((w - 2 * pad) / aspect, h - 2 * pad);
-  };
+  // ---- the view: picture units to screen. Keys: [ ] width, Q round / square brush (the view's own:
+  // F, + -, Space); while a picture edit locks the brush, only the view moves.
+  const { stage, base, over, dialog, view, size, act, hover, space, panning, matrix, fit, zoomAt, repaint, repaintOver, pointer } = usePictureView({
+    fitBox: { x0: -aspect / 2, y0: -0.5, x1: aspect / 2, y1: 0.5 }, maxScale: MAX_ZOOM * per,
+    paintBase: () => paintBase(), paintOver: () => paintOver(),
+    canDraw: () => !now.current.locked,
+    onDrawStart: () => setNote(null),
+    onDraw: (points) => commit(points),
+    onKey: (e, key) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || locked) return;
+      const step = (d: number) => setWidth((w) => clamp(round(w * per + d * 2, 1), unit.min, unit.max) / per);
+      if (key === 'q') setSquare((sq) => !sq);
+      else if (key === '[') step(-1);
+      else if (key === ']') step(1);
+    },
+  });
 
   // ---- painting: the picture, and over it the selection (with the stroke being drawn) and the brush
-  const raf = useRef({ base: 0, over: 0 });
   const paintBase = useCallback(() => {
     const ctx = base.current?.getContext('2d');
     if (!ctx) return;
@@ -149,163 +129,16 @@ export function PictureEditor({ image, fp, values, mmPerUnit, onMark, edit, onCl
       drawBrush(ctx, hover.current.at, Math.max(1.5, (n.width / 2) * v.s), n.square, SELECT_RING);
     }
   }, []);
-  const repaintOver = useCallback(() => {
-    cancelAnimationFrame(raf.current.over);
-    raf.current.over = requestAnimationFrame(paintOver);
-  }, [paintOver]);
-  const repaint = useCallback(() => {
-    cancelAnimationFrame(raf.current.base);
-    raf.current.base = requestAnimationFrame(() => { paintBase(); paintOver(); });
-  }, [paintBase, paintOver]);
-  const fit = useCallback(() => {
-    if (!size.current.w || !size.current.h) return;
-    view.current = { s: fitScale(), cx: 0, cy: 0, fitted: true };
-    repaint();
-  }, [repaint]);
-  /** Zoom by `f` keeping the point under screen point `at` in place. */
-  const zoomAt = useCallback((f: number, at?: Pt) => {
-    const { w, h } = size.current;
-    const p = at ?? [w / 2, h / 2];
-    const m = toUnits(...p), v = view.current;
-    const s = clamp(v.s * f, fitScale() / 4, MAX_ZOOM * per);
-    view.current = { ...v, s, cx: m[0] - (p[0] - w / 2) / s, cy: m[1] + (p[1] - h / 2) / s };
-    repaint();
-  }, [repaint, per]);
-
-  // The stage's size, at the screen's pixel density.
-  useEffect(() => {
-    const el = stage.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-      size.current = { w: r.width, h: r.height, dpr };
-      for (const c of [base.current, over.current]) if (c) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
-      if (!view.current.fitted) fit(); else repaint();
-    });
-    ro.observe(el);
-    return () => { ro.disconnect(); cancelAnimationFrame(raf.current.base); cancelAnimationFrame(raf.current.over); };
-  }, [fit, repaint]);
-  useEffect(repaint, [picture, repaint]);
+  useEffect(repaint, [paintBase, repaint]);
   useEffect(repaintOver, [width, square, selection, locked, repaintOver]);
 
   /** The stroke drawn adds to the area selected (in pieces the mark can hold), saved with the design at once. */
-  const commit = () => {
-    const a = act.current, n = now.current;
-    a.mode = 'idle';
-    if (!a.points.length) return;
+  const commit = (points: Pt[]) => {
+    const n = now.current;
     if (n.selection.length >= MAX_ARTWORK_STROKES) { setNote(`At most ${MAX_ARTWORK_STROKES} selection strokes: deselect (Esc) and select again.`); return; }
-    select([...n.selection, ...selectionStrokes(a.points, n.width, n.square, per)].slice(0, MAX_ARTWORK_STROKES));
+    select([...n.selection, ...selectionStrokes(points, n.width, n.square, per)].slice(0, MAX_ARTWORK_STROKES));
     setNote(null);
   };
-
-  // ---- pointer: one finger, the pen or the left button selects; two fingers, the middle or right button or Space + drag pan (and pinch zooms)
-  const local = (e: { clientX: number; clientY: number }): Pt => {
-    const r = over.current!.getBoundingClientRect();
-    return [e.clientX - r.left, e.clientY - r.top];
-  };
-  const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const p = local(e), a = act.current;
-    if (e.button === 1 || e.button === 2) e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointers.current.set(e.pointerId, p);
-    hover.current = { at: p, show: e.pointerType !== 'touch' };
-    if (pointers.current.size === 2 && e.pointerType === 'touch') {
-      // A second finger: the stroke just begun was the start of a pinch.
-      const [p0, p1] = [...pointers.current.values()];
-      a.mode = 'pinch'; a.points = [];
-      a.pinch = { d: Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1, at: toUnits((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2), s: view.current.s };
-      repaintOver();
-      return;
-    }
-    if (pointers.current.size > 1 || a.mode !== 'idle') return;
-    a.id = e.pointerId; a.last = p;
-    if (e.button === 1 || e.button === 2 || (e.button === 0 && space.current)) { a.mode = 'pan'; setPanning(true); return; }
-    if (e.button !== 0 || now.current.locked) return;
-    a.mode = 'draw'; a.points = [toUnits(...p)];
-    setNote(null);
-    repaintOver();
-  };
-  const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const p = local(e), a = act.current;
-    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, p);
-    if (a.mode === 'pinch' && a.pinch) {
-      const pts = [...pointers.current.values()];
-      if (pts.length < 2) return;
-      const [p0, p1] = pts, { w, h } = size.current;
-      const mid: Pt = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-      const s = clamp(a.pinch.s * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / a.pinch.d, fitScale() / 4, MAX_ZOOM * per);
-      view.current = { ...view.current, s, cx: a.pinch.at[0] - (mid[0] - w / 2) / s, cy: a.pinch.at[1] + (mid[1] - h / 2) / s };
-      repaint();
-      return;
-    }
-    hover.current = { at: p, show: e.pointerType !== 'touch' || a.mode === 'draw' };
-    if (a.mode === 'pan' && e.pointerId === a.id) {
-      const v = view.current;
-      view.current = { ...v, cx: v.cx - (p[0] - a.last[0]) / v.s, cy: v.cy + (p[1] - a.last[1]) / v.s };
-      a.last = p;
-      repaint();
-      return;
-    }
-    if (a.mode === 'draw' && e.pointerId === a.id) {
-      // Every point the pointer passed (coalesced events), for a faithful stroke.
-      const evs = e.nativeEvent.getCoalescedEvents?.();
-      for (const ev of evs?.length ? evs : [e.nativeEvent]) a.points.push(toUnits(...local(ev)));
-    }
-    repaintOver();
-  };
-  const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const a = act.current;
-    pointers.current.delete(e.pointerId);
-    if (a.mode === 'pinch') { if (!pointers.current.size) a.mode = 'idle'; return; }
-    if (e.pointerId !== a.id) return;
-    if (a.mode === 'draw') { if (e.type === 'pointerup') commit(); else a.mode = 'idle'; a.points = []; }
-    else if (a.mode === 'pan') { a.mode = 'idle'; setPanning(false); }
-    if (e.pointerType === 'touch') hover.current.show = false;
-    repaintOver();
-  };
-  const onLeave = () => { if (act.current.mode !== 'draw') { hover.current.show = false; repaintOver(); } };
-
-  // The wheel zooms (not passive: the page mustn't scroll).
-  useEffect(() => {
-    const c = over.current;
-    if (!c) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), local(e));
-    };
-    c.addEventListener('wheel', onWheel, { passive: false });
-    return () => c.removeEventListener('wheel', onWheel);
-  }, [zoomAt]);
-
-  // Keys: C select, [ ] width, Q round / square brush, F fit, + - zoom, Space pans. The editor is on
-  // top: the app's own keys wait (Escape closes it). While a picture edit locks the brush, only the view moves.
-  useEffect(() => {
-    const typing = (t: EventTarget | null) => t instanceof Element && !!t.closest('textarea, [contenteditable], input:not([type="range"])');
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || typing(e.target)) return;
-      e.stopPropagation();
-      const key = e.key.toLowerCase();
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === ' ') { e.preventDefault(); if (!space.current) { space.current = true; setPanning(true); repaintOver(); } return; }
-      const step = (d: number) => setWidth((w) => clamp(round(w * per + d * 2, 1), unit.min, unit.max) / per);
-      if (key === 'f' || key === '0') fit();
-      else if (key === '+' || key === '=') zoomAt(1.25);
-      else if (key === '-' || key === '_') zoomAt(0.8);
-      else if (locked) return;
-      else if (key === 'q') setSquare((s) => !s);
-      else if (key === '[') step(-1);
-      else if (key === ']') step(1);
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === ' ' && !typing(e.target)) { e.preventDefault(); space.current = false; if (act.current.mode !== 'pan') setPanning(false); repaintOver(); }
-    };
-    const onBlur = () => { space.current = false; setPanning(false); };
-    window.addEventListener('keydown', onKey, true);
-    window.addEventListener('keyup', onKeyUp, true);
-    window.addEventListener('blur', onBlur);
-    return () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('blur', onBlur); };
-  });
 
   const phone = layout === 'phone';
   const shown = round(width * per, 1);
@@ -315,7 +148,7 @@ export function PictureEditor({ image, fp, values, mmPerUnit, onMark, edit, onCl
       <div className="la-ed-bar" role="toolbar" aria-label="Brush">
         <div className="la-ed-group" role="radiogroup" aria-label="Tool">
           <button className="la-ed-tool on" role="radio" aria-checked disabled={locked}
-            title="Select (C): brush over the area to change with the image model (strokes add up), then say the change; nothing selected: the whole picture">
+            title="Select: brush over the area to change with the image model (strokes add up), then say the change; nothing selected: the whole picture">
             <Icon name="select" size={15} /><span className="la-ed-label">Select</span>
           </button>
         </div>
@@ -345,8 +178,7 @@ export function PictureEditor({ image, fp, values, mmPerUnit, onMark, edit, onCl
       </div>
       <div className={`la-ed-stage with-edit ${panning ? 'panning' : ''}`} ref={stage}>
         <canvas ref={base} className="la-ed-canvas" aria-hidden />
-        <canvas ref={over} className="la-ed-canvas la-ed-over" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-          onPointerLeave={onLeave} onContextMenu={(e) => e.preventDefault()} aria-label="The picture: drag to select where to edit" />
+        <canvas ref={over} className="la-ed-canvas la-ed-over" {...pointer} aria-label="The picture: drag to select where to edit" />
         {note && <div className="la-ed-notes"><div className="la-ed-note">{note}</div></div>}
         <div className="la-ed-zoom">
           <button onClick={() => zoomAt(1.25)} title="Zoom in (+)" aria-label="Zoom in"><Icon name="plus" size={15} /></button>
