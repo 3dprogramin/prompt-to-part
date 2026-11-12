@@ -40,8 +40,9 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
   /**
    * The file of the model (or one part) built from these values with these parts hidden: evaluated and
    * validated at high resolution, nothing downloaded. `settings`: a 3MF with print settings in it.
+   * `withPrint`: put print settings in a 3MF (the Export menu's tick by default).
    */
-  const build = async (format: ExportFormat, values: ParamValues, hidden: string[], partName?: string, glb?: GlbOptions): Promise<Built> => {
+  const build = async (format: ExportFormat, values: ParamValues, hidden: string[], partName?: string, glb?: GlbOptions, withPrint = threeMf.print): Promise<Built> => {
     // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
     // the parts being exported). If that fails, nothing is built: the preview mesh is coarser
     // or may be from other settings, and the file would not be what the user expects.
@@ -54,7 +55,7 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
     const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
     // Print settings and one colour as the values say (the same as the Print tab shows for the design's own).
     const colour = parseOneColour(values[ONE_COLOUR_KEY]);
-    const print = threeMf.print && bambu ? { ai: r.print, user: parseProfile(values[PRINT_KEY]) } : null;
+    const print = withPrint && bambu ? { ai: r.print, user: parseProfile(values[PRINT_KEY]) } : null;
     const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
       oneColour: colour ? oneColourFilament(parts, colour).colour : null,
       print,
@@ -65,10 +66,10 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
     return { blob, file: `${name}.${format}`, settings: format === '3mf' && !!print && bambuProjectSupported(), report: o.report };
   };
 
-  /** A 3MF as Export 3MF makes it, for these values and hidden parts (a printed version's own). */
+  /** A 3MF for these values and hidden parts (a printed version's own), always with print settings when Bambu Studio is there. */
   const build3mf = async (values: ParamValues, hidden: string[]): Promise<{ blob: Blob; settings: boolean } | { error: string }> => {
     try {
-      const b = await build('3mf', values, hidden);
+      const b = await build('3mf', values, hidden, undefined, undefined, true);
       return 'error' in b ? { error: b.error } : b;
     } catch (e) {
       return { error: (e as Error).message };

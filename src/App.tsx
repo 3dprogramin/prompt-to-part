@@ -11,7 +11,8 @@ import type { FontEntry } from './lib/api';
 import { api } from './lib/api';
 import type { AutoBuild } from './lib/autoBuild';
 import { describeSettings, settingsChanged } from './lib/settings';
-import { blockedChange } from './lib/printedLock';
+import { blockedChange, VIEW_KEYS } from './lib/printedLock';
+import { tell } from './lib/tabs';
 import { GeometryClient } from './geometry/client';
 import { ChatPanel } from './components/ChatPanel';
 import { ViewerPanel } from './components/ViewerPanel';
@@ -73,8 +74,9 @@ export default function App() {
   currentId.current = design.id;
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
   // A printed version is locked: changes to its code or settings are dropped (the server refuses them too).
-  const lockedRef = useRef<ReadonlySet<number>>(new Set());
-  lockedRef.current = useMemo(() => new Set(designs.find((d) => d.id === design.id)?.printed?.map((m) => m.v)), [designs, design.id]);
+  // `viewKeys`: the script's own layout choice, only for looking (set once the model's layout is known).
+  const lockedRef = useRef<{ versions: ReadonlySet<number>; viewKeys: readonly string[] }>({ versions: new Set(), viewKeys: [] });
+  const lockedVersions = useMemo(() => new Set(designs.find((d) => d.id === design.id)?.printed?.map((m) => m.v)), [designs, design.id]);
   const lockBlocked = useRef<number | null>(null);
   // The open design's printed versions, and the shown one's mark (it is locked while shown).
   const marks = useMemo(() => new Map(designs.find((d) => d.id === design.id)?.printed?.map((m) => [m.v, m]) ?? []), [designs, design.id]);
@@ -85,12 +87,12 @@ export default function App() {
   const setDesign = useCallback<typeof setDesignRaw>((u) => {
     setDesignRaw((prev) => {
       const next = typeof u === 'function' ? u(prev) : u;
-      if (!blockedChange(prev, next, lockedRef.current)) return next;
+      if (!blockedChange(prev, next, lockedRef.current.versions, lockedRef.current.viewKeys)) return next;
       lockBlocked.current = prev.currentVersion;
       return prev;
     });
     // A dropped change renders nothing, so look for it shortly after the update ran.
-    setTimeout(() => flushLockRef.current(), 0);
+    if (lockedRef.current.versions.size) setTimeout(() => flushLockRef.current(), 0);
   }, []);
   const flushLockRef = useRef(() => {});
   // Generations started in this tab, per design (they keep running when another design is opened).
@@ -120,7 +122,7 @@ export default function App() {
   }), (id) => {
     stopSaving(id);
     forgetDesign(id);
-  });
+  }, () => refreshList());
   const generating = !!running[design.id];
   const { tabIds, setTabIds, unseen, setUnseen } = useDesignTabs({ design, currentId, runningRef });
   const busyElsewhere = !generating && remoteRunning[design.id] != null;
@@ -431,6 +433,21 @@ export default function App() {
     });
   };
   const { shownLineArt, splitArt, editorPart, lineArtOriginal, layoutKey, fitKey, canAssemble, layoutDef, printLayout } = useModelLayout({ design, shown, editingLineArt, quality, geo });
+  lockedRef.current = { versions: lockedVersions, viewKeys: layoutKey ? [layoutKey] : [] };
+  // A printed version shows its own code and settings: a change made before this tab knew it was
+  // printed (marked in another tab) is put back. View choices stay, and drawings and pictures
+  // attached later in the chat (they are not settings).
+  useEffect(() => {
+    const v = shownMark && design.versions[shownMark.v];
+    if (!v || !shown) return;
+    const own = v.values ?? {};
+    const viewKeys = [...VIEW_KEYS, ...lockedRef.current.viewKeys];
+    const strip = (o: ParamValues) => Object.fromEntries(Object.entries(o).filter(([k]) => !viewKeys.includes(k)));
+    if (design.code === v.code && !settingsChanged(strip(own), strip(design.values), shown.params)) return;
+    const kept = Object.fromEntries(Object.entries(design.values).filter(([k]) => viewKeys.includes(k)
+      || ((k === DRAWINGS_KEY || k === LAYERTONE_IMAGES_KEY) && own[k] == null)));
+    setDesignRaw((d) => (d.id !== design.id || d.currentVersion !== shownMark.v ? d : { ...d, code: v.code, values: { ...strip(own), ...kept } }));
+  }, [shownMark, design.id, design.code, design.values, design.versions, shown]);
 
   // ---- the brush button in the view: hand editors for the line art and for each drawing the script reads
   // Only the drawings value: the rest changes with every slider tick, and parsing is not cheap.
@@ -525,7 +542,9 @@ export default function App() {
   // The 3MF comes from the stored version: a locked version's view changes don't count.
   const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings: unsavedSettings && !lockReason, hasCode: !!design.code });
   const markDisabled = marking ? 'Marking it as printed...' : problem;
-  const printed = printedActions({ design, problem, saveNow, build3mf, refreshList, setNotice, setMarking });
+  // A mark or unmark changes the list here and in the other tabs (they lock or unlock it at once).
+  const printed = printedActions({ design, problem, saveNow, build3mf, setNotice, setMarking,
+    refreshList: () => { refreshList(); tell({ type: 'printed', id: design.id }); } });
 
   // A design opened on one of its versions (the Printed filter): that version is shown once the design's
   // own model is in, so switching to it asks about unsaved settings as usual.
@@ -543,9 +562,11 @@ export default function App() {
       const d = background.current.get(id) ?? (await api.getDesign(id));
       if (!isLatest()) return;
       if (d) switchTo(d);
-      else { setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
+      else { openAt.current = null; setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
     } catch (e) {
-      if (isLatest()) setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
+      if (!isLatest()) return;
+      openAt.current = null;
+      setNotice({ text: `Could not open the design: ${(e as Error).message}`, level: 'error', details: false });
     }
   };
 

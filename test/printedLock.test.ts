@@ -26,3 +26,11 @@ test('looking, switching and other designs are not blocked', () => {
   assert.equal(blockedChange(q, { ...q, values: { ...q.values, width: 12 } }, locked), false);
   assert.equal(blockedChange(p, { ...p, photos: [{} as never] }, locked), false);
 });
+
+test("the script's own layout choice is for looking when it is passed as a view key", () => {
+  const p = { ...base(), values: { width: 10, layout: 'assembled' } };
+  const next = { ...p, values: { ...p.values, layout: 'print' } };
+  assert.equal(blockedChange(p, next, locked), true);
+  assert.equal(blockedChange(p, next, locked, ['layout']), false);
+  assert.equal(blockedChange(p, { ...next, values: { ...next.values, width: 11 } }, locked, ['layout']), true);
+});

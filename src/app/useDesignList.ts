@@ -23,6 +23,12 @@ export function useDesignList({ design, designs, setDesigns, running, remoteRunn
 }) {
   const deletingHere = useRef(new Set<string>());
   const deleteDesign = async (id: string) => {
+    // A printed design is kept (the server refuses too): say so before asking or stopping anything.
+    const printed = designs.find((d) => d.id === id)?.printed;
+    if (printed?.length) {
+      setNotice({ text: `Kept: it has printed versions (${printed.map((m) => `v${m.v + 1}`).join(', ')}). Unmark them first.`, level: 'warning', details: false });
+      return;
+    }
     if (!confirm('Delete this design permanently?')) return;
     deletingHere.current.add(id);
     const saving = stopSaving(id);
