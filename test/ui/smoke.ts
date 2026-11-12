@@ -440,10 +440,11 @@ test('an enlarged product photo steps to the next and previous one (buttons, arr
 
 test('3D figure mode shows the Meshy credits left on its button', TEST, async () => {
   const page = await newPage();
-  // As if the app had a Meshy key; the balance is a stand-in (the real one would ask Meshy).
+  // As if the app had a Meshy key; the balance is a stand-in (the real one would ask Meshy). Opus, as the
+  // model: beside a longer chip name (the Fable 5.2 default) the badge goes below 440 px, which is the chat's width here.
   await page.route('**/api/capabilities', async (route) => {
     const response = await route.fetch();
-    await route.fulfill({ response, json: { ...await response.json(), meshy: true } });
+    await route.fulfill({ response, json: { ...await response.json(), meshy: true, model: 'opus' } });
   });
   let asked = 0;
   await page.route('**/api/meshy/balance', (route) => { asked++; return route.fulfill({ json: { balance: 1200, monthly_credits: 1000, permanent_credits: 200, monthly_resets_at: 1795034540000 } }); });
