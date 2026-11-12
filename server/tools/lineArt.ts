@@ -3,9 +3,9 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { geometry } from '../geometry';
-import { ASPECTS, decodeImage, imageModel, lineArtEditPrompt, lineArtPrompt, traceLineArt } from '../artwork';
-import { encode as encodePng } from 'fast-png';
-import { colourStrokes, drawingFingerprint, drawingPicture, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtStyle } from '../../shared/lineart';
+import { ASPECTS, decodeImage, imageModel, lineArtPrompt, traceLineArt } from '../artwork';
+import { editWholeLineArt } from '../pictureEdit/lineArt';
+import { drawingFingerprint, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits, type LineArtStyle } from '../../shared/lineart';
 import { DRAWINGS_KEY, MAX_DRAWINGS, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import type { LineArtOptions, ToolContext } from './context';
 
@@ -51,27 +51,30 @@ export function lineArtTools({ base, emit, drawImage, readModel, v }: ToolContex
       status(old ? `Changing line art "${a.edit}" with ${imageModel()}…` : `Drawing line art "${a.name}" with ${imageModel()}…`);
       try {
         const photos = a.use_attached_photos ? lineArt.references : undefined;
-        let prompt: string, references = photos, aspect = a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), lineWidth = a.line_width ?? 1;
         // A change to part of a drawing: the drawing as it is (hand edits drawn in) goes first.
         const edits = old ? parseLineArtEdits(base[LINEART_EDITS_KEY])[a.edit!] : undefined;
         const hand = edits && edits.fp === drawingFingerprint(old!) ? edits.strokes : [];
+        let prompt: string, drawn: Awaited<ReturnType<typeof drawImage>>, traced: { drawing: SvgDrawing; points: number }, kept: LineArtEdits[string] | undefined;
         if (old) {
           const frame = await lineArtFrame(a.edit!);
-          lineWidth = frame?.lineWidth ?? lineWidth;
-          const pic = drawingPicture(old, hand, 1024, frame?.k ?? 80, lineWidth, frame?.k0 ?? frame?.k ?? 80);
-          references = [`data:image/png;base64,${Buffer.from(encodePng({ width: pic.width, height: pic.height, data: pic.rgba, channels: 4 })).toString('base64')}`, ...(photos ?? [])];
-          prompt = lineArtEditPrompt({ change: a.subject, references: photos, width: a.width, style });
-          aspect = a.aspect ?? nearestAspect(old.aspect);
-        } else prompt = lineArtPrompt({ subject: a.subject, style, references, look: a.look, width: a.width, lineWidth: a.line_width });
-        const { image, model, cost } = await drawImage(prompt, aspect, references, lineArt.signal, status);
-        const traced = traceLineArt(decodeImage(Buffer.from(image.data, 'base64')), a.name);
+          const whole = await editWholeLineArt({
+            drawing: old, name: a.name, strokes: hand, change: a.subject, photos, width: a.width, style, aspect: a.aspect ?? nearestAspect(old.aspect),
+            frame: { k: frame?.k ?? 80, k0: frame?.k0 ?? frame?.k ?? 80, lineWidth: frame?.lineWidth ?? a.line_width ?? 1 },
+          }, { image: drawImage, signal: lineArt.signal, onStatus: status });
+          ({ prompt, traced } = whole);
+          drawn = { image: whole.image, model: whole.model, cost: whole.cost };
+          kept = whole.edits;
+        } else {
+          prompt = lineArtPrompt({ subject: a.subject, style, references: photos, look: a.look, width: a.width, lineWidth: a.line_width });
+          drawn = await drawImage(prompt, a.aspect ?? (BAR_STYLES.has(style) ? '16:9' : '1:1'), photos, lineArt.signal, status);
+          traced = traceLineArt(decodeImage(Buffer.from(drawn.image.data, 'base64')), a.name);
+        }
+        const { image, model, cost } = drawn;
         storeLineArt(a.name, traced);
         // The hand edits are in the new picture now: the drawing they were made on is gone. Their
         // colours aren't in it: they stay, on the new drawing.
         if (old && a.name === a.edit && hand.length) {
           const { [a.name]: _baked, ...rest } = parseLineArtEdits(base[LINEART_EDITS_KEY]);
-          const strokes = colourStrokes(hand, lineWidth);
-          const kept = strokes.length ? { fp: drawingFingerprint(traced.drawing), strokes } : undefined;
           const all = kept ? { ...rest, [a.name]: kept } : rest;
           if (Object.keys(all).length) base[LINEART_EDITS_KEY] = JSON.stringify(all); else delete base[LINEART_EDITS_KEY];
           emit({ type: 'lineArtEditsBaked', name: a.name, ...(kept ? { kept } : {}) });
