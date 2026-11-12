@@ -1188,7 +1188,7 @@ test('Edit drawing paints lines in another filament: shown on the lines only (al
   await page.waitForFunction(() => document.title === 'prompt-to-part - Painted frame');
   await built(page);
   await page.getByRole('tab', { name: /Print/ }).click();
-  await page.getByRole('button', { name: 'Edit drawing' }).click();
+  await page.getByRole('button', { name: 'Paint and fix the picture by hand' }).click();
   const editor = page.getByRole('dialog', { name: 'Edit the drawing' });
   await editor.waitFor();
   await editor.getByRole('radio', { name: 'Paint' }).click();
@@ -1304,7 +1304,7 @@ test('Edit drawing selects an area and clears the hand edits there only: shown a
   await built(page);
   await page.getByRole('tab', { name: /Print/ }).click();
   await page.locator('.lineart-edit-row', { hasText: '2 hand edits' }).waitFor();
-  await page.getByRole('button', { name: 'Edit drawing' }).click();
+  await page.getByRole('button', { name: 'Paint and fix the picture by hand' }).click();
   const editor = page.getByRole('dialog', { name: 'Edit the drawing' });
   await editor.waitFor();
   await editor.getByRole('radio', { name: 'Select' }).click();
