@@ -155,15 +155,21 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
     if (generatingDesigns.has(id)) return void res.status(409).json({ error: 'This design is being worked on: stop it first.' });
-    const marks = (await readPrinted())[id];
-    if (marks) return void res.status(409).json({ error: `Kept: it has printed versions (${marks.map((m) => `v${m.v + 1}`).join(', ')}). Unmark them first.` });
+    let kept = false;
     await serially(id, async () => {
+      // Checked in the queue, so a mark being written can't slip in between.
+      const marks = (await readPrinted())[id];
+      if (marks) {
+        kept = true;
+        return void res.status(409).json({ error: `Kept: it has printed versions (${marks.map((m) => `v${m.v + 1}`).join(', ')}). Unmark them first.` });
+      }
       deleted.add(id);
       await rm(designFile(id), { force: true });
       summaries.delete(path.basename(designFile(id)));
       await rm(imageDir(id), { recursive: true, force: true });
       await rm(workspaceDir(id), { recursive: true, force: true });
     });
+    if (kept) return;
     // Its tags go with it (its star stays, as before: harmless).
     await changeTags((all) => { delete all[id]; }).catch(() => undefined);
     res.json({ ok: true });
