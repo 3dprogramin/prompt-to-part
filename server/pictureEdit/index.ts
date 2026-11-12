@@ -14,9 +14,9 @@ import { drawingFingerprint } from '../../shared/lineart/strokes';
 import { markBounds, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pictureEdit/render';
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
-import { LAYERTONE_IMAGES_KEY, layerToneLuma, parseLayerToneImages, toLayerToneImage } from '../../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, toLayerToneImage } from '../../shared/layertone';
 import { alignTo, chooseCrop, featherPaste, resizeTo, type AlignFailure } from './raster';
-import { cleanBuild, greyRaster } from './layerTone';
+import { cleanBuild, greyRaster, swapsKeptNote, swapsToKeep } from './layerTone';
 import { combineDrawing, offPalette, traceCrop } from './artwork';
 import { pictureEditPrompt } from './prompt';
 
@@ -124,6 +124,7 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
     // A brush stroke wider than twice the picture's longer side covers it all from anywhere: not a brushed mark.
     if (mark.strokes.some((st) => st.width > 2 * Math.max(aspect, 1))) return 'A stroke of the mark is wider than twice the picture: select with a smaller brush';
     if (b.max[0] <= w.x0 || b.min[0] >= w.x0 + w.w || b.max[1] <= w.y1 - w.h || b.min[1] >= w.y1) return 'The mark is outside the picture';
+    // Its automatic swap layers are kept as the part was built with them (editLayerTone).
     if (r.mode === 'layertone' && !cleanBuild(r.layerTone)) return 'A marked LayerTone edit needs how the picture\'s part was built (its options and filaments): build the model first';
   }
   return null;
@@ -389,7 +390,8 @@ function marksWithout(values: PictureEditRequest['values'], picture: string): st
  * (PictureEditError 502) rather than paste a moved piece. Without one, the whole picture is sent,
  * padded to the nearest aspect the model draws, and replaced. Returns the values to set: the drawing
  * or picture under the same name, for artwork the hand edits cut by the mark (dropped for a
- * whole-picture edit) and re-keyed, and the picture's mark removed.
+ * whole-picture edit) and re-keyed, for LayerTone the swap layers kept (editLayerTone), and the
+ * picture's mark removed.
  */
 export async function editPicture(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const problem = pictureEditProblem(r);
@@ -483,7 +485,9 @@ async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEd
  * the mark on its own pixels and sent at about SENT_LONG_SIDE; the answer is lined up (tones too:
  * photos often come back re-toned), brought back to the stored pixels and pasted into the whole
  * stored picture inside the mark only, so every byte outside it stays as it was. The picture is
- * stored under the same name at the same size.
+ * stored under the same name at the same size. A marked edit of a picture whose part was built with
+ * automatic swap layers keeps them (swapsToKeep, set in the LayerTone setup), so the print outside
+ * the mark keeps its heights too; nothing else in the setup changes.
  */
 async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const img = parseLayerToneImages(r.values[LAYERTONE_IMAGES_KEY])[r.picture];
@@ -495,8 +499,9 @@ async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<Picture
   const whole = resizeTo(full, Math.max(1, Math.round(wholeHeight * aspect)), wholeHeight);
 
   let before: string, after: string, shown: PictureWindow, pasted: Raster, asked: Asked;
-  let align: PictureEditResponse['align'], fullMask: Uint8Array | null = null;
+  let align: PictureEditResponse['align'], kept: number[] | null = null, fullMask: Uint8Array | null = null;
   if (mark) {
+    kept = swapsToKeep(img, cleanBuild(r.layerTone)!, r.values);
     fullMask = markMask(mark, { w: W, h: H, px: 1 / H, x0: -aspect / 2, y1: 0.5 });
     const b = markBounds(mark)!;
     const c = chooseCrop({ x: (b.min[0] + aspect / 2) * H, y: (0.5 - b.max[1]) * H, w: (b.max[0] - b.min[0]) * H, h: (b.max[1] - b.min[1]) * H }, { width: W, height: H }, ASPECTS, CONTEXT_MARGIN);
@@ -533,10 +538,12 @@ async function editLayerTone(r: PictureEditRequest, deps: Deps): Promise<Picture
   }
   const set: Record<string, string | null> = {};
   set[LAYERTONE_IMAGES_KEY] = withEntry(r.values[LAYERTONE_IMAGES_KEY], r.picture, next);
+  if (kept) set[LAYERTONE_KEY] = JSON.stringify({ ...rawObject(r.values[LAYERTONE_KEY]), swaps: kept });
   set[PICTURE_MARKS_KEY] = marksWithout(r.values, r.picture);
   return {
     set, before, after, window: shown, masked: !!mark, outsideSame,
     ...(align ? { align } : {}),
+    ...(kept ? { swapsKept: { swaps: kept, note: swapsKeptNote(kept) } } : {}),
     prompt: asked.prompt, model: asked.model, cost: asked.cost,
   };
 }

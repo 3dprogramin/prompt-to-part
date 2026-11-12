@@ -299,7 +299,7 @@ export interface PictureEditRequest {
 }
 
 export interface PictureEditResponse {
-  /** Value keys to set (null = delete): the drawing or picture, $artworkEdits (strokes cut), $pictureMarks (the mark removed). */
+  /** Value keys to set (null = delete): the drawing or picture, $artworkEdits (strokes cut), $layertone (swap layers kept), $pictureMarks (the mark removed). */
   set: Record<string, string | null>;
   /** PNG data URLs: what was sent and the pasted result (the crop, or the whole picture). */
   before: string;
@@ -320,6 +320,11 @@ export interface PictureEditResponse {
    * `answer`: the answer's own size in pixels.
    */
   align?: { error: number; shift: [number, number]; scale: [number, number]; answer: [number, number] };
+  /**
+   * A marked LayerTone edit of a picture with automatic swap layers: they are kept as they were
+   * (set in the LayerTone setup), so the print outside the mark stays the same; `note` says so.
+   */
+  swapsKept?: { swaps: number[]; note: string };
   prompt: string;
   model: string;
   cost: number | null;

@@ -1,5 +1,6 @@
 // A picture edit of a LayerTone photo (the greyscale picture under $images), with a stand-in for
-// the image model: only the marked area of the stored picture changes, byte for byte.
+// the image model: only the marked area of the stored picture changes, byte for byte; automatic
+// swap layers are kept as they were, so the built print outside the mark keeps its heights.
 import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,9 +8,10 @@ import { encode as encodePng } from 'fast-png';
 import { ASPECTS, decodeImage, type requestImage } from '../server/artwork';
 import { editPicture, PictureEditError } from '../server/pictureEdit/index';
 import type { PictureEditRequest } from '../shared/api';
-import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, toBase64, type LayerToneFilament, type LayerToneImage } from '../shared/layertone';
+import { autoSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, parseLayerToneSetup, toBase64, type LayerToneFilament, type LayerToneImage } from '../shared/layertone';
 import { markMask, PICTURE_MARKS_KEY, parsePictureMarks, type PictureMark } from '../shared/pictureEdit/mark';
 import { photoFingerprint } from '../shared/pictureEdit/photo';
+import { withSet } from '../shared/pictureEdit/set';
 import { evaluateScript } from '../shared/runtime';
 import type { Raster } from '../shared/meshFormats';
 import type { ParamValues } from '../shared/types';
@@ -115,6 +117,64 @@ test('a marked LayerTone edit: the crop, its outline and the whole photo sent; o
   assert.ok(r.window && r.window.w > 0.4 && r.window.h > 0.4);
   assert.equal(raster(r.before).width, raster(r.after).width);
   assert.equal(parsePictureMarks(r.set[PICTURE_MARKS_KEY])['photo-1'], undefined);
+});
+
+test('a marked edit of a picture with automatic swaps keeps them (set in the setup) and says so; the built print outside the mark keeps its heights', async () => {
+  const sent = request();
+  const r = await edit(sent, darkInMark([]));
+  const auto = autoSwaps(photo, FILAMENTS, sent.layerTone!.options);
+  assert.deepEqual(sent.layerTone!.swaps, auto, 'the parent was built with automatic swaps');
+  const setup = parseLayerToneSetup(r.set[LAYERTONE_KEY]);
+  assert.deepEqual(setup.swaps, auto);
+  // The filaments stay the script's: only the swaps are set.
+  assert.equal(setup.filaments, undefined);
+  assert.deepEqual(r.swapsKept?.swaps, auto);
+  assert.match(r.swapsKept!.note, new RegExp(`layers ${auto.join(', ')}`));
+  assert.match(r.swapsKept!.note, /automatic/);
+  // The edit changes the picture enough that automatic swaps on it would differ: the pin matters.
+  const next = parseLayerToneImages(r.set[LAYERTONE_IMAGES_KEY])['photo-1'];
+  assert.notDeepEqual(autoSwaps(next, FILAMENTS, sent.layerTone!.options), auto);
+
+  // Built: the parent and the edit, height for height over the grid outside the mark (and a margin
+  // of the cells that read the mark's pixels).
+  const heights = (v: ParamValues) => {
+    const part = evaluateScript(SCRIPT, v, 'draft').parts[0], P = part.positions, out = new Map<string, number>();
+    for (let i = 0; i < P.length; i += 3) {
+      const k = `${P[i].toFixed(3)},${P[i + 1].toFixed(3)}`;
+      out.set(k, Math.max(out.get(k) ?? 0, P[i + 2]));
+    }
+    return { out, layers: part.layerColors!.map((l) => l.layer) };
+  };
+  const a = heights(values), b = heights(withSet(values, r.set));
+  assert.deepEqual(b.layers, a.layers);
+  const mmH = (60 * H) / W, mask = faceMask();
+  const nearMark = (x: number, y: number) => {
+    const px = Math.floor(((x + 30) / 60) * W), py = Math.floor(((mmH / 2 - y) / mmH) * H);
+    for (let j = py - 4; j <= py + 4; j++) for (let i = px - 4; i <= px + 4; i++) if (i >= 0 && j >= 0 && i < W && j < H && mask[j * W + i]) return true;
+    return false;
+  };
+  let compared = 0, inside = 0;
+  for (const [k, z] of a.out) {
+    const [x, y] = k.split(',').map(Number);
+    if (nearMark(x, y)) { if (b.out.get(k) !== z) inside++; continue; }
+    assert.equal(b.out.get(k), z, `height at ${k}`);
+    compared++;
+  }
+  assert.ok(compared > 1000, `${compared} heights compared`);
+  assert.ok(inside > 50, `${inside} heights changed in the mark`);
+});
+
+test('swaps that are not automatic are left alone: the user\'s own, or the script\'s', async () => {
+  // The user's own swaps in the setup: nothing to keep.
+  const own = { ...values, [LAYERTONE_KEY]: JSON.stringify({ swaps: [4, 9] }) };
+  const r1 = await edit(request({ values: own, layerTone: builtWith(own) }), darkInMark([]));
+  assert.equal(LAYERTONE_KEY in r1.set, false);
+  assert.equal(r1.swapsKept, undefined);
+  // Swaps the part was built with that are not the automatic ones are the script's: they don't depend on the picture
+  // (these two lie below the relief, where automatic swaps never go).
+  const r2 = await edit(request({ layerTone: { ...builtWith(values), swaps: [2, 3] } }), darkInMark([]));
+  assert.equal(LAYERTONE_KEY in r2.set, false);
+  assert.equal(r2.swapsKept, undefined);
 });
 
 test('the whole LayerTone picture: sent padded to an allowed shape, the answer back at the stored size, no swaps kept', async () => {
