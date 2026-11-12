@@ -171,7 +171,7 @@ function paintIn(l: CanvasRenderingContext2D, st: ArtworkStroke, box: ReturnType
   if (!box) return;
   l.save();
   l.beginPath(); l.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); l.clip();
-  l.fill(strokePath(st));
+  fillStroke(l, st);
   l.restore();
 }
 
@@ -208,7 +208,7 @@ export function drawBuilt(ctx: CanvasRenderingContext2D, v: BuiltView, r: Regist
     l.setTransform(...m);
     for (const { cut, st } of ops) {
       l.globalCompositeOperation = cut ? 'destination-out' : 'source-over';
-      if (st.mode === 'paint') paintIn(l, st, box); else l.fill(strokePath(st));
+      if (st.mode === 'paint') paintIn(l, st, box); else fillStroke(l, st);
     }
     l.globalCompositeOperation = 'source-over';
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -265,6 +265,54 @@ function strokePath(st: ArtworkStroke): Path2D {
   return p;
 }
 
+const cutPaths = new WeakMap<ArtworkStroke, Path2D>();
+/** A stroke's cut as a path in drawing units (NonZero). */
+function cutPath(st: ArtworkStroke): Path2D {
+  let p = cutPaths.get(st);
+  if (!p) {
+    p = new Path2D();
+    for (const c of st.cut ?? []) { c.forEach(([x, y], i) => (i ? p!.lineTo(x, y) : p!.moveTo(x, y))); p.closePath(); }
+    cutPaths.set(st, p);
+  }
+  return p;
+}
+
+let cutCanvas: HTMLCanvasElement | null = null;
+/**
+ * A stroke filled on `l` as `l` is set (transform, colour, compositing, clip), less its cut (where a
+ * picture edit replaced the picture). A stroke with a cut is drawn on a canvas of its own first and
+ * the cut taken away there, over the stroke's reach only: the cut's pieces overlap, so no clip path
+ * leaves them out.
+ */
+function fillStroke(l: CanvasRenderingContext2D, st: ArtworkStroke) {
+  if (!st.cut?.length) { l.fill(strokePath(st)); return; }
+  const { width, height } = l.canvas, m = l.getTransform(), r = st.width / 2;
+  // The stroke's reach in pixels.
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [px, py] of st.points) for (const [x, y] of [[px - r, py - r], [px + r, py - r], [px + r, py + r], [px - r, py + r]]) {
+    const sx = m.a * x + m.c * y + m.e, sy = m.b * x + m.d * y + m.f;
+    x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+  }
+  x0 = Math.max(0, Math.floor(x0) - 1); y0 = Math.max(0, Math.floor(y0) - 1);
+  x1 = Math.min(width, Math.ceil(x1) + 1); y1 = Math.min(height, Math.ceil(y1) + 1);
+  if (!(x1 > x0 && y1 > y0)) return;
+  const c = (cutCanvas ??= document.createElement('canvas'));
+  if (c.width < width || c.height < height) { c.width = Math.max(c.width, width); c.height = Math.max(c.height, height); }
+  const s = c.getContext('2d')!;
+  s.setTransform(1, 0, 0, 1, 0, 0);
+  s.globalCompositeOperation = 'source-over';
+  s.clearRect(x0, y0, x1 - x0, y1 - y0);
+  s.setTransform(m);
+  s.fillStyle = l.fillStyle;
+  s.fill(strokePath(st));
+  s.globalCompositeOperation = 'destination-out';
+  s.fill(cutPath(st));
+  l.save();
+  l.setTransform(1, 0, 0, 1, 0, 0);
+  l.drawImage(c, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+  l.restore();
+}
+
 /** The drawing's shapes as paths in drawing units, with their fill rules. */
 export function shapePaths(d: SvgDrawing): { path: Path2D; rule: CanvasFillRule }[] {
   return d.shapes.map((sh) => {
@@ -296,13 +344,9 @@ export function drawPicture(ctx: CanvasRenderingContext2D, layers: { colour: str
     for (const { op, shape } of ops) {
       l.globalCompositeOperation = op === 'fill' ? 'source-over' : 'destination-out';
       if (typeof shape === 'number') { l.fill(paths[shape].path, paths[shape].rule); continue; }
-      if (shape.mode !== 'paint') { l.fill(strokePath(shape)); continue; }
+      if (shape.mode !== 'paint') { fillStroke(l, shape); continue; }
       // Paint only inside the picture's box (none without one).
-      if (!box) continue;
-      l.save();
-      l.beginPath(); l.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); l.clip();
-      l.fill(strokePath(shape));
-      l.restore();
+      paintIn(l, shape, box);
     }
     l.globalCompositeOperation = 'source-over';
     // Twice: where two colours meet, their soft edges cover the plate (no grey seam between them).

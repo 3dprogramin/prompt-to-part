@@ -181,6 +181,8 @@ function shapesHash(shapes: Shape[]): string {
   for (const sh of shapes) {
     str(sh.rule); str(sh.color ?? '\u0000'); str(sh.edit ?? '');
     for (const c of sh.contours) { mix(c.length); for (const [x, y] of c) { num(x); num(y); } }
+    // A stroke's cut (only when it has one, so the hash of a stroke without stays as it was).
+    if (sh.stroke?.cut?.length) { str('cut'); for (const c of sh.stroke.cut) { mix(c.length); for (const [x, y] of c) { num(x); num(y); } } }
   }
   return `${n}:${a}:${b}`;
 }
@@ -189,7 +191,8 @@ const fromPolygons = (polys: Vec2[][], C: typeof CrossSection) => (polys.length 
 
 /**
  * A hand-edit shape at `height`: from its stroke when it has one, the circles as moved copies of
- * one (handing the points over to Manifold is most of what building a stroke takes).
+ * one (handing the points over to Manifold is most of what building a stroke takes), less the
+ * stroke's cut when it has one.
  */
 function strokeSection(sh: Shape, height: number, C: typeof CrossSection): CrossSection {
   if (!sh.stroke) return scaled(sh, height, C);
@@ -200,7 +203,9 @@ function strokeSection(sh: Shape, height: number, C: typeof CrossSection): Cross
     for (const [x, y] of centres) parts.push(one.translate([x * height, y * height]));
   }
   if (polys.length) parts.push(new C(polys.map((c) => c.map(([x, y]) => [x * height, y * height] as Vec2)), 'NonZero'));
-  return parts.length > 1 ? C.union(parts) : parts[0];
+  const out = parts.length > 1 ? C.union(parts) : parts[0];
+  if (sh.stroke.cut?.length) return out.subtract(new C(sh.stroke.cut.map((c) => c.map(([x, y]) => [x * height, y * height] as Vec2)), 'NonZero'));
+  return out;
 }
 
 function editRegions(d: SvgDrawing, height: number, C: typeof CrossSection): EditRegions | null {

@@ -6,7 +6,8 @@ import { pictureValues } from '../src/app/designValues';
 import { evaluateScript } from '../shared/runtime';
 import { DRAWINGS_KEY, describeDrawings, drawingSection, type SvgDrawing } from '../shared/svgFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
-import { ARTWORK_EDITS_KEY, MAX_ARTWORK_POINTS, parseArtworkEdits, splitLongStroke, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
+import { ARTWORK_EDITS_KEY, MAX_ARTWORK_POINTS, MAX_CUT_POINTS, cutStrokes, parseArtworkEdits, splitLongStroke, strokeContours, withArtworkEdits, type ArtworkStroke } from '../shared/artworkEdits';
+import { boxMark, markContours, type PictureMark } from '../shared/pictureEdit/mark';
 import { describeSettings } from '../src/lib/settings';
 
 const wasm = await Module();
@@ -177,4 +178,123 @@ test('describeDrawings mentions hand edits', () => {
 
 test('the client sends the artwork edits to the server', () => {
   assert.deepEqual(pictureValues({ '$artworkEdits': '{"a":1}', x: 1 }), { '$artworkEdits': '{"a":1}' });
+});
+
+// ---- Strokes that stop at an area (`cut`), for picture edits that replace the picture there.
+
+/** A section's area, bounds, number of polygons and of points, and a hash of its polygons. */
+const fingerprint = (x: ReturnType<typeof drawingSection>) => {
+  const b = x!.bounds(), polys = x!.toPolygons() as [number, number][][];
+  const j = JSON.stringify(polys);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < j.length; i++) h = Math.imul(h ^ j.charCodeAt(i), 0x01000193) >>> 0;
+  return [x!.area(), b.min[0], b.min[1], b.max[0], b.max[1], polys.length, polys.reduce((n, p) => n + p.length, 0), h];
+};
+
+test('strokes without a cut build the same sections as before cuts existed', () => {
+  // Taken from the build before `cut` was added: per case, black, gold and all colours.
+  const before: Record<string, number[][]> = {
+    paint: [[7422.354286512176, -50, -50, 50, 50, 3, 32, 929987097], [2577.6457134878237, -25, -25, 45, 25, 2, 28, 2691450081], [10000, -50, -50, 50, 50, 1, 4, 2208953127]],
+    square: [[5800, -50, -50, 50, 50, 3, 15, 1087697124], [4200, -45, -45, 45, 45, 2, 11, 1798164546], [10000, -50, -50, 50, 50, 1, 4, 2208953127]],
+    mixed: [[5651.247940003919, -50, -50, 50, 50, 2, 51, 2338097124], [4172.05714185978, -45, -45, 45, 45, 2, 38, 154854765], [9823.305081863702, -50, -50, 50, 50, 1, 39, 1734085248]],
+  };
+  const cases: Record<string, ArtworkStroke[]> = {
+    paint: [stroke({ points: [[0.4, 0]] })],
+    square: [stroke({ points: L, shape: 'square' })],
+    mixed: [stroke({ points: L }), stroke({ mode: 'erase', color: BLACK, points: [[-0.4, 0.4]], width: 0.2 }), stroke({ points: [[0.7, 0]], width: 0.2 })],
+  };
+  for (const [k, s] of Object.entries(cases)) {
+    const e = edited(...s);
+    assert.deepEqual([[BLACK], [GOLD], undefined].map((cols) => fingerprint(drawingSection(e, 100, cols, C))), before[k], k);
+  }
+});
+
+const WHITE = '#ffffff';
+/** The left half of the picture (and well past it), counter-clockwise. */
+const LEFT: [number, number][][] = [[[-2, -2], [0, -2], [0, 2], [-2, 2]]];
+// A black square with a white one in it and a small gold square in a corner: paint may go anywhere in the black square.
+const w: SvgDrawing = {
+  name: 'w.svg', aspect: 1,
+  shapes: [{ rule: 'NonZero', contours: [sq(0.5)], color: BLACK }, { rule: 'NonZero', contours: [sq(0.4)], color: WHITE },
+    { rule: 'NonZero', contours: [[[-0.48, -0.48], [-0.45, -0.48], [-0.45, -0.45], [-0.48, -0.45]]], color: GOLD }],
+};
+const onW = (...s: ArtworkStroke[]) => withArtworkEdits({ w }, { w: { fp: drawingFingerprint(w), strokes: s } }).w;
+// A capsule 60 x 20 (with round ends) across the white square, and the area of half of it.
+const across = stroke({ width: 0.2, points: [[-0.3, 0], [0.3, 0]] });
+const half = 600 + Math.PI * 100 / 2;
+
+test('a paint stroke with a cut paints only outside it', () => {
+  const e = onW({ ...across, cut: LEFT });
+  near(area(drawingSection(e, 100, [GOLD], C)), 9 + half, 0.01);
+  near(area(drawingSection(e, 100, [WHITE], C)), 6400 - half, 0.01);
+  // Without the cut, the whole capsule.
+  near(area(drawingSection(onW(across), 100, [GOLD], C)), 9 + 2 * half, 0.01);
+});
+
+test('an erase stroke with a cut leaves its colour inside it', () => {
+  const e = edited(stroke({ mode: 'erase', width: 0.2, cut: LEFT }));
+  near(area(drawingSection(e, 100, [GOLD], C)), 2500 - Math.PI * 100 / 2, 0.01);
+  near(area(drawingSection(e, 100, [BLACK], C)), 7500, 0.001);
+});
+
+test('parseArtworkEdits keeps a valid cut and drops a malformed one, keeping the stroke', () => {
+  const good = stroke({ cut: LEFT });
+  const many = [Array.from({ length: MAX_CUT_POINTS + 1 }, (_, i) => [Math.cos(i), Math.sin(i)])];
+  const cuts: unknown[] = [[[[0, 0], [1, 0]]], [[[0, 0], [1, 'x'], [1, 1]]], [[[0, 0], [1, null], [1, 1]]], 'x', [5], many, []];
+  const r = parseArtworkEdits(JSON.stringify({ t: { fp: 'f', strokes: [good, ...cuts.map((cut) => ({ ...good, cut }))] } }));
+  assert.equal(r.t.strokes.length, 1 + cuts.length);
+  assert.deepEqual(r.t.strokes[0].cut, LEFT);
+  for (const s of r.t.strokes.slice(1)) assert.equal('cut' in s, false);
+});
+
+test('the regions kept between builds tell strokes with different cuts apart', () => {
+  const on = (cut?: [number, number][][]) => {
+    const copy = JSON.parse(JSON.stringify(d)) as SvgDrawing;
+    const st = stroke({ mode: 'erase', width: 0.2, ...(cut ? { cut } : {}) });
+    return withArtworkEdits({ t: copy }, { t: { fp: drawingFingerprint(copy), strokes: [st] } }).t;
+  };
+  const whole = 2500 - Math.PI * 100;
+  near(area(drawingSection(on(), 100, [GOLD], C)), whole, 0.01);
+  near(area(drawingSection(on(LEFT), 100, [GOLD], C)), 2500 - Math.PI * 50, 0.01);
+  near(area(drawingSection(on([[[-2, -2], [2, -2], [2, 2], [-2, 2]]]), 100, [GOLD], C)), 2500, 0.001);
+  near(area(drawingSection(on(), 100, [GOLD], C)), whole, 0.01);
+});
+
+test('cutStrokes cuts the strokes that reach the mark and leaves the others as they are', () => {
+  const mark = boxMark([0, 0, 0.5, 1], 1), right = boxMark([0.5, 0, 1, 1], 1);
+  const far = stroke({ points: [[0.4, 0.4]] });
+  const [a, b] = cutStrokes([across, far], mark);
+  assert.deepEqual(a.cut, markContours(mark));
+  assert.equal(b, far);
+  assert.equal(across.cut, undefined);
+  assert.equal(cutStrokes([across], { strokes: [] })[0], across);
+  // A later edit adds its mark to the cut.
+  assert.deepEqual(cutStrokes([a], right)[0].cut, [...markContours(mark), ...markContours(right)]);
+  // Built: only the gold outside the mark is left.
+  near(area(drawingSection(onW(a), 100, [GOLD], C)), 9 + half, 0.01);
+});
+
+/** A heavy mark: a scribble over the left half of the picture. */
+const scribble: PictureMark = { strokes: [{ width: 0.06, points: Array.from({ length: 600 }, (_, i): [number, number] => [-0.25 + 0.22 * Math.sin(i / 7), 0.45 * Math.cos(i / 41)]) }] };
+const pointsIn = (cut?: [number, number][][]) => (cut ?? []).reduce((n, c) => n + c.length, 0);
+const section = (contours: [number, number][][]) => new C(contours.map((c) => c.map(([x, y]) => [x * 100, y * 100] as [number, number])), 'NonZero');
+
+test('cutStrokes keeps a heavy mark under the point limit', () => {
+  assert.ok(pointsIn(markContours(scribble)) > 10 * MAX_CUT_POINTS);
+  const strokeArea = section(strokeContours(across));
+  const covered = strokeArea.intersect(section(markContours(scribble))).area();
+  // With Manifold: the mark's outline where the stroke reaches, simplified; it cuts about what the mark covers.
+  const exact = cutStrokes([across], scribble, C)[0];
+  assert.ok(pointsIn(exact.cut) > 0 && pointsIn(exact.cut) <= MAX_CUT_POINTS, `${pointsIn(exact.cut)}`);
+  near(strokeArea.area() - strokeArea.subtract(section(exact.cut!)).area(), covered, 0.02);
+  // And what it had already stays within the limit.
+  assert.ok(pointsIn(cutStrokes([exact], scribble, C)[0].cut) <= MAX_CUT_POINTS);
+  // A wide stroke over most of the scribble: its outline simplified to fit.
+  const wide = stroke({ width: 0.8, points: [[-0.3, 0], [-0.2, 0]] }), wideArea = section(strokeContours(wide));
+  const wideCut = cutStrokes([wide], scribble, C)[0].cut!;
+  assert.ok(pointsIn(wideCut) <= MAX_CUT_POINTS, `${pointsIn(wideCut)}`);
+  near(wideArea.area() - wideArea.subtract(section(wideCut)).area(), wideArea.intersect(section(markContours(scribble))).area(), 0.01);
+  // Without Manifold: coarser pieces, still under the limit.
+  const rough = cutStrokes([across], scribble)[0];
+  assert.ok(pointsIn(rough.cut) > 0 && pointsIn(rough.cut) <= MAX_CUT_POINTS, `${pointsIn(rough.cut)}`);
 });

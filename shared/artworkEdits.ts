@@ -1,7 +1,9 @@
 // Hand edits of artwork drawings (the Artwork editor's brush): paint and erase strokes, their
 // checks, and how they join a drawing as extra shapes.
+import type { CrossSection } from 'manifold-3d';
 import { drawingColors, type SvgDrawing } from './svgFeatures';
 import { drawingFingerprint } from './lineart/strokes';
+import { markContours, type PictureMark } from './pictureEdit/mark';
 import type { Vec2 } from './types';
 
 /** The design's values key holding the edits. */
@@ -9,16 +11,36 @@ export const ARTWORK_EDITS_KEY = '$artworkEdits';
 /** The most strokes kept per drawing, and points per stroke. */
 export const MAX_ARTWORK_STROKES = 400;
 export const MAX_ARTWORK_POINTS = 2000;
+/** The most points in one stroke's cut. */
+export const MAX_CUT_POINTS = 400;
 
 /**
  * One brush stroke: 'paint' puts `color` (one of the drawing's colours) where the brush goes,
  * 'erase' takes `color` away there. Points and width are in the drawing's own units (1 = its
  * height, centred, y up), so an edit stays put when the piece is resized. `shape` 'square': the
- * brush is an upright square `width` wide rather than round.
+ * brush is an upright square `width` wide rather than round. `cut`: contours (NonZero, the same
+ * units) where the stroke no longer applies, because a picture edit replaced the picture there.
  */
-export interface ArtworkStroke { mode: 'paint' | 'erase'; color: string; width: number; points: [number, number][]; shape?: 'square' }
+export interface ArtworkStroke { mode: 'paint' | 'erase'; color: string; width: number; points: [number, number][]; shape?: 'square'; cut?: [number, number][][] }
 /** The strokes on a drawing, with the fingerprint of the drawing they were made on. */
 export type ArtworkEdits = Record<string, { fp: string; strokes: ArtworkStroke[] }>;
+
+/** A stroke's cut from saved JSON: contours of at least 3 finite points, MAX_CUT_POINTS in all; null when there is none or anything is off. */
+function cleanCut(raw: unknown): [number, number][][] | null {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const out: [number, number][][] = [];
+  let n = 0;
+  for (const c of raw) {
+    if (!Array.isArray(c) || c.length < 3 || (n += c.length) > MAX_CUT_POINTS) return null;
+    const contour: [number, number][] = [];
+    for (const p of c) {
+      if (!Array.isArray(p) || typeof p[0] !== 'number' || typeof p[1] !== 'number' || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null;
+      contour.push([p[0], p[1]]);
+    }
+    out.push(contour);
+  }
+  return out;
+}
 
 function cleanStroke(s: unknown): ArtworkStroke | null {
   if (!s || typeof s !== 'object') return null;
@@ -35,7 +57,8 @@ function cleanStroke(s: unknown): ArtworkStroke | null {
     if (Number.isFinite(x) && Number.isFinite(y) && p[0] != null && p[1] != null) points.push([x, y]);
   }
   if (!points.length) return null;
-  return { mode: o.mode, color: o.color.slice(0, 40).toLowerCase(), width, points, ...(o.shape === 'square' ? { shape: 'square' as const } : {}) };
+  const cut = cleanCut(o.cut);
+  return { mode: o.mode, color: o.color.slice(0, 40).toLowerCase(), width, points, ...(o.shape === 'square' ? { shape: 'square' as const } : {}), ...(cut ? { cut } : {}) };
 }
 
 /** A stroke with at most MAX_ARTWORK_POINTS points (all the parser keeps): a longer one as several, each starting where the last ended. */
@@ -104,6 +127,58 @@ export function strokePieces(st: ArtworkStroke, segments = 24): { circle: Vec2[]
 export function strokeContours(st: ArtworkStroke, segments = 24): Vec2[][] {
   const { centres, polys } = strokePieces(st, segments);
   return [...centres.map(([x, y]) => circle(x, y, st.width / 2, segments)), ...polys];
+}
+
+type Reach = { x0: number; y0: number; x1: number; y1: number };
+const pointsIn = (contours: Vec2[][]) => contours.reduce((n, c) => n + c.length, 0);
+/** The contours that meet `r` (by their boxes). */
+const meeting = (contours: Vec2[][], r: Reach) => contours.filter((c) => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of c) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  return x0 <= r.x1 && r.x0 <= x1 && y0 <= r.y1 && r.y0 <= y1;
+});
+/** The first contours, whole, that fit in MAX_CUT_POINTS. */
+function fitting(contours: Vec2[][]): Vec2[][] {
+  let n = 0;
+  const out: Vec2[][] = [];
+  for (const c of contours) { if ((n += c.length) > MAX_CUT_POINTS) break; out.push(c); }
+  return out;
+}
+
+/** The NonZero union of `contours` inside `r`, simplified (more each time) until it has at most MAX_CUT_POINTS points. */
+function outline(contours: Vec2[][], r: Reach, C: typeof CrossSection): Vec2[][] {
+  const all = new C(contours, 'NonZero'), box = C.square([r.x1 - r.x0, r.y1 - r.y0]).translate([r.x0, r.y0]), inR = all.intersect(box);
+  let out = inR.toPolygons() as Vec2[][];
+  for (let eps = 1e-4; pointsIn(out) > MAX_CUT_POINTS && eps < 1; eps *= 2) {
+    const s = inR.simplify(eps);
+    out = s.toPolygons() as Vec2[][];
+    s.delete();
+  }
+  all.delete(); box.delete(); inR.delete();
+  return fitting(out);
+}
+
+/**
+ * The strokes with `mark` added to their cuts, for a picture edit that replaced the picture inside
+ * it (the new picture there already shows them). A stroke the mark doesn't reach stays as it is
+ * (the same object); the others get the mark's pieces that reach them. When that makes more than
+ * MAX_CUT_POINTS points, the cut becomes its outline where the stroke reaches, simplified, with
+ * `C` (Manifold's CrossSection); without it, the mark's pieces with coarser circles, as many as fit.
+ */
+export function cutStrokes(strokes: ArtworkStroke[], mark: PictureMark, C?: typeof CrossSection): ArtworkStroke[] {
+  const pieces = markContours(mark);
+  if (!pieces.length) return strokes;
+  return strokes.map((st) => {
+    // Where the brush reaches, a little more: pieces outside it change nothing.
+    const g = st.width * 0.51;
+    const r: Reach = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (const [x, y] of st.points) { r.x0 = Math.min(r.x0, x - g); r.x1 = Math.max(r.x1, x + g); r.y0 = Math.min(r.y0, y - g); r.y1 = Math.max(r.y1, y + g); }
+    const near = meeting(pieces, r);
+    if (!near.length) return st;
+    const cut = [...(st.cut ?? []), ...near];
+    if (pointsIn(cut) <= MAX_CUT_POINTS) return { ...st, cut };
+    return { ...st, cut: C ? outline(cut, r, C) : fitting([...(st.cut ?? []), ...meeting(markContours(mark, 8), r)]) };
+  });
 }
 
 /** The drawings with the strokes added as shapes (those made on the drawing as it is now, in colours it has). */
