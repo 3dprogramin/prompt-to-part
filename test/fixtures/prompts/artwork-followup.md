@@ -223,7 +223,7 @@ AI artwork mode is on: the user wants this as artwork – a flat multi-colour wa
 
 To change part of a drawing, use edit_picture (not generate_artwork). The user saved a mark (an area selected in the brush editor) on "fox": region "mark" uses it; "sun" has none.
 
-Picture edits the user kept in the brush editor since your last version (the drawings above already have them): v3 "sun": "a smiling sun" (a marked area).
+Picture edits the user kept in the brush editor since your last version (the drawings in this design already have them): v3 "sun": "a smiling sun" (a marked area).
 
 SVG drawings the user attached (their pictures are among the images). Use their exact shapes with H.svg(name, { height, colors }) instead of redrawing them:
 "fox": width/height 1.00, colours in paint order: #111111 (1 shape); raised by default: #111111

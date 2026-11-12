@@ -30,7 +30,7 @@ function pictureEditNotes(drawings: Record<string, SvgDrawing>, values: ParamVal
     : 'No drawing has a saved mark: pick a box with show_picture, or ask the user to select the area in the brush editor.'}`];
   const edits = (Array.isArray(kept) ? kept : []).filter((e) => e && typeof e.picture === 'string' && typeof e.change === 'string' && Number.isInteger(e.version)).slice(-12);
   if (edits.length) {
-    out.push(`Picture edits the user kept in the brush editor since your last version (the drawings above already have them): ${edits.map((e) => `v${e.version} "${e.picture.slice(0, 120)}": "${e.change.slice(0, 300)}" (${e.masked ? 'a marked area' : 'the whole picture'})`).join('; ')}.`);
+    out.push(`Picture edits the user kept in the brush editor since your last version (the drawings in this design already have them): ${edits.map((e) => `v${e.version} "${e.picture.slice(0, 120)}": "${e.change.slice(0, 300)}" (${e.masked ? 'a marked area' : 'the whole picture'})`).join('; ')}.`);
   }
   return out;
 }

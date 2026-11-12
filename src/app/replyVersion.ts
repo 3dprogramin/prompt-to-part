@@ -3,12 +3,15 @@
 import type { AgentEvent } from '../../shared/api';
 import type { Design, PictureEditInfo } from '../../shared/types';
 import { pageKey } from '../../shared/sources';
-import { withSet } from '../lib/pictureEdit';
+import { withSet } from '../../shared/pictureEdit/set';
 import { keepAppValues, withoutEditHistory } from './designValues';
 
 /** The picture edits of one reply so far, as its version will record them. */
 export type ReplyEdit = Extract<AgentEvent, { type: 'pictureEdited' }>['info'];
 type ModelEvent = Extract<AgentEvent, { type: 'model' }>;
+
+/** A reply's picture edits not yet recorded in a version, and the version they came from. */
+export interface PendingEdit { edit: ReplyEdit | null; parent: number }
 
 /** The design with the values a picture edit in the chat sets (null deletes). */
 export function withPictureEdited(d: Design, set: Record<string, string | null>): Design {
@@ -47,4 +50,13 @@ export function withReplyVersion(d: Design, ev: ModelEvent, asstId: string, edit
     ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),
     messages: d.messages.map((m) => (m.id === asstId ? { ...m, versionIndex: vi } : m)),
   };
+}
+
+/**
+ * A submitted model in a reply: the version (recording the pending edits, if any), and what is
+ * pending after it: nothing, and a later edit in the same reply comes from that version.
+ */
+export function replyModel(d: Design, ev: ModelEvent, asstId: string, pending: PendingEdit): { design: Design; pending: PendingEdit } {
+  const design = withReplyVersion(d, ev, asstId, pending.edit ? { edit: pending.edit, parent: pending.parent } : undefined);
+  return { design, pending: { edit: null, parent: design.currentVersion } };
 }

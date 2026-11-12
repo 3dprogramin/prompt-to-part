@@ -43,13 +43,20 @@ test('versionNote: versions without a picture edit keep today\'s words', () => {
 });
 
 test('versionNote: a picture edit says whether it lines up, 1-based', () => {
-  assert.equal(versionNote(v({ pictureEdit: edit })), 'your picture edit, lines up with v3');
-  assert.equal(versionNote(v({ pictureEdit: { ...edit, linesUp: false } })), 'your picture edit');
-  assert.equal(versionNote(v({ pictureEdit: { ...edit, masked: false } })), 'your picture edit');
+  assert.equal(versionNote(v({ source: 'manual', pictureEdit: edit })), 'your picture edit, lines up with v3');
+  assert.equal(versionNote(v({ source: 'manual', pictureEdit: { ...edit, linesUp: false } })), 'your picture edit');
+  assert.equal(versionNote(v({ source: 'manual', pictureEdit: { ...edit, masked: false } })), 'your picture edit');
+});
+
+test('versionNote: a picture edit made in the chat is from the chat, not the user\'s', () => {
+  assert.equal(versionNote(v({ pictureEdit: edit })), 'from the chat, picture edit, lines up with v3');
+  assert.equal(versionNote(v({ pictureEdit: { ...edit, linesUp: false } })), 'from the chat, picture edit');
+  assert.equal(versionNote(v({ pictureEdit: { ...edit, parent: -1 } }), 3), 'from the chat, picture edit');
+  assert.equal(versionNote(v({ pictureEdit: edit }), 2), 'from the chat, picture edit');
 });
 
 test('versionNote: a missing, malformed or stale parent is not named', () => {
-  const note = (pe: unknown, count?: number) => versionNote(v({ pictureEdit: pe as DesignVersion['pictureEdit'] }), count);
+  const note = (pe: unknown, count?: number) => versionNote(v({ source: 'manual', pictureEdit: pe as DesignVersion['pictureEdit'] }), count);
   assert.equal(note({}), 'your picture edit');
   assert.equal(note({ masked: true, linesUp: true }), 'your picture edit');
   assert.equal(note({ ...edit, parent: -1 }), 'your picture edit');

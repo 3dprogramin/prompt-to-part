@@ -1,8 +1,9 @@
-import type { Box3, ChatMessage, Design, DesignVersion, ParamValues, PictureEditInfo } from '../../shared/types';
+import type { Box3, ChatMessage, Design, DesignVersion, PictureEditInfo } from '../../shared/types';
 import type { GenerateRequest, PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { ARTWORK_EDITS_KEY, type ArtworkStroke } from '../../shared/artworkEdits';
 import { DRAWINGS_KEY } from '../../shared/svgFeatures';
 import type { PictureMark } from '../../shared/pictureEdit/mark';
+import { withSet } from '../../shared/pictureEdit/set';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { formatCost } from '../../shared/duration';
 import { request } from './api';
@@ -35,7 +36,9 @@ export function versionNote(v: DesignVersion, count?: number): string {
     // missing, malformed or past the list (a hand-edited backup, an older client) is not named.
     const p = e.parent as unknown;
     const named = typeof p === 'number' && Number.isInteger(p) && p >= 0 && (count === undefined || p < count);
-    return e.masked && e.linesUp && named ? `your picture edit, lines up with v${(p as number) + 1}` : 'your picture edit';
+    // An edit made in the chat (edit_picture) is the chat's version, not the user's.
+    const what = v.source === 'ai' ? 'from the chat, picture edit' : 'your picture edit';
+    return e.masked && e.linesUp && named ? `${what}, lines up with v${(p as number) + 1}` : what;
   }
   return v.source === 'manual' ? 'your code edit' : v.source === 'settings' ? 'your saved settings' : 'from the chat';
 }
@@ -79,13 +82,6 @@ export function pictureEditNotes(r: Pick<PictureEditResponse, 'masked' | 'outsid
   if (r.masked) out.push(r.outsideSame ? { text: 'Outside the mark: unchanged' } : { text: 'Outside the mark: changed too, so it won\'t line up with the version it came from', warn: true });
   if (r.offPalette) out.push({ text: r.offPalette.note, warn: true });
   if (r.simplified) out.push({ text: 'The new shapes were simplified to stay within the drawing\'s point limit', warn: true });
-  return out;
-}
-
-/** The values with what a picture edit sets merged in (null deletes the key). */
-export function withSet(values: ParamValues, set: Record<string, string | null>): ParamValues {
-  const out = { ...values };
-  for (const [k, v] of Object.entries(set)) if (v === null) delete out[k]; else out[k] = v;
   return out;
 }
 

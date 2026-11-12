@@ -26,7 +26,7 @@ import type { useLiveModel } from '../hooks/useLiveModel';
 import { describeSvg, describeText } from './describe';
 import { pictureValues, withDrawings, withLayerToneImage, withMesh } from './designValues';
 import { editorEditsSince } from '../lib/pictureEdit';
-import { addReplyEdit, withPictureEdited, withReplyVersion, type ReplyEdit } from './replyVersion';
+import { addReplyEdit, replyModel, withPictureEdited, type PendingEdit } from './replyVersion';
 import { useLinesUp } from './useLinesUp';
 import type { ChatOptions } from './useChatOptions';
 
@@ -58,6 +58,8 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
 }) {
   // A version made by a reply that edited a picture: whether it lines up is measured on its build.
   const watchLinesUp = useLinesUp({ design, setDesign, result, busy });
+  const resultRef = useRef(result);
+  resultRef.current = result;
   /**
    * Follows the reply `asstId` on design `designId` to its end (`stream` starts it, or catches up
    * with one under way): its events update that design, even if another one is open by now.
@@ -80,10 +82,11 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
     let failed = false;
     // The AI asked questions in this reply (they wait for an answer).
     let asked = false;
-    // Its picture edits (edit_picture), for the version it makes: they came from the version current
-    // as it started, whose build is on screen then.
-    let edit: ReplyEdit | null = null;
-    const parent = design.currentVersion, parentBox = result?.bbox ?? null;
+    // Its picture edits (edit_picture) not yet in a version: they came from the version current as
+    // it started (its build on screen then), or from the reply's last version (`parent` is set as
+    // that version is made, before the next version's update reads it).
+    const pending: PendingEdit = { edit: null, parent: design.currentVersion };
+    let parentBox = result?.bbox ?? null, madeVersion = false;
     let end: ReplyEnd | undefined;
     try {
       end = await stream((ev, count) => {
@@ -99,7 +102,9 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         else if (ev.type === 'drawing') update((d) => ({ ...d, values: { ...d.values, [DRAWINGS_KEY]: JSON.stringify({ ...parseDrawings(d.values[DRAWINGS_KEY]), [ev.name]: ev.drawing }) } }));
         else if (ev.type === 'layerToneImage') update((d) => withLayerToneImage(d, ev.name, ev.image));
         else if (ev.type === 'pictureEdited') {
-          edit = addReplyEdit(edit, ev.info);
+          // The first edit after one of this reply's versions: that version's build is the one on screen.
+          if (!pending.edit && madeVersion) parentBox = resultRef.current?.bbox ?? null;
+          pending.edit = addReplyEdit(pending.edit, ev.info);
           update((d) => withPictureEdited(d, ev.set));
         }
         else if (ev.type === 'mesh') update((d) => withMesh(d, ev.name, ev.entry));
@@ -120,11 +125,15 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         else if (ev.type === 'live') patchAsst((m) => ({ ...m, live: ev.text }));
         else if (ev.type === 'block') patchAsst((m) => ({ ...m, activity: applyBlock(m.activity ?? [], ev) }));
         else if (ev.type === 'model') {
-          const e = edit;
+          // This version takes the edits so far; a later submit without a new edit records none.
+          const e = pending.edit, box = parentBox;
+          pending.edit = null;
+          madeVersion = true;
           update((d) => {
-            const next = withReplyVersion(d, ev, asstId, e ? { edit: e, parent } : undefined);
-            if (e) watchLinesUp({ designId: d.id, version: next.currentVersion, values: next.values, parentBox, masked: e.masked, outsideSame: e.outsideSame });
-            return next;
+            const r = replyModel(d, ev, asstId, { edit: e, parent: pending.parent });
+            pending.parent = r.pending.parent;
+            if (e) watchLinesUp({ designId: d.id, version: r.design.currentVersion, values: r.design.values, parentBox: box, masked: e.masked, outsideSame: e.outsideSame });
+            return r.design;
           });
         } else if (ev.type === 'done') {
           finished = true; completed = true;

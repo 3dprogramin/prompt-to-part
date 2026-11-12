@@ -11,6 +11,7 @@ import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits'
 import { drawingFingerprint } from '../../shared/lineart/strokes';
 import { boxMark, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow } from '../../shared/pictureEdit/render';
+import { withSet } from '../../shared/pictureEdit/set';
 import { formatCost } from '../../shared/duration';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import type { AiImages, ToolContext } from './context';
@@ -121,7 +122,10 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, artwork
           image: drawImage, signal: artwork.signal, onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
         });
         // From now on every check and render uses the new drawing; the app keeps the same values.
-        for (const [k, v] of Object.entries(r.set)) if (v === null) delete base[k]; else base[k] = v;
+        // (Changed in place: every tool of the generation holds this same `base`.)
+        const next = withSet(base, r.set);
+        for (const k of Object.keys(base)) if (!Object.hasOwn(next, k)) delete base[k];
+        Object.assign(base, next);
         emit({ type: 'pictureEdited', set: r.set, info: { picture: a.picture, change: a.change, masked: r.masked, outsideSame: r.outsideSame, cost: r.cost } });
         const cost = r.cost != null ? ` · ${formatCost(r.cost)}` : '';
         const notes = [

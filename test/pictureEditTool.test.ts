@@ -16,7 +16,7 @@ import { boxMark, PICTURE_MARKS_KEY, type PictureMark } from '../shared/pictureE
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../shared/svgFeatures';
 import type { Design, DesignVersion, ParamValues, Vec2 } from '../shared/types';
 import type { Raster } from '../shared/meshFormats';
-import { addReplyEdit, withPictureEdited, withReplyVersion } from '../src/app/replyVersion';
+import { addReplyEdit, replyModel, withPictureEdited, withReplyVersion } from '../src/app/replyVersion';
 import { editorEditsSince } from '../src/lib/pictureEdit';
 
 const disc = (r: number, cx = 0, cy = 0, n = 96): Vec2[] => Array.from({ length: n }, (_, i) => [cx + r * Math.cos((2 * Math.PI * i) / n), cy + r * Math.sin((2 * Math.PI * i) / n)]);
@@ -179,9 +179,14 @@ test('show_picture: the drawing about 1024 pixels wide with a grid every 0.1, an
   assert.deepEqual(at(img, Math.round(0.05 * img.width), y), [255, 255, 255, 255]);
   const line = at(img, Math.round(0.1 * img.width), y);
   assert.ok(line[2] > 200 && line[0] < 150, `grid line ${line}`);
-  // Magenta just inside the mark's edge (its centre at x 0.1, radius 0.15 in picture units).
-  const px = img.height, mx = Math.round((0.1 + 1.5 / 2 + 0.15) * px) - 2, my = Math.round(0.5 * px) + 7;
-  assert.deepEqual(at(img, mx, my).slice(0, 3), [255, 0, 255]);
+  // The mark (centre x 0.1, radius 0.15 in picture units) outlined in magenta: along a radius to the
+  // right, magenta near its edge only, none inside and none past it.
+  const px = img.height, cx = Math.round((0.1 + 1.5 / 2) * px), cy = Math.round(0.5 * px), rad = 0.15 * px;
+  const magenta = (i: number) => [-3, 0, 3].some((dj) => at(img, i, cy + dj).slice(0, 3).join() === '255,0,255');
+  const along = (from: number, to: number) => Array.from({ length: Math.round((to - from) * rad) }, (_, k) => magenta(cx + Math.round(from * rad) + k));
+  assert.ok(along(0.85, 1.05).some(Boolean), 'magenta at the mark\'s edge');
+  assert.ok(!along(0, 0.7).some(Boolean), 'no magenta inside the mark');
+  assert.ok(!along(1.2, 1.6).some(Boolean), 'no magenta past the mark');
   const text = r.content.find((c) => c.type === 'text')!.text!;
   assert.match(text, /every 0\.1/);
   assert.match(text, /\[x0, y0, x1, y1\]/);
@@ -250,6 +255,23 @@ test('a pictureEdited then a model event make a version with the picture edit, i
   const plainVersion = withReplyVersion(start, modelEvent, 'a1');
   assert.equal(plainVersion.versions[2].pictureEdit, undefined);
   assert.deepEqual(Object.keys(plainVersion.versions[2]).sort(), ['code', 'createdAt', 'source', 'sources', 'summary', 'values']);
+});
+
+test('a reply that submits again: the edit goes to the version that took it only; a later edit starts from that version', () => {
+  const info = { picture: 'santa.svg', change: 'a smiling face', masked: true, outsideSame: true, cost: 0.04 };
+  const start = design({ currentVersion: 0 });
+  // The edit, then a submit: the version records it, and nothing is pending after it.
+  let r = replyModel(withPictureEdited(start, { [DRAWINGS_KEY]: 'new' }), modelEvent, 'a1', { edit: addReplyEdit(null, info), parent: 0 });
+  assert.equal(r.design.versions[2].pictureEdit?.parent, 0);
+  assert.deepEqual(r.pending, { edit: null, parent: 2 });
+  // A second submit without a new edit: a plain version.
+  r = replyModel(r.design, { ...modelEvent, summary: 'Tidied' }, 'a1', r.pending);
+  assert.equal(r.design.versions[3].pictureEdit, undefined);
+  assert.deepEqual(r.pending, { edit: null, parent: 3 });
+  // Another edit, then a submit: its parent is the reply's last version.
+  r = replyModel(r.design, modelEvent, 'a1', { ...r.pending, edit: addReplyEdit(r.pending.edit, { ...info, change: 'a hat' }) });
+  assert.equal(r.design.versions[4].pictureEdit?.parent, 3);
+  assert.equal(r.design.versions[4].pictureEdit?.change, 'a hat');
 });
 
 test('several picture edits in one reply: the last one\'s picture and change, masked only if all were, the costs summed', () => {
