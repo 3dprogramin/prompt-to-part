@@ -2,6 +2,7 @@
 // Print tab settings.
 import { maxPiece, printer } from '../../shared/printer';
 import { drawingFingerprint, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtSize, parseLineArtSplit } from '../../shared/lineart';
+import { pictureEditNotes, type PictureWords } from './pictureEdits';
 import type { PromptMode, TurnContext } from './types';
 
 /** A default size that fits the chosen printer's bed. */
@@ -40,7 +41,8 @@ Line art mode is ON: the user wants line art – a wall cut-out of a drawing (a 
 - Check it with render_model: for line art it adds a large straight-on picture of the piece as it hangs: judge that like the product photo the user will see (clean, smooth lines, every detail readable, no dark blotches where lines merged). The report's line-art line says how many bridges the app added (split: per piece too, and the seams, dovetails and names) (and the longest), how many specks it dropped, how many dangling lines it joined (and any still loose) and how many openings between lines closed up. A few short bridges are normal. Openings that closed up are detail lost because lines are closer together than the print can keep apart: more than a few (about 10 % of them), or a blotchy picture, means the drawing is too fine for this size: ${pictures ? 'redraw it with generate_line_art, bolder and simpler (pass the planned width), or ' : ''}make the piece larger. Never tell the user lost detail won't be noticed. Many bridges (more than about 10) or long ones (more than about 15 mm) mean the drawing isn't connected enough: ${pictures ? 'redraw it with generate_line_art, asking for every detail to touch the main outline, or ' : ''}raise lineWidth so near-touching lines merge. Dropped specks that were real details (an eye, a badge) mean the same.
 - It's sold as one piece (or a few, split) the buyer sticks to a wall with double-sided tape, so nothing may dangle or flop: lines still loose after the app's joining mean the drawing should be redrawn with every line ending on another line; a few larger solid areas (window glass, tyres) give the tape room to hold. joinEnds (mm, default 8; 0 = off) sets how far the app reaches to join a dangling line.
 - Changing part of a drawing (an exhaust, a rim, a handle, a pose detail): ${pictures ? 'generate_line_art with edit: "<its name>" and the same name – the image model gets the drawing as it is now and changes only what you describe, keeping every other line (so the rest stays as the user approved it). Draw a new picture only when the user wants a different drawing. ' : ''}The user can also fix things by hand with the brush button at the bottom right of the 3D view (Edit drawing: a brush that draws and erases; the drawing's list above says how many hand edits it has). Hand edits belong to the drawing they were made on: ${pictures ? 'an edit keeps them (they are drawn into the picture it changes), but ' : ''}a new drawing under the same name drops them – say so first, and suggest the brush for small fixes (a line to join, a blob to remove) instead of redrawing.
-- generate_line_art's subject is content only (who or what, view, pose, recognisable features), never style words: the house style is the same for every design and every style of piece, so the user's designs look alike. On a bar (key holder, name sign, desk stand) the subject stands on it whole – a person head to feet, a vehicle down to its wheels – never cropped at the knees.
+${pictures ? `- To change one area of a drawing (a face, a rider, a wheel, one object), prefer edit_picture with a region: it changes only that region and keeps every other line, and the user's hand edits outside it, exactly as they are, under the same name, so keep the script unchanged, check with render_model and submit. The app works out its joins and bridges again for the whole piece, so look at them near the region in the render. Region: the user's saved mark ("mark") when there is one, else a box picked on show_picture's grid. For a change across the whole drawing use generate_line_art with edit (or edit_picture without a region).
+` : ''}- generate_line_art's subject is content only (who or what, view, pose, recognisable features), never style words: the house style is the same for every design and every style of piece, so the user's designs look alike. On a bar (key holder, name sign, desk stand) the subject stands on it whole – a person head to feet, a vehicle down to its wheels – never cropped at the knees.
 - Quality is bold and simple, not detailed: the house style is clean line art like a laser-cut metal sign or a vinyl decal (heavier outline, few inner lines). When the user asks for it better, 'HQ', more realistic or less cartoonish, make it truer – the subject's real proportions, stance and signature features (headlights, grille shape, tank, wheels) – in that same bold style; never ask the image model for a technical illustration, fine detail, mechanical internals, shading or thin lines: at 1 mm lines they merge into blotches. Pass generate_line_art the planned width (and line_width), so it draws a line weight that prints.
 - Don't use H.layertone or H.lithophane in a line-art design: a design is one kind of picture print.
 - In your final message give the size (width × height × thickness), the style, the line width, how many bridges the app added and specks it dropped, and how to hang it: double-sided tape or Command strips on the flat back (the pegs of a key holder hold keys, so use strips rated for the weight). Never call yourself or the app Claude (if you name the app, it is prompt-to-part), and call filament painting LayerTone, never by another app's name.`;
@@ -74,10 +76,17 @@ function lineArtNote({ lineArtStyle, drawings, refs, pictureValues, images }: Tu
   return [`Line art mode is on (style: ${info.label} – ${info.desc}; if the user's message asks for another style, follow the message): make this a line-art cut-out with H.lineart (see the system prompt).`, attached, available, splitNote, sizeNote, endsNote].filter(Boolean).join(' ');
 }
 
+/** For edit_picture's notes: the line-art drawings, selected in the Edit drawing brush. */
+const PICTURE_WORDS: PictureWords = { noun: 'drawing', nouns: 'drawings', instead: 'a new generate_line_art drawing', editor: 'Edit drawing brush' };
+
 export const lineArt: PromptMode = {
   id: 'lineArt',
   picture: true,
   active: (m) => m.lineArt,
   system: (o) => (o.lineArt ? lineArtSection(o.lineArt.pictures) : ''),
-  turnNotes: (c) => [lineArtNote(c)],
+  turnNotes: (c) => [
+    lineArtNote(c),
+    // edit_picture's notes (the tool is there with the image model).
+    ...(c.images ? pictureEditNotes(Object.fromEntries(Object.keys(c.drawings).map((n) => [n, drawingFingerprint(c.drawings[n])])), c.pictureValues, c.req.pictureEdits, PICTURE_WORDS) : []),
+  ],
 };

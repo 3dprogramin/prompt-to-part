@@ -1,7 +1,7 @@
-// The chat's picture edits in AI artwork and LayerTone mode: edit_picture changes part of a drawing
-// or a LayerTone photo (the user's saved mark, or a box the model picks) with the image model and
-// keeps everything else exactly, under the same name; show_picture shows it with a grid to pick
-// that box from.
+// The chat's picture edits in AI artwork, LayerTone, lithophane and line art mode: edit_picture
+// changes part of a drawing or a stored photo (the user's saved mark, or a box the model picks) with
+// the image model and keeps everything else exactly, under the same name; show_picture shows it with
+// a grid to pick that box from.
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { encode as encodePng } from 'fast-png';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../../shared/layerto
 import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import type { Raster } from '../../shared/meshFormats';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
-import { drawingFingerprint } from '../../shared/lineart/strokes';
+import { drawingFingerprint, drawingPicture, LINEART_EDITS_KEY, parseLineArtEdits } from '../../shared/lineart';
 import { boxMark, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow } from '../../shared/pictureEdit/render';
 import { withSet } from '../../shared/pictureEdit/set';
@@ -43,8 +43,20 @@ function drawingOf(values: ToolContext['base'], name: string): SvgDrawing | null
 /** A picture as the tools see it: its shape (width / height), the fingerprint a mark on it is saved with, and how it prints, `heightPx` pixels high. */
 interface Picture { aspect: number; fp: string; render: (heightPx: number) => Raster }
 
-/** The design's picture `name` (own keys only): AI artwork's drawing with its hand edits, or a LayerTone photo; null when there is none. */
-function pictureOf(values: ToolContext['base'], name: string, mode: PictureTools['mode']): Picture | null {
+/**
+ * The design's picture `name` (own keys only): AI artwork's drawing with its hand edits, a stored
+ * photo, or a line-art drawing with its hand edits (drawn at `frame`'s size, or generate_line_art's
+ * without one); null when there is none.
+ */
+function pictureOf(values: ToolContext['base'], name: string, mode: PictureTools['mode'], frame?: PictureEditRequest['lineArt'] | null): Picture | null {
+  if (mode === 'lineart') {
+    const d = drawingOf(values, name);
+    if (!d) return null;
+    const own = parseLineArtEdits(values[LINEART_EDITS_KEY]);
+    const strokes = Object.hasOwn(own, name) && own[name].fp === drawingFingerprint(d) ? own[name].strokes : [];
+    const k = frame?.k ?? 80;
+    return { aspect: d.aspect, fp: drawingFingerprint(d), render: (h) => { const pic = drawingPicture(d, strokes, h, k, frame?.lineWidth ?? 1, frame?.k0 ?? k); return { width: pic.width, height: pic.height, data: pic.rgba }; } };
+  }
   if (mode !== 'artwork') {
     const all = parseLayerToneImages(values[LAYERTONE_IMAGES_KEY]);
     if (!Object.hasOwn(all, name)) return null;
@@ -95,40 +107,53 @@ function sideBySide(a: Raster, b: Raster): Raster {
 /**
  * What edit_picture and show_picture edit: AI artwork's drawings, LayerTone's photos (`built`:
  * how a photo's part is built now, which a marked edit needs; null when no part is built from it)
- * or a lithophane's photo (nothing to pin: each pixel is its own thickness).
+ * or a lithophane's photo (nothing to pin: each pixel is its own thickness), or line art's drawings
+ * (`frame`: where a drawing sits in the piece now, to draw its hand edits at their width; null when
+ * the model does not use it).
  */
-export type PictureTools = { mode: 'artwork' } | { mode: 'lithophane' } | { mode: 'layertone'; built: (picture: string) => Promise<PictureEditRequest['layerTone'] | null> };
+export type PictureTools = { mode: 'artwork' } | { mode: 'lithophane' } | { mode: 'layertone'; built: (picture: string) => Promise<PictureEditRequest['layerTone'] | null> }
+  | { mode: 'lineart'; frame: (picture: string) => Promise<PictureEditRequest['lineArt'] | null> };
 
 /** The tools' words for each kind of picture (artwork's as they always were). */
 const WORDS = {
   artwork: {
     noun: 'drawing',
+    editor: 'brush editor',
     name: 'The drawing\'s name, as used with H.svg',
     show: 'Show one of the design\'s drawings as it prints (the user\'s hand edits in), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
     edit: 'Change part of one of the design\'s drawings with the image model and keep everything else exactly as it is: swap a person or a face, change an object, fix a detail. The new drawing replaces the old one under the same name (in the drawing\'s own colours), so the script stays unchanged. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redrawn. Costs a few cents and takes ~20-60 s.',
   },
   layertone: {
     noun: 'picture',
+    editor: 'picture editor',
     name: 'The picture\'s name, as used with H.layertone',
     show: 'Show one of the design\'s LayerTone pictures as stored (greyscale), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
     edit: 'Change part of one of the design\'s LayerTone pictures with the image model and keep everything else exactly as it is: swap a person or a face, take something out, fix a detail. The new picture replaces the old one under the same name, so the script stays unchanged; with a region, automatic swap layers are kept as they were, so the print outside the region stays the same. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redone. Costs a few cents and takes ~20-60 s.',
   },
   lithophane: {
     noun: 'picture',
+    editor: 'picture editor',
     name: 'The picture\'s name, as used with H.lithophane',
     show: 'Show one of the design\'s lithophane pictures as stored (greyscale), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
     edit: 'Change part of one of the design\'s lithophane pictures with the image model and keep everything else exactly as it is: swap a person or a face, take something out, fix a detail. The new picture replaces the old one under the same name, so the script stays unchanged; with a region, the panel outside it stays exactly as it was. The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole picture is redone. Costs a few cents and takes ~20-60 s.',
   },
+  lineart: {
+    noun: 'drawing',
+    editor: 'Edit drawing brush',
+    name: 'The drawing\'s name, as used with H.lineart',
+    show: 'Show one of the design\'s line-art drawings as it prints (black on white, the user\'s hand edits in), with a light grid to pick a region for edit_picture: lines every 0.1 of its width and height from the top-left corner, thicker at 0.5. The user\'s saved mark, if there is one, is outlined in magenta.',
+    edit: 'Change part of one of the design\'s line-art drawings with the image model and keep everything else exactly as it is: swap a face or a rider, change an object, fix a detail. The new lines are traced and joined to the drawing under the same name, so the script stays unchanged; with a region, the drawing and the user\'s hand edits outside it stay exactly as they were (the hand edits inside it are part of the new lines). The region is the user\'s saved mark ("mark"), or a box you pick from show_picture\'s grid; without one the whole drawing is redrawn, as generate_line_art with edit does. Costs a few cents and takes ~20-60 s.',
+  },
 };
 
-/** edit_picture and show_picture, in AI artwork mode or (`kind`) LayerTone or lithophane mode; `edit` is the picture edit (replaceable in tests). */
+/** edit_picture and show_picture, in AI artwork mode or (`kind`) LayerTone, lithophane or line art mode; `edit` is the picture edit (replaceable in tests). */
 export function editPictureTools({ base, emit, drawImage }: ToolContext, images: AiImages, edit: typeof editPicture = editPicture, kind: PictureTools = { mode: 'artwork' }) {
   const mode = kind.mode, words = WORDS[mode], noun = words.noun;
   return [
     tool('show_picture', words.show, {
       picture: z.string().max(120).describe(words.name),
     }, async (a) => {
-      const pic = pictureOf(base, a.picture, mode);
+      const pic = pictureOf(base, a.picture, mode, kind.mode === 'lineart' && drawingOf(base, a.picture) ? await kind.frame(a.picture) : null);
       if (!pic) return fail(`There is no ${noun} "${a.picture}" in this design.`);
       const heightPx = Math.round(SHOW_LONG_SIDE / Math.max(pic.aspect, 1)), win = wholeWindow(pic);
       const shown = pic.render(heightPx);
@@ -140,7 +165,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       return {
         content: [
           { type: 'image', data: png, mimeType: 'image/png' },
-          { type: 'text', text: `${mode === 'artwork' ? 'Drawing' : 'Picture'} "${a.picture}" (${shown.width}×${shown.height} pixels, ${pic.aspect.toFixed(3)} times as wide as high). The grid lines are every 0.1 of the width and height from the top-left corner (0, 0) to the bottom-right (1, 1), thicker at 0.5. A region for edit_picture is a box [x0, y0, x1, y1] in these fractions from the top-left; give it a little room around what changes (the whole head for a face). ${mark ? 'The user\'s saved mark is outlined in magenta: region "mark" uses it.' : 'The user has no saved mark on it.'}` },
+          { type: 'text', text: `${noun === 'drawing' ? 'Drawing' : 'Picture'} "${a.picture}" (${shown.width}×${shown.height} pixels, ${pic.aspect.toFixed(3)} times as wide as high). The grid lines are every 0.1 of the width and height from the top-left corner (0, 0) to the bottom-right (1, 1), thicker at 0.5. A region for edit_picture is a box [x0, y0, x1, y1] in these fractions from the top-left; give it a little room around what changes (the whole head for a face). ${mark ? 'The user\'s saved mark is outlined in magenta: region "mark" uses it.' : 'The user has no saved mark on it.'}` },
         ],
       };
     }),
@@ -151,12 +176,14 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
         .describe('"mark" = the area the user selected in the brush editor; or [x0, y0, x1, y1], fractions 0..1 of the picture\'s width and height from its top-left corner (see show_picture); omit to change the whole picture'),
       use_attached_photos: z.boolean().optional().describe('Show the image model the photos the user attached to this message (the real person or thing for the part that changes)'),
     }, async (a) => {
-      const pic = pictureOf(base, a.picture, mode);
+      // A line-art drawing's hand edits are drawn in at the size the piece is built (the model run only for a drawing there is).
+      const frame = kind.mode === 'lineart' && drawingOf(base, a.picture) ? await kind.frame(a.picture) : null;
+      const pic = pictureOf(base, a.picture, mode, frame);
       if (!pic) return fail(`There is no ${noun} "${a.picture}" in this design.`);
       let mark: PictureMark | undefined;
       if (a.region === 'mark') {
         const saved = savedMark(base, a.picture, pic.fp);
-        if (!saved) return fail(`There is no saved mark on "${a.picture}": ask the user to select the area with Select (C) in the ${mode === 'artwork' ? 'brush' : 'picture'} editor, or give the region as a box from show_picture's grid.`);
+        if (!saved) return fail(`There is no saved mark on "${a.picture}": ask the user to select the area with Select (C) in the ${words.editor}, or give the region as a box from show_picture's grid.`);
         mark = saved;
       } else if (a.region) {
         const box = boxMark(a.region, pic.aspect);
@@ -176,7 +203,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       }
       emit({ type: 'step', step: { kind: 'status', text: `Changing "${a.picture}"…` } });
       try {
-        const r = await edit({ mode, picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos, ...(layerTone ? { layerTone } : {}) }, {
+        const r = await edit({ mode, picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos, ...(layerTone ? { layerTone } : {}), ...(frame ? { lineArt: frame } : {}) }, {
           image: drawImage, signal: images.signal, onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
         });
         // From now on every check and render uses the new picture; the app keeps the same values.
@@ -191,6 +218,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
           r.masked ? (r.outsideSame ? `Outside the region the ${noun} is unchanged.` : `Outside the region the ${noun} changed too.`) : 'The whole picture was redrawn.',
           ...(r.swapsKept ? [r.swapsKept.note] : []),
           ...(r.swapsNotKept ? [r.swapsNotKept.note] : []),
+          ...(r.lineArtJoins ? [r.lineArtJoins.note] : []),
           ...(r.offPalette ? [r.offPalette.note] : []),
           ...(r.simplified ? ['The new shapes were simplified harder to stay within the drawing\'s point limit.'] : []),
         ];

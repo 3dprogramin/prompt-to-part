@@ -20,7 +20,7 @@ import { artworkTools, pictureTools } from './tools/pictures';
 import { editPictureTools } from './tools/editPicture';
 import { editPicture } from './pictureEdit/index';
 import { layerToneBuild } from '../shared/pictureEdit/photo';
-import { lineArtTools } from './tools/lineArt';
+import { lineArtFrameOf, lineArtTools } from './tools/lineArt';
 import { meshyTools } from './tools/meshy';
 import { questionTools } from './tools/questions';
 import { designImageTools, type DesignImageOptions } from './tools/designImage';
@@ -164,6 +164,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       // ...and a lithophane's (its panel outside the mark is the same by itself).
       ...(!artwork && lithophane && pictures ? editPictureTools(ctx, pictures, editPicture, { mode: 'lithophane' }) : []),
       ...(lineArt ? lineArtTools(ctx, lineArt) : []),
+      // ...and line art's drawings, with the image model (a design is one kind of picture print: the tools have one name).
+      ...(lineArt?.pictures && !artwork && !((layerTone || lithophane) && pictures) ? editPictureTools(ctx, lineArt, editPicture, { mode: 'lineart', frame: lineArtFrameOf(ctx, lineArt.signal) }) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
       ...(designImage ? designImageTools(ctx, designImage) : []),
       ...(askFirst ? questionTools(ctx) : []),

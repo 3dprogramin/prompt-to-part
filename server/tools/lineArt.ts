@@ -9,8 +9,27 @@ import { drawingFingerprint, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS
 import { DRAWINGS_KEY, MAX_DRAWINGS, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import type { LineArtOptions, ToolContext } from './context';
 
+/**
+ * Where drawing `name` sits in the current model (model.js with the generation's values), if the
+ * model uses it: its scale (for drawing hand edits at their width) and the piece's line width,
+ * style and width.
+ */
+export function lineArtFrameOf({ readModel, v }: Pick<ToolContext, 'readModel' | 'v'>, signal?: AbortSignal) {
+  return async (name: string) => {
+    const code = await readModel();
+    if (!code) return null;
+    try {
+      const r = await geometry.evaluate(code, v(), 'draft', signal);
+      const la = r.ok ? r.parts.find((p) => p.lineArt?.frames.some((f) => f.name === name))?.lineArt : undefined;
+      const f = la?.frames.find((x) => x.name === name);
+      return f && la ? { k: f.k, k0: f.k0 ?? f.k, lineWidth: la.lineWidth, style: la.style, width: la.size[0] } : null;
+    } catch { return null; }
+  };
+}
+
 /** generate_line_art (when the image model can draw) and trace_line_art, for a line-art design. */
-export function lineArtTools({ base, emit, drawImage, readModel, v }: ToolContext, lineArt: LineArtOptions) {
+export function lineArtTools(ctx: ToolContext, lineArt: LineArtOptions) {
+  const { base, emit, drawImage } = ctx;
   // A traced line-art drawing: kept for every check and render from now on, and by the app with the design.
   const storeLineArt = (name: string, traced: { drawing: SvgDrawing; points: number }) => {
     if (traced.points > MAX_SVG_POINTS) throw new Error(`The drawing is too detailed to keep (${traced.points.toLocaleString('en')} points, at most ${MAX_SVG_POINTS.toLocaleString('en')}): ask for a simpler drawing with fewer, bolder lines.`);
@@ -20,16 +39,7 @@ export function lineArtTools({ base, emit, drawImage, readModel, v }: ToolContex
     emit({ type: 'drawing', name, drawing: traced.drawing });
   };
   // Where a drawing sits in the current model (its scale, for drawing hand edits at their width), if the model uses it.
-  const lineArtFrame = async (name: string) => {
-    const code = await readModel();
-    if (!code) return null;
-    try {
-      const r = await geometry.evaluate(code, v(), 'draft', lineArt.signal);
-      const la = r.ok ? r.parts.find((p) => p.lineArt?.frames.some((f) => f.name === name))?.lineArt : undefined;
-      const f = la?.frames.find((x) => x.name === name);
-      return f && la ? { k: f.k, k0: f.k0 ?? f.k, lineWidth: la.lineWidth } : null;
-    } catch { return null; }
-  };
+  const lineArtFrame = lineArtFrameOf(ctx, lineArt.signal);
   return [
     ...(lineArt?.pictures ? [tool('generate_line_art', `Have an image model (${imageModel()}) draw line art for H.lineart in the app's house style (bold, simplified black lines on white, like a laser-cut metal sign, that join into one piece, drawn with a line weight and detail for the piece's width), traced into a drawing. Use it when the user wants line art and attached no drawing: from a description, or from a photo of their own subject (a car, a bike, a person, a pet: use_attached_photos). Not for a picture that already is line art (trace_line_art) or an attached SVG (already a drawing: use H.lineart with it directly). Each call costs a few cents and takes ~10-20 s: describe the subject well and call again only if the drawing is wrong or not connected enough.`, {
       name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.lineart, e.g. "bike-and-car"; an existing name is replaced'),

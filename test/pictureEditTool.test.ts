@@ -11,7 +11,7 @@ import type { ToolContext } from '../server/tools/context';
 import type { editPicture } from '../server/pictureEdit/index';
 import type { AgentEvent, PictureEditRequest, PictureEditResponse } from '../shared/api';
 import { ARTWORK_EDITS_KEY } from '../shared/artworkEdits';
-import { drawingFingerprint } from '../shared/lineart/strokes';
+import { drawingFingerprint, LINEART_EDITS_KEY } from '../shared/lineart';
 import { boxMark, PICTURE_MARKS_KEY, type PictureMark } from '../shared/pictureEdit/mark';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing } from '../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, toBase64 } from '../shared/layertone';
@@ -307,6 +307,72 @@ test('edit_picture and show_picture in LayerTone mode: the photo greyscale with 
   // A mark made on another picture is not used.
   const [, stale] = tools(photoValues({ 'photo-1': { fp: 'an older picture', mark: face } }));
   assert.match((await stale({ picture: 'photo-1', change: 'a smiling face', region: 'mark' }, {})).content[0].text!, /picture editor/);
+});
+
+/** A line-art drawing: a 2:1 frame (one black shape), and a line drawn by hand down its right part. */
+const box = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+const frameArt: SvgDrawing = { name: 'frame', aspect: 2, shapes: [{ rule: 'EvenOdd', contours: [box(-1, -0.5, 1, 0.5), box(-0.9, -0.4, 0.9, 0.4)], color: '#000000' }] };
+const lineValues = (marks: unknown = { frame: { fp: drawingFingerprint(frameArt), mark: face } }): ParamValues => ({
+  [DRAWINGS_KEY]: JSON.stringify({ frame: frameArt }),
+  [LINEART_EDITS_KEY]: JSON.stringify({ frame: { fp: drawingFingerprint(frameArt), strokes: [{ mode: 'draw', width: 4, k: 100, points: [[0.6, -0.4], [0.6, 0.4]] }] } }),
+  ...(marks ? { [PICTURE_MARKS_KEY]: JSON.stringify(marks) } : {}),
+});
+const LINE_FRAME = { k: 100, k0: 100, lineWidth: 1, style: 'outline' as const, width: 200 };
+
+test('edit_picture and show_picture in line art mode: the drawing with its hand edits and a grid, an edit sent with where the drawing sits in the piece, the joins note said', async () => {
+  const names = (extra: Parameters<typeof cadTools>[4]) => Object.keys((cadTools('/nonexistent/model.js', () => {}, new Set(), {}, extra).server.instance as unknown as { _registeredTools: Record<string, unknown> })._registeredTools);
+  assert.ok(names({ lineArt: { references: [], style: 'outline', pictures: true } }).includes('edit_picture'));
+  assert.ok(names({ lineArt: { references: [], style: 'outline', pictures: true } }).includes('show_picture'));
+  // Without the image model, none.
+  assert.equal(names({ lineArt: { references: [], style: 'outline', pictures: false } }).includes('edit_picture'), false);
+
+  const events: AgentEvent[] = [];
+  const requests: PictureEditRequest[] = [];
+  const note = 'Joins and bridges are worked out again for the whole piece: check them near the mark.';
+  const set = { [DRAWINGS_KEY]: '{"frame":"new"}', [LINEART_EDITS_KEY]: '{"frame":"re-keyed"}', [PICTURE_MARKS_KEY]: null };
+  const edit = (async (r: PictureEditRequest) => {
+    requests.push(structuredClone(r));
+    return { set, before: png(plain(30, 20, 255)), after: png(plain(30, 20, 0)), masked: !!r.mark, outsideSame: !!r.mark, ...(r.mark ? { lineArtJoins: { note } } : {}), prompt: 'the prompt', model: 'test/image', cost: 0.04 };
+  }) as typeof editPicture;
+  const frames: string[] = [];
+  const tools = (base: ParamValues, answer: PictureEditRequest['lineArt'] | null = LINE_FRAME) => {
+    const ctx = { base, emit: (e: AgentEvent) => events.push(e), drawImage: (async () => { throw new Error('not asked'); }) as typeof requestImage } as unknown as ToolContext;
+    return editPictureTools(ctx, { references: [] }, edit, { mode: 'lineart', frame: async (p) => { frames.push(p); return answer; } }).map((t) => t.handler as unknown as Handler);
+  };
+
+  // show_picture: the drawing black on white with the hand-drawn line in, 1024 wide, the saved mark outlined.
+  const [show, editTool] = tools(lineValues());
+  const shown = await show({ picture: 'frame' }, {});
+  const pic = decodeImage(Buffer.from(shown.content[0].data!, 'base64'));
+  assert.deepEqual([pic.width, pic.height], [1024, 512]);
+  const at = (x: number, y: number) => pic.data[(Math.round(y) * pic.width + Math.round(x)) * 4];
+  assert.ok(at(1024 * 0.8, 512 * 0.35) < 60, 'the line drawn by hand is in (black)');
+  assert.ok(at(1024 * 0.25, 512 * 0.35) > 200, 'inside the frame: white');
+  assert.match(shown.content[1].text!, /^Drawing "frame"/);
+  assert.match(shown.content[1].text!, /outlined in magenta/);
+  assert.equal((await show({ picture: 'nope' }, {})).isError, true);
+
+  // A marked edit: line art mode and where the drawing sits go along; the model is told about the joins.
+  const r = await editTool({ picture: 'frame', change: 'a round window', region: 'mark' }, {});
+  assert.ok(!r.isError, r.content.map((c) => c.text).join());
+  assert.deepEqual(frames, ['frame', 'frame']);
+  assert.equal(requests[0].mode, 'lineart');
+  assert.deepEqual(requests[0].mark, face);
+  assert.deepEqual(requests[0].lineArt, LINE_FRAME);
+  const text = r.content.find((c) => c.type === 'text')!.text!;
+  assert.match(text, /Outside the region the drawing is unchanged\./);
+  assert.ok(text.includes(note));
+  const ev = events.find((e) => e.type === 'pictureEdited');
+  assert.deepEqual(ev, { type: 'pictureEdited', set, info: { picture: 'frame', change: 'a round window', masked: true, outsideSame: true, cost: 0.04 } });
+
+  // A model that does not use the drawing yet: no frame sent (the picture edit draws the hand edits at its defaults).
+  const [, unbuilt] = tools(lineValues(), null);
+  assert.ok(!(await unbuilt({ picture: 'frame', change: 'a winter scene' }, {})).isError);
+  assert.equal(requests.at(-1)!.lineArt, undefined);
+  assert.equal(requests.at(-1)!.mark, undefined);
+  // A mark made on another drawing is not used, and the fix is named.
+  const [, stale] = tools(lineValues({ frame: { fp: 'an older drawing', mark: face } }));
+  assert.match((await stale({ picture: 'frame', change: 'a round window', region: 'mark' }, {})).content[0].text!, /Edit drawing brush/);
 });
 
 // ---- The app's side

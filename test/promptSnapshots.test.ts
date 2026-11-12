@@ -76,6 +76,14 @@ const LITHOPHANE_FOLLOWUP: Partial<GenerateRequest> = {
   pictureEdits: [{ picture: 'photo-1', change: 'take out the lamp post', masked: true, version: 2 }],
 };
 const LINE_ART_CODE = 'const meta = { name: "fox" };\nfunction build(p) { return H.lineart("fox", { width: 200 }); }';
+/** A line-art follow-up: a drawing with a saved mark, a picture edit kept in the Edit drawing brush. */
+const LINE_FOX: SvgDrawing = { name: 'fox', aspect: 1, shapes: [{ rule: 'EvenOdd', contours: [[[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4]], [[-0.38, -0.38], [0.38, -0.38], [0.38, 0.38], [-0.38, 0.38]]], color: '#000000' }] };
+const LINE_ART_FOLLOWUP: Partial<GenerateRequest> = {
+  imageMode: 'lineart', prompt: 'give the fox my dog\'s face', code: LINE_ART_CODE,
+  drawings: { fox: LINE_FOX },
+  pictures: { [PICTURE_MARKS_KEY]: JSON.stringify({ fox: { fp: drawingFingerprint(LINE_FOX), mark: { strokes: [{ width: 0.2, points: [[0, 0.1]] }] } } }) },
+  pictureEdits: [{ picture: 'fox', change: 'a longer tail', masked: true, version: 2 }],
+};
 const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_API_KEY' | 'MESHY_API_KEY')[] }[] = [
   { name: 'plain-new', req: {} },
   { name: 'plain-web-askoff', req: { webSearch: true, askFirst: false } },
@@ -91,6 +99,7 @@ const cases: { name: string; req: Partial<GenerateRequest>; env?: ('OPENROUTER_A
   { name: 'lithophane-followup', req: LITHOPHANE_FOLLOWUP, env: ['OPENROUTER_API_KEY'] },
   { name: 'lineart', req: { imageMode: 'lineart', prompt: 'a motorbike key holder' }, env: ['OPENROUTER_API_KEY'] },
   { name: 'lineart-sticky', req: { imageMode: 'off', code: LINE_ART_CODE }, env: ['OPENROUTER_API_KEY'] },
+  { name: 'lineart-followup', req: LINE_ART_FOLLOWUP, env: ['OPENROUTER_API_KEY'] },
   { name: 'figure', req: { imageMode: 'figure', figureColor: true, prompt: 'a dragon' }, env: ['OPENROUTER_API_KEY', 'MESHY_API_KEY'] },
   { name: 'figure-nokey', req: { imageMode: 'figure', prompt: 'a dragon' } },
 ];
