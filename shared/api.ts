@@ -5,7 +5,7 @@ import type { AgentStep, ParamValues, PictureEditInfo } from './types';
 import type { DimensionSource } from './sources';
 import type { SvgDrawing } from './svgFeatures';
 import type { ScadFile } from './scad';
-import type { LayerToneImage, LayerToneSetup } from './layertone';
+import type { LayerToneFilament, LayerToneImage, LayerToneSetup, LayerToneSource } from './layertone';
 import type { PrintSettings } from './print';
 import type { ActivePrinter, Printer } from './printer';
 import type { ConceptEntry, MeshEntry } from './meshes';
@@ -280,7 +280,7 @@ export type PictureMode = 'artwork' | 'layertone' | 'lithophane' | 'lineart';
 /** POST /api/designs/:id/picture-edit: change part of a design's picture with the image model. */
 export interface PictureEditRequest {
   mode: PictureMode;
-  /** The picture's name (artwork: the drawing's name in $drawings). */
+  /** The picture's name (artwork: the drawing's name in $drawings; LayerTone: the picture's in $images). */
   picture: string;
   /** The design's values as they are now (they hold the picture and its hand edits). */
   values: ParamValues;
@@ -290,6 +290,12 @@ export interface PictureEditRequest {
   change: string;
   /** Photos of the real subject for the part changed, as data URLs (at most 4). */
   photos: string[];
+  /**
+   * LayerTone: how the picture's part was built, from the part as built (its `layerTone.options`,
+   * and from its `layerColors` the filaments and the layer each one after the first starts at).
+   * A marked LayerTone edit needs it: automatic swap layers are kept as they were.
+   */
+  layerTone?: { options: LayerToneSource['options']; filaments: LayerToneFilament[]; swaps?: number[] };
 }
 
 export interface PictureEditResponse {

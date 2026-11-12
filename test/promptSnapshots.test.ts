@@ -114,3 +114,19 @@ test('prompt for picture-edit-artwork', async () => {
   if (update) writeFileSync(file, actual);
   else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-artwork changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
 });
+
+test('prompt for picture-edit-layertone', async () => {
+  const { pictureEditPrompt } = await import('../server/pictureEdit/prompt');
+  const actual = [
+    '# marked, with a photo',
+    pictureEditPrompt({ mode: 'layertone', change: 'swap the man on the left for the man in the photo', masked: true, photos: 1 }),
+    '# the whole picture',
+    pictureEditPrompt({ mode: 'layertone', change: 'take out the lamp post', masked: false, photos: 0 }),
+    '# marked, padded, with two photos',
+    pictureEditPrompt({ mode: 'layertone', change: 'make her smile', masked: true, photos: 2, padded: true }),
+    '',
+  ].join('\n');
+  const file = path.join(FIXTURES, 'picture-edit-layertone.md');
+  if (update) writeFileSync(file, actual);
+  else assert.equal(actual, readFileSync(file, 'utf8'), 'prompt for picture-edit-layertone changed: run UPDATE_PROMPTS=1 pnpm test and review the diff');
+});
