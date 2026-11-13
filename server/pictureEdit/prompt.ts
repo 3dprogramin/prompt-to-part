@@ -11,7 +11,8 @@ import { LINE_ART_EDIT_RULES, LINE_ART_WIDTH, lineArtEditPrompt } from '../artwo
  * alone. `photos` of the real subject come after them. `colours`: the drawing's own (artwork).
  * `padded`: white bands were added to the picture to give it the aspect asked for.
  */
-export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number; padded?: boolean; style?: LineArtStyle; width?: number }): string {
+export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked: boolean; colours?: string[]; photos: number; padded?: boolean; style?: LineArtStyle; width?: number; strip?: { name: string }[] }): string {
+  if (r.mode === 'layertone' && r.strip) return stripPhotoPrompt({ ...r, strip: r.strip });
   if (r.mode === 'layertone' || r.mode === 'lithophane') return photoPrompt(r, r.mode === 'lithophane');
   if (r.mode === 'lineart') return lineArtPrompt(r);
   const colours = r.colours ?? [];
@@ -32,6 +33,31 @@ export function pictureEditPrompt(r: { mode: PictureMode; change: string; masked
     '- the same style as the rest of the picture: flat colour areas with hard, clean edges; no gradients, soft shading, textures, noise, halftone dots or hatching',
     '- every colour area large enough to print with a 0.4 mm nozzle: no specks, no hair-thin strands or lines',
     '- no text, signature or watermark',
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * The prompt for changing part of a LayerTone picture drawn for a filament stack: the picture is in
+ * the colours of the print's strip (the last attached picture), and so is the change.
+ */
+function stripPhotoPrompt(r: { change: string; masked: boolean; photos: number; padded?: boolean; strip: { name: string }[] }): string {
+  const where = r.masked ? ' inside the outlined area' : '';
+  const photos = r.photos === 1 ? 'The attached photo after them shows' : `The ${r.photos} attached photos after them show`;
+  return [
+    r.masked
+      ? 'Edit the first attached picture: it is part of a picture 3D printed as a LayerTone filament painting, painted only in the colours that print can show. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole picture, for context only.'
+      : 'Edit the first attached picture: it is a picture 3D printed as a LayerTone filament painting, painted only in the colours that print can show.',
+    `The last attached picture is the colour strip of that print (filaments ${r.strip.map((f) => f.name).join(', then ')}): every colour it can show, from its lowest layers (left) to its highest (right).`,
+    `Change only this${where}: ${r.change.trim()}`,
+    r.photos ? `${photos} the real person or subject for the part you change: keep their likeness.` : '',
+    r.masked
+      ? 'Keep everything else exactly as it is: the same picture size and framing, and every person, object, edge and colour outside the outlined area where it is; copy them, don\'t redraw them. Answer with the first picture changed, without the magenta outline.'
+      : 'Keep everything else exactly as it is: the same picture size and framing, the same people and things in the same places and poses, and every colour you are not asked to change; copy them, don\'t redraw them.',
+    r.padded ? `The plain white bands along two opposite edges of the ${r.masked ? 'first two pictures' : 'picture'} are only padding: leave them plain white, with nothing drawn in them.` : '',
+    'Rules for what you change:',
+    '- only colours from the strip, as the rest of the picture: every area in the strip colour it should print in, so it blends in with no visible seam',
+    '- the same light and detail as the rest of the picture',
+    '- no outline, border or frame around the change, and no text, signature or watermark; the strip itself does not appear in the answer',
   ].filter(Boolean).join('\n');
 }
 

@@ -4,7 +4,7 @@
 // (with the design, as it is made), and a kept edit, which makes a new version.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ParamValues } from '../../../shared/types';
-import { layerToneLuma, type LayerToneImage } from '../../../shared/layertone';
+import { layerToneLuma, stripColors, type LayerToneImage } from '../../../shared/layertone';
 import { MAX_ARTWORK_STROKES } from '../../../shared/artworkEdits';
 import { parsePictureMarks, PICTURE_MARKS_KEY, type MarkStroke, type PictureMark } from '../../../shared/pictureEdit/mark';
 import type { PictureEditUi } from '../../lib/pictureEdit';
@@ -69,15 +69,34 @@ export function PictureEditor({ image, fp, values, mmPerUnit, onMark, edit, onCl
   const [square, setSquare] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const touch = useMemo(() => window.matchMedia('(pointer: coarse)').matches, []);
-  // The picture as a bitmap, grey.
-  const picture = useMemo(() => {
+  // The picture as a bitmap: grey, or for a picture drawn for a filament stack its strip colours,
+  // replaced by its kept colour picture once that has loaded.
+  const stored = useMemo(() => {
     const luma = layerToneLuma(image), rgba = new Uint8ClampedArray(image.width * image.height * 4);
-    for (let p = 0; p < luma.length; p++) { rgba[p * 4] = rgba[p * 4 + 1] = rgba[p * 4 + 2] = luma[p]; rgba[p * 4 + 3] = 255; }
+    const strip = image.positions && image.stack ? stripColors(image.stack, { width: 100, maxHeight: image.stack.maxHeight, baseHeight: image.stack.baseHeight }) : null;
+    for (let p = 0; p < luma.length; p++) {
+      const c = strip ? strip[luma[p]] : [luma[p], luma[p], luma[p]];
+      rgba[p * 4] = c[0]; rgba[p * 4 + 1] = c[1]; rgba[p * 4 + 2] = c[2]; rgba[p * 4 + 3] = 255;
+    }
     const c = document.createElement('canvas');
     c.width = image.width; c.height = image.height;
     c.getContext('2d')!.putImageData(new ImageData(rgba, image.width, image.height), 0, 0);
     return c;
   }, [image]);
+  const [colour, setColour] = useState<{ url: string; canvas: HTMLCanvasElement } | null>(null);
+  useEffect(() => {
+    if (!image.colour) return;
+    const url = image.colour, el = new Image();
+    el.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = image.width; c.height = image.height;
+      c.getContext('2d')!.drawImage(el, 0, 0, image.width, image.height);
+      setColour({ url, canvas: c });
+    };
+    el.src = url;
+    return () => { el.onload = null; };
+  }, [image]);
+  const picture = colour && colour.url === image.colour ? colour.canvas : stored;
   const selLayer = useRef<HTMLCanvasElement | null>(null);
   const now = useRef({ width, square, selection, locked });
   now.current = { width, square, selection, locked };

@@ -15,7 +15,11 @@ import { colourStrokes, drawingFingerprint, drawingPicture, LINE_ART_STYLES, LIN
 import { markBounds, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pictureEdit/render';
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
-import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, toLayerToneImage } from '../../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, stripColors, toBase64, toLayerToneImage, toStripImage, type LayerToneImage, type LayerToneStack } from '../../shared/layertone';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { stripPng } from '../layerToneStrip';
+import { DESIGNS, ID_RE, storeDesignPicture } from '../routes/store';
 import { alignTo, chooseCrop, featherPaste, resizeTo, seamlessPaste, type AlignFailure } from './raster';
 import { cleanBuild, greyOf, greyRaster, sharedSwaps, SWAPS_NOT_KEPT_NOTE, swapsKeptNote, swapsToKeep } from './layerTone';
 import { combineDrawing, offPalette, traceCrop } from './artwork';
@@ -517,6 +521,8 @@ async function editArtwork(r: PictureEditRequest, deps: Deps): Promise<PictureEd
  */
 async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEditResponse> {
   const img = parseLayerToneImages(r.values[LAYERTONE_IMAGES_KEY])[r.picture];
+  // Drawn for a filament stack: edited in its strip colours.
+  if (r.mode === 'layertone' && img.positions && img.stack) return editStripPhoto(r, deps, { ...img, stack: img.stack });
   const photos = r.photos ?? [], mark = cleanMark(r.mark);
   const ask = asker(r, deps, !!mark), log = logger(r, deps, !!mark);
   const W = img.width, H = img.height, aspect = W / H, full = greyRaster(img);
@@ -581,6 +587,101 @@ async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEdit
     ...(notKept ? { swapsNotKept: { note: SWAPS_NOT_KEPT_NOTE } } : {}),
     prompt: asked.prompt, model: asked.model, cost: asked.cost,
   };
+}
+
+/**
+ * An edit of a LayerTone picture drawn for a filament stack (stored by strip position): the kept
+ * colour picture (or, without it, one painted from the strip) is edited like a photo, with the
+ * stack's strip attached so the change is painted in the colours the print shows; the result is
+ * snapped back to strip positions, and with a mark only the marked pixels change (outside it the
+ * stored bytes stay). The new colour picture is kept with the design. The stack's swaps are fixed
+ * already and are not touched.
+ */
+async function editStripPhoto(r: PictureEditRequest, deps: Deps, img: LayerToneImage & { stack: LayerToneStack }): Promise<PictureEditResponse> {
+  const stack = img.stack, o = { width: 100, maxHeight: stack.maxHeight, baseHeight: stack.baseHeight };
+  const photos = r.photos ?? [], mark = cleanMark(r.mark), log = logger(r, deps, !!mark);
+  // The user's photos, then the strip: the last attached picture.
+  const extra = [...photos, stripPng(stack, o).dataUrl];
+  const ask: Ask = async (aspect, references, padded) => {
+    const prompt = pictureEditPrompt({ mode: 'layertone', change: r.change, masked: !!mark, photos: photos.length, padded, strip: stack.filaments });
+    deps.onStatus?.(`Changing "${r.picture}" with ${imageModel()}…`);
+    const out = await deps.image(prompt, aspect, references, deps.signal, deps.onStatus, PICTURE_EDIT_SIZE);
+    if (deps.signal?.aborted) throw new Error('Stopped');
+    return { ...out, prompt, answer: decodeImage(Buffer.from(out.image.data, 'base64')) };
+  };
+  const W = img.width, H = img.height, aspect = W / H;
+  const full = (await keptColour(img, W, H)) ?? stripRaster(img);
+  const wholeHeight = Math.round(SENT_LONG_SIDE / Math.max(aspect, 1));
+  const whole = resizeTo(full, Math.max(1, Math.round(wholeHeight * aspect)), wholeHeight);
+
+  let before: string, after: string, shown: PictureWindow, pasted: Raster, asked: Asked;
+  let align: PictureEditResponse['align'], fullMask: Uint8Array | null = null;
+  if (mark) {
+    fullMask = markMask(mark, { w: W, h: H, px: 1 / H, x0: -aspect / 2, y1: 0.5 });
+    const b = markBounds(mark)!;
+    const c = chooseCrop({ x: (b.min[0] + aspect / 2) * H, y: (0.5 - b.max[1]) * H, w: (b.max[0] - b.min[0]) * H, h: (b.max[1] - b.min[1]) * H }, { width: W, height: H }, ASPECTS, CONTEXT_MARGIN);
+    const win = { x0: -aspect / 2 + c.x / H, y1: 0.5 - c.y / H, w: c.w / H, h: c.h / H };
+    const crop = cut(full, c.x, c.y, c.w, c.h);
+    const k = SENT_LONG_SIDE / Math.max(c.w, c.h), sw = Math.max(1, Math.round(c.w * k)), sh = Math.max(1, Math.round(c.h * k));
+    const sent = resizeTo(crop, sw, sh);
+    const inMark = markMask(mark, { w: sw, h: sh, px: win.h / sh, x0: win.x0, y1: win.y1 });
+    const res = await askInMark(sent, inMark, c.aspect, whole, extra, ask, log, true);
+    ({ asked, align } = res);
+    // In colour this time: the snap to the strip works on the colours.
+    const back = resizeTo(res.lined, c.w, c.h), edited = new Uint8Array(full.data);
+    for (let j = 0; j < c.h; j++) edited.set(back.data.subarray(j * c.w * 4, (j + 1) * c.w * 4), ((c.y + j) * W + c.x) * 4);
+    pasted = seamlessPaste(full, { width: W, height: H, data: edited }, fullMask, photoFeatherPx(W, H), photoFadePx(W, H));
+    before = pngUrl(crop);
+    after = pngUrl(cut(pasted, c.x, c.y, c.w, c.h));
+    shown = win;
+  } else {
+    const res = await askWhole(whole, extra, ask, log);
+    asked = res.asked;
+    pasted = resizeTo(res.pasted, W, H);
+    before = pngUrl(full);
+    after = pngUrl(pasted);
+    shown = wholeWindow({ aspect });
+  }
+
+  // Back to strip positions; with a mark, only its pixels take the new ones.
+  const fresh = layerToneLuma(toStripImage(r.picture, W, H, pasted.data, stack, o));
+  const was = layerToneLuma(img);
+  const bytes = fullMask ? Uint8Array.from(was, (v, p) => (fullMask![p] ? fresh[p] : v)) : fresh;
+  const designId = deps.id && ID_RE.test(deps.id) ? deps.id : COLOUR_OWNER.exec(img.colour ?? '')?.[1];
+  const colour = designId ? await storeDesignPicture(designId, encodePng({ width: W, height: H, data: pasted.data, channels: 4 })) : undefined;
+  const next: LayerToneImage = { name: r.picture, width: W, height: H, luma: toBase64(bytes), positions: true, stack, ...(colour ? { colour } : {}) };
+  const outsideSame = !fullMask || was.every((v, p) => fullMask![p] === 1 || bytes[p] === v);
+  const set: Record<string, string | null> = {};
+  set[LAYERTONE_IMAGES_KEY] = withEntry(r.values[LAYERTONE_IMAGES_KEY], r.picture, next);
+  set[PICTURE_MARKS_KEY] = marksWithout(r.values, r.picture);
+  return {
+    set, before, after, window: shown, masked: !!mark, outsideSame,
+    ...(align ? { align } : {}),
+    prompt: asked.prompt, model: asked.model, cost: asked.cost,
+  };
+}
+
+/** The design a kept colour picture belongs to, from its address. */
+const COLOUR_OWNER = /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/images\/[0-9a-f]{32}\.png$/;
+
+/** The kept colour picture of a strip picture at `w` × `h`, or null when it is gone or unreadable. */
+async function keptColour(img: LayerToneImage, w: number, h: number): Promise<Raster | null> {
+  const m = /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/images\/([0-9a-f]{32}\.png)$/.exec(img.colour ?? '');
+  if (!m) return null;
+  try {
+    const pic = decodeImage(await readFile(path.join(DESIGNS, m[1], m[2])));
+    return pic.width === w && pic.height === h ? pic : resizeTo(pic, w, h);
+  } catch {
+    return null;
+  }
+}
+
+/** A strip picture painted in its strip colours (when its colour picture is gone). */
+function stripRaster(img: LayerToneImage & { stack: LayerToneStack }): Raster {
+  const strip = stripColors(img.stack, { width: 100, maxHeight: img.stack.maxHeight, baseHeight: img.stack.baseHeight });
+  const pos = layerToneLuma(img), data = new Uint8Array(img.width * img.height * 4);
+  for (let p = 0; p < pos.length; p++) data.set([...strip[pos[p]], 255], p * 4);
+  return { width: img.width, height: img.height, data };
 }
 
 /** The line-art hand edits of drawing `name` in the values, made on it as it is now (own keys only); none else. */
