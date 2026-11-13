@@ -113,7 +113,7 @@ export default function App() {
       // A design kept in memory only because it wasn't saved yet can go now.
       if (saved.id !== currentId.current && !runningRef.current[saved.id] && background.current.get(saved.id) === saved) background.current.delete(saved.id);
     },
-    onAdopted: () => setNotice({ text: 'This design was changed in another tab or window – showing the newest version.', level: 'info', details: false }),
+    onAdopted: () => setNotice({ text: 'This design was changed in another tab or window, so the newest version is shown.', level: 'info', details: false }),
     // A background copy older than the server's would be reopened as if it were current.
     onConflict: (fresh) => { if (background.current.has(fresh.id)) background.current.set(fresh.id, fresh); },
     onGone: (id) => forgetDesign(id),

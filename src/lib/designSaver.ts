@@ -42,6 +42,9 @@ export function createDesignSaver(deps: SaverDeps) {
   // The newest server revision this tab knows per design (a loaded copy may carry a newer one).
   const revs = new Map<string, number>();
   const queues = new Map<string, Promise<void>>();
+  // Bumped per design when a save conflict adopts the server's copy: saves queued before it hold the
+  // stale copy and are skipped.
+  const epochs = new Map<string, number>();
 
   const setErrors = (next: Record<string, string>) => {
     errors = next;
@@ -77,7 +80,9 @@ export function createDesignSaver(deps: SaverDeps) {
         if (fresh) {
           // An autosave still waiting holds the stale copy: with the new revision it would save over
           // the other device's change.
+          // The same goes for a save already queued behind this one.
           cancelPending(d.id);
+          epochs.set(d.id, (epochs.get(d.id) ?? 0) + 1);
           revs.set(d.id, fresh.rev ?? 0);
           clearSaveError(d.id);
           deps.onConflict(fresh);
@@ -96,7 +101,12 @@ export function createDesignSaver(deps: SaverDeps) {
 
   /** Save now, after any save of the same design still under way (each builds on the last one's revision). */
   const saveNow = (d: Design, keepalive = false): Promise<void> => {
-    const run = (queues.get(d.id) ?? Promise.resolve()).catch(() => {}).then(() => saveOnce(d, undefined, keepalive));
+    const epoch = epochs.get(d.id) ?? 0;
+    const run = (queues.get(d.id) ?? Promise.resolve()).catch(() => {}).then(() => {
+      // A conflict while this waited replaced the copy it holds: saving it would undo the newer one.
+      if ((epochs.get(d.id) ?? 0) !== epoch) return;
+      return saveOnce(d, undefined, keepalive);
+    });
     queues.set(d.id, run);
     run.finally(() => { if (queues.get(d.id) === run) queues.delete(d.id); }).catch(() => {});
     return run;

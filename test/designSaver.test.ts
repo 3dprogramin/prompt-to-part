@@ -95,6 +95,21 @@ test('a running generation keeps its own copy on conflict', async () => {
   assert.equal(conflicts.length, 0);
 });
 
+test('a save already queued when a conflict arrives is skipped', async () => {
+  const { server, conflicts, errors, saver } = setup();
+  server.store.set('a', { ...design('a', 'theirs'), rev: 2 });
+  const conflicting = saver.saveNow(design('a', 'local', 1));
+  const queued = saver.saveNow(design('a', 'local edited', 1));
+  await Promise.all([conflicting, queued]);
+  assert.equal(server.store.get('a')!.name, 'theirs');
+  assert.equal(server.saves.length, 0);
+  assert.deepEqual(conflicts.map((d) => d.name), ['theirs']);
+  assert.deepEqual(errors(), {});
+  // Changes made after the conflict (on the fresh copy) still save.
+  await saver.saveNow(design('a', 'after', 2));
+  assert.equal(server.store.get('a')!.name, 'after');
+});
+
 test('a deleted design (410) stops saving and calls onGone', async () => {
   const { server, goneIds, saver } = setup();
   server.gone.add('a');
