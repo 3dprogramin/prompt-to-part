@@ -1,0 +1,606 @@
+# Changelog
+
+What changed in each minor version of prompt-to-part. Built from the commit messages with [git-cliff](https://git-cliff.org).
+
+## [0.2.0] - 2026-11-13
+
+### Features
+
+- **chat:** Show each reply's API cost and stop at once on a refused key
+- **cost:** Costs in USD by default, any currency and country from .env
+- **chat:** Render markdown tables and headings in replies
+- **ui:** Load Inter, one focus ring, eased hovers, short dates in lists
+- **printer:** Printer model and current-printer holder
+- **printer:** Read Bambu printers and user presets from Bambu Studio
+- **printer:** Saved printer setting and /api/printer
+- **bambu:** Build and cache the Bambu Studio template per printer
+- **printer:** The app, viewer, workers and cost follow the chosen printer
+- **printer:** Checks and AI instructions follow the chosen printer
+- **printer:** The filament count sets the colour limits
+- **ui:** Ask for the printer on first start, change it in the Print tab
+- **prompt:** Picture modes skip the 3D object rules
+- **stability:** Centre of mass, base footprint and margin math
+- **stability:** Scripts can declare the load a design holds
+- **stability:** The geometry worker checks each pose for tipping
+- **stability:** Submit refuses a design that tips over
+- **ui:** New Jig logo, the J built from printed layers
+- **stability:** The Code tab lists the tipping check
+- **ui:** The picture mode sits after the model, the toggles move into one options menu
+- **ui:** Real examples for each picture mode
+- **ui:** The mode menu shows examples, with a closer look on click
+- **auth:** [**breaking**] Claude runs on API keys only, an old JIG_AUTH=subscription is refused
+- **ui:** The connection chip shows API providers only, no plan usage
+- **agent:** Ask first always asks whether bolts, screws and nuts are printed or metal hardware when a design needs them
+- **server:** Optional JIG_PASSWORD (HTTP Basic auth on every page and API call, any user name; the healthcheck's new /api/health is exempt) with a startup warning when Jig is reachable without one, and caps on concurrent work: JIG_MAX_GENERATIONS replies at once (default 4), one slice and one .blend export running plus one waiting, the rest told to try again (429)
+- **ideas:** Starter ideas in every mode, and parsing Jig's new ones
+- **ideas:** POST /api/ideas asks Jig for four new ideas in the modes this setup can do
+- **ui:** Mixed-mode starters with their mode, and "Give me 4 new ideas" under them
+- **brand:** Prompt-to-part logo, the prompt sign and a cursor that is already a printed part
+- **models:** With an OpenRouter key the model menu offers OpenRouter's models (top picks, search, show more) and replies cost what OpenRouter charges
+- **models:** A model that takes no pictures gets a note in place of each one (renders, photos, drawings) instead of a failed request, and the menu marks it
+- **chat:** Spin the thinking timer's icon while the thinking runs
+- **chat:** Fable 5.2 in the model menu
+- **auth:** Claude subscription mode for your own use (PTP_AUTH=subscription)
+- **chat:** Fable 5.2 as the starting model, named with its version in the menu
+- **chat:** Generate_image in 3D model mode, a Gemini picture to model from (the chat's photos and the current model as references)
+- **chat:** Image tool switch in the options menu, on by default, turns generate_image off
+- **artwork:** Paint and erase strokes on a drawing's colours, applied in its shapes (paint clipped to the picture's box, erase cuts only its colour)
+- **artwork:** Builds draw the artwork with its hand edits, report the drawings H.svg used, and the AI is told about the edits
+- **artwork:** The artwork editor, paint (P) and erase (E) one of the drawing's colours, flat and straight on, saved on Done in the drawing's own units
+- **viewer:** A brush button at the bottom right of the 3D view opens Edit drawing (line art) or the artwork editor; the Print tab's Edit drawing button goes
+- **artwork:** The artwork editor shows the model as built, seen from the top, so it matches the print (the traced picture only when the layout can't be matched)
+- **editors:** Restore points: every visit to Edit drawing or the artwork brush is saved with the design, and History goes back to before any of them
+- **export:** GLB for a shop's 3D view: every part in its colours (painted figures and LayerTone too), real size in metres, flat pieces upright as on a wall, and a note when the file is heavy for phones
+- **export:** A LayerTone picture or flat lithophane GLB is a coarse relief with the picture as a texture and its fine steps as a normal map, about 1.6 MB instead of 57 MB, so it loads on a phone
+- **pictures:** A picture mark (brushed area) shared by the editors and the picture edit
+- **artwork:** A hand edit can stop at an area (cut), for picture edits that replace it
+- **pictures:** Render a drawing with its hand edits in its own colours, any window at any size
+- **pictures:** Crop around a mark, line the image model's answer up, paste only the mark
+- **artwork:** A picture edit's result traced in the drawing's own colours and combined so nothing outside the mark changes
+- **pictures:** Edit a picture through the image model, only inside the mark (artwork)
+- **versions:** A picture edit's version says whether it lines up with the one it came from
+- **artwork:** Edit this picture in the artwork brush: mark, attach a photo, say the change
+- **chat:** Edit_picture: the chat changes part of a picture instead of redrawing it
+- **scripts:** Swap-frames renders versions front-on for a swap video and picks fade or slide
+- **printed:** Marks store and version fingerprint
+- **printed:** Mark, download and unmark a printed version; saves and deletes keep it
+- **printed:** Backups keep printed marks and their 3MFs
+- **printed:** Printed filter rows and bulk delete keeps printed designs
+- **printed:** A printed version's code and settings can't change in the page
+- **printed:** Mark a version as printed from the version menu, locked banner, Printed filter
+- **layertone:** Edit a LayerTone photo's picture, outside the mark byte for byte the same
+- **layertone:** A marked picture edit keeps automatic swap layers, so the print outside the mark keeps its heights
+- **layertone:** Edit the picture opens a picture editor for LayerTone photos: select, edit, keep as a version that lines up
+- **layertone:** Edit_picture and show_picture in the chat for LayerTone photos, swaps kept as built
+- **lithophane:** Edit this picture for lithophanes
+- **lineart:** Edit this picture for line art, hand edits outside the mark kept
+- **lineart:** Edit this picture in the Edit drawing brush: Select marks the area, Keep makes a version that lines up
+- **lineart:** Edit_picture and show_picture in the chat for line-art drawings
+- **meshy:** Several photos of one subject go to Meshy together (multi-image to 3D)
+- **pictures:** Generate_image can draw a four-view sheet to model a figure from
+
+### Fixes
+
+- **viewer:** Dimension labels slide along their own line instead of piling up
+- **printer:** Saved Bambu Studio presets, backup restore, sale-size slices, split cache, two-nozzle export, stale checks
+- **prompt:** Mode sections no longer split the dimensions section
+- **prompt:** Keep the no-unasked-text and phone rules in picture modes
+- **stability:** The tipping strip follows the code shown and resets per report
+- **stability:** User print settings, pose checks, round bottoms and clearer messages
+- **ui:** Options menu rows stack their name and line
+- **ui:** Smoke test, web search hint and example panel follow the new chat box
+- **stability:** An explanation covers tipping, not a pose that never ran
+- **agent:** Ask first never asks how a joint holds its position: Jig picks the mechanism itself and combines a thumbscrew clamp with detent teeth where it helps; it may still ask which adjustments and whether metal bolts are fine
+- **deps:** Npm audit fix (body-parser 2.4.0, fast-uri 3.1.9)
+- **mesh:** Untrusted mesh files are checked before allocating (glTF accessor counts and offsets, a vertex cap on growing buffers, 3MF zip size and entry caps, cycles and fan-out in glTF nodes and 3MF components, non-negative integer 3MF indices, single-quoted 3MF attributes, broken GLB JSON and too-large text refused as bad files) and PNG textures are sized from their header before decoding
+- **export:** 3MF text drops the control characters XML forbids, so Bambu Studio and OrcaSlicer still open files whose names hold them
+- **ui:** Opening a design that loads slowly no longer replaces one opened after it, and the design in the URL replaces only the untouched blank one Jig starts with
+- **ui:** Attachments in the chat box belong to their design: another design starts with none, and a file still uploading or reading when the design changes is dropped
+- **ui:** A filament or dimension source with a bad web address (like "https://") shows as plain text instead of throwing and blanking Jig
+- **ui:** An error while drawing Jig shows a "Something went wrong in Jig" panel with the message and a Reload button, not a blank page
+- **ui:** Dictation lets go of the microphone, audio and connection when the audio worklet fails to start, so the recording indicator goes off
+- **server:** An OpenSCAD worker that fails to start or to take its job rejects once instead of crashing the server (an 'error' listener, the timer cleared, settled once)
+- **server:** Backup import refuses a zip whose entries add up to far more than its size (1 GiB plus 100 times the zip) or than the disk has free, before writing anything
+- **docker:** A memory limit (JIG_MEM_LIMIT, default 8g), a pids limit of 512 and a 2 GB /tmp for the container
+- **server:** Finished replies kept for catching up share a 256 MB byte budget, the first finished forgotten first (renders are base64 pictures, so kept replies could pile up for 30 minutes with no cap)
+- **server:** A startup sweep removes a crash's leftovers from the data folder (backup uploads and temp files over an hour old, workspaces of designs never saved untouched for a day), by their exact name patterns only
+- **server:** The design list keeps each design's summary by its file's time and size, so a list call reads and parses only the design files changed since (saves and deletes drop their entry)
+- **server:** A backup's images and mesh files must match the content hash they are named by; a design with a file that doesn't is skipped, nothing of it written
+- **server:** A Meshy download is read as it comes and refused once it passes the 100 MB limit, instead of buffered whole first
+- **server:** Jig may Read the attached OpenSCAD files in the workspace's scad/ folder (only Read, only .scad files directly in it), as the request tells it to for a long one
+- **server:** A geometry worker killed by running out of JavaScript heap (V8 aborts it: SIGABRT or exit code 134) counts as out of memory, so the script isn't run a second time
+- **server:** Geometry jobs and OpenSCAD runs take an abort signal: a stopped job waiting in the queue is dropped, a running one kills its worker (the next job starts a fresh one), other jobs go on
+- **server:** Stop ends a reply before Claude starts too (between the render of the current model, OpenSCAD for attached files and the rest), and the CAD tools pass the reply's abort signal to their geometry jobs and OpenSCAD
+- **mesh:** Busy vertices no longer make import quadratic (duplicate, back-to-back and shared-edge checks hash each vertex's triangles and edges instead of comparing them pairwise, with the same results), so a 200,000-triangle fan round one vertex repairs in about 2 s instead of hours
+- **mesh:** A tiny thin import (a 3 mm tag 0.04 mm thick) keeps its shells instead of coming out empty: the loose-fragment floor is at most half the biggest shell
+- **viewer:** Closing the view frees all of its GPU memory (grid, plate, dimensions, notes, measurements, issues, repaint highlights, brush ring, lights and the photo environment map) and lets the WebGL context go
+- **ui:** The new ideas link drops a class that has no styles
+- **ideas:** Timeout reads as Jig taking too long, repeats are never new, plain 502 message, more 3D starters, fox fits the bed
+- **ui:** A starter replaces the prompt text unless the user typed their own; status role on the ideas error; api doc comments
+- **docker:** The rebuild's busy check lists the PID too, which docker top needs (without it the check always said idle)
+- **ui:** The Work done panel ends with how the reply ended (Stopped., an error), as the chat does
+- **meshes:** Import very heavy meshes (3.5 million triangles from Meshy) instead of running out of memory
+- **artwork:** The client sends the artwork hand edits with a request, so the AI's builds see them
+- **viewer:** The brush button waits for a reply to finish, and its menu closes on a click outside or Escape
+- **artwork:** Artwork edits get a version label, long strokes are split, line art reads the drawings as attached
+- **editors:** A manual code edit's version leaves the restore points out, and line art's History covers only the piece's own drawings and says when built edits go on Done
+- **export:** GLB normals are always unit length (zero-area slivers got none), and LayerTone reliefs and lithophanes keep their shared corners without normals, at a fraction of the size
+- **test:** The Meshy credits smoke test picks Opus, since the Fable 5.2 chip is long enough to hide the badge at the chat's 440 px width
+- **test:** The Edit drawing smoke tests open the editor from the brush button in the 3D view, where the Print tab's button went
+- **pictures:** The picture mark's mask fills its convex pieces directly, so a heavy mark takes about 0.25 s instead of 6 s; an empty box gives no strokes
+- **artwork:** A stroke's cut needs Manifold and stays inside the mark: shrunk before it is simplified, whole pieces with their holes, no empty cut
+- **artwork:** A stroke's cut may have as many points as a stroke (2000), so a mark of separate pieces is cut more fully
+- **pictures:** An alignment says why it fails: too little outside, moved past the range, a different picture, or the mark leaving the answer
+- **artwork:** White the design has no filament for counts as off the palette; snap only clear of the cut; outsideSame renders only what changed
+- **pictures:** A picture edit counts as work on the design (replies and deletes wait), prototype names refused, crops padded to the aspect asked for
+- **pictures:** The padding of a crop is neither mark nor outside when the answer is lined up
+- **versions:** A picture edit's parent is named only when it is a real version
+- **artwork:** Marks never hold back a build of mark-less values, Try again after an error sends the brush as it is now, the mark's edge on before / after
+- **chat:** A chat picture edit is labelled from the chat, a later submit in the reply records no stale edit
+- **pictures:** AlignTo searches the x and y scale apart, so an answer stretched on one axis lines up at the mark's edges
+- **pictures:** An answer that kept the magenta guide outline fails instead of being pasted
+- **pictures:** One log line of alignment numbers per edit, and the numbers in the response as align
+- **pictures:** The server clears busy markers of picture edits that no longer run when it starts
+- **pictures:** A mark with over 20,000 points or a stroke wider than twice the picture is refused
+- **scripts:** Swap-frames deletes its temporary design on Ctrl+C or a kill, warns when a delete fails, and copies a version without its picture edit mark
+- **printed:** The delete check waits for marks being written
+- **printed:** Banner stays with notices and can unmark, Make 3MF says why it can't run, nothing changes while marking
+- **printed:** Making the 3MF again keeps the date it was marked
+- **printed:** Layout stays usable, other tabs lock at once, a stale change is put back, the mark's 3MF has print settings
+- **printed:** Banner on one row in the top stack, locked size boxes look off
+- **pictures:** An edit being kept as its version is marked printed is not kept
+- **scripts:** Swap-frames fades between versions that line up through a chain of picture edits
+- **layertone:** The swap layers kept note says layer for a single one
+- **layertone:** Edit the picture only with the image model and for the panel's picture; shared swaps of two pictures are not kept; draft build for the chat
+- **pictures:** A line-art design with the menu on AI artwork gets the line-art edit_picture, so hand edits keep applying
+- **lineart:** The line-art prompt's old bullet now covers the whole drawing; part of one goes to edit_picture (updates the three line-art prompt fixtures on purpose)
+- **pictures:** Swap layers not kept are a warning, the line-art chat edit draws for the menu's style, the masked line-art prompt says a crop
+- **lineart:** A selection that reaches no drawing is not a whole-drawing edit: Edit waits and says so
+- **pictures:** A photo edit is re-toned to meet the original along the mark's edge (seamless paste), so no seam shows
+- **pictures:** A photo edit is pasted grey, its seamless fade is a smoothstep held to half the mark's depth
+- **export:** The 3MF worker builds for the selected printer, not always the A1
+- **saving:** A save conflict cancels the pending autosave and refreshes the background copy
+- **saving:** A save queued before a conflict is skipped, so the stale copy never reaches the server
+- **app:** Photos, size slices and checks land in the design they were started on
+- **app:** Opening a design waits for a photo or slice still being saved into it
+- **pictures:** A marked line-art edit keeps the paint and fills under the mark
+- **server:** Anti-framing headers, one cap for AI calls, pixel cap on decode, blend input checks
+- **app:** A photo or slice refused by a newer copy is re-applied to it, a stale background copy is dropped
+- **app:** The Image tool option shows only in 3D model mode, the only mode it acts in
+
+### Performance
+
+- **artwork:** Hand edits add little to a build, and colours no stroke reaches keep their polygons
+
+### Refactoring
+
+- **prompt:** BuildSystemPrompt takes an options object
+- **prompt:** One function decides the design's mode
+- **prompt:** Each mode keeps its prompt and notes in one module
+- **copy:** Rename Jig to prompt-to-part, with no persona in what users see
+- Rename the internal Jig names to PTP and prompt-to-part
+- **pictures:** One view hook (zoom, pan, pinch, strokes, keys) for the artwork brush and the photo editor
+- **lineart:** A whole-drawing edit in one function, used by generate_line_art's edit
+
+### Docs
+
+- Add CONTRIBUTING.md
+- **readme:** New top with a quick start and measured costs
+- Add SECURITY.md and issue forms
+- Recommend Docker for everyday use and say why
+- **readme:** Demo GIF at the top
+- **readme:** New pitch line, Describe it. Print it.
+- **readme:** Say up front that every design is checked, and what the checks are
+- **printer:** Printer choice design and plan
+- **printer:** Docker mount for your own Bambu Studio printers
+- **readme:** Placeholder for the launch videos
+- Jig runs Claude on API keys only
+- No Claude account left in the docs and comments
+- Plan for mixed-mode starters and new ideas
+- Use pnpm in the docs, messages and comments
+- **readme:** Docker comes before running without it, which is for development
+- **readme:** The Docker section is the reference after the Quick start, without repeating its setup; both update with scripts/rebuild.sh
+- **readme:** The launch video note is in the vault's 06-PROMPT-TO-PART folder now
+- A short README (what it makes, quick start, cost, built by, a docs index) with the details in docs/, and a CI badge
+- **readme:** Check before you print, an AI builds the designs and can get sizes wrong
+- **readme:** How often a design has a mistake depends mostly on the model
+- A page on the modes, what each makes, what it needs and what it costs
+- **readme:** The cost and suggested selling price in what it makes
+- **readme:** The logo above the title, in the light or dark version to match GitHub's theme
+- **readme:** A new demo GIF with the prompt-to-part name and logo
+- **license:** Move the licence details from the README to NOTICE.md
+- **readme:** List what the AI can and can't do, and that exports are browser downloads
+- **readme:** A new demo GIF with an articulated stand, its three views, assembly and slicing
+- **readme:** A shorter demo GIF, with less typing and a faster design run
+- **readme:** A clearer caption for the print layout in the demo GIF
+- **readme:** Demo GIF captions in sync with the view changes
+- **readme:** Offer a paid setup for people who would rather not install it themselves
+- **pictures:** Edit this picture
+- **pictures:** Edit this picture, precision edits
+
+### Build and CI
+
+- Switch from npm to pnpm
+- Type check, build and the unit and API tests on pushes to main and on pull requests
+- **changelog:** Git-cliff config for a changelog with one section per minor version, and preview and write scripts
+- **deps:** Claude Agent SDK 0.3.322 (Claude Code 2.1.322, with Fable 5.2)
+- **docker:** Poppler-utils in the image, so Claude can read the PDFs it downloads
+
+### Merge
+
+- Dev (printed versions) into feat/edit-picture
+
+## [0.1.0] - 2026-10-25
+
+### Features
+
+- **geometry:** Add manifold script runtime with cad helpers
+- **printer:** Target bambu lab a1 build volume
+- **server:** Add geometry worker, software renderer and stress test
+- **agent:** Generate parametric models with claude agent sdk
+- **api:** Add design storage and streaming generate endpoint
+- **viewer:** Add three.js viewer with dimensions, measure and section tools
+- **ui:** Add chat, parameter panel, versions and stl export
+- **dimensions:** Edit overall size and callouts by double-click
+- **text:** Add font engine, text helpers and text features
+- **ui:** Add text tool panel with font picker and pick-on-model
+- **agent:** Teach claude the text helpers and user-placed text
+- **export:** Add blender .blend export via headless blender
+- **export:** Add 3mf export and export format menu
+- **viewer:** Add fullscreen 3d view with hide-all-controls toggle
+- **agent:** Require a render of the current model before submit
+- **agent:** Aim for close likeness and never add unrequested text or bases
+- **viewer:** Use the home key for the home view instead of h
+- **agent:** Stream live progress and detailed steps while claude works
+- **ui:** Add verbose progress log with live status and elapsed time
+- **agent:** Show claude the model exactly as the user sees it on follow-ups
+- **render:** Add a single large iso render for assembly pictures
+- **agent:** Require assembly pictures and instructions for multi-part designs
+- **ui:** Show assembly pictures and numbered, nested lists in replies
+- **geometry:** Let model scripts return an assembly sequence
+- **agent:** Require an assembly sequence for multi-part designs
+- **viewer:** Animate assembly step by step
+- **viewer:** Add a print / assembled / exploded layout bar with assemble button
+- **ui:** Collapsible chat and parameter sidebars (T / N, edge tabs)
+- **geometry:** Validate meshes for printing
+- **ui:** Add validate button and validate automatically on export
+- **ui:** Clicking the ai designer logo starts a new design
+- **print:** Add print settings to model scripts
+- **bambu:** Build the a1 pla project template from the installed bambu studio
+- **export:** Bambu project 3mf with print settings and optional colours
+- **agent:** Let claude suggest print settings that differ from the a1 profile
+- **validate:** Account for supports and brim from the print settings
+- **ui:** Print tab, 3mf export options and a part-colour toggle
+- **ui:** Show all of claude's thinking beside the chat
+- **ui:** Open designs as tabs in the top bar
+- **ui:** Jump to any version from the top bar
+- **ui:** Show everything claude does in the activity panel
+- **ui:** Always show the full step log while claude works
+- **viewer:** Remove the fit button from the view toolbar
+- **ui:** Save slider settings as a version
+- **ui:** Click the live line to pin the activity panel
+- **ui:** Make the ai designer logo a link
+- Rename the app to Jig
+- **agent:** Answer questions first, then explain
+- **agent:** Optional web search for exact product dimensions
+- **ui:** Start every design with opus, high effort and web search off
+- **viewer:** Move the fullscreen button to the top-right corner
+- **chat:** Turn web search on by default
+- **agent:** Report where each real-world dimension came from
+- **chat:** Dictation with ElevenLabs realtime speech-to-text
+- **chat:** Dictation languages from .env (English, with Romanian as secondary)
+- **print:** Defaults from the Bambu template, plus ironing, seam, wall order, fuzzy skin and plate-only supports
+- **cost:** A Cost tab with Bambu Studio's print time and filament, and Claude's price suggestion
+- **svg:** An SVG tab to raise or engrave imported drawings on the model
+- **chat:** Attach SVG drawings for Claude, used exactly with H.svg
+- **versions:** Start a new design from any version
+- **activity:** The pinned panel follows Claude across designs, and can be moved and resized
+- **chat:** Send messages while Claude works; they go out after its reply
+- **auth:** An API key by default; the Claude subscription only as an explicit opt-in
+- **ui:** An Object tab with the parts as a tree, and the side tabs in two rows
+- **ui:** Object tab opens first, visibility is saved, selected parts are highlighted
+- **ui:** Four tabs with two sections each, greyed-out parameters of hidden parts, resizable sidebars
+- **ui:** Syntax colours in the Code tab
+- **chat:** OpenSCAD files in the chat, and everything Claude is sent and gets back in the activity panel
+- **artwork:** AI artwork from an image model on OpenRouter, traced into drawings for H.svg
+- **artwork:** Off by default, turned on per design with the palette button
+- **ui:** Durations as minutes and seconds (2 min 24 s) instead of only seconds
+- **ui:** At most 8 design tabs; opening another closes the one used longest ago
+- **hueforge:** Contract for the HueForge option (types, values keys, helper and API signatures)
+- **hueforge:** Engine: pictures, TD colour model, automatic swaps, H.hueforge relief and simulated colours
+- **hueforge:** Claude makes HueForge prints: attached photos become pictures, generate_picture, the chat's image mode and prompt
+- **hueforge:** HueForge parts carry their picture and options (PartMesh.hueforge) for the side panel's preview
+- **print:** First layer height setting (initial_layer_print_height), model-wide like the layer height
+- **export:** HueForge filament changes in the Bambu project
+- **ui:** HueForge option: picture-mode menu, HueForge panel in the Print tab, per-vertex colours in the viewer
+- **filaments:** HueForge filament library with published TD values, and a web lookup through Claude
+- **hueforge:** HueForge parts carry their picture and options (PartMesh.hueforge) for the side panel's preview
+- **hueforge:** Real filament lookup in the panel, library-based default filaments, height advice for translucent tops
+- **ui:** Picture-mode menu: an icon per mode, a Default chip on 3D model, stays open after picking
+- **hueforge:** Claude controls the HueForge setup (set_hueforge), sees it in follow-ups and in the stack report; scripts can set swaps
+- **hueforge:** Claude picks the filaments from the picture and Jig's library (up to 4 on the AMS lite), and lists them in its reply
+- **lithophane:** Backlit photo lithophanes: H.lithophane, picture mode, lit preview and Print tab section
+- **chat:** Messages sent while Claude works go into the running reply; Later queues; mic Enter sends after stopping
+- **photos:** Product photos – a clean render of the model turned into a lifestyle photo by the image model, with scene presets, saved with the design
+- **photos:** Tip to show multi-part designs assembled before a photo
+- **photos:** Prompt tuned on real photos – exact lettering, filament colours, scale anchors and a size cue for small wall pieces
+- **chat:** Model.js changes as one step with git-style +added −removed tags; consecutive edits fold into one row
+- **photos:** A 'Backlit at night' scene, starred for lithophanes, with a prompt that keeps the panel glowing
+- **ui:** Picture menu closes when the selected mode is clicked again
+- **hueforge:** Prints default to the largest size the A1 bed takes, 250 × 250 mm
+- **docker:** Docker Compose setup – one hardened container, subscription via setup-token, optional Bambu Studio
+- **mesh:** Read STL, OBJ, GLB/glTF and 3MF, repair them into watertight solids, and H.mesh
+- **meshy:** Meshy API client and a faithful mock server
+- **mesh:** Attach 3D models in the chat and make AI 3D figures with Meshy
+- **meshy:** Meshy-7.1 at 2k geometry with Meshy's base-and-printable prompt; test a full queue; record each model's licence page
+- **ui:** The chat sidebar defaults to a width that fits the composer on one row; only widths you drag are remembered
+- **hueforge:** A filament picker swaps or adds a stack filament from the library or a custom colour
+- **hueforge:** Save your own filaments (name, colour, TD) and pick them in the HueForge panel
+- **layertone:** The 3D view shows changed filaments at once, on the current layers, until the rebuild arrives
+- **ui:** Top-bar chip shows what Jig runs Claude on (subscription, OpenRouter, Anthropic API) and whether it answers; OpenRouter credit left
+- **ui:** New is a link too, so right-click or Ctrl+click opens a new design in a new tab
+- **cost:** Slice only on the Slice button, never automatically; changes just mark the numbers out of date
+- **ui:** Start versioning at 0.0.1; the page title shows the version
+- **ui:** Version next to the logo, the browser tab names the design; add a headless UI smoke test (npm run test:ui)
+- **docker:** JIG_WITH_BLENDER=1 builds the image with Blender 5.2 LTS for .blend export
+- **backup:** GET /api/backup streams every design, its images and meshes and the settings as one zip; POST /api/backup/import restores one, never overwriting a design that is already here
+- **ui:** Export all designs and Import designs… in the Designs menu; README on backing up
+- **ui:** The connection chip shows the Claude subscription's usage limits
+- **ui:** The Designs menu lists 10 recent designs with Load more, and starred designs are marked
+- **prompt:** Design for support-free printing and orient functional parts for layer strength; style Load more as a button
+- **backup:** Import designs… also takes a zipped project (its design.jig.json, images/ and meshes/; the other files are left alone); GET /api/designs/:id/files lists a design's stored images and meshes
+- **export:** Export project… writes the script, values, design, STL, 3MF, .blend, pictures, meshes and a README into one folder (a zip in Firefox)
+- **photos:** 9 more scenes (fridge, restaurant, bedside, bathroom, workshop, gaming, kids, car, flat lay) behind "More scenes"
+- **chat:** Links in replies open in a new tab ([text](url), <url> and bare URLs; only http(s) and mailto)
+- **chat:** A reply is saved while Jig works on it, and shows as interrupted after a restart or reload
+- **server:** On SIGTERM, running replies end with a "server is restarting" note before the server exits
+- **meshy:** A concept picture to approve before Meshy, at most 2 models per reply, credits on the Figure button
+- **meshy:** Coloured meshes – texture colours per triangle, kept through repair and the script, reduced to 4 filaments
+- **meshy:** Colour in 3D figure mode – a colour concept picture, a textured Meshy model (35 credits), filaments matched to the user's own
+- **export:** Coloured meshes go to Bambu Studio painted (paint_color per triangle) with their filaments; plain 3MF colours per triangle
+- **viewer:** Coloured figures show their filament colours per triangle in the 3D view and product photos
+- **chat:** A Colour switch next to the Figure button, and the figure's filaments in the Object tab
+- **print:** Print in one colour – a per-design switch in the Print tab for one filament in the 3MF, the slice, Export project and the 3D view
+- **images:** Gemini 3.1 Flash Image is the default image model, Nano Banana 2.1 the fallback (it stayed busy for a day)
+- **chat:** "Wait for my OK" and "Send my view" switches – concept pictures built after a 10 s countdown (Build now, Stop, or type a change), follow-ups without the view or render
+- **meshy:** Coloured figures keep their detail – the concept is the grey clay picture painted by the image model, Meshy builds the shape from the grey one and textures it from the painted one (texture_image_url)
+- **meshy:** Coloured concepts are painted in a planned palette – Jig picks at most 4 colours and the parts in each, the image model paints exactly those under soft light, and the chat shows the filament each colour prints with before Meshy runs
+- **docker:** JIG_BIND publishes Jig on another address (0.0.0.0 to try it from a phone) and JIG_HOSTS adds the names it answers to – still localhost only by default
+- **meshy:** Repaint a coloured figure's patches by hand – Repaint in the Object tab's filament colours: click a spot on the model to pick its patch of one colour (its size shown) and choose the filament it prints with, or drag a brush over it; each repaint is kept with the mesh as its stored triangles and colour, applied in order over the cleaned-up colours (the nearest of the current palette, so it survives a change of colour count), shown at once and in the 3MF's painting; Undo and Clear repaints
+- **chat:** One-row composer – model and effort in one chip, Colour and Wait for my OK in the Figure menu, icons when narrow
+- **chat:** Thinking has its own timer – the live line shows how long the current thinking has run (a violet pill, set apart from the reply's time), and each thinking block in the activity panel how long it took
+- **usage:** The connection chip says which limit its percentage is – a small 5h or 7d tag (7d Opus for a per-model week), the limited window's when a limit is reached
+- **chat:** A reply goes on when the page's connection drops – a phone locking its screen, a reload – and the page catches up where it stopped; Stop ends it on the server
+- **layout:** Jig on a phone – one panel at a time (Chat, 3D, Panel) in a bottom tab bar, and the 3D view beside the chat or the panel on an unfolded foldable or tablet
+- **layout:** The unfolded layout's pane hides from the 3D view's edge tab (bigger on touch), and an enlarged product photo steps to the next or previous one with arrow buttons, ← → or a swipe
+- **litho:** Lithophane preview web component for shops
+- **litho:** Light and dark themes – theme="light" | "dark" | "auto" on the widget, and an Auto / Light / Dark switch on the demo and production pages (remembered)
+- **lineart:** The Line art contract – styles, H.lineart options and result, the part's lineArt info, imageMode 'lineart' and lineArtStyle in the request
+- **lineart:** H.lineart – the drawing redrawn with even lines at its final size (solid fills kept), loose bits bridged along the shortest gaps, specks dropped, traced back to smooth outlines; bar, pegs, name, frames and stand per style; lineArt info on the part
+- **lineart:** Line art picture mode in the chat – the mode in the picture menu, a ▾ beside it to pick the style (outline, key holder, framed, medallion, name sign, desk stand; the button names it), sent as lineArtStyle
+- **lineart:** Line art section in the Print tab – the drawing(s) it was made from, size, thickness, lines, bridges and dropped specks (warned when too big or too loose), and how to print and hang it
+- **lineart:** House-style line-art prompt per style, and tracing line art (Otsu threshold, one black shape with its holes) for H.lineart
+- **lineart:** Generate_line_art and trace_line_art tools – drawings stored for H.lineart
+- **lineart:** The report's line-art line – style, size, lines, bridges, dropped specks and pegs
+- **lineart:** Line art mode on the server – request checks, a design is one kind of picture print, the style and drawings in the request, and the system prompt's H.lineart section
+- **lineart:** Line art and key holders suggest the wall scene for photos
+- **lineart:** The system prompt's print line matches H.lineart's settings (100 % infill) and the desk stand's slot
+- **lineart:** Nothing dangles – lines and branches held at one point only (they would lift off the wall) are joined to the nearest line within joinEnds mm (default 8), the way they were going; the image model is asked for every line to end on another line and for a few solid areas for the tape; the report and the Print tab count joined and still-loose lines
+- **lineart:** Hand edits – brush strokes (draw / erase) stored per drawing under $lineartEdits, in the drawing's own units and tied to its fingerprint; drawn lines go through Jig's clean-up, erasing has the last word; the part's lineArt says where each drawing sits in the piece (frames) and how many edits apply
+- **lineart:** Change part of a drawing – generate_line_art with edit sends the image model the drawing as it is (hand edits drawn in) and asks it to change only what was asked, keeping every other line; the hand edits are baked in and dropped (lineArtEditsBaked); Jig's checks and its prompt include the user's hand edits
+- **lineart:** Editor helpers – pointer (mm) to drawing units and the drawing a point belongs to, strokes made lean (close points dropped, Ramer–Douglas–Peucker 0.1 mm), snapping a stroke's end onto the nearest ink and half its width in (at most to the middle of a thin line), and adding, undoing and clearing strokes in the edits value
+- **lineart:** Edit drawing – a brush to fix the piece by hand: the piece large and straight on (drawn sharp from its mesh), Draw and Erase (B / E) with a width slider and a brush showing its real size, Snap (S) so a line starting or ending near the drawing joins it exactly, Shift for a straight line, Undo / Redo, Clear edits, zoom and pan (wheel, pinch, Space or middle button; one finger draws on a phone); every stroke is saved at once in the design and the piece follows the rebuild; the Print tab's Line art section opens it, counts the hand edits and says when edits were made on an earlier drawing or an erase cut the piece apart
+- **lineart:** The brush works on a draft – strokes are drawn over the piece (erasing shows the paper, snap includes the new lines) and Done (or Escape) saves them at once, so the model rebuilds a single time; Cancel drops them
+- **designs:** Search the Designs menu by name – case and accents don't matter, the matches page with Load more, Enter opens the first
+- **object:** Pick the filament of any part – its swatch in the Object tab opens the filament picker; the pick wins over the script's colour in the view, the 3MF, the cost and Jig's renders, until reset
+- **photos:** Redo a product photo with a change – the photo as the scene to keep, the product from its render (or from the 3D view's current angle), the change applied, added beside the original; every photo now asks for the product to rest on its surface in its perspective, never floating
+- **object:** A picked (or reset) part filament shows at once in the 3D view and its swatch; the rebuild follows (the part keeps the script's colour as scriptColor for the reset)
+- **lineart:** Split a piece bigger than the bed into pieces – seams through the empty space, dovetails on bars and frames, each piece cleaned up on its own, names engraved on the back
+- **export:** Parts with their own plate (a split piece) each go on a plate of the Bambu project; the cost sums every plate
+- **print:** A model whose parts have their own plates fits when each plate does (bed check, validation, the viewer's plate)
+- **lineart:** Split into pieces in the Print tab – Off / Auto / pieces / grid and the whole size, the pieces with their sizes and a picture of how they go up; layouts for a split piece, seams dashed in the editor
+- **lineart:** Jig knows the split – asks for the whole size, proposes Auto above the bed, reports pieces, seams, dovetails and names, and explains putting it up
+- **lineart:** A proportions lock between the whole piece's width and height (on by default, remembered): locked, the other side follows at once, before the rebuild; unlocked, both sides are set
+- **lineart:** A whole size typed as width × height is exact – a frame's outer box or a medallion's oval exactly W × H with the art fitted inside, centred, never stretched (a width alone still lets the height follow the drawing)
+- **lineart:** A split piece holds together – a bit a seam would leave on its own goes to the piece it carries on into (the seam steps round it), bits of a piece up to 30 mm apart are bridged inside it (never across a seam), bare strips of bar or frame join the strip beside them when they fit the bed, narrow frames get their names
+- **lineart:** The number of pieces stands out – a badge under Split into pieces (with the grid and the biggest piece) and beside the size
+- **lineart:** The piece count explained and a Longest join setting – '22 pieces · 20 cells + 2 loose bits (C1b, C2b)', and the longest join inside a piece (30 mm by default, $lineartJoin) to join far bits instead; no join is ever longer than it; seam slivers go before anything is joined; a calmer count
+- **print:** Long lists fold away, closed by default and remembered – a split's Pieces and Notes (repeated notes merged: 'no dovetail at 14 crossings') and, past 6 parts, the Print settings' part choice ('Settings for: Whole model · 22 parts')
+- **print:** 'Written to the 3MF' folds away, closed by default (remembered), its summary saying how many parts have changes
+- **photos:** Christmas scenes for product photos – on the Christmas tree (an ornament hangs face-on from a thin ribbon, the only thing added), under the tree with gifts, and a Christmas wall; suggested for Christmas designs
+- **photos:** A light grey studio scene and shop shots made at 2K (image_size, retried at the default size if a model refuses it), with a plan for a product's 5 listing photos
+- **photos:** A Shop photos button makes a product's 5 square 2K listing photos in one click (main, 3/4 view, detail or top view in the grey studio, lifestyle, size), each from its own render, two at a time with progress; a failed one can be tried again
+- **sizes:** Sale sizes on a design (S / M / L), each built for real: through the driving parameters, or scaled like Scale %, a flat piece only across its face so its thickness and reliefs stay
+- **photos:** A photo for another sale size is made from its own render in the scene of an earlier photo (same wall, props, light and camera), told the new size and its ratio to the earlier one and to the light switch, hand or mug beside it; designs keep their sizes
+- **sizes:** A Sale sizes section under Overall size: S / M / L suggested within the limits, each size's real W x D x H, one shown in the view where Overall size changes that size alone, sliced one at a time for its time, grams and cost (kept per size, stoppable); photos for every size in one scene, labelled and filtered by size, out-of-date ones marked with a one-click redo
+- **activity:** Code that Jig writes or edits in Jig's work is coloured like the Code tab, a finished line at a time while it streams
+- **designs:** The Designs menu shows each design's kind (line art, LayerTone, lithophane, 3D figure, AI artwork) as a small icon, told from its current code like the server does, and the open design shows it by its name
+- **chat:** Each design remembers its picture mode, 3D figure colour and line art style in this browser across reloads; a design without one starts in its kind's mode
+- **photos:** Each scene has 4 sub-scenes: 1 as it was, 2 and 3 other looks of the same place, and a random one Claude writes for each new photo (the image model invents it without Claude); kept with the photo for changes and other sizes, and used by the shop set's scene shots in the chosen scene
+- **designs:** Tags (built-in Product and Temp, plus your own), tag filters, sorting and bulk star, tag and delete in the Designs menu
+- **photos:** Pick several product photos (shift-click: a range, or all shown) and delete them with one question; photos made from them in other sizes stay and the question says so
+- **photos:** Close-up scene (light oak, dark slate, white linen, or random): the render is cropped in on the product (a flat print's face, else at the 3/4 angle) and the photo is a macro shot that keeps the crop
+- **photos:** Bedroom wall scene (a wall piece hung above the bed; calm modern, Japandi and deep green sub-scenes)
+- **lineart:** Join loose ends switch and reach in the Print tab (per design, wins over the script's joinEnds; off still counts the loose ends)
+- **tabs:** The top bar shows the open design and the two seen last; the other open designs are in a searchable +N list (a spinner or dot on it when one of them is running or finished)
+- **lineart:** Colour lines in other filaments: paint strokes and coloured drawn lines in $lineartEdits become parts of their own ("Line art (Red)", split: "A1 (Red)") through the whole thickness, clipped to the lines, no slivers under 0.4 mm; one piece with the rest, kept when Jig redraws the drawing
+- **lineart:** Paint in Edit drawing: pick a filament (the piece's own, those used, or any from the picker with My filaments) and paint lines or draw new ones in it; shown on the lines as painted, undo as before; the Print tab lists the colours, the Object tab recolours them; product photos follow Print in one colour
+- **lineart:** Show where loose ends were joined and left, in the 3D view and the Edit drawing editor (Show in the 3D view switch under Join loose ends)
+- **lineart:** Colours in the top layers only ($lineartColourDepth: through, auto or N layers), cut to the print's layers with the first one kept; auto gives each colour the layers its TD needs to hide the filament under it; paint also colours the frame, the bar, the sign's text (its own height) and the pegs (whole); the first colour painted sets auto, older colours stay through; colourSwaps estimates the filament changes from Bambu Studio slices
+- **lineart:** Colours in the Print tab: Top layers (auto), Top layers: N or Through the piece, each colour's layers and how much of the piece's own filament it hides, and the filament changes with their time and grams for this choice and the other; Edit drawing shows paint only on the piece while painting too, and the changes in its status
+- **photos:** Your idea scene (a few words that Jig writes out into a detailed scene for the product, a wall piece on a plain wall; kept for changes and other sizes, shown on the photo; without Claude the idea goes in as written)
+- **photos:** Custom and Your idea are one scene: Your idea, with an Improve your idea switch (on by default: Jig writes it out; off: the image model gets it as written)
+- **photos:** The scene list shows three (the picked or suggested scene, one more and Your idea); More scenes lists them all with a search by name, sub-scene or what is in them
+- **export:** The export button keeps the format last picked in its menu (STL, 3MF, .blend or project) until the page reloads
+- **lineart:** Edit drawing's Fill (G) adds material in a filament only where the piece has none yet, never over its lines (the inside of an outline), as exact as drawn after the clean-up and in stroke order with erasing; a fill in a filament is a colour like paint (top layers, swaps, Remove colours, split pieces), a fill touching nothing of the piece is left out and the Print tab says so; the editor shows fills off the lines only, and Draw shows the filament it draws in
+- **lineart:** Edit drawing's Select (C) brushes over an area (strokes add up, Esc deselects) and Clear edits here takes back the hand edits there only: there the piece is as Jig made it (lines drawn go, erased ones come back, paint and fills go), the rest stays, through Undo / Redo; the editor shows the piece as Jig made it there, built without the edits
+- **lineart:** Edit drawing's brushes can be square (Q, or the round / square toggle by the width): paint, fill, erase and select brush an upright square as wide as the brush, swept along the stroke, saved per stroke (shape: 'square'; old strokes stay round) and drawn the same in the editor as built; Draw's lines stay round
+- **photos:** The size photo's render shows the product at true scale beside a light switch (wall pieces) or a mug (big table pieces), framing a known wall or table area, and the prompt keeps both where and as large as in the render; other sale sizes keep the switch's spot and framing, and wall scenes can turn the light switch on for any photo
+- **photos:** A wall piece's lifestyle photo, and any face-on wall photo without the switch, is rendered at true scale on its wall alone, framed with room around it, the prompt saying how much wall it shows, so the room is to scale too
+- **photos:** A wall piece's 3/4 view hangs on a plain wall seen from the side (floating, it came out standing on its edge), and a tall flat print's close-up keeps its top in the picture (a head cut off was made up)
+- **chat:** Ask first (on by default, every mode): before building, Jig asks only the questions whose answer changes the design and that it can't settle itself (none, or up to 5, with its default for each); off, it picks defaults and says which; an approval of concept pictures never asks
+- **chat:** Ask first's questions as a card of clickable answers: Jig asks with ask_questions (1-5 questions, 2-5 options each, its pick preselected and marked, Other for your own words), Send answers (or Enter) sends them as your next message, and the card stays read-only with your answers after a reload
+- **chat:** Ask first's question card sends Jig's picks by itself after 60 s untouched (a click on it, Keep waiting or typing in the chat stops the countdown; a card found after a reload waits), and chimes when Jig needs you (questions, concept pictures to approve, an error) or a reply has finished, with a Sounds toggle in the composer
+- **chat:** On a computer the prompt box has the focus as Jig or another design opens, ready to type or paste (not when something else has the focus, and not on touch screens)
+- **agent:** Anything holding a phone or another fragile device fits loose and takes a case by default (case parameter 1.5 mm plus 1 mm clearance a side, no press fit, rounded contact edges, pad recesses, clamps that stop before they crush, strong and stable); with Ask first on Jig asks about the case and fit, and may ask one or two questions mid-build only for a decision that changes the result drastically (the card then says before Jig carries on); with it off it never asks and picks the safe side
+
+### Fixes
+
+- **ui:** Keep generation results on the design that started them
+- **export:** Make 3mf parts land on the plate with colours bambu studio reads
+- **ui:** Keep released slider values while the model rebuilds
+- **export:** Keep 3mf parts exactly where they are in the viewer
+- **ui:** Run generations per design and keep browser tabs in sync
+- **server:** Allow only one generation per design at a time
+- **ui:** Fit enlarged images inside the window
+- **viewer:** Fix assembly player crash and camera framing on load
+- **export:** Include text-tool text in exported files
+- **bambu:** Keep bambu studio's result.json out of the project folder
+- **export:** Put model-wide print settings in the bambu project settings
+- **ui:** Count changed print settings, not bambu keys, in the print badge
+- **geometry:** Free objects created by inherited manifold methods
+- **geometry:** Free temporaries leaked by manifold-3d's js wrapper
+- **geometry:** Restart the geometry worker after a wasm crash and retry once
+- **security:** Run model scripts in an SES sandbox
+- **security:** Evaluate server-side geometry in a locked-down process
+- **security:** Only let jig's own pages use the api
+- **ui:** Warn about failed saves and unsaved settings on version switch
+- **ui:** Keep the send button inside the chat composer
+- **security:** Harden the sandbox, API origins and geometry worker
+- **sandbox:** Reject undeclared names and keep fonts and params working
+- **persistence:** Stop lost, stale and corrupt design saves
+- **app:** Export what the user set and validate only what is printed
+- **ui:** Keyboard, screen reader and narrow-window fixes
+- **release:** Installed fonts on macOS/Windows and licence notices in builds
+- **security:** Refuse WebFetch to names that resolve to private addresses
+- **sandbox:** Check embind handle records, record caught traps, cap report text
+- **dev:** Hide data/ on decoded paths and when JIG_DATA points elsewhere
+- **persistence:** Revision-checked saves, deletes that stick, unsaved copies kept
+- **export:** Parts from the exported build, previews timed by the script only, prime tower on the bed
+- **ui:** One Escape per layer, focus that stays put, names that don't click, Close all
+- **svg:** Keep fill colours, paint in order, and choose which colours are raised
+- **activity:** The followed panel keeps earlier replies when the next one starts
+- **ui:** No 'show only this part' button in the Object tab; the eyes do it
+- **ui:** Grey out parameters by measuring which parts they change
+- **agent:** Start a fresh session with a recap when the old one can't be continued
+- **agent:** Retry in a fresh session when the API refuses the old one
+- **geometry:** Allow the workers to read a symlinked node_modules (git worktrees)
+- **hueforge:** Show the simulated colours as they are: matte, mostly unlit, no feature lines (viewer and Claude's renders)
+- **hueforge:** Menu hint mentions AI pictures; firstLayerHeight in Claude's print-settings keys
+- **filaments:** Color_tools TDs marked unverified and looked up as estimates; eSUN PLA+ Fire Engine Red with a measured colour
+- **export:** HueForge changes on the layer nearest their height, tested with the engine's output
+- **hueforge:** Set_hueforge needs the full filament list with swaps; later filament changes go through it, not the script
+- **artwork:** Retry a busy image model, then fall back to Nano Banana 2, and show the provider's real reason
+- **hueforge:** Send the design's pictures with every request, and treat HueForge/lithophane designs as such whatever the menu says
+- **export:** No prime tower for HueForge prints – it collided with big pictures (G-code conflicts)
+- **mesh:** Freeze the kept mesh, which later evaluations share
+- **hueforge:** The simulated print shows new colours and TDs at once
+- **cost:** Recalculate 2 s after the last change while Cost is open; one timer for the whole calculation; print settings count as a change
+- **runtime:** A script that declares its own H, Manifold or CrossSection gets a clear error instead of "H.x is not a function"
+- **chat:** The text box follows dictated words, keeping them in view with the caret at the end
+- **docker:** A bigger thread pool, so slow name lookups cannot stall file reads
+- **render:** No crease lines on sculpted meshes in Jig's renders – a Meshy figure's fine triangles turned every pixel into one
+- **render:** Leave out crease lines where they cover over a tenth of a part in a view (sculpts at any zoom, fine threads) instead of guessing from triangle size
+- **meshy:** Coloured figures without streaks and specks – shading counts less than hue when grouping the texture's colours (a grey's highlights stay grey), each triangle's filament cleaned up over the surface (majority filter, patches under 1/10,000 of the surface go to the colour around them), colours carried through the repair from the side a triangle faces
+- **meshy:** Pale skin no longer prints in the beard's grey – lightness counts less when grouping a texture's colours and look-alike colours merge only when closer, dark browns get a brown filament instead of dark grey
+- **app:** Jig opens from a network address over plain http (e.g. a phone) – ids no longer need crypto.randomUUID, which browsers offer on secure pages only, and dictation says the microphone needs localhost or https
+- **chat:** Picture mode menu fits on a phone – short labels and one short line per mode (the full text in the tooltip), and every chip menu scrolls within the room above its chip instead of running off the top of the screen
+- **lineart:** A comma between the line width and how the lines were drawn
+- **lineart:** Line art that prints clean – pictures traced from their own pixels (smooth curves, short lines kept), the drawing's own line weights kept by default, a bold simplified house style drawn for the piece's width, a large straight-on render and a count of gaps that closed up so Jig redraws a drawing too fine for its size (also in the Print tab), and 'HQ' meaning truer, not more detailed
+- **lineart:** Lines as precise as the drawing – lines thick enough stay exactly as traced (sharp corners, straight edges), only lines too thin to print are thickened, along a smoothed centre line built as exact shapes (no pixel steps), corner tips and thinning spurs are no longer stroked (no bumps), and specks are dropped from the drawing itself
+- **lineart:** Line art is centred on the plate in the 3D view too (the 3MF export already centred it)
+- **lineart:** Hand-drawn lines come out smooth (only lines clearly under lineWidth are thickened), keep their width in a medallion, partial edits drop the edits they baked in; Loose lines wording
+- **lineart:** The same look in every style – Jig describes only what to draw (subject, view, pose, features), never the style, and on a bar the subject stands whole (a person head to feet), never cropped at the knees
+- **artwork:** AI artwork mode makes the design artwork – the image model draws the subject first, whatever it is (objects and machines too), and Jig builds the relief around it; follow-ups keep the picture unless a new one is asked for
+- **artwork:** Artwork traced as precisely as line art – each colour traced smoothly from the picture's own pixels (marching squares, full resolution) with the colours painted on top of it, so neighbouring colours share one edge with no gaps; one-pixel slivers where colours meet and only true specks are cleaned up; imagetracerjs removed. Also fixes rare row streaks in the scanline fill
+- **docker:** Npm run rebuild builds the new image first and only swaps the container once no reply is running, so a reply started during the build isn't cut off
+- **object:** The part filament picker opens at the panel's width under its part, not squeezed into the swatch
+- **lineart:** Shorter piece notes in the split list
+- **lineart:** The whole piece's size typed in the Print tab works – stored as $lineartSize, it wins over the script's width and height (their slider limits and a height written in the script); type the width or the height, the other follows the drawing; ↺ goes back
+- **lineart:** No long struts in a split piece – a small bit is bridged at most 60 mm, else it becomes a piece of its own; every part is one body (slivers thinner than a line, left where a seam ran along a line's edge, go)
+- **lineart:** Seams drawn only where two pieces really meet – not through strips of frame joined into one piece, not beside an empty square, not past the whole piece's edge or a horizontal seam's column (the editor and the Print tab picture); no 'no dovetail' note where joined strips need none; hand edits on a split piece tested in every layout
+- **viewer:** The 3D view re-fits when the model is laid out another way – Print, Assembled or Exploded, a line art split or put back in one piece – read from the model built, so it frames the new layout; still not on a slider move
+- **viewer:** The parts list scrolls when a model has many parts (a piece split in dozens) instead of running up over the view's toolbar
+- **lineart:** The piece count adds up when cells make no piece of their own – '30 cells (6 empty or joined to the one beside) + 1 loose bit'; names in the layout picture stay inside it
+- **cost:** The Cost tab's slice has no prime tower, so a big model no longer fails with 'G-code conflicts'; the 3MF export keeps it
+- **bambu:** The prime tower goes beside the model, 10 mm from it (the model moves aside when it needs room, no tower when it fits nowhere), so a big model slices without 'G-code conflicts'; the Cost tab's slice keeps the tower again, so its time and grams include it
+- **photos:** A wall piece hangs on a wide, continuous stretch of wall (or fridge door) with free wall all round, never across a corner, frame or furniture, its size cue beside it; the familiar size is the closest match (A5, A6 postcard, credit card...) and the light switch, hand and mug say how many times as big it is
+- **photos:** The size-variant ratio helper is timesX, so it no longer clashes with the scale helper times
+- **photos:** The product is described by the script's meta.description, not the version's change note, and a set's pieces stay separate
+- **photos:** A change to a photo keeps everything it doesn't ask for (composition, positions, sizes, angles, props, light) instead of composing the scene afresh
+- **photos:** A thin flat print (a LayerTone panel, a plaque) is told it is only a few mm thick, its edge a thin line from any angle, and its 3/4 shop shot shows how thin it is
+- **photos:** A small wall piece's photo is framed in numbers (only about N cm of wall, it fills about N% of the width, no room in full) and a random setting is written for the product's real size; the sub-scene name wraps instead of being cut off
+- **lineart:** A colour reaches the line's own edge and the piece's filament keeps no zero-volume skins on the colour's walls (they showed as black stripes on painted lines)
+- **lineart:** Colours are cut out a hair wider and trimmed to the piece, so the piece's filament keeps no skin on their walls; the 3D view draws coloured lines in front of the piece's own where they meet
+- **lineart:** The lines and the bar or frame are split into the piece's filament and the colours in the flat, each part made from its own outline, so no skin of one is left on the other's walls (in the view and the slicer)
+- **lineart:** A fill closes the pinholes it leaves where it ends on the lines or on a fill before it (a hole under the brush narrower than its clean-up), and the editor shows two fills side by side with no seam
+- **lineart:** The piece's own filament is one outline per layer, stacked where the colours start, with its hairs against a colour given to it and its slivers tidied, so no slit is left in it where a colour ends (the dark lines in the view); a fill also closes a slit it leaves along a line
+- **lineart:** The piece's own filament is the whole piece made solid less a slot for each colour (reaching a hair past its edge), each filament in one outline without slits, so painting and filling leave no slit, flipped face or dark band (the bikini)
+- **lineart:** Colours lose points closer than a micron (needle-thin triangles shaded wrong and drew lines), slits close with few arc segments, and only the hairs by a colour are handed to it (the build 9 s to 2 s)
+- **lineart:** No fins of the piece's own filament on a colour's walls (spikes of no width where a colour ends on a line's edge, drawn as stripes in the view), and slits close with square corners (no arcs, whose needle-thin triangles drew lines)
+- **lineart:** Brush strokes keep their width on the drawing when the piece is resized (each stroke saves the mm per drawing unit it was drawn at; older ones count as drawn at the script's own size), and the view draws line art without the booleans' slivers (merged, split, dropped), which shaded and outlined as stripes and lines
+- **photos:** A true-scale photo says how much wall or table it shows, in switch or mug widths, so the room around is built to that scale too (no doll-sized armchair beside a true-sized switch)
+- **photos:** A true-scale photo says the furniture, lamps and windows a scene names are bigger than the whole picture, so at most a sliver of one shows
+- **photos:** Line art is an open cut-out in the photo prompt: the areas between its lines stay empty, never a backing plate (a close-up filled the figure in)
+- **photos:** The wall piece's 3/4 view from further to the side (about 50°)
+- **chat:** The prompt box also takes the focus after New, a design tab or the Designs menu (a clicked button hands it over; only a field being typed in keeps it)
+
+### Performance
+
+- **ui:** Rebuild the model only when a slider is released
+- **geometry:** Keep the page responsive and recover from bad builds
+- **sandbox:** Pass the compartment's globals to scripts as closure variables
+- **export:** Build 3MF files in a worker so big models don't freeze the page; default cost settings (140 RON/kg, 1.45 RON/kWh, 200 W)
+- **export:** Lend the meshes to the 3MF worker without copying (they come back with the file)
+- **ui:** The page no longer loads the model runtime; three.js and React in their own long-cached files
+- **lineart:** Thinning looks only at the pixels on the edge each pass – thick areas cost their area once (same centre lines; a split 800 mm surfer 19 → 10 s at draft)
+- **lineart:** A wall-sized split cleans its pieces up with at most twice the pixels the whole would get unsplit (same look at 8 px/mm), each piece cut out once, not twice – the 800 mm surfer at high 76 → 13 s
+- **lineart:** Keeping a split together tracks each part's members and boxes without going over every pixel twice
+
+### Refactoring
+
+- Share API types and helpers, drop duplicates and dead code
+- Split the largest modules
+- One definition of the overall dimension lines
+- Share surface placement between text and other flat shapes
+- **ui:** HueForge panel uses the engine's parseHfImages, parseHueforgeSetup, checkSwaps and layerTop
+- **ui:** HueForge panel reads the part's picture and options from PartMesh.hueforge
+- **ui:** Say Jig, not Claude, in user-facing text
+- **ui:** Call the filament-painting feature LayerTone everywhere users see it; docs for the picker, My filaments, sidebar width, defaults
+- **layertone:** Rename the LayerTone files from their old hueforge/hf names
+- **layertone:** Rename hueforge/hf identifiers, keys, tool, CSS classes and prompt text to LayerTone
+- **layertone:** The project export uses the LayerTone names
+- **shared:** STL writer in shared/stl.ts, toLayerToneImage takes a max side
+- **lineart:** Split shared/lineart.ts into shared/lineart/ modules
+- **photos,viewer:** Split shared/photos.ts and Viewer.ts into smaller modules
+- **server:** Split systemPrompt, cadTools, app and agent into smaller modules
+- **ui:** Split App, ChatPanel, PhotosPanel and LineArtEditor into smaller modules
+
+### Docs
+
+- Add readme
+- Document text tool, editable dimensions and export formats
+- Bring the readme up to date
+- Document the sandbox, web search, autosave and version prompts
+- Describe the web search toggle as the globe button
+- Bring the README in line with the code
+- Sandbox checks, dimension sources and the print baseline in How it works
+- README covers SVG and cost throughout, without the repeated sandbox line
+- The side panel's four tabs, the Object tab and resizable sidebars
+- How to run Claude through OpenRouter (or another Anthropic-compatible provider)
+- Restart after .env changes, JIG_AUTH in .env.sample
+- Syntax colours in the Code tab
+- **mesh:** Importing meshes and 3D figures with Meshy (the mock, the key, credits)
+- **meshy:** Coloured figures – Colour switch, 35 credits, 4 filaments, painted Bambu Studio export
+- **readme:** A screenshot of Jig at the top
+- **readme:** The screenshot shows the stand exploded
+- **lineart:** Line art in the picture modes – styles, starting points, what Jig fixes, H.lineart and the ▾ menu
+- **lineart:** The Edit drawing brush in the README
+- **lineart:** What keeps a split piece together
+
+### Build and CI
+
+- Make npm start portable and match the supported Node versions
+- Notices for everything in dist, and keep the compiler in the worker
+
+
