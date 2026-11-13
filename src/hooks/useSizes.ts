@@ -74,14 +74,19 @@ export function useSizes(geo: GeometryClient, i: Inputs) {
     evaluate: async (v) => { const o = await geo.evaluate(code, v, 'normal'); return o.result ?? { error: o.error.message }; },
     solve: (v, target, goal) => geo.solve(code, v, 'normal', target, goal),
   }), [geo]);
-  /** A size built for the design as it is now (from the design when it is up to date). */
-  const resolve = useCallback((s: DesignSize): Promise<ResolvedSize | null> => {
-    const { design: d, assembled: base, keyOf: key } = latest.current;
+  /**
+   * A size built for the design as it is now (from the design when it is up to date). `snap`: the
+   * design as a caller saw it, so a run started on one design keeps building that one after a switch.
+   */
+  const resolve = useCallback((s: DesignSize, snap = latest.current): Promise<ResolvedSize | null> => {
+    const { design: d, assembled: base, keyOf: key } = snap;
     const k = key(s);
     if (s.resolved?.key === k) return Promise.resolve(s.resolved);
     const job = chain.current.then(async () => {
       // Built meanwhile (an earlier call for the same size)?
-      const now = cleanSizes(latest.current.design.sizes).find((x) => x.id === s.id);
+      // The open copy is the newest, unless another design opened meanwhile (it has other sizes).
+      const cur = latest.current.design;
+      const now = cleanSizes(cur.id === d.id ? cur.sizes : d.sizes).find((x) => x.id === s.id);
       if (now?.resolved?.key === k) return now.resolved;
       setBuilding((b) => [...b, s.id]);
       try {
@@ -198,7 +203,9 @@ export function useSizes(geo: GeometryClient, i: Inputs) {
   const stop = useRef(false);
   const sliceAll = useCallback(async () => {
     if (slicing) return;
-    const { design: d } = latest.current;
+    // The design and settings as the run began: switching designs mid-run must not mix one's code with another's sizes.
+    const snap = latest.current;
+    const { design: d } = snap;
     const list = cleanSizes(d.sizes);
     if (!list.length) return;
     stop.current = false;
@@ -209,11 +216,12 @@ export function useSizes(geo: GeometryClient, i: Inputs) {
         if (stop.current) break;
         const show = (stage: CostStage) => setSlicing({ designId: d.id, sizeId: s.id, stage, since, done, total: list.length, stopping: stop.current });
         show('model');
-        const r = await resolve(s);
+        const r = await resolve(s, snap);
         if (!r) { done++; continue; }
-        const { sliceKeyOf: key, printValues: values, i: now } = latest.current;
+        const { sliceKeyOf: key, printValues: values, i: now } = snap;
         const k = key(r);
-        const fresh = cleanSizes(latest.current.design.sizes).find((x) => x.id === s.id);
+        const cur = latest.current.design;
+        const fresh = cleanSizes(cur.id === d.id ? cur.sizes : d.sizes).find((x) => x.id === s.id);
         if (fresh?.slice?.key !== k) {
           try {
             const out = await sliceBuild(geo, { code: d.code, title: d.name, values: values(r), hiddenParts: now.hiddenParts, userPrint: now.userPrint, oneColour: now.oneColour, onTemplate: now.onTemplate, stage: show });

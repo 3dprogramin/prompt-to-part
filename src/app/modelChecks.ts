@@ -1,6 +1,6 @@
 // Checking the model: Validate (built and checked at high resolution) and the assembly animation's
 // steps (from the assembled and exploded layouts).
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { Design, EvalResult, ParamDef, ParamValues, Quality } from '../../shared/types';
 import type { GeometryClient } from '../geometry/client';
 import type { ValidationState } from '../components/ValidationPanel';
@@ -10,9 +10,12 @@ import type { Notice } from './notice';
 import type { usePrintSettings } from './usePrintSettings';
 
 /** Validate and Assemble for the design as it is now (App makes them each render). */
-export function modelChecks({ design, shown, geo, quality, fullValues, hiddenParts, printHints, layoutKey, layoutDef, layoutValue,
+export function modelChecks({ design, currentId, shown, geo, quality, fullValues, hiddenParts, printHints, layoutKey, layoutDef, layoutValue,
   setValidating, setValidation, setValidationOpen, setNotice, setPlayback, setPlaybackLoading }: {
-  design: Design; shown: ReturnType<typeof useLiveModel>['result']; geo: GeometryClient; quality: Quality; fullValues: () => ParamValues; hiddenParts: string[];
+  design: Design;
+  /** Id of the open design: a check that finishes after another one opened shows nothing. */
+  currentId: MutableRefObject<string>;
+  shown: ReturnType<typeof useLiveModel>['result']; geo: GeometryClient; quality: Quality; fullValues: () => ParamValues; hiddenParts: string[];
   printHints: ReturnType<typeof usePrintSettings>['printHints'];
   /** The layout parameter, its definition and its value now (none: the model has no layouts). */
   layoutKey: string | undefined; layoutDef: ParamDef | undefined; layoutValue: string | undefined;
@@ -25,6 +28,8 @@ export function modelChecks({ design, shown, geo, quality, fullValues, hiddenPar
     setValidating(true);
     try {
       const o = await geo.evaluate(design.code, fullValues(), 'high', { validate: { layoutValue, exclude: hiddenParts, ...printHints() } });
+      // Another design opened meanwhile: this report isn't about it.
+      if (currentId.current !== design.id) return;
       if (!o.report || !o.result) { setNotice({ text: `Validation failed: ${o.error?.message ?? 'no result'}`, level: 'error', details: false }); return; }
       setValidation({ report: o.report, label: 'Validation' });
       setValidationOpen(true);
@@ -40,10 +45,12 @@ export function modelChecks({ design, shown, geo, quality, fullValues, hiddenPar
     try {
       const base: ParamValues = fullValues();
       const a = await geo.evaluate(design.code, { ...base, [layoutKey]: 'assembled' }, quality, { display: true });
+      if (currentId.current !== design.id) return;
       if (!a.result || !a.result.assembly.length) return;
       const def = layoutDef;
       const hasExploded = def?.type === 'select' && def.options.some((o) => o.value === 'exploded');
       const e = hasExploded ? (await geo.evaluate(design.code, { ...base, [layoutKey]: 'exploded' }, quality)).result : undefined;
+      if (currentId.current !== design.id) return;
       const center = (b: { min: number[]; max: number[] }) => [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
       const size = a.result.bbox ? Math.max(...[0, 1, 2].map((k) => a.result!.bbox!.max[k] - a.result!.bbox!.min[k])) : 50;
       const steps: PlaybackStep[] = a.result.assembly.map((st) => ({

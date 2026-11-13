@@ -67,6 +67,7 @@ import { printedFileUrl } from './lib/api';
 import { useDesignList } from './app/useDesignList';
 import { useModelLayout } from './app/useModelLayout';
 import { modelChecks } from './app/modelChecks';
+import { closedDesignUpdates } from './app/closedDesignUpdates';
 
 const geo = new GeometryClient();
 
@@ -287,19 +288,28 @@ export default function App() {
     api.listDesigns().then((l) => { setDesigns(l); setListError(null); }, (e: Error) => setListError(e.message));
   }, []);
 
-  /** Apply a change to a design whether it is open (React state) or generating in the background. */
-  const updateDesign = useCallback((id: string, fn: (d: Design) => Design) => {
-    setDesign((d) => {
-      if (d.id === id) return fn(d);
-      const bg = background.current.get(id);
-      if (bg) {
-        const next = fn(bg);
-        background.current.set(id, next);
-        saveSoon(next);
-      }
-      return d;
-    });
+  /**
+   * Apply a change to a design that is open (React state) or kept in the background; false when it is
+   * in neither. Decided outside the state updater, which StrictMode runs twice.
+   */
+  const applyInMemory = useCallback((id: string, fn: (d: Design) => Design): boolean => {
+    if (currentId.current === id) {
+      setDesign((d) => (d.id === id ? fn(d) : d));
+      return true;
+    }
+    const bg = background.current.get(id);
+    if (!bg) return false;
+    const next = fn(bg);
+    background.current.set(id, next);
+    saveSoon(next);
+    return true;
   }, [saveSoon]);
+  // A design closed (and saved) before its photo or slice finished gets the result in its saved copy.
+  const closed = useMemo(() => closedDesignUpdates({ load: (id) => api.getDesign(id), save: (d) => saveNow(d), applyInMemory }), [saveNow, applyInMemory]);
+  /** Apply a change to a design wherever it is: open, in the background, or only on the server. */
+  const updateDesign = useCallback((id: string, fn: (d: Design) => Design) => {
+    if (!applyInMemory(id, fn)) void closed.update(id, fn);
+  }, [applyInMemory, closed]);
 
   // Product photos: each lands in its own design, even when another one is open by then.
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -548,15 +558,17 @@ export default function App() {
 
   const layoutValue = layoutKey ? String(design.values[layoutKey] ?? shown?.values[layoutKey] ?? layoutDef?.value ?? '') : undefined;
 
-  const { onValidate, startAssembly } = modelChecks({ design, shown, geo, quality, fullValues, hiddenParts, printHints, layoutKey, layoutDef, layoutValue,
+  const { onValidate, startAssembly } = modelChecks({ design, currentId, shown, geo, quality, fullValues, hiddenParts, printHints, layoutKey, layoutDef, layoutValue,
     setValidating, setValidation, setValidationOpen, setNotice, setPlayback, setPlaybackLoading });
 
   const onEditDimension = async (target: DimTarget, goal: number): Promise<SolveResult | null> => {
     if (!design.code || !(result ?? lastGood)) return null;
+    // The solve is for this design: another one opened meanwhile keeps its own values.
+    const id = design.id;
     const r = await geo.solve(design.code, fullValues(), quality, target, goal);
     if (r.ok && r.key && r.value != null) {
       const v = +r.value.toFixed(4);
-      setDesign((d) => ({ ...d, values: { ...d.values, [r.key!]: v } }));
+      setDesign((d) => (d.id === id ? { ...d, values: { ...d.values, [r.key!]: v } } : d));
     }
     return r;
   };
