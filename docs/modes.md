@@ -28,6 +28,7 @@ An image model (on OpenRouter) first draws the subject as flat artwork: a person
 
 - **Ask like this:** describe the picture and the piece: "a round wall plaque, 15 cm, with a howling wolf in front of a full moon".
 - **Prints** in a few colours, one per layer (with an AMS or by changing filament).
+- **Change one area** (a face, an object) with the brush button's *Select* (C) and *Edit*; the rest stays as it was.
 
 More detail in [Pictures](pictures.md).
 
@@ -37,6 +38,7 @@ A picture printed flat as a thin relief and painted by the filaments themselves:
 
 - **Set the filaments** you have in the *Print* tab: the picture is worked out for them.
 - **Best with** clear photos with strong contrast: a pet, a portrait, a landscape.
+- **Change one area** with *Edit the picture*: mark it, say what to change, *Keep*; the rest of the print stays as it was.
 
 More detail in [Pictures](pictures.md).
 
@@ -46,6 +48,7 @@ A photo in white PLA, thick where the photo is dark and thin where it is bright.
 
 - **Good for** night lights with a foot, lamp shades, frames for a window.
 - **Print** in white or natural PLA. It stands upright as built (the finest tones) and brings its own print settings (fine layers, 100 % infill).
+- **Change one area** of the photo with *Edit the picture*: mark it, say what to change, *Keep*.
 
 More detail in [Pictures](pictures.md).
 
@@ -56,6 +59,7 @@ A drawing cut out as one flat piece in one colour, about 2 mm thick with 1 mm li
 - **Pick the style** in the mode's ▾ menu: *Outline* (just the drawing), *Key holder* (on a bar with pegs for keys), *Framed*, *Medallion* (a round or oval frame), *Name sign* (on a bar with a name) or *Desk stand* (in a slotted base).
 - **Small colour accents** are possible, for example a red heart on a black drawing.
 - **Edit the drawing** by hand afterwards in the line art editor: draw, erase, and join loose pieces.
+- **Change one area** (a face, a rider) in *Edit drawing* with *Select*, then the Edit panel; the rest of the drawing stays.
 
 More detail in [Pictures](pictures.md).
 
