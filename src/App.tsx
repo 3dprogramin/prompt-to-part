@@ -67,7 +67,7 @@ import { printedFileUrl } from './lib/api';
 import { useDesignList } from './app/useDesignList';
 import { useModelLayout } from './app/useModelLayout';
 import { modelChecks } from './app/modelChecks';
-import { closedDesignUpdates } from './app/closedDesignUpdates';
+import { closedDesignUpdates, type ClosedDesignUpdates } from './app/closedDesignUpdates';
 
 const geo = new GeometryClient();
 
@@ -304,8 +304,13 @@ export default function App() {
     saveSoon(next);
     return true;
   }, [saveSoon]);
+  const applyRef = useRef(applyInMemory);
+  applyRef.current = applyInMemory;
   // A design closed (and saved) before its photo or slice finished gets the result in its saved copy.
-  const closed = useMemo(() => closedDesignUpdates({ load: (id) => api.getDesign(id), save: (d) => saveNow(d), applyInMemory }), [saveNow, applyInMemory]);
+  // One for the life of the app: its per-design queues must outlive renders.
+  const closedRef = useRef<ClosedDesignUpdates | null>(null);
+  closedRef.current ??= closedDesignUpdates({ load: (id) => api.getDesign(id), save: (d) => saveNow(d), applyInMemory: (id, fn) => applyRef.current(id, fn) });
+  const closed = closedRef.current;
   /** Apply a change to a design wherever it is: open, in the background, or only on the server. */
   const updateDesign = useCallback((id: string, fn: (d: Design) => Design) => {
     if (!applyInMemory(id, fn)) void closed.update(id, fn);
@@ -349,6 +354,8 @@ export default function App() {
         const blankId = currentId.current;
         const isLatest = opening.current.begin();
         try {
+          // A result still being saved into it is waited for (the copy loaded first would lack it).
+          await closed.pending(last);
           const d = await api.getDesign(last);
           if (d && isLatest()) setDesign((cur) => {
             if (cur.id !== blankId || cur.messages.length || cur.code) return cur;
@@ -605,7 +612,10 @@ export default function App() {
     // Clicking A (slow to load) and then B ends on B: A's late answer is dropped.
     const isLatest = opening.current.begin();
     try {
-      const d = background.current.get(id) ?? (await api.getDesign(id));
+      // A photo or slice still being saved into it is waited for: the copy loaded first would lack it
+      // and its next save would overwrite it.
+      const fromServer = async () => { await closed.pending(id); return api.getDesign(id); };
+      const d = background.current.get(id) ?? (await fromServer());
       if (!isLatest()) return;
       if (d) switchTo(d);
       else { openAt.current = null; setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }

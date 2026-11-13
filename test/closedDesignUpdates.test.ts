@@ -55,19 +55,19 @@ test('a design opened meanwhile gets the change in memory, not a save', async ()
   assert.equal(server.saved.length, 0);
 });
 
-test('a deleted design is dropped quietly', async () => {
+test('a deleted design is dropped quietly', async (t) => {
   const server = fakeServer(['b']);
-  const warn = console.warn;
-  console.warn = () => {};
-  try {
-    const closed = closedDesignUpdates({ load: server.load, save: server.save, applyInMemory: () => false });
-    await closed.update('gone', addPhoto('p1'));
-    assert.equal(server.saved.length, 0);
-    await closed.update('b', addPhoto('p2'));
-    assert.deepEqual(photoUrls(server.store.get('b')), ['p2']);
-  } finally {
-    console.warn = warn;
-  }
+  const warn = t.mock.method(console, 'warn', () => {});
+  const closed = closedDesignUpdates({ load: server.load, save: server.save, applyInMemory: () => false });
+  await closed.update('gone', addPhoto('p1'));
+  assert.equal(server.saved.length, 0);
+  assert.equal(warn.mock.callCount(), 1);
+  await closed.update('b', addPhoto('p2'));
+  assert.deepEqual(photoUrls(server.store.get('b')), ['p2']);
+  // The failed step didn't break that design's queue: once it exists again, a change lands.
+  server.store.set('gone', design('gone'));
+  await closed.update('gone', addPhoto('p3'));
+  assert.deepEqual(photoUrls(server.store.get('gone')), ['p3']);
 });
 
 test('a design the server no longer has (null) is dropped quietly', async () => {
@@ -75,4 +75,28 @@ test('a design the server no longer has (null) is dropped quietly', async () => 
   const closed = closedDesignUpdates({ load: async () => null, save: async (d) => { saved.push(d); }, applyInMemory: () => false });
   await closed.update('gone', addPhoto('p1'));
   assert.equal(saved.length, 0);
+});
+
+test("pending(id) waits for that design's queued changes and not for other designs'", async () => {
+  const server = fakeServer(['a', 'b']);
+  // Saves of 'b' hang until released, so only a wait on 'b' would stall.
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const save = async (d: Design) => { if (d.id === 'b') await held; await server.save(d); };
+  const closed = closedDesignUpdates({ load: server.load, save, applyInMemory: () => false });
+  await closed.pending('a'); // nothing queued: at once
+  void closed.update('a', addPhoto('p1'));
+  void closed.update('a', addPhoto('p2'));
+  const b = closed.update('b', addPhoto('q1'));
+  await closed.pending('a');
+  assert.deepEqual(photoUrls(server.store.get('a')), ['p1', 'p2']);
+  assert.deepEqual(photoUrls(server.store.get('b')), []);
+  let bDone = false;
+  const waitB = closed.pending('b').then(() => { bDone = true; });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(bDone, false);
+  release();
+  await waitB;
+  await b;
+  assert.deepEqual(photoUrls(server.store.get('b')), ['q1']);
 });
