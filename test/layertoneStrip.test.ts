@@ -22,7 +22,7 @@ test('every filament gets a band of its own on the strip', () => {
   const distinct = new Set(strip.map((c) => c.join()));
   assert.ok(distinct.size >= 10, `${distinct.size} colours`);
   // Some strip colour is clearly yellow (red and green high, blue low) and some clearly blue.
-  assert.ok(strip.some((c) => c[0] > 150 && c[1] > 120 && c[2] < 60), 'a yellow band');
+  assert.ok(strip.some((c) => c[0] > 120 && c[1] > 90 && c[2] < 40), 'a yellow band');
   assert.ok(strip.some((c) => c[2] > c[0] + 60 && c[2] > c[1] + 40), 'a blue band');
 });
 
@@ -116,4 +116,47 @@ test('picturePrompt: drawn or repainted for the strip, unchanged without one', a
   assert.match(repaint, /likeness/);
   assert.match(repaint, /only colours from the strip/);
   assert.doesNotMatch(repaint, /[–—]/);
+});
+
+// Matching hue as much as lightness was off by about 10 L* on this stack; by lightness, about 6.
+// A stack with a nearly opaque middle filament (Gray, TD 0.4) and a very translucent top (Jade White, TD 5.9).
+const WEDDING = [
+  { name: 'Black', color: '#000000', td: 0.2 }, { name: 'Bambu Green', color: '#00ae42', td: 1.2 },
+  { name: 'Gray', color: '#8e9089', td: 0.4 }, { name: 'Jade White', color: '#ffffff', td: 5.9 },
+];
+const W_O = { width: 100, maxHeight: 2.4, baseHeight: 0.48 };
+/** How many steps along the strip (one layer to the next) a person can see: CIELAB difference of 2.3 or more. */
+function distinct(swaps: number[]) {
+  const lab = (c: number[]) => {
+    const [R, G, B] = c.map((v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+    const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+    const x = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047), y = f(0.2126 * R + 0.7152 * G + 0.0722 * B), z = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+  };
+  const layers = stripColors({ filaments: WEDDING, swaps, maxHeight: 2.4, baseHeight: 0.48 }, W_O).filter((c, i, a) => !i || c.join() !== a[i - 1].join()).map(lab);
+  return layers.slice(1).filter((c, i) => Math.hypot(c[0] - layers[i][0], c[1] - layers[i][1], c[2] - layers[i][2]) >= 2.3).length;
+}
+
+test('strip swaps spread the colours: more distinct strip colours than equal bands, every filament 2 layers or more', () => {
+  const r = resolveLayerToneOptions(W_O);
+  const span = r.nMax - r.nBase + 1, k = WEDDING.length - 1;
+  const even = Array.from({ length: k }, (_, i) => r.nBase + Math.floor((i * span) / k));
+  const swaps = stripSwaps(WEDDING, W_O);
+  assert.ok(distinct(swaps) > distinct(even), `${distinct(swaps)} colours with ${swaps}, ${distinct(even)} with equal bands ${even}`);
+  const starts = [r.nBase, ...swaps, r.nMax + 1];
+  for (let i = 1; i < starts.length - 1; i++) assert.ok(starts[i + 1] - starts[i] >= 2, `filament ${i} gets ${starts[i + 1] - starts[i]} layers (${swaps})`);
+});
+
+test('a strip picture keeps its light and dark: greys snap to strip colours of about the same lightness', () => {
+  const stack = { filaments: WEDDING, swaps: stripSwaps(WEDDING, W_O), maxHeight: 2.4, baseHeight: 0.48 };
+  const strip = stripColors(stack, W_O);
+  const greys = Array.from({ length: 64 }, (_, i) => Math.round((i / 63) * 255));
+  const img = toStripImage('g', 64, 1, rgbaOf(greys.map((v) => [v, v, v])), stack, W_O);
+  const pos = layerToneLuma(img);
+  const L = (c: number[]) => { const y = 0.2126 * ((c[0] / 255) ** 2.2) + 0.7152 * ((c[1] / 255) ** 2.2) + 0.0722 * ((c[2] / 255) ** 2.2); return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y; };
+  // Only greys the strip can reach (between its darkest and lightest).
+  const lo = Math.min(...strip.map(L)), hi = Math.max(...strip.map(L));
+  const errs = greys.flatMap((v, i) => { const l = L([v, v, v]); return l >= lo && l <= hi ? [Math.abs(l - L(strip[pos[i]]))] : []; });
+  const mean = errs.reduce((a, b) => a + b, 0) / errs.length;
+  assert.ok(mean < 8, `mean lightness error ${mean.toFixed(1)} over ${errs.length} greys`);
 });

@@ -549,10 +549,13 @@ const stripCount = (pos: number, r: LayerToneResolved) => r.nBase + Math.round((
 const stripResolved = (stack: LayerToneStack, o: LayerToneOptions) => resolveLayerToneOptions({ ...o, maxHeight: stack.maxHeight, baseHeight: stack.baseHeight });
 
 /**
- * Swap layers for a stack before there is a picture: the relief split evenly, so every filament
- * after the first gets a band of its own on the strip (automatic swaps for a dark → light gradient
- * squeeze a middle colour to a single layer, and a picture drawn for the strip needs no dark → light
- * order). With more filaments than layers, one layer each.
+ * Swap layers for a stack before there is a picture: each filament after the first gets the layers
+ * that make its own colour show. A filament covers what is under it as 1 - e^(-3t/TD) of its
+ * thickness t, so each layer adds less: a nearly opaque one (low TD) is fully there after two or
+ * three layers and more of it only prints the same flat colour, while a translucent one keeps
+ * gaining. The relief's layers are handed out one at a time to the filament whose coverage grows
+ * most from one more (every filament at least 2 layers, 1 when the relief is too thin); the bands
+ * then stack in filament order, the first at the base.
  */
 export function stripSwaps(filaments: LayerToneFilament[], o: LayerToneOptions): number[] {
   const k = filaments.length - 1;
@@ -560,7 +563,16 @@ export function stripSwaps(filaments: LayerToneFilament[], o: LayerToneOptions):
   const r = resolveLayerToneOptions(o);
   const span = r.nMax - r.nBase + 1;
   if (span <= k) return Array.from({ length: k }, (_, i) => r.nBase + i);
-  return Array.from({ length: k }, (_, i) => r.nBase + Math.floor((i * span) / k));
+  const counts = Array.from({ length: k }, () => (span >= 2 * k ? 2 : 1));
+  const gain = (i: number) => coverage((counts[i] + 1) * r.layerHeight, filaments[i + 1].td) - coverage(counts[i] * r.layerHeight, filaments[i + 1].td);
+  for (let left = span - counts.reduce((a, b) => a + b, 0); left > 0; left--) {
+    let best = 0;
+    for (let i = 1; i < k; i++) if (gain(i) > gain(best) + 1e-12) best = i;
+    counts[best]++;
+  }
+  const swaps: number[] = [];
+  for (let i = 0, at = r.nBase; i < k; at += counts[i++]) swaps.push(at);
+  return swaps;
 }
 
 /** The 256 colours (sRGB 0 to 255) a stack prints, from its lowest layer (0) to its highest (255). */
@@ -585,9 +597,16 @@ function toLab(c: readonly number[]): [number, number, number] {
 }
 
 /**
+ * How much colour (CIELAB a, b) counts against lightness when a pixel snaps to the strip: a strip
+ * has only some 20 to 30 colours, and matching hue as much as lightness flattens a face or a hedge
+ * into one patch; mostly by lightness, the shading survives and hue still picks a green over a grey.
+ */
+const SNAP_HUE = 0.25;
+
+/**
  * RGBA pixels drawn for `stack` → a picture stored by strip position: scaled down like
- * toLayerToneImage, then each pixel snapped to its nearest strip colour (CIELAB; the lowest
- * position on a tie), which is stored.
+ * toLayerToneImage, then each pixel snapped to its nearest strip colour (CIELAB, lightness
+ * weighted over colour: SNAP_HUE; the lowest position on a tie), which is stored.
  */
 export function toStripImage(name: string, width: number, height: number, rgba: ArrayLike<number>, stack: LayerToneStack, o: LayerToneOptions, maxSide = MAX_LAYERTONE_IMAGE_SIDE): LayerToneImage {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new Error(`toStripImage: invalid size ${width}×${height}`);
@@ -617,7 +636,7 @@ export function toStripImage(name: string, width: number, height: number, rgba: 
       let bestD = Infinity;
       best = 0;
       for (let i = 0; i < 256; i++) {
-        const d = (lab[0] - strip[i][0]) ** 2 + (lab[1] - strip[i][1]) ** 2 + (lab[2] - strip[i][2]) ** 2;
+        const d = (lab[0] - strip[i][0]) ** 2 + SNAP_HUE * ((lab[1] - strip[i][1]) ** 2 + (lab[2] - strip[i][2]) ** 2);
         if (d < bestD - 1e-9) { bestD = d; best = i; }
       }
       nearest.set(key, best);
