@@ -47,7 +47,7 @@ export function describeToolInput(name: string, input: Record<string, unknown> |
   }
   if (name === 'Read') return 'Reading model.js';
   if (name === 'mcp__cad__generate_picture' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
-  if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_concept ? `from concept picture "${String(input.from_concept)}"` : input.from_photo ? 'from the attached photo' : String(input.prompt ?? '').slice(0, 200)}`;
+  if (name === 'mcp__cad__generate_3d') return `3D model "${String(input.name ?? '')}": ${input.from_concept ? `from concept picture "${String(input.from_concept)}"` : input.from_photo ? (Array.isArray(input.photos) && input.photos.length > 1 ? `from ${input.photos.length} attached photos` : 'from the attached photo') : String(input.prompt ?? '').slice(0, 200)}`;
   if (name === 'mcp__cad__generate_image' && typeof input.subject === 'string') return `Picture "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_concept' && typeof input.subject === 'string') return `Concept "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;
   if (name === 'mcp__cad__generate_artwork' && typeof input.subject === 'string') return `Artwork "${String(input.name ?? '')}": ${input.subject.slice(0, 200)}`;

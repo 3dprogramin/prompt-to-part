@@ -129,6 +129,33 @@ test('generate_3d: Meshy (the mock) makes a model, the app repairs and stores it
   assert.match(failed.content[0].text!, /too complex/);
 });
 
+test('generate_3d from_photo: all the attached views go to Meshy together, or the ones picked, front first', async () => {
+  const events: AgentEvent[] = [];
+  const client = { key: 'msy_test', baseUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`, sleep };
+  const views = [1, 2, 3].map((n) => `data:image/png;base64,${Buffer.from(`89504e470d0a1a0a0${n}`, 'hex').toString('base64')}`);
+  // A fresh reply for each call (at most 2 Meshy models a reply).
+  const reply = () => {
+    const { server: cad } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), {}, { meshy: { client, designId: 'test-mesh-00000008', references: views } });
+    return (cad.instance as unknown as { _registeredTools: Record<string, { handler: (a: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[]; isError?: boolean }> }> })._registeredTools.generate_3d;
+  };
+  const tools = { get generate_3d() { return reply(); } };
+  const all = await tools.generate_3d.handler({ name: 'turtle', from_photo: true }, {});
+  assert.ok(!all.isError, JSON.stringify(all));
+  assert.equal(mock.created.at(-1)!.type, 'multi-image-to-3d');
+  assert.deepEqual(mock.created.at(-1)!.body.image_urls, views);
+  const steps = events.flatMap((e) => (e.type === 'step' ? [e.step] : []));
+  assert.ok(steps.some((s) => /Meshy: making "turtle" from 3 photos/.test(s.text)));
+  assert.match(steps.find((s) => s.kind === 'render')!.detail!, /multi-image to 3D, 3 views/);
+  // The ones picked, in that order; one picked is plain image to 3D.
+  await tools.generate_3d.handler({ name: 'turtle', from_photo: true, photos: [3, 1] }, {});
+  assert.deepEqual(mock.created.at(-1)!.body.image_urls, [views[2], views[0]]);
+  await tools.generate_3d.handler({ name: 'turtle', from_photo: true, photos: [2] }, {});
+  assert.equal(mock.created.at(-1)!.type, 'image-to-3d');
+  assert.equal(mock.created.at(-1)!.body.image_url, views[1]);
+  assert.match((await tools.generate_3d.handler({ name: 'turtle', from_photo: true, photos: [4] }, {})).content[0].text!, /no photo 4/);
+  assert.ok((await tools.generate_3d.handler({ name: 'turtle', prompt: 'a turtle', photos: [1] }, {})).isError);
+});
+
 type Tools = Record<string, { handler: (a: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[]; isError?: boolean }> }>;
 const toolsOf = (cad: { instance: unknown }) => (cad.instance as { _registeredTools: Tools })._registeredTools;
 const mockBase = () => `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`;

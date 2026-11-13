@@ -49,6 +49,23 @@ test('a model from a photo (image to 3D)', async () => {
   await assert.rejects(createImageTo3d(client, 'data:image/gif;base64,R0lGOD'), (e) => e instanceof MeshyError && e.status === 400);
 });
 
+test('a model from several views of one subject (multi-image to 3D), the same credits', async () => {
+  const view = (n: number) => `data:image/png;base64,${Buffer.from(`89504e470d0a1a0a0${n}`, 'hex').toString('base64')}`;
+  const r = await generateMeshyModel(client, { image: [view(1), view(2), view(3)] });
+  assert.equal(r.task.type, 'multi-image-to-3d');
+  assert.equal(r.prompt, 'From the 3 attached photos (views of one subject)');
+  assert.equal(r.task.consumed_credits, MESHY_CREDITS_PER_MODEL);
+  // Up to 4 views go; one view in a list is plain image to 3D.
+  const more = await getTask(client, 'multi-image-to-3d', await createImageTo3d(client, [1, 2, 3, 4, 5].map(view)));
+  assert.equal(more.task.type, 'multi-image-to-3d');
+  assert.equal((await getTask(client, 'image-to-3d', await createImageTo3d(client, [view(1)]))).task.type, 'image-to-3d');
+  await assert.rejects(createImageTo3d(client, []), MeshyError);
+  // The mock checks the list as Meshy does: 1 to 4 pictures, each a URL or a data URI.
+  const post = (body: unknown) => fetch(`${base}/v1/multi-image-to-3d`, { method: 'POST', headers: { Authorization: 'Bearer msy_x', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ image_urls: [1, 2, 3, 4, 5].map(view) })).status, 400);
+  assert.equal((await post({ image_urls: [view(1), 'data:image/gif;base64,R0lGOD'] })).status, 400);
+});
+
 test('errors: a bad key, a bad request, a failed task, credits', async () => {
   await assert.rejects(createTextTo3d({ ...client, key: 'sk-wrong' }, 'a cat'), (e) => e instanceof MeshyError && e.status === 401 && /refused the API key/.test(e.message));
   const long = await fetch(`${base}/v2/text-to-3d`, { method: 'POST', headers: { Authorization: 'Bearer msy_x', 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'preview', prompt: 'x'.repeat(801) }) });

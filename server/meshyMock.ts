@@ -50,7 +50,7 @@ export interface MockOptions {
 type Status = 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED';
 interface Task {
   id: string;
-  family: 'text-to-3d' | 'image-to-3d';
+  family: 'text-to-3d' | 'image-to-3d' | 'multi-image-to-3d';
   type: string;
   prompt: string;
   created: number;
@@ -102,7 +102,7 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
     return {
       id: t.id, type: t.type, ...(t.family === 'text-to-3d' ? { prompt: t.prompt, mode: t.preview ? 'refine' : 'preview', ...(t.preview ? { preceding_task_id: t.preview } : {}) } : {}),
       status, progress: status === 'SUCCEEDED' ? 100 : progress, preceding_tasks: 0,
-      created_at: t.created, started_at: started, finished_at: finished, ...(t.family === 'image-to-3d' ? { expires_at: expires } : {}),
+      created_at: t.created, started_at: started, finished_at: finished, ...(t.family !== 'text-to-3d' ? { expires_at: expires } : {}),
       model_urls: status === 'SUCCEEDED' ? Object.fromEntries(t.formats.map((f) => [f, asset(`model.${f}`)])) : {},
       thumbnail_url: status === 'SUCCEEDED' ? asset('preview.png') : '',
       texture_urls: status === 'SUCCEEDED' && t.textured ? [{ base_color: asset('texture_0.png') }] : [], texture_prompt: '', texture_image_url: t.textureImage ?? '',
@@ -150,12 +150,17 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
         prompt = b.prompt;
       }
     } else {
-      const img = b.image_url;
-      if (typeof img !== 'string' && typeof b.input_task_id !== 'string') return send(res, 400, { message: 'image_url or input_task_id is required' });
-      if (typeof img === 'string') {
-        const m = /^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/s.exec(img);
-        if (!m && !/^https:\/\//.test(img)) return send(res, 400, { message: 'image_url must be a public URL or a data URI (jpg, jpeg, png or webp)' });
-        if (m && (m[2].length * 3) / 4 > 20 * 1024 * 1024) return send(res, 400, { message: 'Image too large (max 20 MB)' });
+      // Image to 3D takes one image_url; Multi-Image to 3D 1 to 4 image_urls (views of one subject).
+      const field = family === 'multi-image-to-3d' ? 'image_urls' : 'image_url';
+      const raw = b[field];
+      if (raw == null && typeof b.input_task_id !== 'string') return send(res, 400, { message: `${field} or input_task_id is required` });
+      if (raw != null) {
+        if (family === 'multi-image-to-3d' && (!Array.isArray(raw) || raw.length < 1 || raw.length > 4)) return send(res, 400, { message: 'image_urls must hold 1 to 4 images' });
+        for (const img of family === 'multi-image-to-3d' ? (raw as unknown[]) : [raw]) {
+          const m = typeof img === 'string' ? /^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/s.exec(img) : null;
+          if (typeof img !== 'string' || (!m && !/^https:\/\//.test(img))) return send(res, 400, { message: `${field} must be a public URL or a data URI (jpg, jpeg, png or webp)` });
+          if (m && (m[2].length * 3) / 4 > 20 * 1024 * 1024) return send(res, 400, { message: 'Image too large (max 20 MB)' });
+        }
       }
       if (b.enable_pbr && b.should_texture === false) return send(res, 400, { message: 'enable_pbr requires should_texture' });
       if (b.texture_image_url != null) {
@@ -167,14 +172,14 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
       prompt = typeof b.texture_prompt === 'string' ? b.texture_prompt : '';
     }
     // 20 for the mesh, 30 textured; 2k/4k geometry costs 5 more; a refine 10.
-    const textured = preview ? true : family === 'image-to-3d' && b.should_texture !== false;
+    const textured = preview ? true : family !== 'text-to-3d' && b.should_texture !== false;
     const credits = preview ? 10 : (family === 'text-to-3d' || b.should_texture === false ? 20 : 30) + (b.geometry_resolution === '2k' || b.geometry_resolution === '4k' ? 5 : 0);
     if (balance < credits) return send(res, 402, { message: 'Insufficient credits' });
     if (active() >= 10) return send(res, 429, { message: 'NoMorePendingTasks: too many tasks in the queue' });
     balance -= credits;
     const id = randomUUID();
     const t: Task = {
-      id, family, type: family === 'text-to-3d' ? (preview ? 'text-to-3d-refine' : 'text-to-3d-preview') : 'image-to-3d', prompt, created: now(), credits,
+      id, family, type: family === 'text-to-3d' ? (preview ? 'text-to-3d-refine' : 'text-to-3d-preview') : family, prompt, created: now(), credits,
       model: textured ? TEXTURED : MODELS.find(([re]) => re.test(prompt))?.[1] ?? FIGURINE, formats, textured,
       ...(textured && typeof b.texture_image_url === 'string' ? { textureImage: b.texture_image_url.startsWith('https://') ? b.texture_image_url : '' } : {}),
       ...(preview ? { preview: preview.id } : {}),
@@ -249,9 +254,9 @@ export function createMeshyMock(opts: MockOptions = {}): MeshyMock {
     if (!/^Bearer msy_\S+$/.test(req.headers.authorization ?? '')) return send(res, 401, { message: 'Invalid API key' });
     const route = parts.slice(1).join('/');
     if (req.method === 'GET' && route === 'v1/balance') return send(res, 200, { balance, monthly_credits: Math.min(balance, 600), permanent_credits: Math.max(0, balance - 600), monthly_resets_at: now() + 30 * 86400000 });
-    const fam = /^(v2\/text-to-3d|v1\/image-to-3d)(?:\/([^/]+))?(?:\/(stream))?$/.exec(route);
+    const fam = /^(v2\/text-to-3d|v1\/image-to-3d|v1\/multi-image-to-3d)(?:\/([^/]+))?(?:\/(stream))?$/.exec(route);
     if (!fam) return send(res, 404, { message: 'Not found' });
-    const family: Task['family'] = fam[1] === 'v2/text-to-3d' ? 'text-to-3d' : 'image-to-3d';
+    const family = fam[1].slice(3) as Task['family'];
     const id = fam[2];
     if (!id) {
       if (req.method === 'POST') {

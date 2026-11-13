@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { geometry } from '../geometry';
 import { ASPECTS, conceptPrompt, imageModel, paintPrompt } from '../artwork';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../../shared/meshes';
-import { forgetBalance, generateMeshyModel, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply } from '../meshy';
+import { forgetBalance, generateMeshyModel, MAX_MESHY_VIEWS, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply } from '../meshy';
 import { readMyFilaments } from '../myFilaments';
 import { filamentLabel, matchFilaments, MAX_MESH_COLORS, meshColorBudget } from '../../shared/meshColors';
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from '../meshes';
@@ -94,10 +94,11 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
       }
     })] : []),
-    tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept: its grey picture gives the shape, and in colour its painted one the texture), the photo the user attached (from_photo) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${meshColorBudget()} filaments (${loadsAtOnce()}) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
+    tool('generate_3d', `Have Meshy (an AI 3D generator) make a sculpted 3D model of the main subject – a figure, character, animal, statue or ornament – from an approved concept picture (from_concept: its grey picture gives the shape, and in colour its painted one the texture), the photo(s) the user attached (from_photo: up to ${MAX_MESHY_VIEWS} views of the one subject, e.g. front, side and back, go to Meshy together) or a description. It comes back repaired into a watertight solid for H.mesh(name, …), with a four-view render and a report. With color it is textured and its colours are kept, reduced to at most ${meshColorBudget()} filaments (${loadsAtOnce()}) and painted on its triangles. Takes about 1–3 minutes and costs ${MESHY_CREDITS_PER_MODEL} Meshy credits (${MESHY_CREDITS_PER_COLOR_MODEL} in colour): only for the subject(s) the user asked for, never for bases, scenery or props; at most ${meshyMaxPerReply()} per reply.`, {
       name: z.string().regex(/^[\w.-]{1,40}$/).describe('Name to use with H.mesh, e.g. "fox"; an existing name is replaced'),
       prompt: z.string().max(700).optional().describe('The subject: what it is, pose, proportions, clothes, accessories, style; no printing instructions (the app adds them). Required unless from_photo or from_concept'),
-      from_photo: z.boolean().optional().describe('Build it from the photo the user attached to this message (image to 3D) instead of the description'),
+      from_photo: z.boolean().optional().describe('Build it from the photo(s) the user attached to this message (image to 3D) instead of the description'),
+      photos: z.array(z.number().int().min(1)).min(1).max(MAX_MESHY_VIEWS).optional().describe(`With from_photo: which attached photos show this subject, by number (1 = the first attached), the front view first. Default: all of them (up to ${MAX_MESHY_VIEWS}), which is right when they are views of the same subject from different sides; Meshy then builds from all views together (multi-image to 3D, the same credits), so sides the front can't show (a backpack, a tail) come out right. Photos of different subjects: one generate_3d per subject with only its photo. A single picture that holds several views side by side (a reference sheet) is one photo: Meshy reads it as one object.`),
       from_concept: z.string().regex(/^[\w.-]{1,40}$/).optional().describe('Build it from this concept picture (generate_concept) the user approved (image to 3D): Meshy gets exactly that picture, and in colour paints the model from its coloured version'),
       color: z.boolean().optional().describe(`A coloured figure (textured, ${MESHY_CREDITS_PER_COLOR_MODEL} credits instead of ${MESHY_CREDITS_PER_MODEL}), printed in up to ${MAX_MESH_COLORS} filaments. Default: ${meshy.color ? 'on (the user turned on Colour)' : 'off'}, or as the concept picture was drawn; turn it on only when the user asks for colour`),
       colors: z.number().int().min(1).max(MAX_MESH_COLORS).optional().describe(`With color: most colours (filaments) the figure gets (default ${meshColorBudget()}); fewer leave AMS slots for other parts in colours of their own`),
@@ -105,6 +106,11 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
       const refuse = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
       if (a.from_photo && a.from_concept) return refuse('Use either from_photo or from_concept, not both.');
       if (a.from_photo && !meshy.references.length) return refuse('The user attached no photo to this message.');
+      if (a.photos && !a.from_photo) return refuse('photos goes with from_photo: true.');
+      const badPhoto = a.photos?.find((n) => n > meshy.references.length);
+      if (badPhoto) return refuse(`There is no photo ${badPhoto}: the user attached ${meshy.references.length} to this message.`);
+      // The views Meshy builds from: the chosen photos (front first), or all attached, up to the most it takes.
+      const views = a.from_photo ? [...new Set(a.photos?.map((n) => meshy.references[n - 1]) ?? meshy.references)].slice(0, MAX_MESHY_VIEWS) : [];
       const concepts = parseConcepts(base[CONCEPTS_KEY]);
       const concept = a.from_concept ? concepts[a.from_concept] : undefined;
       if (a.from_concept && !concept) {
@@ -142,11 +148,11 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
           return refuse(`The picture of concept "${a.from_concept}" is missing: draw it again with generate_concept.`);
         }
       }
-      const how = concept ? `from concept "${a.from_concept}"` : a.from_photo ? 'from the photo' : 'from the description';
+      const how = concept ? `from concept "${a.from_concept}"` : a.from_photo ? (views.length > 1 ? `from ${views.length} photos` : 'from the photo') : 'from the description';
       emit({ type: 'step', step: { kind: 'status', text: `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
       let shown = -1;
       let status = '';
-      const input = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: meshy.references[0] } : { prompt: a.prompt! };
+      const input = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: views } : { prompt: a.prompt! };
       try {
         const r = await generateMeshyModel(meshy.client, input, {
           signal: meshy.signal,
@@ -179,7 +185,7 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         emit({ type: 'step', step: {
           kind: 'render', ok: true, image: picture, detailOpen: true,
           text: `${color ? 'Coloured 3D model' : '3D model'} "${a.name}" from Meshy${r.credits ? ` · ${r.credits} credits` : ''}`,
-          detail: `${'prompt' in input ? 'Prompt sent to Meshy (text to 3D)' : `Sent to Meshy (image to 3D${texture ? ': the shape picture, painted from the colours picture' : ''})`}:\n\n${r.prompt}\n\n${report}`,
+          detail: `${'prompt' in input ? 'Prompt sent to Meshy (text to 3D)' : `Sent to Meshy (${views.length > 1 ? `multi-image to 3D, ${views.length} views` : 'image to 3D'}${texture ? ': the shape picture, painted from the colours picture' : ''})`}:\n\n${r.prompt}\n\n${report}`,
         } });
         return {
           content: [

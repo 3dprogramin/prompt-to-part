@@ -1,5 +1,5 @@
 // Meshy (https://docs.meshy.ai): AI 3D models from a description (Text to 3D, preview stage) or a
-// photo (Image to 3D), for generate_3d. A figure in one colour is the untextured mesh only (25
+// photo (Image to 3D; Multi-Image to 3D for 2 to 4 views of one subject), for generate_3d. A figure in one colour is the untextured mesh only (25
 // credits a model at 2k geometry); a coloured one (3D figure mode's Colour) is textured: Image to 3D
 // with should_texture (painted from texture_image_url when there is a painted concept picture), Text
 // to 3D with a refine task after the preview (35 credits either way), and the GLB's base colour
@@ -23,8 +23,12 @@ export const meshyMaxPerReply = () => {
   return process.env.PTP_MESHY_MAX_PER_REPLY?.trim() && Number.isInteger(n) && n >= 0 ? n : MESHY_MAX_PER_REPLY;
 };
 
-export type MeshyKind = 'text-to-3d' | 'image-to-3d';
-const PATHS: Record<MeshyKind, string> = { 'text-to-3d': '/v2/text-to-3d', 'image-to-3d': '/v1/image-to-3d' };
+export type MeshyKind = 'text-to-3d' | 'image-to-3d' | 'multi-image-to-3d';
+const PATHS: Record<MeshyKind, string> = { 'text-to-3d': '/v2/text-to-3d', 'image-to-3d': '/v1/image-to-3d', 'multi-image-to-3d': '/v1/multi-image-to-3d' };
+/** Most pictures Multi-Image to 3D takes (views of the same subject, the first the front). */
+export const MAX_MESHY_VIEWS = 4;
+/** The Image to 3D endpoint for these pictures: Multi-Image to 3D for more than one. */
+const imageKind = (images: string | string[]): MeshyKind => (Array.isArray(images) && images.length > 1 ? 'multi-image-to-3d' : 'image-to-3d');
 
 export interface MeshyTask {
   id: string;
@@ -138,13 +142,17 @@ export async function createTextRefine(c: MeshyClient, previewTaskId: string, si
 }
 
 /**
- * Starts a model from a photo (a data URI: JPEG, PNG or WebP up to 20 MB), textured with `color`:
+ * Starts a model from a photo (a data URI: JPEG, PNG or WebP up to 20 MB), or from 2 to 4 photos of
+ * the same subject from different sides (Multi-Image to 3D, the first the front), textured with `color`:
  * painted from `textureDataUri` (the same picture in colour, also a data URI) when given, otherwise
  * by Meshy from the photo itself. Returns the task id.
  */
-export async function createImageTo3d(c: MeshyClient, imageDataUri: string, signal?: AbortSignal, color = false, textureDataUri?: string): Promise<string> {
-  const { data } = await call<{ result: string }>(c, 'POST', PATHS['image-to-3d'], {
-    image_url: imageDataUri, ai_model: 'meshy-7.1', geometry_resolution: '2k', should_texture: color, ...(color ? TEXTURE : {}),
+export async function createImageTo3d(c: MeshyClient, images: string | string[], signal?: AbortSignal, color = false, textureDataUri?: string): Promise<string> {
+  const list = (Array.isArray(images) ? images : [images]).slice(0, MAX_MESHY_VIEWS);
+  if (!list.length) throw new MeshyError('No picture to make the model from');
+  const kind = imageKind(list);
+  const { data } = await call<{ result: string }>(c, 'POST', PATHS[kind], {
+    ...(kind === 'multi-image-to-3d' ? { image_urls: list } : { image_url: list[0] }), ai_model: 'meshy-7.1', geometry_resolution: '2k', should_texture: color, ...(color ? TEXTURE : {}),
     ...(color && textureDataUri ? { texture_image_url: textureDataUri } : {}), should_remesh: false, target_formats: ['glb'],
   }, 60000, signal);
   if (typeof data?.result !== 'string') throw new MeshyError('Meshy returned no task id');
@@ -270,11 +278,12 @@ export interface MeshyResult {
  * colour, a model from a description is painted by a refine task after its preview, and one from a
  * picture is painted from `texture` when given (texture_image_url); `onProgress` says which stage it is in.
  */
-export async function generateMeshyModel(c: MeshyClient, input: { prompt: string } | { image: string; label?: string; texture?: string }, opts: {
+export async function generateMeshyModel(c: MeshyClient, input: { prompt: string } | { image: string | string[]; label?: string; texture?: string }, opts: {
   signal?: AbortSignal; onProgress?: (t: MeshyTask, stage: 'model' | 'texture') => void; onStarted?: (id: string) => void; timeoutMs?: number; color?: boolean;
 } = {}): Promise<MeshyResult> {
-  const kind: MeshyKind = 'prompt' in input ? 'text-to-3d' : 'image-to-3d';
-  const prompt = 'prompt' in input ? meshyPrompt(input.prompt) : input.label ?? 'From the attached photo';
+  const kind: MeshyKind = 'prompt' in input ? 'text-to-3d' : imageKind(input.image);
+  const views = 'image' in input && Array.isArray(input.image) ? Math.min(input.image.length, MAX_MESHY_VIEWS) : 1;
+  const prompt = 'prompt' in input ? meshyPrompt(input.prompt) : input.label ?? (views > 1 ? `From the ${views} attached photos (views of one subject)` : 'From the attached photo');
   const id = 'prompt' in input ? await createTextTo3d(c, prompt, opts.signal) : await createImageTo3d(c, input.image, opts.signal, !!opts.color, input.texture);
   opts.onStarted?.(id);
   const stage = (s: 'model' | 'texture') => ({ ...opts, onProgress: opts.onProgress && ((t: MeshyTask) => opts.onProgress!(t, s)) });
