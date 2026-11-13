@@ -567,12 +567,13 @@ function solveMembrane(m: Membrane) {
  * (mark pixels next to a pixel outside it; the picture's own border is not an edge) and spreads
  * smoothly inward (a membrane: harmonic inside the mark), so a redraw whose tones differ from the
  * original, even differently along the edge, keeps its own detail but meets the original without a
- * step. The correction fades out linearly over `fadePx` from the edge (Infinity: never), so deeper
- * inside the edit keeps its own tones (a face asked darker stays darker in the middle; the change
- * ramps in over `fadePx` instead of a step). Then featherPaste with `featherPx`, at most half the
- * mark's deepest point so the middle of a small mark is wholly the edit. Each RGB channel is
- * corrected apart (once when the difference is grey); alpha is the edit's. Every pixel with mask 0
- * is copied from `orig` untouched.
+ * step. The correction fades out over `fadePx` from the edge (a smoothstep: whole at the edge,
+ * gone at `fadePx`; Infinity: never fades), so deeper inside the edit keeps its own tones (a face
+ * asked darker stays darker in the middle; the change ramps in instead of a step). The fade and the
+ * feather (featherPaste with `featherPx`) are each at most half the mark's deepest point, so the
+ * middle of a small mark is wholly the edit, its own tones included. Each RGB channel is corrected
+ * apart (once when the difference is grey); alpha is the edit's. Every pixel with mask 0 is copied
+ * from `orig` untouched.
  */
 export function seamlessPaste(orig: Raster, edited: Raster, mask: Uint8Array, featherPx: number, fadePx = Infinity): Raster {
   const w = orig.width, h = orig.height;
@@ -584,14 +585,23 @@ export function seamlessPaste(orig: Raster, edited: Raster, mask: Uint8Array, fe
     const edge = (i > 0 && !mask[p - 1]) || (i < w - 1 && !mask[p + 1]) || (j > 0 && !mask[p - w]) || (j < h - 1 && !mask[p + w]);
     state[p] = edge ? 2 : 1;
   }
+  // The field depends only on the edge values, so one solve serves all channels when they differ alike there.
   let grey = true;
   for (let p = 0; p < w * h && grey; p++) {
     if (state[p] !== 2) continue;
     const o = p * 4, d = a[o] - b[o];
     grey = a[o + 1] - b[o + 1] === d && a[o + 2] - b[o + 2] === d;
   }
-  // Each mark pixel's distance to the edge: the edge pixels are 1 from a pixel outside.
+  // Each mark pixel's distance to the edge (the edge pixels are 1 from a pixel outside) and the deepest.
   const dist = distanceOutside(mask, w, h);
+  let deepest = 0;
+  for (let p = 0; p < w * h; p++) if (dist[p] !== Infinity && dist[p] > deepest) deepest = dist[p];
+  const fade = fadePx === Infinity ? Infinity : Math.min(fadePx, deepest / 2);
+  const keepAt = (d: number) => {
+    if (fade === Infinity) return 1;
+    const t = fade > 0 ? Math.min(1, Math.max(0, (d - 1) / fade)) : 0;
+    return 1 - t * t * (3 - 2 * t);
+  };
   const corrected = new Uint8Array(b);
   let field: Float32Array | null = null;
   for (let k = 0; k < 3; k++) {
@@ -603,12 +613,9 @@ export function seamlessPaste(orig: Raster, edited: Raster, mask: Uint8Array, fe
     }
     for (let p = 0; p < w * h; p++) {
       if (!state[p]) continue;
-      const keep = fadePx === Infinity ? 1 : Math.max(0, 1 - (dist[p] - 1) / fadePx);
-      corrected[p * 4 + k] = Math.max(0, Math.min(255, Math.round(b[p * 4 + k] + keep * field[p])));
+      corrected[p * 4 + k] = Math.max(0, Math.min(255, Math.round(b[p * 4 + k] + keepAt(dist[p]) * field[p])));
     }
   }
-  let deepest = 0;
-  for (let p = 0; p < w * h; p++) if (dist[p] !== Infinity && dist[p] > deepest) deepest = dist[p];
   const feather = Math.max(0, Math.min(featherPx, deepest / 2));
   return blend(orig, { width: w, height: h, data: corrected }, mask, feather, feather > 0 ? dist : null);
 }

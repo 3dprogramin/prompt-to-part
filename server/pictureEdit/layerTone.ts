@@ -17,6 +17,21 @@ export function greyRaster(img: LayerToneImage): Raster {
   return { width: img.width, height: img.height, data };
 }
 
+/**
+ * A picture made grey (R = G = B, opaque) the way toLayerToneImage stores it: Rec. 709 luma, a
+ * transparent pixel counting as white paper, so storing the result changes nothing more.
+ */
+export function greyOf(r: Raster): Raster {
+  const n = r.width * r.height, d = r.data, data = new Uint8Array(n * 4);
+  for (let p = 0; p < n; p++) {
+    const o = p * 4, a = d[o + 3] / 255;
+    const v = Math.max(0, Math.min(255, Math.round((0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2]) * a + 255 * (1 - a))));
+    data[o] = data[o + 1] = data[o + 2] = v;
+    data[o + 3] = 255;
+  }
+  return { width: r.width, height: r.height, data };
+}
+
 /** How the part was built, as the request has it, checked: options a part can have, usable filaments, whole swap layers; or null. */
 export function cleanBuild(raw: unknown): LayerToneBuild | null {
   if (!raw || typeof raw !== 'object') return null;

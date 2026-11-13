@@ -385,12 +385,22 @@ function strokeMask(w: number, h: number): Uint8Array {
   return mask;
 }
 
+/** The mark's edge pixels: in the mark, next to a pixel outside it. */
+function edgePixels(mask: Uint8Array, w: number, h: number): number[] {
+  const out: number[] = [];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i;
+    if (mask[p] && ((i > 0 && !mask[p - 1]) || (i < w - 1 && !mask[p + 1]) || (j > 0 && !mask[p - w]) || (j < h - 1 && !mask[p + w]))) out.push(p);
+  }
+  return out;
+}
+
 /**
  * The worst new step a paste makes near the mark's edge: over every pair of neighbouring pixels
  * (one in the mark, the other outside it or in it) within `band` px of the edge, how much more they
- * differ in `out` than in either the original or the edit (0 when no new step).
+ * differ in `out` than in either the original or the edit (0 when no new step), on channel `k`.
  */
-function edgeStep(out: Raster, orig: Raster, edited: Raster, mask: Uint8Array, band: number): number {
+function edgeStep(out: Raster, orig: Raster, edited: Raster, mask: Uint8Array, band: number, k = 0): number {
   const w = out.width, h = out.height, near = new Uint8Array(w * h);
   // Mark pixels within `band` (4-steps) of a pixel outside the mark.
   let ring: number[] = [];
@@ -411,7 +421,7 @@ function edgeStep(out: Raster, orig: Raster, edited: Raster, mask: Uint8Array, b
     const i = p % w, j = (p / w) | 0;
     for (const q of [i > 0 ? p - 1 : -1, i < w - 1 ? p + 1 : -1, j > 0 ? p - w : -1, j < h - 1 ? p + w : -1]) {
       if (q < 0) continue;
-      const d = (r: Raster) => Math.abs(r.data[p * 4] - r.data[q * 4]);
+      const d = (r: Raster) => Math.abs(r.data[p * 4 + k] - r.data[q * 4 + k]);
       worst = Math.max(worst, d(out) - Math.max(d(orig), d(edited)));
     }
   }
@@ -469,6 +479,56 @@ test('seamlessPaste with a fade keeps a tone change deep inside the mark and ram
   assert.ok(plain >= 15, `the plain paste steps (worst ${plain})`);
 });
 
+test('seamlessPaste of a colour edit into a grey picture: the edge meets it exactly in every channel, no step, grey where the edit was only re-tinted', () => {
+  const w = 160, h = 120, rnd = random(13);
+  const values = Array.from({ length: w * h }, (_, p) => 110 + 45 * Math.sin((p % w) / 15) * Math.cos(Math.floor(p / w) / 11) + 4 * rnd());
+  const orig = grey(w, h, (i, j) => values[j * w + i]);
+  // A tinted redraw: each channel offset differently, a gradient and a dark feature common to all.
+  const tint = [50, 20, -10], feature = { x: 75, y: 57, r: 6 };
+  const data = new Uint8Array(w * h * 4);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i, v = Math.hypot(i - feature.x, j - feature.y) < feature.r ? 15 : values[p] + 0.4 * (i - 40);
+    for (let k = 0; k < 3; k++) data[p * 4 + k] = clamp255(v + tint[k]);
+    data[p * 4 + 3] = 255;
+  }
+  const edited: Raster = { width: w, height: h, data }, mask = strokeMask(w, h);
+  const out = seamlessPaste(orig, edited, mask, 6);
+  for (let p = 0; p < w * h; p++) if (!mask[p]) assert.deepEqual([...out.data.slice(p * 4, p * 4 + 4)], [...orig.data.slice(p * 4, p * 4 + 4)], `outside ${p}`);
+  for (const p of edgePixels(mask, w, h)) assert.deepEqual([...out.data.slice(p * 4, p * 4 + 3)], [...orig.data.slice(p * 4, p * 4 + 3)], `edge ${p}`);
+  for (let k = 0; k < 3; k++) {
+    const step = edgeStep(out, orig, edited, mask, 8, k);
+    assert.ok(step <= 3, `no new step on channel ${k} (worst ${step})`);
+  }
+  // The tint is corrected away channel by channel: the result stays grey (within rounding).
+  let spread = 0;
+  for (let p = 0; p < w * h; p++) {
+    if (!mask[p]) continue;
+    const c = out.data.slice(p * 4, p * 4 + 3);
+    spread = Math.max(spread, Math.max(...c) - Math.min(...c));
+  }
+  assert.ok(spread <= 3, `grey (channels within ${spread})`);
+});
+
+test('seamlessPaste of a small mark keeps a darker tone whole at its middle, the fade and the feather held to half its depth', () => {
+  const w = 120, h = 120, rnd = random(17);
+  const orig = grey(w, h, (i, j) => 150 + 30 * Math.sin(i / 9) * Math.cos(j / 7) + 4 * rnd());
+  const edited = grey(w, h, (i, j) => orig.data[(j * w + i) * 4] - 60);
+  // A mark 40 px wide (its deepest point 20 px in), pasted with the photo path's 800 px feather and fade (16, 32).
+  const mask = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (Math.hypot(i - 60, j - 60) < 20) mask[j * w + i] = 1;
+  const out = seamlessPaste(orig, edited, mask, 16, 32);
+  for (const p of edgePixels(mask, w, h)) assert.equal(out.data[p * 4], orig.data[p * 4], `edge ${p}`);
+  // The middle keeps 100 % of the darkening (within rounding); within 5 px of it at least 95 %.
+  const c = 60 * w + 60;
+  assert.ok(Math.abs(out.data[c * 4] - edited.data[c * 4]) <= 1, `middle ${out.data[c * 4]}, edit ${edited.data[c * 4]}`);
+  let least = Infinity;
+  for (let j = 55; j <= 65; j++) for (let i = 55; i <= 65; i++) {
+    const p = j * w + i;
+    if (Math.hypot(i - 60, j - 60) <= 5) least = Math.min(least, (orig.data[p * 4] - out.data[p * 4]) / 60);
+  }
+  assert.ok(least >= 0.95, `kept ${(least * 100).toFixed(0)} % of the darkening near the middle`);
+});
+
 test('seamlessPaste of half an 800 x 800 picture runs at an interactive speed', () => {
   const N = 800, rnd = random(3);
   const look = (i: number, j: number) => 120 + 60 * Math.sin(i / 37) * Math.cos(j / 23);
@@ -485,5 +545,4 @@ test('seamlessPaste of half an 800 x 800 picture runs at an interactive speed', 
   const step = edgeStep(out, orig, edited, mask, 34);
   assert.ok(step <= 5, `no step at the edge (worst ${step})`);
   assert.ok(ms < 1500, `${ms.toFixed(0)} ms`);
-  console.log(`seamlessPaste 800 x 800, mark ${(mask.reduce((s, v) => s + v, 0) / (N * N) * 100).toFixed(0)} %: ${ms.toFixed(0)} ms`);
 });
