@@ -115,8 +115,9 @@ export default function App() {
       if (saved.id !== currentId.current && !runningRef.current[saved.id] && background.current.get(saved.id) === saved) background.current.delete(saved.id);
     },
     onAdopted: () => setNotice({ text: 'This design was changed in another tab or window, so the newest version is shown.', level: 'info', details: false }),
-    // A background copy older than the server's would be reopened as if it were current.
-    onConflict: (fresh) => { if (background.current.has(fresh.id)) background.current.set(fresh.id, fresh); },
+    // A background copy older than the server's would be reopened as if it were current, so it goes
+    // (reopening loads the server's). A generation running here owns the design: its copy stays.
+    onConflict: (fresh) => { if (!runningRef.current[fresh.id]) background.current.delete(fresh.id); },
     onGone: (id) => forgetDesign(id),
   });
   // Designs generating in other tabs (id → last heartbeat); their saves replace the open copy.

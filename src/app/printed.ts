@@ -20,7 +20,7 @@ export function printedActions({ design, problem, saveNow, build3mf, refreshList
   design: Design;
   /** markProblem's answer for now. */
   problem: string | null;
-  saveNow: (d: Design) => Promise<void>;
+  saveNow: (d: Design) => Promise<unknown>;
   build3mf: ReturnType<typeof designExports>['build3mf'];
   refreshList: () => void;
   setNotice: Dispatch<SetStateAction<Notice | null>>;

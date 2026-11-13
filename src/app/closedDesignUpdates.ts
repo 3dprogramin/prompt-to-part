@@ -12,8 +12,8 @@ export interface ClosedDesignUpdates {
 export function closedDesignUpdates(deps: {
   /** The server's copy, or null when it has none (api.getDesign). */
   load: (id: string) => Promise<Design | null>;
-  /** Save a changed copy (saveNow). */
-  save: (d: Design) => Promise<void>;
+  /** Save a changed copy (saveNow); false when a newer copy replaced it unsaved. */
+  save: (d: Design) => Promise<boolean | void>;
   /** True when the design is open or in background now: the change was applied there instead. */
   applyInMemory: (id: string, fn: (d: Design) => Design) => boolean;
 }): ClosedDesignUpdates {
@@ -22,12 +22,20 @@ export function closedDesignUpdates(deps: {
 
   const step = async (id: string, fn: (d: Design) => Design) => {
     try {
-      const loaded = await deps.load(id);
-      // Deleted meanwhile: there is nothing to put the result in.
-      if (!loaded) return;
-      // Opened while it loaded: the open copy would save over this one, so the change goes there.
-      if (deps.applyInMemory(id, fn)) return;
-      await deps.save(fn(loaded));
+      // Another tab or device may save a newer copy between the load and the save: the saver adopts
+      // it and drops this one, so the change is applied once more to that copy.
+      for (let tries = 1; ; tries++) {
+        const loaded = await deps.load(id);
+        // Deleted meanwhile: there is nothing to put the result in.
+        if (!loaded) return;
+        // Opened while it loaded: the open copy would save over this one, so the change goes there.
+        if (deps.applyInMemory(id, fn)) return;
+        if (await deps.save(fn(loaded)) !== false) return;
+        if (tries === 2) {
+          console.warn(`Couldn't update design ${id}: a newer copy replaced it twice, so the change was dropped`);
+          return;
+        }
+      }
     } catch (e) {
       console.warn(`Couldn't update design ${id}:`, (e as Error).message);
     }

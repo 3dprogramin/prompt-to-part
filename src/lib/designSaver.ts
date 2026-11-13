@@ -41,7 +41,7 @@ export function createDesignSaver(deps: SaverDeps) {
   const deleting = new Set<string>();
   // The newest server revision this tab knows per design (a loaded copy may carry a newer one).
   const revs = new Map<string, number>();
-  const queues = new Map<string, Promise<void>>();
+  const queues = new Map<string, Promise<boolean>>();
   // Bumped per design when a save conflict adopts the server's copy: saves queued before it hold the
   // stale copy and are skipped.
   const epochs = new Map<string, number>();
@@ -58,8 +58,9 @@ export function createDesignSaver(deps: SaverDeps) {
     setErrors(next);
   };
 
-  const saveOnce = async (d: Design, base?: number, keepalive = false): Promise<void> => {
-    if (deleting.has(d.id)) return;
+  /** True once saved; false when it wasn't (a newer copy replaced it, or the design is gone). */
+  const saveOnce = async (d: Design, base?: number, keepalive = false): Promise<boolean> => {
+    if (deleting.has(d.id)) return false;
     unsaved.add(d.id);
     let saved: Design;
     try {
@@ -70,7 +71,7 @@ export function createDesignSaver(deps: SaverDeps) {
         clearSaveError(d.id);
         deleting.add(d.id);
         deps.onGone(d.id);
-        return;
+        return false;
       }
       if (e instanceof HttpError && e.status === 409 && !deleting.has(d.id)) {
         // Another tab saved a newer copy. A generation running here owns the design, so its copy
@@ -78,15 +79,14 @@ export function createDesignSaver(deps: SaverDeps) {
         if (deps.isRunning(d.id) && base === undefined) return saveOnce(d, Number(e.body.rev));
         const fresh = await deps.load(d.id).catch(() => null);
         if (fresh) {
-          // An autosave still waiting holds the stale copy: with the new revision it would save over
-          // the other device's change.
-          // The same goes for a save already queued behind this one.
+          // An autosave still waiting, or a save queued behind this one, holds the stale copy: with the
+          // new revision it would save over the other device's change.
           cancelPending(d.id);
           epochs.set(d.id, (epochs.get(d.id) ?? 0) + 1);
           revs.set(d.id, fresh.rev ?? 0);
           clearSaveError(d.id);
           deps.onConflict(fresh);
-          return;
+          return false;
         }
       }
       setErrors({ ...errors, [d.id]: (e as Error).message || 'the server could not be reached' });
@@ -97,14 +97,19 @@ export function createDesignSaver(deps: SaverDeps) {
     clearSaveError(d.id);
     deps.tell({ type: 'saved', design: saved });
     deps.onSaved(d);
+    return true;
   };
 
-  /** Save now, after any save of the same design still under way (each builds on the last one's revision). */
-  const saveNow = (d: Design, keepalive = false): Promise<void> => {
+  /**
+   * Save now, after any save of the same design still under way (each builds on the last one's revision).
+   * Resolves false when this copy wasn't saved because a newer one replaced it: a caller with a change
+   * of its own (app/closedDesignUpdates) applies it again to that copy.
+   */
+  const saveNow = (d: Design, keepalive = false): Promise<boolean> => {
     const epoch = epochs.get(d.id) ?? 0;
-    const run = (queues.get(d.id) ?? Promise.resolve()).catch(() => {}).then(() => {
+    const run = (queues.get(d.id) ?? Promise.resolve(true)).catch(() => {}).then(() => {
       // A conflict while this waited replaced the copy it holds: saving it would undo the newer one.
-      if ((epochs.get(d.id) ?? 0) !== epoch) return;
+      if ((epochs.get(d.id) ?? 0) !== epoch) return false;
       return saveOnce(d, undefined, keepalive);
     });
     queues.set(d.id, run);

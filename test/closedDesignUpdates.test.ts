@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { Design } from '../shared/types';
 import { HttpError } from '../src/lib/api';
 import { closedDesignUpdates } from '../src/app/closedDesignUpdates';
+import { createDesignSaver } from '../src/lib/designSaver';
 
 const design = (id: string): Design => ({ id, name: id, photos: [] } as unknown as Design);
 const addPhoto = (url: string) => (d: Design): Design => ({ ...d, photos: [...(d.photos ?? []), { url } as never] });
@@ -99,4 +100,71 @@ test("pending(id) waits for that design's queued changes and not for other desig
   await waitB;
   await b;
   assert.deepEqual(photoUrls(server.store.get('b')), ['q1']);
+});
+
+test('a change whose save is refused by a newer copy is re-applied to that copy', async (t) => {
+  const server = fakeServer(['a']);
+  const warn = t.mock.method(console, 'warn', () => {});
+  let refused = false;
+  // The first save meets a newer copy (another device renamed it) and is refused: the saver adopted it.
+  const save = async (d: Design) => {
+    if (!refused) {
+      refused = true;
+      server.store.set('a', { ...server.store.get('a')!, name: 'renamed elsewhere' });
+      return false;
+    }
+    await server.save(d);
+    return true;
+  };
+  const closed = closedDesignUpdates({ load: server.load, save, applyInMemory: () => false });
+  await closed.update('a', addPhoto('p1'));
+  const saved = server.store.get('a');
+  assert.equal(saved?.name, 'renamed elsewhere');
+  assert.deepEqual(photoUrls(saved), ['p1']);
+  assert.equal(warn.mock.callCount(), 0);
+});
+
+test('a change refused twice is dropped with a warning', async (t) => {
+  const server = fakeServer(['a']);
+  const warn = t.mock.method(console, 'warn', () => {});
+  let tries = 0;
+  const save = async () => { tries++; return false; };
+  const closed = closedDesignUpdates({ load: server.load, save, applyInMemory: () => false });
+  await closed.update('a', addPhoto('p1'));
+  assert.equal(tries, 2);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments[0]), /design a\b/);
+  assert.deepEqual(photoUrls(server.store.get('a')), []);
+});
+
+test('with the real saver, a photo whose save meets a newer copy lands in that copy', async (t) => {
+  // A server that checks revisions (as server/routes/designs.ts does); another device saves just
+  // before the photo's save arrives.
+  const store = new Map<string, Design & { rev: number }>([['a', { ...design('a'), rev: 1 }]]);
+  let otherDevice = true;
+  const conflicts: Design[] = [];
+  const saver = createDesignSaver({
+    save: async (d, base) => {
+      if (otherDevice) {
+        otherDevice = false;
+        const cur = store.get('a')!;
+        store.set('a', { ...cur, name: 'renamed elsewhere', rev: cur.rev + 1 });
+      }
+      const cur = store.get(d.id)!;
+      if (cur.rev !== base) throw new HttpError('conflict', 409, { rev: cur.rev });
+      const saved = { ...d, rev: cur.rev + 1 };
+      store.set(d.id, saved);
+      return saved;
+    },
+    load: async (id) => store.get(id) ?? null,
+    isRunning: () => false, tell: () => {}, onSaved: () => {}, onConflict: (f) => conflicts.push(f), onGone: () => {}, onErrors: () => {},
+  });
+  const warn = t.mock.method(console, 'warn', () => {});
+  const closed = closedDesignUpdates({ load: async (id) => store.get(id) ?? null, save: (d) => saver.saveNow(d), applyInMemory: () => false });
+  await closed.update('a', addPhoto('p1'));
+  assert.equal(store.get('a')!.name, 'renamed elsewhere');
+  assert.deepEqual(photoUrls(store.get('a')), ['p1']);
+  assert.equal(conflicts.length, 1);
+  assert.equal(warn.mock.callCount(), 0);
+  assert.equal(saver.hasUnsaved(), false);
 });
