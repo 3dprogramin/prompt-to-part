@@ -3,6 +3,7 @@
 // colour into polygons – an SVG drawing that model scripts use with H.svg, like an attached one.
 import jpeg from 'jpeg-js';
 import { decode as decodePng } from 'fast-png';
+import type { LayerToneFilament } from '../shared/layertone';
 import { checkPngSize, MAX_PIXELS } from '../shared/imageDecode';
 import { MAX_SVG_POINTS, type SvgDrawing } from '../shared/svgFeatures';
 import type { Vec2 } from '../shared/types';
@@ -152,7 +153,8 @@ async function requestOnce(key: string, model: string, prompt: string, aspect: s
 }
 
 /** The prompt for a LayerTone picture: a photo-like image with a full range of tones, no print rules about flat colours. */
-export function picturePrompt(r: { subject: string; style?: string; references?: string[]; use?: 'layertone' | 'lithophane' }): string {
+export function picturePrompt(r: { subject: string; style?: string; references?: string[]; use?: 'layertone' | 'lithophane'; strip?: { filaments: LayerToneFilament[]; repaint: boolean } }): string {
+  if (r.strip && r.use !== 'lithophane') return stripPicturePrompt({ ...r, strip: r.strip });
   return [
     r.use === 'lithophane'
       ? 'A picture to be printed as a lithophane: a white panel whose thickness follows the picture, lit from behind so it glows in shades of warm light, so the picture is judged by its light and dark values alone (no colour).'
@@ -164,6 +166,32 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
     '- a full range of tones from deep shadows to bright highlights, with the subject clearly separated from the background by light',
     '- a simple, uncluttered background that is clearly lighter or darker than the subject',
     '- no frame, border, text, signature or watermark',
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * The prompt for a LayerTone picture drawn for a filament stack (generate_picture with filaments):
+ * the last attached picture is the stack's strip, and the picture uses only its colours, each area
+ * in the strip colour it should print in, so the picture already looks like the print. With
+ * `repaint`, the attached photos are repainted for it, likeness kept.
+ */
+function stripPicturePrompt(r: { subject: string; style?: string; references?: string[]; strip: { filaments: LayerToneFilament[]; repaint: boolean } }): string {
+  const names = r.strip.filaments.map((f) => `${f.name}${f.brand ? ` (${f.brand})` : ''}`).join(', then ');
+  const photos = r.references?.length ?? 0;
+  return [
+    'A picture to be printed as a LayerTone filament painting: a thin relief printed in stacked filaments, where every spot shows the colour of the filaments at its height. The last attached picture is the colour strip of this exact print: every colour it can show, from its lowest layers (left) to its highest (right).',
+    `The filaments, bottom to top: ${names}.`,
+    `Subject: ${r.subject.trim()}`,
+    r.strip.repaint && photos
+      ? `Repaint the ${photos === 1 ? 'first attached picture (a photo)' : `first ${photos} attached pictures (photos)`} for this print: keep the scene, the composition, every pose and every person's likeness exactly; change only the colours and the light and dark, to fit the strip.`
+      : photos ? `Work from the ${photos === 1 ? 'first attached picture (a photo)' : `first ${photos} attached pictures (photos)`}: keep the subject's real likeness, features and proportions.` : '',
+    `Look: ${r.style?.trim() || 'realistic, detailed and sharp, like a high-quality photo or a fine painting'}, in the strip's colours.`,
+    'Rules:',
+    '- use only colours from the strip, no others: every area in one strip colour, or a smooth blend between strip colours that sit next to each other on the strip',
+    '- give every area the strip colour it should print in (a sky in a blue part of the strip if it has one, skin in a warm light part), so the picture already looks like the finished print',
+    '- separate the subject from the background with strip colours far apart on the strip, not by small differences',
+    '- a simple, uncluttered background',
+    '- no frame, border, text, signature or watermark; the strip itself does not appear in the picture',
   ].filter(Boolean).join('\n');
 }
 

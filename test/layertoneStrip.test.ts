@@ -85,3 +85,35 @@ test('cleanLayerToneImage keeps positions, stack and colour; drops a bad colour 
   assert.equal(bad.colour, undefined);
   assert.equal(bad.positions, true);
 });
+
+test('stripPng: a 512 x 64 picture of the strip, lowest layer at the left', async () => {
+  const { stripPng } = await import('../server/layerToneStrip');
+  const { decode } = await import('fast-png');
+  const stack = stackOf([BLACK, YELLOW, BLUE, WHITE]);
+  const strip = stripColors(stack, O);
+  const png = stripPng(stack, O);
+  assert.equal(png.width, 512);
+  assert.equal(png.height, 64);
+  const m = /^data:image\/png;base64,(.+)$/.exec(png.dataUrl);
+  assert.ok(m);
+  const img = decode(Buffer.from(m![1], 'base64'));
+  const ch = img.channels ?? 4;
+  const px = (x: number, y: number) => [0, 1, 2].map((k) => img.data[(y * img.width + x) * ch + k]);
+  assert.deepEqual(px(0, 10), strip[0]);
+  assert.deepEqual(px(511, 50), strip[255]);
+});
+
+test('picturePrompt: drawn or repainted for the strip, unchanged without one', async () => {
+  const { picturePrompt } = await import('../server/artwork');
+  const plain = 'A picture to be printed as a LayerTone filament painting: a thin relief where brightness becomes height, printed in a few stacked filaments, so the picture is judged by its light and dark values.\nSubject: a lighthouse at dusk\nLook: realistic, detailed and sharp, like a high-quality photo or a fine painting, with strong lighting and clear contrast.\nRules:\n- a full range of tones from deep shadows to bright highlights, with the subject clearly separated from the background by light\n- a simple, uncluttered background that is clearly lighter or darker than the subject\n- no frame, border, text, signature or watermark';
+  assert.equal(picturePrompt({ subject: 'a lighthouse at dusk' }), plain);
+  const drawn = picturePrompt({ subject: 'a lighthouse at dusk', strip: { filaments: [BLACK, YELLOW, BLUE, WHITE], repaint: false } });
+  assert.match(drawn, /only colours from the strip/);
+  assert.match(drawn, /Black[\s\S]*Yellow[\s\S]*Blue[\s\S]*White/);
+  assert.doesNotMatch(drawn, /likeness/);
+  assert.doesNotMatch(drawn, /[–—]/);
+  const repaint = picturePrompt({ subject: 'a family photo', references: ['x'], strip: { filaments: [BLACK, WHITE], repaint: true } });
+  assert.match(repaint, /likeness/);
+  assert.match(repaint, /only colours from the strip/);
+  assert.doesNotMatch(repaint, /[–—]/);
+});
