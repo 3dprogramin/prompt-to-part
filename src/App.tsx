@@ -589,7 +589,14 @@ export default function App() {
 
   const onValue = (key: string, v: ParamValue) => setDesign((d) => ({ ...d, values: { ...d.values, [key]: v } }));
 
-  const { onExport, onExportProject, build3mf } = designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
+  // Export makes the sale size shown in the 3D view, if one is (Export project stays the design as it is).
+  const exportSize = async () => {
+    const s = sizes.viewed;
+    if (!s) return null;
+    const r = await sizes.resolve(s);
+    return r ? { label: s.label, values: r.values } : { error: `couldn't build the ${s.label} size.` };
+  };
+  const { onExport, onExportProject, build3mf } = designExports({ design, geo, hiddenParts, fullValues, exportSize, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
     setExporting, setExportError, setExportStage, setNotice, setValidation, setValidationOpen, isUnsaved, saveNow });
 
   // ---- printed versions: marking the shown one (its 3MF saved with it), unmarking

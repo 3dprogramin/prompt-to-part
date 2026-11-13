@@ -1141,6 +1141,18 @@ test('sale sizes: S / M / L suggested, one shown and resized alone, sliced one a
     await page.locator('.sizes .size-note', { hasText: 'is not bigger' }).waitFor({ state: 'detached' });
     await page.screenshot({ path: path.join(shots, '19-size-shown.png') });
 
+    // Export makes the size shown: L, 180 mm wide, named for it (not the design's own 120 mm).
+    await page.getByRole('button', { name: 'More export formats' }).click();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.export-menu button', { hasText: /^STL/ }).click()]);
+    assert.equal(dl.suggestedFilename(), 'sized-wall-plaque-l.stl');
+    const stl = readFileSync((await dl.path())!);
+    let minX = Infinity, maxX = -Infinity;
+    for (let t = 0, n = stl.readUInt32LE(80); t < n; t++) {
+      for (let v = 0; v < 3; v++) { const x = stl.readFloatLE(84 + t * 50 + 12 + v * 12); minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
+    }
+    assert.equal(Math.round(maxX - minX), 180);
+    await page.getByText(/Exported sized-wall-plaque-l\.stl/).waitFor();
+
     // Every size sliced, one after the other.
     await page.getByRole('button', { name: 'Slice every size' }).click();
     await until(async () => (await page.locator('.sizes-table tbody td.mono').allInnerTexts()).filter((t) => t.endsWith(' g')).length === 3, 'three sizes sliced', 30_000);

@@ -24,9 +24,11 @@ type PrintState = ReturnType<typeof usePrintSettings>;
 type Built = { blob: Blob; file: string; settings: boolean; report?: ValidationReport } | { error: string; level: 'error' | 'warning' };
 
 /** Export and Export project… for the design as it is now (App makes them each render). */
-export function designExports({ design, geo, hiddenParts, fullValues, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
+export function designExports({ design, geo, hiddenParts, fullValues, exportSize, layoutValue, printHints, oneColour, userPrint, printBase, setPrintBase, threeMf, bambu, blender,
   setExporting, setExportError, setExportStage, setNotice, setValidation, setValidationOpen, isUnsaved, saveNow }: {
   design: Design; geo: GeometryClient; hiddenParts: string[]; fullValues: () => ParamValues;
+  /** The sale size shown in the 3D view (null: the design as it is): Export makes that size. */
+  exportSize: () => Promise<{ label: string; values: ParamValues } | { error: string } | null>;
   /** The layout the model is shown in, for validation. */
   layoutValue: string | undefined;
   printHints: PrintState['printHints']; oneColour: PrintState['oneColour']; userPrint: PrintProfile;
@@ -40,9 +42,10 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
   /**
    * The file of the model (or one part) built from these values with these parts hidden: evaluated and
    * validated at high resolution, nothing downloaded. `settings`: a 3MF with print settings in it.
-   * `withPrint`: put print settings in a 3MF (the Export menu's tick by default).
+   * `withPrint`: put print settings in a 3MF (the Export menu's tick by default). `size`: the sale
+   * size it is, named in the file.
    */
-  const build = async (format: ExportFormat, values: ParamValues, hidden: string[], partName?: string, glb?: GlbOptions, withPrint = threeMf.print): Promise<Built> => {
+  const build = async (format: ExportFormat, values: ParamValues, hidden: string[], partName?: string, glb?: GlbOptions, withPrint = threeMf.print, size?: string): Promise<Built> => {
     // Re-evaluate at high resolution for the exported mesh, and validate exactly that mesh (only
     // the parts being exported). If that fails, nothing is built: the preview mesh is coarser
     // or may be from other settings, and the file would not be what the user expects.
@@ -52,7 +55,7 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
     const r = o.result;
     const parts = exportedParts(r, choice);
     if (!parts.length) return { error: partName ? `the model has no part "${partName}" any more.` : 'every part is hidden in the viewer.', level: 'warning' };
-    const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '');
+    const name = slug(r.meta.name || design.name) + (partName ? `-${slug(partName)}` : '') + (size ? `-${slug(size)}` : '');
     // Print settings and one colour as the values say (the same as the Print tab shows for the design's own).
     const colour = parseOneColour(values[ONE_COLOUR_KEY]);
     const print = withPrint && bambu ? { ai: r.print, user: parseProfile(values[PRINT_KEY]) } : null;
@@ -81,7 +84,13 @@ export function designExports({ design, geo, hiddenParts, fullValues, layoutValu
     setExporting(true);
     setExportError(null);
     try {
-      const b = await build(format, fullValues(), hiddenParts, partName, glb);
+      // A sale size shown in the 3D view is what gets exported (its values over the design's).
+      const size = await exportSize();
+      if (size && 'error' in size) {
+        setNotice({ text: `Not exported: ${size.error}`, level: 'error', details: false });
+        return;
+      }
+      const b = await build(format, size ? { ...fullValues(), ...size.values } : fullValues(), hiddenParts, partName, glb, threeMf.print, size?.label);
       if ('error' in b) {
         setNotice({ text: `Not exported: ${b.error}`, level: b.level, details: false });
         return;
