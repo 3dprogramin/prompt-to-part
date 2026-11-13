@@ -3,42 +3,78 @@
 import { loadsAtOnce } from '../../shared/printer';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt, requestImage } from '../artwork';
-import { LAYERTONE_IMAGES_KEY, parseLayerToneImages, toLayerToneImage } from '../../shared/layertone';
+import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt } from '../artwork';
+import { encode as encodePng } from 'fast-png';
+import { cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, stripSwaps, toLayerToneImage, toStripImage, type LayerToneStack } from '../../shared/layertone';
+import { stripPng } from '../layerToneStrip';
+import { storeDesignPicture } from '../routes/store';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import type { AiImages, ToolContext } from './context';
 
 /** generate_picture, for a LayerTone print or (with `lithophane`) a lithophane. */
-export function pictureTools({ base, emit }: ToolContext, pictures: AiImages, lithophane?: boolean) {
+export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: AiImages, lithophane?: boolean) {
   // What generate_picture's pictures are for.
   const use = lithophane ? { helper: 'H.lithophane', what: 'a lithophane (H.lithophane), a white panel lit from behind' } : { helper: 'H.layertone', what: 'a LayerTone filament painting (H.layertone)' };
   return [
-    tool('generate_picture', `Have an image model (${imageModel()}) make a picture for ${use.what}: realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture. Each call costs a few cents and takes ~10–20 s.`, {
+    tool('generate_picture', `Have an image model (${imageModel()}) make a picture for ${use.what}: realistic, with a full range of light and dark tones. Use it when the user wants a picture printed and attached no photo, or asks for a different picture.${lithophane ? '' : ' For LayerTone, give the filament stack (filaments, bottom to top, and max_height): the image model gets the strip of colours that stack prints and draws only in them, and with use_attached_photos it repaints the user\'s photo for the stack (name it e.g. "photo-1-toned"). The picture is stored for that stack and its swap layers are fixed in the LayerTone setup.'} Each call costs a few cents and takes ~10-20 s.`, {
       name: z.string().regex(/^[\w-]{1,40}$/).describe(`Name to use with ${use.helper}, e.g. "portrait"`),
       subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when not a realistic photo-like picture (e.g. "oil painting", "charcoal drawing")'),
-      use_attached_photos: z.boolean().optional().describe('Work from the photos the user attached to this message'),
+      use_attached_photos: z.boolean().optional().describe(lithophane ? 'Work from the photos the user attached to this message' : 'Repaint the photos the user attached to this message for the filament stack (likeness kept)'),
+      ...(lithophane ? {} : {
+        filaments: z.array(z.object({
+          name: z.string().min(1).max(80), brand: z.string().max(60).optional(),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/), td: z.number().positive().max(100),
+        })).min(1).max(maxLayerToneFilaments()).optional().describe('Required for LayerTone: the filament stack, bottom (first printed) to top, as you will pass it to H.layertone'),
+        max_height: z.number().min(0.4).max(10).optional().describe('The max height (mm) you will build H.layertone with (default 1.6; ~2.4 with a translucent top filament)'),
+        base_height: z.number().min(0.16).max(5).optional().describe('The base height (mm) you will build H.layertone with, only if not the default 0.48'),
+      }),
     }, async (a) => {
       if (a.use_attached_photos && !pictures.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
+      const lt = a as { filaments?: unknown; max_height?: number; base_height?: number };
+      const filaments = lithophane ? undefined : cleanFilaments(lt.filaments);
+      if (!lithophane && !filaments) return { content: [{ type: 'text', text: 'Settle the filament stack first and pass it as filaments (bottom to top, the same list you build H.layertone with): the picture is drawn in the colours that stack prints.' }], isError: true };
+      const o = { width: 100, maxHeight: lt.max_height ?? 1.6, baseHeight: lt.base_height ?? 0.48 };
+      const stack: LayerToneStack | undefined = filaments && { filaments, swaps: stripSwaps(filaments, o), maxHeight: o.maxHeight, baseHeight: o.baseHeight };
       emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
       try {
-        const references = a.use_attached_photos ? pictures.references : undefined;
-        const prompt = picturePrompt({ subject: a.subject, style: a.style, references, use: lithophane ? 'lithophane' : 'layertone' });
-        const { image, model, cost } = await requestImage(prompt, a.aspect ?? '1:1', references, pictures.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+        const photos = a.use_attached_photos ? pictures.references : [];
+        const strip = stack && stripPng(stack, o);
+        if (stack && strip) {
+          emit({ type: 'step', step: {
+            kind: 'render', ok: true, image: strip.dataUrl,
+            text: `Colour strip of the print: ${stack.filaments.map((f) => f.name).join(', ')}`,
+            detail: `The colours this stack prints, lowest layer (left) to highest (right), at max height ${o.maxHeight} mm. Sent to ${imageModel()} with the prompt; the picture is drawn only in them.`,
+          } });
+        }
+        const references = [...photos, ...(strip ? [strip.dataUrl] : [])];
+        const prompt = picturePrompt({ subject: a.subject, style: a.style, references: photos.length ? photos : undefined, use: lithophane ? 'lithophane' : 'layertone', ...(stack ? { strip: { filaments: stack.filaments, repaint: !!a.use_attached_photos } } : {}) });
+        const { image, model, cost } = await drawImage(prompt, a.aspect ?? '1:1', references.length ? references : undefined, pictures.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
         const raster = decodeImage(Buffer.from(image.data, 'base64'));
-        const picture = toLayerToneImage(a.name, raster.width, raster.height, raster.data);
+        let picture = stack ? toStripImage(a.name, raster.width, raster.height, raster.data, stack, o) : toLayerToneImage(a.name, raster.width, raster.height, raster.data);
+        // The colour picture is kept with the design (for the chat and for edits).
+        if (stack && pictures.designId) picture = { ...picture, colour: await storeDesignPicture(pictures.designId, encodePng({ width: raster.width, height: raster.height, data: raster.data, channels: 4 })) };
         base[LAYERTONE_IMAGES_KEY] = JSON.stringify({ ...parseLayerToneImages(base[LAYERTONE_IMAGES_KEY]), [a.name]: picture });
         emit({ type: 'layerToneImage', name: a.name, image: picture });
+        if (stack) {
+          // The strip's swaps are the print's: fixed in the setup, so a brightness never moves to another colour.
+          const setup = { ...parseLayerToneSetup(base[LAYERTONE_KEY]), filaments: stack.filaments, swaps: stack.swaps };
+          base[LAYERTONE_KEY] = JSON.stringify(setup);
+          emit({ type: 'layerToneSetup', setup });
+        }
         emit({ type: 'step', step: {
           kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
           text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-          detail: `Prompt sent to ${model}:\n\n${prompt}\n\nStored for ${use.helper} as ${picture.width}×${picture.height} pixels.`,
+          detail: `Prompt sent to ${model}${strip ? ' with the colour strip' : ''}:\n\n${prompt}\n\nStored for ${use.helper} as ${picture.width}×${picture.height} pixels${stack ? `, by position on the strip; swap layers fixed at ${stack.swaps.join(', ')}` : ''}.`,
         } });
+        const build = stack
+          ? ` Build it with H.layertone("${a.name}", { width, maxHeight: ${o.maxHeight}${lt.base_height != null ? `, baseHeight: ${o.baseHeight}` : ''}, filaments: [the same ${stack.filaments.length}] }): the same stack and heights it was drawn for, or the print stops matching it. Its swap layers (${stack.swaps.join(', ')}) are fixed in the LayerTone setup.`
+          : '';
         return {
           content: [
             { type: 'image', data: image.data, mimeType: image.mediaType },
-            { type: 'text', text: `Picture "${a.name}" is ready for ${use.helper}("${a.name}", { width, … }) (${picture.width}×${picture.height} pixels, ${(picture.width / picture.height).toFixed(3)} times as wide as high). Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
+            { type: 'text', text: `Picture "${a.name}" is ready for ${use.helper}("${a.name}", { width, … }) (${picture.width}×${picture.height} pixels, ${(picture.width / picture.height).toFixed(3)} times as wide as high).${build} Check the print with render_model; if the picture itself is wrong, call generate_picture again with a better subject.` },
           ],
         };
       } catch (e) {

@@ -6,7 +6,7 @@ import type { AgentEvent } from '../../shared/api';
 import type { ParamValues } from '../../shared/types';
 
 /** The user's photos (data URLs) an image model may work from, and the generation's abort signal. */
-export interface AiImages { references: string[]; signal?: AbortSignal }
+export interface AiImages { references: string[]; signal?: AbortSignal; /** The design the pictures are kept with (LayerTone's colour pictures). */ designId?: string }
 
 /** cadTools' `meshy` option. */
 export type MeshyOptions = AiImages & { client: MeshyClient; designId: string; concepts?: boolean; color?: boolean };

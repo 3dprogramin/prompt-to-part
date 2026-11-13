@@ -155,7 +155,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   const textOnly = claudeViaOpenRouter() && await modelIsTextOnly(req.model);
   const { server: cad, state, newUserMessage } = cadTools(file, emit, opened, base, {
     artwork: artwork ? { references, signal: abort.signal } : undefined,
-    pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal } : undefined,
+    pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal, designId: req.designId } : undefined,
     layerTone,
     lithophane,
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,

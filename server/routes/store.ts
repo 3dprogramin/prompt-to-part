@@ -2,7 +2,7 @@
 import express from 'express';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { DATA_DIR } from '../config';
 import type { Design } from '../../shared/types';
 import { cleanTagMap } from '../../shared/tags';
@@ -33,6 +33,18 @@ export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/
 export const IMAGE_NAME = /^[0-9a-f]{32}\.(png|jpg|webp|gif)$/;
 /** What a stored image or mesh file is named by (before its extension): its content's sha256, shortened. */
 export const contentHash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex').slice(0, 32);
+
+/**
+ * Keeps a picture with a design as one of its images (`<hash>.png`, served at
+ * /api/designs/<id>/images/<hash>.png) and returns that address.
+ */
+export async function storeDesignPicture(designId: string, png: Uint8Array): Promise<string> {
+  if (!ID_RE.test(designId)) throw new Error('Not a design id');
+  const name = `${contentHash(png)}.png`;
+  await mkdir(path.join(DESIGNS, designId), { recursive: true });
+  await writeAtomically(path.join(DESIGNS, designId, name), png);
+  return `/api/designs/${designId}/images/${name}`;
+}
 
 /** Write through a temp file and rename it into place, so readers see the old or the new file. */
 export async function writeAtomically(file: string, data: string | Uint8Array) {
