@@ -9,7 +9,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import { artworkAvailable, requestImage } from '../artwork';
 import { editPicture, PictureEditError, pictureEditProblem } from '../pictureEdit/index';
 import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
-import { ID_RE, type RouteContext } from './store';
+import { aiCalls, ID_RE, type RouteContext } from './store';
 
 const BUSY_PREFIX = 'ptp-busy-picture-edit-';
 /** The marker file of a running picture edit (scripts/rebuild.sh looks for /tmp/ptp-busy-*); it holds the server's process id. */
@@ -47,7 +47,7 @@ export function registerPictureEditRoutes(app: express.Express, { json, deleted,
   const running = new Set<string>();
 
   // The values sent hold the drawing (up to 40,000 points) and the photos.
-  app.post('/api/designs/:id/picture-edit', json('40mb'), async (req, res) => {
+  app.post('/api/designs/:id/picture-edit', aiCalls, json('40mb'), async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
     const body = req.body as PictureEditRequest;

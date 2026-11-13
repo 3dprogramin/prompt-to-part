@@ -8,7 +8,7 @@ import { writeScene } from '../photoScene';
 import { artworkAvailable, requestImage } from '../artwork';
 import { IDEA_SCENE, MAX_NOTES_CHARS, photoEditPrompt, photoProblem, photoPrompt, sceneById, SHOP_IMAGE_SIZE, sizeVariantPrompt, type PhotoRequest, type PhotoResponse, type PhotoSceneRequest, type PhotoSceneResponse } from '../../shared/photos';
 import type { Vec3 } from '../../shared/types';
-import { contentHash, ID_RE, IMAGE_TYPES, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
+import { aiCalls, contentHash, ID_RE, IMAGE_TYPES, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 /** Largest render sent for a product photo. */
 const MAX_RENDER_BYTES = 15 * 1024 * 1024;
@@ -48,7 +48,7 @@ export function registerImageRoutes(app: express.Express, { json, imageDir, dele
   // Product photos: the image model turns a clean render of the model into a photo of the printed
   // product in a scene. The photo and the render are stored with the design's images; the app
   // lists them in the design (Design.photos). A shop set's photo is made at 2K, for the shop's zoom.
-  app.post('/api/designs/:id/photos', json('25mb'), async (req, res) => {
+  app.post('/api/designs/:id/photos', aiCalls, json('25mb'), async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
     const body = req.body as PhotoRequest;
@@ -109,7 +109,7 @@ export function registerImageRoutes(app: express.Express, { json, imageDir, dele
   // asked for, so the photo, its changes and its other sizes all keep it. Without Claude the app asks
   // for the photo anyway and the image model invents the setting (photoPrompt). The 'idea' scene: the
   // user's few words written out the same way (without Claude the idea goes in as written).
-  app.post('/api/photo-scene', json('4kb'), async (req, res) => {
+  app.post('/api/photo-scene', aiCalls, json('4kb'), async (req, res) => {
     const { scene: id, size, idea, suggested, product } = (req.body ?? {}) as { [k in keyof PhotoSceneRequest]?: unknown };
     if (typeof id !== 'string' || (id !== IDEA_SCENE && !sceneById(id))) return void res.status(400).json({ error: `scene: one of the scene presets, or ${IDEA_SCENE}` });
     if (id === IDEA_SCENE && (typeof idea !== 'string' || !idea.trim() || idea.length > MAX_NOTES_CHARS)) return void res.status(400).json({ error: `idea: the scene in a few words, up to ${MAX_NOTES_CHARS} characters` });

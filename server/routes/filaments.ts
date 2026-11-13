@@ -5,11 +5,11 @@ import { claudeAuthProblem, DATA_DIR } from '../config';
 import { lookupFilament } from '../filaments';
 import { cleanMyFilaments, matchFilament, MAX_BRAND_CHARS, MAX_FILAMENT_NAME_CHARS, myFilamentsProblem } from '../../shared/filaments';
 import { MY_FILAMENTS_FILE, readMyFilaments } from '../myFilaments';
-import { writeAtomically, type RouteContext } from './store';
+import { aiCalls, writeAtomically, type RouteContext } from './store';
 
 export function registerFilamentRoutes(app: express.Express, { json }: RouteContext, { lookup }: { lookup: typeof lookupFilament }) {
   // ---- LayerTone filaments: the library, or Claude on the web for one it doesn't have
-  app.post('/api/filaments/lookup', json('2kb'), async (req, res) => {
+  app.post('/api/filaments/lookup', aiCalls, json('2kb'), async (req, res) => {
     const { brand, name } = (req.body ?? {}) as { brand?: unknown; name?: unknown };
     if (typeof brand !== 'string' || typeof name !== 'string' || !brand.trim() || !name.trim()) return void res.status(400).json({ error: 'Send the filament\'s brand and name' });
     if (brand.length > MAX_BRAND_CHARS || name.length > MAX_FILAMENT_NAME_CHARS) return void res.status(400).json({ error: 'Brand or filament name too long' });

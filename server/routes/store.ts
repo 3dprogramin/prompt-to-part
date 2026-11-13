@@ -47,7 +47,9 @@ export async function writeAtomically(file: string, data: string | Uint8Array) {
  * uploads of up to hundreds of MB are refused at once instead of piling up in memory; a request
  * counts until its response is finished or its connection drops.
  */
-export function oneAtATime(busy: string, max = 2): express.RequestHandler {
+// Typed for any route params so it doesn't stop a route's own :id from being typed as a string.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function oneAtATime(busy: string, max = 2): express.RequestHandler<any> {
   let inFlight = 0;
   return (_req, res, next) => {
     if (inFlight >= max) return void res.status(429).set('Retry-After', '10').json({ error: busy });
@@ -56,6 +58,11 @@ export function oneAtATime(busy: string, max = 2): express.RequestHandler {
     next();
   };
 }
+
+/** Most AI calls (ideas, prices, photos, picture edits, filament lookups) running at once, over all routes. */
+export const AI_CALLS_AT_ONCE = 8;
+/** The one limit those routes share, so a script can't run up the AI bill with a burst of calls. */
+export const aiCalls = oneAtATime('Too many AI requests at once. Try again in a moment.', AI_CALLS_AT_ONCE);
 
 /** What createApp's route groups share: the body parser, the designs' files and their queues. */
 export interface RouteContext {

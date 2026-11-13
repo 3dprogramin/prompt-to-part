@@ -62,6 +62,13 @@ export interface AppOptions {
 export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, models = openRouterModels, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
   const app = express();
 
+  // Nothing in the app frames itself, so no page may frame it (clickjacking), and the browser must
+  // trust each reply's content type.
+  app.use((_req, res, next) => {
+    res.set({ 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff' });
+    next();
+  });
+
   // With PTP_PASSWORD, every page and API call needs it (HTTP Basic auth): the Host and Origin checks
   // below only stop browsers on other sites, not another device on the network calling the API.
   if (password) app.use(requirePassword(password));

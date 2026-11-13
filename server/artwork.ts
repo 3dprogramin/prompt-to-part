@@ -3,6 +3,7 @@
 // colour into polygons – an SVG drawing that model scripts use with H.svg, like an attached one.
 import jpeg from 'jpeg-js';
 import { decode as decodePng } from 'fast-png';
+import { checkPngSize, MAX_PIXELS } from '../shared/imageDecode';
 import { MAX_SVG_POINTS, type SvgDrawing } from '../shared/svgFeatures';
 import type { Vec2 } from '../shared/types';
 import type { PlannedColor } from '../shared/meshes';
@@ -347,8 +348,9 @@ interface Raster { width: number; height: number; data: Uint8Array | Uint8Clampe
 
 /** PNG or JPEG to RGBA pixels. */
 export function decodeImage(buf: Buffer): Raster {
-  if (buf[0] === 0xff && buf[1] === 0xd8) return jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 512 });
+  if (buf[0] === 0xff && buf[1] === 0xd8) return jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 512, maxResolutionInMP: MAX_PIXELS / 1e6 });
   if (buf[0] === 0x89 && buf[1] === 0x50) {
+    checkPngSize(buf);
     const p = decodePng(buf);
     const n = p.width * p.height, ch = p.channels, data = new Uint8Array(n * 4);
     const src = p.data as ArrayLike<number>;

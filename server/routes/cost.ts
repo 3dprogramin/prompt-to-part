@@ -7,7 +7,7 @@ import { claudeAuthProblem, DATA_DIR, appCurrency } from '../config';
 import { sliceProject } from '../slicer';
 import { suggestPrice } from '../pricing';
 import { cleanCostSettings, defaultCostSettings } from '../../shared/cost';
-import { oneAtATime, writeAtomically, type RouteContext } from './store';
+import { aiCalls, oneAtATime, writeAtomically, type RouteContext } from './store';
 
 export function registerCostRoutes(app: express.Express, { json }: RouteContext, { suggest }: { suggest: typeof suggestPrice }) {
   // ---- cost: the user's prices, slicing for grams and time, and Claude's price suggestion
@@ -31,7 +31,7 @@ export function registerCostRoutes(app: express.Express, { json }: RouteContext,
       res.status(500).json({ error: (e as Error).message });
     }
   });
-  app.post('/api/price', json('20kb'), async (req, res) => {
+  app.post('/api/price', aiCalls, json('20kb'), async (req, res) => {
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
     const r = req.body as PriceRequest;

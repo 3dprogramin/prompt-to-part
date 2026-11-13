@@ -7,12 +7,15 @@ import { copyMeshes, MAX_MESH_BYTES, MESH_FILE, meshDir, storeMesh } from '../me
 import { freeMeshName } from '../../shared/meshes';
 import { meshFormat } from '../../shared/meshFormats';
 import type { DesignFiles, MeshUpload } from '../../shared/api';
-import { ID_RE, IMAGE_NAME, type RouteContext } from './store';
+import { ID_RE, IMAGE_NAME, oneAtATime, type RouteContext } from './store';
 
 export function registerMeshRoutes(app: express.Express, { json, imageDir, deleted, serially }: RouteContext) {
   // Mesh files (STL, OBJ, GLB/glTF, 3MF) attached in the chat: parsed, repaired and made a solid in
   // the locked-down geometry worker, then stored with the design for H.mesh (server/meshes.ts).
-  app.post('/api/designs/:id/meshes', express.raw({ type: 'application/octet-stream', limit: MAX_MESH_BYTES }), async (req, res) => {
+  app.post('/api/designs/:id/meshes',
+    // The chat uploads every attached file at once and shows four, so allow four: a body can be hundreds of MB.
+    oneAtATime('Busy importing other meshes. Try again in a moment.', 4),
+    express.raw({ type: 'application/octet-stream', limit: MAX_MESH_BYTES }), async (req, res) => {
     const { id } = req.params;
     const filename = String(req.query.name ?? '').replace(/[/\\]/g, '_').slice(0, 200);
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });

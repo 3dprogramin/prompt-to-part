@@ -10,6 +10,11 @@ export function registerExportRoutes(app: express.Express, { json }: RouteContex
   app.post('/api/export/blend', oneAtATime('Busy with another .blend export. Try again in a moment.'), json('300mb'), async (req, res) => {
     const body = req.body as BlendRequest;
     if (!body?.parts?.length) return void res.status(400).json({ error: 'no parts' });
+    // Only strings reach the exporter: an object with a huge length would be walked as if it were data.
+    const parts = body.parts as unknown;
+    if (!Array.isArray(parts) || parts.length > 500 || !parts.every((p) => !!p && typeof p.positions === 'string' && typeof p.indices === 'string' && (p.name === undefined || typeof p.name === 'string'))) {
+      return void res.status(400).json({ error: 'invalid parts' });
+    }
     try {
       const file = await exportBlend(body);
       res.set({ 'Content-Type': 'application/x-blender', 'Content-Disposition': 'attachment; filename="model.blend"' }).send(file);
