@@ -7,6 +7,7 @@ import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt } from
 import { encode as encodePng } from 'fast-png';
 import { cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, stripSwaps, toLayerToneImage, toStripImage, type LayerToneStack } from '../../shared/layertone';
 import { stripPng } from '../layerToneStrip';
+import { chatPhotos } from './designImage';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import type { AiImages, ToolContext } from './context';
 
@@ -20,7 +21,7 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
       subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when not a realistic photo-like picture (e.g. "oil painting", "charcoal drawing")'),
-      use_attached_photos: z.boolean().optional().describe(lithophane ? 'Work from the photos the user attached to this message' : 'Repaint the photos the user attached to this message for the filament stack (likeness kept)'),
+      use_attached_photos: z.boolean().optional().describe(lithophane ? 'Work from the photos the user attached in this chat (this message\'s first, then earlier ones)' : 'Repaint the photos the user attached in this chat (this message\'s first, then earlier ones) for the filament stack, likeness kept'),
       ...(lithophane ? {} : {
         filaments: z.array(z.object({
           name: z.string().min(1).max(80), brand: z.string().max(60).optional(),
@@ -30,7 +31,9 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
         base_height: z.number().min(0.16).max(5).optional().describe('The base height (mm) you will build H.layertone with, only if not the default 0.48'),
       }),
     }, async (a) => {
-      if (a.use_attached_photos && !pictures.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
+      // This message's photos first, then those of earlier messages in the chat (e.g. sent before an answer to a question).
+      const photos = a.use_attached_photos ? await chatPhotos(pictures.designId ?? '', pictures.references) : [];
+      if (a.use_attached_photos && !photos.length) return { content: [{ type: 'text', text: 'The user attached no photos in this chat.' }], isError: true };
       const lt = a as { filaments?: unknown; max_height?: number; base_height?: number };
       const filaments = lithophane ? undefined : cleanFilaments(lt.filaments);
       if (!lithophane && !filaments) return { content: [{ type: 'text', text: 'Settle the filament stack first and pass it as filaments (bottom to top, the same list you build H.layertone with): the picture is drawn in the colours that stack prints.' }], isError: true };
@@ -38,7 +41,6 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
       const stack: LayerToneStack | undefined = filaments && { filaments, swaps: stripSwaps(filaments, o), maxHeight: o.maxHeight, baseHeight: o.baseHeight };
       emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
       try {
-        const photos = a.use_attached_photos ? pictures.references : [];
         const strip = stack && stripPng(stack, o);
         if (stack && strip) {
           emit({ type: 'step', step: {

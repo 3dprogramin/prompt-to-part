@@ -105,3 +105,42 @@ test('stale strip picture is pointed out', async () => {
   const other = JSON.stringify({ filaments: [FILAMENTS[0], FILAMENTS[2]], swaps: [stack.swaps[0]] });
   assert.equal(staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: other }, {}).length, 1);
 });
+
+/** A design whose first message had two photos (a scene, then a face); returns their data URLs. */
+async function designWithEarlierPhotos(id: string) {
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const dir = path.join(dataDir, 'designs', id);
+  mkdirSync(dir, { recursive: true });
+  const names = ['a'.repeat(32) + '.png', 'b'.repeat(32) + '.png'];
+  const bytes = names.map((_, i) => Buffer.from(encode({ width: 2, height: 2, data: new Uint8Array(16).fill(i ? 200 : 40), channels: 4 })));
+  names.forEach((n, i) => writeFileSync(path.join(dir, n), bytes[i]));
+  writeFileSync(path.join(dataDir, 'designs', `${id}.json`), JSON.stringify({ id, messages: [
+    { role: 'user', text: 'the scene (1) with my face (2)', images: names.map((n) => `/api/designs/${id}/images/${n}`) },
+    { role: 'assistant', text: 'Which filaments?' },
+  ] }));
+  return bytes.map((b) => `data:image/png;base64,${b.toString('base64')}`);
+}
+
+test('generate_picture repaints the photos from an earlier message when this one has none (an answer to the filament question)', async () => {
+  const id = 'design-strip-0010';
+  const photos = await designWithEarlierPhotos(id);
+  const base: Record<string, string> = {};
+  const { server: cad } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { pictures: { references: [], designId: id }, layerTone: true, image });
+  const out = await handlers(cad).generate_picture.handler({ name: 'photo-1-toned', subject: 'the scene with the face from photo 2', use_attached_photos: true, filaments: FILAMENTS }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.deepEqual(asked.at(-1)!.references!.slice(0, 2), photos);
+});
+
+test('edit_picture shows the image model the photos from an earlier message when this one has none', async () => {
+  const id = 'design-strip-0011';
+  const photos = await designWithEarlierPhotos(id);
+  const { editPictureTools } = await import('../server/tools/editPicture');
+  const { toBase64 } = await import('../shared/layertone');
+  const base = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ portrait: { name: 'portrait', width: 1, height: 1, luma: toBase64(Uint8Array.of(9)) } }) };
+  const seen: string[][] = [];
+  const fake = (async (r: { photos?: string[] }) => { seen.push(r.photos ?? []); throw new Error('stop here'); }) as never;
+  const ctx = { base, emit: () => undefined, state: { submitted: false, meshyCalls: 0, newConcepts: new Set<string>(), asked: false }, drawImage: image as never, readModel: async () => null, v: () => base };
+  const tool = editPictureTools(ctx, { references: [], designId: id }, fake, { mode: 'layertone', built: async () => null }).find((t) => t.name === 'edit_picture')!;
+  await tool.handler({ picture: 'portrait', change: 'the face from photo 2', region: undefined, use_attached_photos: true }, {});
+  assert.deepEqual(seen, [photos]);
+});

@@ -154,12 +154,12 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   // An OpenRouter model that takes no pictures: they are left out of what it gets (or the request fails).
   const textOnly = claudeViaOpenRouter() && await modelIsTextOnly(req.model);
   const { server: cad, state, newUserMessage } = cadTools(file, emit, opened, base, {
-    artwork: artwork ? { references, signal: abort.signal } : undefined,
+    artwork: artwork ? { references, signal: abort.signal, designId: req.designId } : undefined,
     pictures: (layerTone || lithophane) && artworkAvailable() ? { references, signal: abort.signal, designId: req.designId } : undefined,
     layerTone,
     lithophane,
     meshy: meshTools ? { client: meshy!, designId: req.designId, references, signal: abort.signal, concepts: conceptTools, color: figureColor } : undefined,
-    lineArt: lineArt ? { references, signal: abort.signal, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
+    lineArt: lineArt ? { references, signal: abort.signal, designId: req.designId, style: lineArtStyle, pictures: artworkAvailable() } : undefined,
     designImage: designImage ? { references, signal: abort.signal, designId: req.designId } : undefined,
     askFirst: req.askFirst !== false,
     textOnly,
