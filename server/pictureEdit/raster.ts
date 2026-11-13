@@ -470,8 +470,12 @@ function distanceOutside(mask: Uint8Array, w: number, h: number): Float64Array {
 export function featherPaste(orig: Raster, edited: Raster, mask: Uint8Array, featherPx: number): Raster {
   const w = orig.width, h = orig.height;
   if (edited.width !== w || edited.height !== h || mask.length !== w * h) throw new Error('featherPaste: the pictures and the mask differ in size');
-  const data = new Uint8Array(orig.data);
-  const dist = featherPx > 0 ? distanceOutside(mask, w, h) : null;
+  return blend(orig, edited, mask, featherPx, featherPx > 0 ? distanceOutside(mask, w, h) : null);
+}
+
+/** featherPaste's blend, given each pixel's distance to the mark's edge (null: no feather). */
+function blend(orig: Raster, edited: Raster, mask: Uint8Array, featherPx: number, dist: Float64Array | null): Raster {
+  const w = orig.width, h = orig.height, data = new Uint8Array(orig.data);
   const a = orig.data, b = edited.data;
   for (let p = 0; p < w * h; p++) {
     if (!mask[p]) continue;
@@ -479,4 +483,132 @@ export function featherPaste(orig: Raster, edited: Raster, mask: Uint8Array, fea
     for (let k = p * 4; k < p * 4 + 4; k++) data[k] = t === 1 ? b[k] : Math.round(a[k] + (b[k] - a[k]) * t);
   }
   return { width: w, height: h, data };
+}
+
+/**
+ * One level of the membrane solve: each pixel's state (0 not in it, 1 solved for, 2 held at its
+ * value) and value.
+ */
+interface Membrane { w: number; h: number; state: Uint8Array; val: Float32Array }
+
+/** Gauss-Seidel steps per level going up from the coarsest, and on the coarsest level itself. */
+const MEMBRANE_STEPS = 16, MEMBRANE_COARSEST_STEPS = 400;
+/** Over-relaxation of each step (1 is plain Gauss-Seidel; below 2 always converges). */
+const MEMBRANE_OMEGA = 1.7;
+
+/**
+ * Half the size: a 2 x 2 block is held (at its held pixels' mean) when any of its pixels is held,
+ * else solved for when any is, else not in the membrane.
+ */
+function coarser(m: Membrane): Membrane {
+  const w = (m.w + 1) >> 1, h = (m.h + 1) >> 1, state = new Uint8Array(w * h), val = new Float32Array(w * h), held = new Uint16Array(w * h);
+  for (let j = 0; j < m.h; j++) for (let i = 0; i < m.w; i++) {
+    const p = j * m.w + i, s = m.state[p];
+    if (!s) continue;
+    const q = (j >> 1) * w + (i >> 1);
+    if (s === 2) { state[q] = 2; val[q] += m.val[p]; held[q]++; } else if (!state[q]) state[q] = 1;
+  }
+  for (let q = 0; q < w * h; q++) if (held[q]) val[q] /= held[q];
+  return { w, h, state, val };
+}
+
+/**
+ * Over-relaxed Gauss-Seidel steps toward each solved pixel being the mean of its neighbours in the
+ * membrane (a neighbour off the picture or not in the membrane is left out: no pull across it).
+ */
+function relax(m: Membrane, steps: number) {
+  const { w, h, state, val } = m;
+  let n = 0;
+  for (let p = 0; p < w * h; p++) if (state[p] === 1) n++;
+  const at = new Int32Array(n), nb = new Int32Array(4 * n), count = new Uint8Array(n);
+  let k = 0;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i;
+    if (state[p] !== 1) continue;
+    at[k] = p;
+    let c = 0;
+    if (i > 0 && state[p - 1]) nb[4 * k + c++] = p - 1;
+    if (i < w - 1 && state[p + 1]) nb[4 * k + c++] = p + 1;
+    if (j > 0 && state[p - w]) nb[4 * k + c++] = p - w;
+    if (j < h - 1 && state[p + w]) nb[4 * k + c++] = p + w;
+    count[k++] = c;
+  }
+  for (let step = 0; step < steps; step++) {
+    for (k = 0; k < n; k++) {
+      const c = count[k];
+      if (!c) continue;
+      let s = 0;
+      for (let e = 4 * k; e < 4 * k + c; e++) s += val[nb[e]];
+      const p = at[k];
+      val[p] += MEMBRANE_OMEGA * (s / c - val[p]);
+    }
+  }
+}
+
+/**
+ * Solves the membrane in place: the solved pixels end up a smooth (harmonic) fill between the held
+ * ones. Coarse to fine: the half-size membrane is solved first, its values start this level's solved
+ * pixels, and a few relaxation steps take out what the coarse level could not see.
+ */
+function solveMembrane(m: Membrane) {
+  if (Math.min(m.w, m.h) <= 8) { relax(m, MEMBRANE_COARSEST_STEPS); return; }
+  const c = coarser(m);
+  solveMembrane(c);
+  for (let j = 0; j < m.h; j++) for (let i = 0; i < m.w; i++) {
+    const p = j * m.w + i;
+    if (m.state[p] === 1) m.val[p] = c.val[(j >> 1) * c.w + (i >> 1)];
+  }
+  relax(m, MEMBRANE_STEPS);
+}
+
+/**
+ * Pastes `edited` into `orig` inside `mask` so the mark's edge does not show (seamless cloning): the
+ * edit is first corrected by a smooth field that makes it equal `orig` on the mark's edge pixels
+ * (mark pixels next to a pixel outside it; the picture's own border is not an edge) and spreads
+ * smoothly inward (a membrane: harmonic inside the mark), so a redraw whose tones differ from the
+ * original, even differently along the edge, keeps its own detail but meets the original without a
+ * step. The correction fades out linearly over `fadePx` from the edge (Infinity: never), so deeper
+ * inside the edit keeps its own tones (a face asked darker stays darker in the middle; the change
+ * ramps in over `fadePx` instead of a step). Then featherPaste with `featherPx`, at most half the
+ * mark's deepest point so the middle of a small mark is wholly the edit. Each RGB channel is
+ * corrected apart (once when the difference is grey); alpha is the edit's. Every pixel with mask 0
+ * is copied from `orig` untouched.
+ */
+export function seamlessPaste(orig: Raster, edited: Raster, mask: Uint8Array, featherPx: number, fadePx = Infinity): Raster {
+  const w = orig.width, h = orig.height;
+  if (edited.width !== w || edited.height !== h || mask.length !== w * h) throw new Error('seamlessPaste: the pictures and the mask differ in size');
+  const a = orig.data, b = edited.data, state = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i;
+    if (!mask[p]) continue;
+    const edge = (i > 0 && !mask[p - 1]) || (i < w - 1 && !mask[p + 1]) || (j > 0 && !mask[p - w]) || (j < h - 1 && !mask[p + w]);
+    state[p] = edge ? 2 : 1;
+  }
+  let grey = true;
+  for (let p = 0; p < w * h && grey; p++) {
+    if (state[p] !== 2) continue;
+    const o = p * 4, d = a[o] - b[o];
+    grey = a[o + 1] - b[o + 1] === d && a[o + 2] - b[o + 2] === d;
+  }
+  // Each mark pixel's distance to the edge: the edge pixels are 1 from a pixel outside.
+  const dist = distanceOutside(mask, w, h);
+  const corrected = new Uint8Array(b);
+  let field: Float32Array | null = null;
+  for (let k = 0; k < 3; k++) {
+    if (!grey || !field) {
+      const val = new Float32Array(w * h);
+      for (let p = 0; p < w * h; p++) if (state[p] === 2) val[p] = a[p * 4 + k] - b[p * 4 + k];
+      solveMembrane({ w, h, state, val });
+      field = val;
+    }
+    for (let p = 0; p < w * h; p++) {
+      if (!state[p]) continue;
+      const keep = fadePx === Infinity ? 1 : Math.max(0, 1 - (dist[p] - 1) / fadePx);
+      corrected[p * 4 + k] = Math.max(0, Math.min(255, Math.round(b[p * 4 + k] + keep * field[p])));
+    }
+  }
+  let deepest = 0;
+  for (let p = 0; p < w * h; p++) if (dist[p] !== Infinity && dist[p] > deepest) deepest = dist[p];
+  const feather = Math.max(0, Math.min(featherPx, deepest / 2));
+  return blend(orig, { width: w, height: h, data: corrected }, mask, feather, feather > 0 ? dist : null);
 }

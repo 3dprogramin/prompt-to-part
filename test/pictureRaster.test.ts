@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Raster } from '../shared/meshFormats';
 import { ASPECTS } from '../server/artwork';
-import { ALIGN_MAX_ERROR, alignTo, chooseCrop, featherPaste, resizeTo } from '../server/pictureEdit/raster';
+import { ALIGN_MAX_ERROR, alignTo, chooseCrop, featherPaste, resizeTo, seamlessPaste } from '../server/pictureEdit/raster';
 
 // A deterministic random source, so every run sees the same pictures.
 function random(seed: number) {
@@ -361,4 +361,129 @@ test('featherPaste keeps every pixel outside the mark byte-identical and takes t
   const p = 40 * w + (w - 1);
   assert.deepEqual([...out.data.slice(p * 4, p * 4 + 4)], [...edited.data.slice(p * 4, p * 4 + 4)]);
   assert.deepEqual([...featherPaste(orig, edited, new Uint8Array(w * h), f).data], [...orig.data]);
+});
+
+/** A grey picture (R = G = B, alpha 255) with `v(i, j)` at each pixel. */
+function grey(w: number, h: number, v: (i: number, j: number) => number): Raster {
+  const data = new Uint8Array(w * h * 4);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const o = (j * w + i) * 4, g = clamp255(v(i, j));
+    data[o] = data[o + 1] = data[o + 2] = g;
+    data[o + 3] = 255;
+  }
+  return { width: w, height: h, data };
+}
+
+/** A mark like brush strokes: a thick straight stroke with round end caps, and a strip out to the right border. */
+function strokeMask(w: number, h: number): Uint8Array {
+  const mask = new Uint8Array(w * h), a = [40, 40], b = [110, 75], r = 18;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const ux = b[0] - a[0], uy = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((i - a[0]) * ux + (j - a[1]) * uy) / (ux * ux + uy * uy)));
+    if (Math.hypot(i - a[0] - t * ux, j - a[1] - t * uy) < r || (i >= 120 && j >= 20 && j < 34)) mask[j * w + i] = 1;
+  }
+  return mask;
+}
+
+/**
+ * The worst new step a paste makes near the mark's edge: over every pair of neighbouring pixels
+ * (one in the mark, the other outside it or in it) within `band` px of the edge, how much more they
+ * differ in `out` than in either the original or the edit (0 when no new step).
+ */
+function edgeStep(out: Raster, orig: Raster, edited: Raster, mask: Uint8Array, band: number): number {
+  const w = out.width, h = out.height, near = new Uint8Array(w * h);
+  // Mark pixels within `band` (4-steps) of a pixel outside the mark.
+  let ring: number[] = [];
+  for (let p = 0; p < w * h; p++) if (!mask[p]) ring.push(p);
+  for (let step = 0; step < band; step++) {
+    const next: number[] = [];
+    for (const p of ring) {
+      const i = p % w, j = (p / w) | 0;
+      for (const q of [i > 0 ? p - 1 : -1, i < w - 1 ? p + 1 : -1, j > 0 ? p - w : -1, j < h - 1 ? p + w : -1]) {
+        if (q >= 0 && mask[q] && !near[q]) { near[q] = 1; next.push(q); }
+      }
+    }
+    ring = next;
+  }
+  let worst = 0;
+  for (let p = 0; p < w * h; p++) {
+    if (!near[p]) continue;
+    const i = p % w, j = (p / w) | 0;
+    for (const q of [i > 0 ? p - 1 : -1, i < w - 1 ? p + 1 : -1, j > 0 ? p - w : -1, j < h - 1 ? p + w : -1]) {
+      if (q < 0) continue;
+      const d = (r: Raster) => Math.abs(r.data[p * 4] - r.data[q * 4]);
+      worst = Math.max(worst, d(out) - Math.max(d(orig), d(edited)));
+    }
+  }
+  return worst;
+}
+
+test('seamlessPaste leaves no step at the mark\'s edge where the edit is re-toned, keeps the edit\'s detail and the outside bytes', () => {
+  const w = 160, h = 120, rnd = random(9);
+  const base = (i: number, j: number) => 110 + 45 * Math.sin(i / 15) * Math.cos(j / 11) + 4 * rnd();
+  const values = Array.from({ length: w * h }, (_, p) => base(p % w, Math.floor(p / w)));
+  const orig = grey(w, h, (i, j) => values[j * w + i]);
+  // The model's redraw: 40 brighter, a gradient across it, a local bright patch over the stroke's
+  // start (so the tone difference varies along the edge), and a drawn dark feature in the middle.
+  const feature = { x: 75, y: 57, r: 6 };
+  const edited = grey(w, h, (i, j) => Math.hypot(i - feature.x, j - feature.y) < feature.r ? 15
+    : values[j * w + i] + 40 + 0.4 * (i - 40) + 30 * Math.exp(-((i - 35) ** 2 + (j - 35) ** 2) / (2 * 14 ** 2)));
+  const mask = strokeMask(w, h), feather = 6;
+
+  const out = seamlessPaste(orig, edited, mask, feather);
+  for (let p = 0; p < w * h; p++) {
+    if (!mask[p]) assert.deepEqual([...out.data.slice(p * 4, p * 4 + 4)], [...orig.data.slice(p * 4, p * 4 + 4)], `outside ${p}`);
+  }
+  const step = edgeStep(out, orig, edited, mask, feather + 2);
+  assert.ok(step <= 3, `no new step at the edge (worst ${step})`);
+  // A plain feathered paste of the same edit does show one (the test can tell).
+  const plain = edgeStep(featherPaste(orig, edited, mask, feather), orig, edited, mask, feather + 2);
+  assert.ok(plain >= 6, `the plain paste steps (worst ${plain})`);
+  // The drawn feature is still there, much darker than the pasted area around it.
+  const at = (i: number, j: number) => out.data[(j * w + i) * 4];
+  const ringMean = [0, 1, 2, 3, 4, 5, 6, 7].reduce((s, k) => s + at(Math.round(feature.x + 11 * Math.cos(k * Math.PI / 4)), Math.round(feature.y + 11 * Math.sin(k * Math.PI / 4))), 0) / 8;
+  assert.ok(ringMean - at(feature.x, feature.y) >= 60, `feature kept: centre ${at(feature.x, feature.y)}, around ${ringMean.toFixed(0)}`);
+  // An empty mark pastes nothing.
+  assert.deepEqual([...seamlessPaste(orig, edited, new Uint8Array(w * h), feather).data], [...orig.data]);
+});
+
+test('seamlessPaste with a fade keeps a tone change deep inside the mark and ramps it in at the edge, without a step', () => {
+  const w = 200, h = 200, rnd = random(11);
+  const orig = grey(w, h, (i, j) => 140 + 40 * Math.sin(i / 17) * Math.cos(j / 13) + 4 * rnd());
+  // Asked darker: the whole marked area 60 darker, its detail kept.
+  const edited = grey(w, h, (i, j) => orig.data[(j * w + i) * 4] - 60);
+  const mask = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (Math.hypot(i - 100, j - 100) < 60) mask[j * w + i] = 1;
+  const fade = 24, out = seamlessPaste(orig, edited, mask, 6, fade);
+  for (let p = 0; p < w * h; p++) if (!mask[p]) assert.equal(out.data[p * 4], orig.data[p * 4], `outside ${p}`);
+  // Deeper than the fade the change is whole.
+  let worstDeep = 0;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i;
+    if (Math.hypot(i - 100, j - 100) < 60 - fade - 2) worstDeep = Math.max(worstDeep, Math.abs(out.data[p * 4] - edited.data[p * 4]));
+  }
+  assert.ok(worstDeep <= 1, `the darker middle is kept (off by ${worstDeep})`);
+  // At the edge it ramps in: steps of a few levels a pixel, where a plain feathered paste jumps.
+  const step = edgeStep(out, orig, edited, mask, fade + 2), plain = edgeStep(featherPaste(orig, edited, mask, 3), orig, edited, mask, fade + 2);
+  assert.ok(step <= 6, `ramped in (worst ${step})`);
+  assert.ok(plain >= 15, `the plain paste steps (worst ${plain})`);
+});
+
+test('seamlessPaste of half an 800 x 800 picture runs at an interactive speed', () => {
+  const N = 800, rnd = random(3);
+  const look = (i: number, j: number) => 120 + 60 * Math.sin(i / 37) * Math.cos(j / 23);
+  const orig = grey(N, N, (i, j) => look(i, j) + 8 * rnd());
+  // Redrawn as the model does: re-toned (less contrast, brighter, unevenly), with its own grain and new content.
+  const edited = grey(N, N, (i, j) => Math.hypot(i - 400, j - 400) < 120 ? 60 + 40 * Math.cos(i / 9) + 8 * rnd()
+    : 0.85 * look(i, j) + 40 + 25 * Math.sin(i / 150 + j / 210) + 8 * rnd());
+  const mask = new Uint8Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (Math.hypot(i - 380, j - 420) < 320) mask[j * N + i] = 1;
+  const t0 = performance.now();
+  const out = seamlessPaste(orig, edited, mask, 16, 32);
+  const ms = performance.now() - t0;
+  // The photo path's feather and fade at 800: the re-toning ramps in a few levels a pixel, no step.
+  const step = edgeStep(out, orig, edited, mask, 34);
+  assert.ok(step <= 5, `no step at the edge (worst ${step})`);
+  assert.ok(ms < 1500, `${ms.toFixed(0)} ms`);
+  console.log(`seamlessPaste 800 x 800, mark ${(mask.reduce((s, v) => s + v, 0) / (N * N) * 100).toFixed(0)} %: ${ms.toFixed(0)} ms`);
 });

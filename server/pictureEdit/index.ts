@@ -16,7 +16,7 @@ import { markBounds, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type Pictur
 import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pictureEdit/render';
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, toLayerToneImage } from '../../shared/layertone';
-import { alignTo, chooseCrop, featherPaste, resizeTo, type AlignFailure } from './raster';
+import { alignTo, chooseCrop, featherPaste, resizeTo, seamlessPaste, type AlignFailure } from './raster';
 import { cleanBuild, greyRaster, sharedSwaps, SWAPS_NOT_KEPT_NOTE, swapsKeptNote, swapsToKeep } from './layerTone';
 import { combineDrawing, offPalette, traceCrop } from './artwork';
 import { pictureEditPrompt } from './prompt';
@@ -33,8 +33,19 @@ const CONTEXT_MARGIN = 1;
 const MAX_PX_PER_HEIGHT = 16 * SENT_LONG_SIDE;
 /** How wide the paste's soft edge is, inside the mark (pixels of the crop). */
 const FEATHER_PX = 4;
-/** The same for a photo, in pixels of the stored picture (at most 800 a side: each a few of those sent). */
-const PHOTO_FEATHER_PX = 3;
+/**
+ * The same for a photo, in pixels of the stored picture: 2 % of its longer side, at least 6 (16 at
+ * 800 a side, the most stored). Wider than for art, as a photo's redraw differs in grain and shading
+ * right up to the mark's edge (seamlessPaste keeps it to half the mark's depth).
+ */
+const photoFeatherPx = (w: number, h: number) => Math.max(6, Math.round(0.02 * Math.max(w, h)));
+/**
+ * How deep into the mark a photo's redraw is re-toned to meet the original at the edge (seamlessPaste's
+ * fade), in stored pixels: 4 % of the longer side, at least 8 (32 at 800). A tone difference along
+ * the edge ramps out over this instead of showing as a seam; deeper in, the redraw keeps its own
+ * tones, so an edit asked darker or brighter still is.
+ */
+const photoFadePx = (w: number, h: number) => Math.max(8, Math.round(0.04 * Math.max(w, h)));
 /** How thick the magenta outline of the mark is on the picture that shows the model where to change (pixels). */
 const OUTLINE_PX = 3;
 const MAGENTA = [255, 0, 255];
@@ -535,7 +546,8 @@ async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEdit
     // Back on the stored pixels, in place in the whole picture, then pasted inside the mark only.
     const back = resizeTo(res.lined, c.w, c.h), edited = new Uint8Array(full.data);
     for (let j = 0; j < c.h; j++) edited.set(back.data.subarray(j * c.w * 4, (j + 1) * c.w * 4), ((c.y + j) * W + c.x) * 4);
-    pasted = featherPaste(full, { width: W, height: H, data: edited }, fullMask, PHOTO_FEATHER_PX);
+    // Re-toned to meet the original along the mark's edge (seamless), so the redraw shows no seam.
+    pasted = seamlessPaste(full, { width: W, height: H, data: edited }, fullMask, photoFeatherPx(W, H), photoFadePx(W, H));
     before = pngUrl(crop);
     after = pngUrl(cut(pasted, c.x, c.y, c.w, c.h));
     shown = win;
