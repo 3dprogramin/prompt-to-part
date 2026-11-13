@@ -43,6 +43,27 @@ export interface LayerToneImage {
   height: number;
   /** width × height bytes, base64. */
   luma: string;
+  /**
+   * The bytes are positions on the strip of `stack` (0 = its lowest layer, 255 = its highest), not
+   * brightness: a picture drawn or repainted for a filament stack, which prints each pixel in the
+   * strip colour it was painted in (toStripImage, countTable).
+   */
+  positions?: true;
+  /** The stack and heights the positions were mapped for. */
+  stack?: LayerToneStack;
+  /** The kept colour picture (the image model's), /api/designs/<id>/images/<hash>.png: for the chat and for edits. */
+  colour?: string;
+}
+
+/** A filament stack with its swap layers and heights fixed: what a strip and a strip picture are made for. */
+export interface LayerToneStack {
+  /** Bottom → top. */
+  filaments: LayerToneFilament[];
+  /** As LayerToneSetup.swaps. */
+  swaps: number[];
+  /** mm, as LayerToneOptions. */
+  maxHeight: number;
+  baseHeight: number;
 }
 
 /** What the user set in the side panel (stored under LAYERTONE_KEY); script options are the fallback. */
@@ -240,7 +261,23 @@ export function cleanLayerToneImage(raw: unknown, name: string): LayerToneImage 
   const { width, height } = o;
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > MAX_LAYERTONE_IMAGE_SIDE || height > MAX_LAYERTONE_IMAGE_SIDE) return null;
   if (o.luma.length !== Math.ceil((width * height) / 3) * 4) return null;
-  return { name, width, height, luma: o.luma };
+  const stack = o.positions === true ? cleanStack(o.stack) : undefined;
+  const colour = typeof o.colour === 'string' && COLOUR_URL.test(o.colour) ? o.colour : undefined;
+  return { name, width, height, luma: o.luma, ...(stack ? { positions: true as const, stack } : {}), ...(colour ? { colour } : {}) };
+}
+
+/** A kept colour picture's address: one of the design's own stored images. */
+const COLOUR_URL = /^\/api\/designs\/[a-zA-Z0-9-]{8,64}\/images\/[0-9a-f]{32}\.png$/;
+
+/** A stored stack, checked (null when any part is missing or wrong). */
+export function cleanStack(raw: unknown): LayerToneStack | undefined {
+  const o = raw as Partial<LayerToneStack> | null;
+  if (!o || typeof o !== 'object') return undefined;
+  const filaments = cleanFilaments(o.filaments);
+  const swaps = filaments && checkSwaps(o.swaps, filaments.length);
+  const mm = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 50;
+  if (!filaments || !swaps || !mm(o.maxHeight) || !mm(o.baseHeight)) return undefined;
+  return { filaments, swaps, maxHeight: o.maxHeight!, baseHeight: o.baseHeight! };
 }
 
 // Pictures are large strings, and a live preview evaluates the same ones on every slider move.
@@ -492,6 +529,103 @@ function heightTable(layers: LayerColor[], r: LayerToneResolved, levels = LEVELS
 }
 
 /**
+ * Picture value → layer count, at `levels` steps over 0–255: brightness through heightTable, or for
+ * a picture stored by strip position, the position straight onto the layers (nBase at 0, nMax at
+ * 255; gamma and invert don't apply), so each pixel prints its strip colour exactly.
+ */
+export function countTable(image: LayerToneImage, layers: LayerColor[], r: LayerToneResolved, levels = LEVELS): Uint16Array {
+  if (!image.positions) return heightTable(layers, r, levels).counts;
+  const counts = new Uint16Array(levels);
+  for (let q = 0; q < levels; q++) counts[q] = stripCount(Math.round((q / (levels - 1)) * 255), r);
+  return counts;
+}
+
+/** The layer count a strip position (0–255) prints at. */
+const stripCount = (pos: number, r: LayerToneResolved) => r.nBase + Math.round((pos / 255) * (r.nMax - r.nBase));
+
+/** The options a stack's strip is made with: the stack's own heights over `o`. */
+const stripResolved = (stack: LayerToneStack, o: LayerToneOptions) => resolveLayerToneOptions({ ...o, maxHeight: stack.maxHeight, baseHeight: stack.baseHeight });
+
+/**
+ * Swap layers for a stack before there is a picture: the relief split evenly, so every filament
+ * after the first gets a band of its own on the strip (automatic swaps for a dark → light gradient
+ * squeeze a middle colour to a single layer, and a picture drawn for the strip needs no dark → light
+ * order). With more filaments than layers, one layer each.
+ */
+export function stripSwaps(filaments: LayerToneFilament[], o: LayerToneOptions): number[] {
+  const k = filaments.length - 1;
+  if (k <= 0) return [];
+  const r = resolveLayerToneOptions(o);
+  const span = r.nMax - r.nBase + 1;
+  if (span <= k) return Array.from({ length: k }, (_, i) => r.nBase + i);
+  return Array.from({ length: k }, (_, i) => r.nBase + Math.floor((i * span) / k));
+}
+
+/** The 256 colours (sRGB 0–255) a stack prints, from its lowest layer (0) to its highest (255). */
+export function stripColors(stack: LayerToneStack, o: LayerToneOptions): [number, number, number][] {
+  const r = stripResolved(stack, o);
+  const layers = stackLayers(stack.filaments, stack.swaps, r);
+  const byCount = new Map<number, [number, number, number]>();
+  return Array.from({ length: 256 }, (_, i) => {
+    const n = stripCount(i, r);
+    let c = byCount.get(n);
+    if (!c) byCount.set(n, c = simulateRgb(layerTop(n, r), layers).map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)) as [number, number, number]);
+    return c;
+  });
+}
+
+/** sRGB 0–255 → CIELAB (D65), for "nearest colour" as the eye sees it. */
+function toLab(c: readonly number[]): [number, number, number] {
+  const [R, G, B] = c.map((v) => toLinear(v / 255));
+  const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  const x = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047), y = f(0.2126 * R + 0.7152 * G + 0.0722 * B), z = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+/**
+ * RGBA pixels drawn for `stack` → a picture stored by strip position: scaled down like
+ * toLayerToneImage, then each pixel snapped to its nearest strip colour (CIELAB; the lowest
+ * position on a tie), which is stored.
+ */
+export function toStripImage(name: string, width: number, height: number, rgba: ArrayLike<number>, stack: LayerToneStack, o: LayerToneOptions, maxSide = MAX_LAYERTONE_IMAGE_SIDE): LayerToneImage {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new Error(`toStripImage: invalid size ${width}×${height}`);
+  if (rgba.length < width * height * 4) throw new Error(`toStripImage: expected ${width * height * 4} RGBA bytes, got ${rgba.length}`);
+  // Each channel on white paper (transparent pixels are white), scaled down on its own.
+  let w = width, h = height;
+  const s = Math.max(width, height) / maxSide;
+  const chans = [0, 1, 2].map((k) => {
+    let ch: Float32Array = new Float32Array(width * height);
+    for (let p = 0; p < ch.length; p++) { const a = rgba[p * 4 + 3] / 255; ch[p] = rgba[p * 4 + k] * a + 255 * (1 - a); }
+    return ch;
+  });
+  if (s > 1) {
+    w = Math.max(1, Math.min(maxSide, Math.round(width / s)));
+    h = Math.max(1, Math.min(maxSide, Math.round(height / s)));
+    for (let k = 0; k < 3; k++) chans[k] = boxResize(chans[k], width, height, w, h);
+  }
+  const strip = stripColors(stack, o).map(toLab);
+  const nearest = new Map<number, number>();
+  const out = new Uint8Array(w * h);
+  for (let p = 0; p < out.length; p++) {
+    const c = [0, 1, 2].map((k) => Math.max(0, Math.min(255, Math.round(chans[k][p]))));
+    const key = (c[0] << 16) | (c[1] << 8) | c[2];
+    let best = nearest.get(key);
+    if (best === undefined) {
+      const lab = toLab(c);
+      let bestD = Infinity;
+      best = 0;
+      for (let i = 0; i < 256; i++) {
+        const d = (lab[0] - strip[i][0]) ** 2 + (lab[1] - strip[i][1]) ** 2 + (lab[2] - strip[i][2]) ** 2;
+        if (d < bestD - 1e-9) { bestD = d; best = i; }
+      }
+      nearest.set(key, best);
+    }
+    out[p] = best;
+  }
+  return { name, width: w, height: h, luma: toBase64(out), positions: true, stack };
+}
+
+/**
  * Automatic swap layers for the picture and filaments (see LayerToneSetup.swaps).
  *
  * The swaps are scored on the picture's 256-bin brightness histogram, with every tone getting its
@@ -601,7 +735,7 @@ export const MAX_LAYERTONE_POINTS = 1_500_000;
  * vertices shared, outward-facing: ready for a Manifold Mesh.
  */
 export function layerToneMesh(image: LayerToneImage, layers: LayerColor[], r: LayerToneResolved): { vertProperties: Float32Array; triVerts: Uint32Array } {
-  const { counts } = heightTable(layers, r);
+  const counts = countTable(image, layers, r);
   const W = r.width, Hh = (W * image.height) / image.width, B = r.border;
   const iw = image.width, ih = image.height;
   let res = Math.max(r.resolution, W / iw / 2); // finer than half a pixel adds nothing
@@ -674,7 +808,7 @@ export function layerToneMesh(image: LayerToneImage, layers: LayerColor[], r: La
 export function simulateImage(image: LayerToneImage, layers: LayerColor[], o: LayerToneOptions): { width: number; height: number; rgba: Uint8ClampedArray } {
   const r = resolveLayerToneOptions(o);
   const lum = layerToneLuma(image);
-  const { counts } = heightTable(layers, r);
+  const counts = countTable(image, layers, r);
   const rgbOf = (n: number) => simulateRgb(layerTop(n, r), layers).map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255));
   const byCount = new Map<number, number[]>();
   const colour = (n: number) => { let c = byCount.get(n); if (!c) byCount.set(n, c = rgbOf(n)); return c; };
