@@ -476,10 +476,11 @@ export function ChatPanel(p: Props) {
                   title: p.askFirst
                     ? 'Ask first is on: when your request leaves an important choice open, you get a few short questions (at most 5) before the build; clear requests and small changes are just done. Click to have defaults picked instead.'
                     : 'Ask first is off: no questions, defaults are picked and named. Click to get a few short questions first when something important is unclear.' },
-                ...(p.artworkModel ? [{ key: 'image' as const, label: 'Image tool', line: 'A picture to model from (3D model)', on: p.imageTool,
+                // Only 3D model mode draws a picture to model from; the picture modes have their own image tools.
+                ...(p.artworkModel && p.imageMode === 'off' ? [{ key: 'image' as const, label: 'Image tool', line: 'A picture to model from', on: p.imageTool,
                   title: p.imageTool
-                    ? `The image tool is on: in 3D model mode the AI can have ${p.artworkModel} draw how the object should look (from your photos or the current model) and model from it, when you ask for a picture or a shape needs one. A few cents a picture. Click to turn it off.`
-                    : `The image tool is off: in 3D model mode no pictures are drawn, the AI models from your words and photos alone. Click to let it have ${p.artworkModel} draw a picture to model from (a few cents each).` }] : []),
+                    ? `The image tool is on: the AI can have ${p.artworkModel} draw how the object should look (from your photos or the current model) and model from it, when you ask for a picture or a shape needs one. A few cents a picture. Click to turn it off.`
+                    : `The image tool is off: no pictures are drawn, the AI models from your words and photos alone. Click to let it have ${p.artworkModel} draw a picture to model from (a few cents each).` }] : []),
                 ...(p.hasModel ? [{ key: 'view' as const, label: 'Send my view', line: 'Your 3D view with each change', on: p.sendView,
                   title: p.sendView
                     ? 'Send my view is on: each change you ask for also sends a screenshot of your 3D view and a four-view render at your settings, so "this" is clear. Click to send only your words (the model can still be rendered on its own).'
