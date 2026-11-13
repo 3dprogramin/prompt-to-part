@@ -1,7 +1,8 @@
 // A picture edit of a line-art drawing (one black shape for H.lineart), with a stand-in for the image
 // model: outside the mark the drawing is the same, inside it the traced answer, joined into one
 // piece where lines cross the mark's edge; the hand edits outside the mark stay, those inside are
-// taken back (restore strokes: the model saw them drawn in). Without a mark the whole drawing is
+// taken back (restore strokes: the model saw them drawn in), and the paint and fills under it come
+// back after that (it never saw them). Without a mark the whole drawing is
 // redrawn the way generate_line_art's edit does it.
 import './wasm';
 import { test } from 'node:test';
@@ -128,6 +129,35 @@ test('a marked line-art edit keeps the hand edits outside the mark and takes bac
   close(kept, as([outside])[0].volume, 'the inside line taken back');
   assert.ok(kept > as([])[0].volume + 50, 'the outside line stays');
   assert.ok(as([outside, inside])[0].volume > kept + 20, 'without the clear the inside line would be built');
+});
+
+test('a marked line-art edit keeps the paint and the fills under the mark', async () => {
+  const red = { color: '#ff0000', name: 'Red' }, blue = { color: '#0000ff', name: 'Blue' };
+  const strokes: LineArtStroke[] = [
+    { mode: 'paint', width: 4, k: 100, points: [[-0.05, 0], [0.05, 0]], filament: red },
+    { mode: 'paint', width: 4, k: 100, points: [[0.5, 0], [0.7, 0]], filament: red },
+    { mode: 'fill', width: 10, k: 100, points: [[-0.1, 0.03], [0.1, 0.03]], filament: blue },
+  ];
+  // The image model answers with the crop it was sent: a no-op edit, the colours never drawn in it.
+  const identity: Image = async (_p, _a, refs) => answerOf(raster(refs![0]));
+  const volumes = (v: ParamValues) => Object.fromEntries(evaluateScript(SCRIPT, v, 'draft').parts.map((p: PartMesh) => [p.name, p.volume]));
+  const before = volumes(valuesFor(strokes));
+  assert.ok(before['Line art (Red)'] > 0 && before['Line art (Blue)'] > 0);
+  const r = await editPicture(request({ values: valuesFor(strokes) }), { image: identity });
+  const after = volumes(withSet(valuesFor(strokes), r.set));
+  for (const name of ['Line art (Red)', 'Line art (Blue)']) {
+    assert.ok(after[name] > 0, `${name} is still there`);
+    assert.ok(Math.abs(after[name] - before[name]) / before[name] < 0.01, `${name} volume ${after[name]} vs ${before[name]}`);
+  }
+});
+
+test('a marked edit whose hand edits plus mark plus kept colours pass the stroke limit is refused before the image model is asked', async () => {
+  const paints = Array.from({ length: MAX_LINEART_STROKES - 3 }, (_, i): LineArtStroke => ({ mode: 'paint', width: 1, k: 100, points: [[-0.9 + i * 0.004, 0.4]], filament: { color: '#ff0000', name: 'Red' } }));
+  const mark: PictureMark = { strokes: [{ width: 0.1, points: [[0, 0]] }, { width: 0.1, points: [[0.1, 0]] }] };
+  let asked = 0;
+  const never: Image = async () => { asked++; throw new Error('the image model was asked'); };
+  await assert.rejects(editPicture(request({ values: valuesFor(paints), mark }), { image: never }), (e: unknown) => e instanceof PictureEditError && e.status === 400 && /hand edits/.test((e as Error).message));
+  assert.equal(asked, 0);
 });
 
 test('a whole line-art drawing edited without a mark goes the way generate_line_art\'s edit goes: the hand edits baked, their colours kept', async () => {

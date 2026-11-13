@@ -11,7 +11,7 @@ import { ASPECTS, decodeImage, imageModel, rgb, type ImageSize, type requestImag
 import type { PictureEditRequest, PictureEditResponse, PictureMode } from '../../shared/api';
 import type { Raster } from '../../shared/meshFormats';
 import { ARTWORK_EDITS_KEY, cutStrokes, parseArtworkEdits } from '../../shared/artworkEdits';
-import { drawingFingerprint, drawingPicture, LINE_ART_STYLES, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtEdits, type LineArtStroke, type LineArtStyle } from '../../shared/lineart';
+import { colourStrokes, drawingFingerprint, drawingPicture, LINE_ART_STYLES, LINEART_EDITS_KEY, MAX_LINEART_STROKES, parseLineArtEdits, type LineArtStroke, type LineArtStyle } from '../../shared/lineart';
 import { markBounds, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pictureEdit/render';
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
@@ -144,9 +144,11 @@ export function pictureEditProblem(r: Partial<PictureEditRequest> | null | undef
     if (b.max[0] <= w.x0 || b.min[0] >= w.x0 + w.w || b.max[1] <= w.y1 - w.h || b.min[1] >= w.y1) return 'The mark is outside the picture';
     // Its automatic swap layers are kept as the part was built with them (editPhoto).
     if (r.mode === 'layertone' && !cleanBuild(r.layerTone)) return 'A marked LayerTone edit needs how the picture\'s part was built (its options and filaments): build the model first';
-    // The mark goes after the drawing's hand edits as clears of them: the strokes kept are the last MAX_LINEART_STROKES.
-    const hand = r.mode === 'lineart' ? handStrokes(r.values, r.picture).length : 0;
-    if (hand && hand + mark.strokes.length > MAX_LINEART_STROKES) return `The drawing has ${hand} hand edits and the mark ${mark.strokes.length} strokes, over the ${MAX_LINEART_STROKES} a drawing keeps: select the area with fewer strokes, or clear some hand edits first`;
+    // The mark goes after the drawing's hand edits as clears of them, then the colours again (the clears would wipe them): the strokes kept are the last MAX_LINEART_STROKES.
+    // How many colourStrokes keeps does not depend on the line width, so the piece's is not needed here.
+    const hand = r.mode === 'lineart' ? handStrokes(r.values, r.picture) : [];
+    const total = hand.length + mark.strokes.length + colourStrokes(hand, 1).length;
+    if (hand.length && total > MAX_LINEART_STROKES) return `The drawing has ${hand.length} hand edits and the mark ${mark.strokes.length} strokes (${total} with the colours kept), over the ${MAX_LINEART_STROKES} a drawing keeps: select the area with fewer strokes, or clear some hand edits first`;
   }
   return null;
 }
@@ -655,8 +657,9 @@ async function editLineArt(r: PictureEditRequest, deps: Deps): Promise<PictureEd
   }
   const drawing = keepable(combined.drawing, 400);
   set[DRAWINGS_KEY] = withEntry(r.values[DRAWINGS_KEY], r.picture, drawing);
-  // (No hand edits: nothing to take back.)
-  if (strokes.length) withEdits(drawing, [...strokes, ...markClears(mark)]);
+  // (No hand edits: nothing to take back.) The clears take back the lines drawn in the picture the model saw; paint and fills
+  // were never drawn in it, so they go on again after the clears.
+  if (strokes.length) withEdits(drawing, [...strokes, ...markClears(mark), ...colourStrokes(strokes, piece.lineWidth)]);
   set[PICTURE_MARKS_KEY] = marksWithout(r.values, r.picture);
   return {
     set, before: pngUrl(raster), after: pngUrl(pasted), window: crop.win, masked: true, outsideSame: combined.outsideSame,

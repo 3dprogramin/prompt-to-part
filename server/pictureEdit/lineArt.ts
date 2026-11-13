@@ -2,7 +2,7 @@
 // now, the user's hand edits drawn in, sent with lineArtEditPrompt, the answer traced with
 // traceLineArt and the hand edits baked in (their colours kept, re-keyed to the new drawing);
 // generate_line_art's `edit` and a picture edit without a mark both run this. A marked edit: the
-// pasted crop traced back into the drawing's units, and the mark as clears of the hand edits under it.
+// pasted crop traced back into the drawing's units, the mark as clears of the hand edits under it, then the paint and fills again (the model never saw them, so the clears must not wipe them).
 import { encode as encodePng } from 'fast-png';
 import { decodeImage, LINE_TRACE_MAX_SIDE, lineArtEditPrompt, traceLineArt, type requestImage } from '../artwork';
 import { colourStrokes, drawingFingerprint, drawingPicture, type LineArtStroke, type LineArtStyle } from '../../shared/lineart';
