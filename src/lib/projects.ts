@@ -2,6 +2,7 @@
 // model doesn't freeze the page.
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
+import { printer, type ActivePrinter } from '../../shared/printer';
 import type { toBambuProject } from './bambu3mf';
 
 export type ProjectJob =
@@ -10,7 +11,8 @@ export type ProjectJob =
 
 /** Files for a zip, by path in it; `compress` false stores them as they are (pictures, 3MF). */
 export type ZipFiles = Record<string, { data: Uint8Array; compress: boolean }>;
-export type WorkerJob = ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles };
+/** A job as the worker gets it: with the page's printer, as the worker's own module state is never set. */
+export type WorkerJob = (ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles }) & { printer: ActivePrinter };
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -19,7 +21,7 @@ const pending = new Map<number, { parts: PartMesh[]; type: string; resolve: (b: 
 /** The worker gets the meshes only: not the viewer's display data. */
 const meshOnly = (parts: PartMesh[]): PartMesh[] => parts.map(({ display: _d, vertexColors: _v, ...p }) => p);
 
-function run(job: WorkerJob, lent: ArrayBufferLike[], type: string): Promise<Blob> {
+function run(job: ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles }, lent: ArrayBufferLike[], type: string): Promise<Blob> {
   if (!worker) {
     worker = new Worker(new URL('./projectWorker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = (e: MessageEvent<{ id: number; buf?: ArrayBuffer; error?: string; meshes: [Float32Array, Uint32Array][] }>) => {
@@ -40,7 +42,7 @@ function run(job: WorkerJob, lent: ArrayBufferLike[], type: string): Promise<Blo
   const id = ++seq;
   return new Promise((resolve, reject) => {
     pending.set(id, { parts: job.parts, type, resolve, reject });
-    worker!.postMessage({ ...job, parts: job.kind === 'zip' ? [] : meshOnly(job.parts), id }, lent as ArrayBuffer[]);
+    worker!.postMessage({ ...job, printer: printer(), parts: job.kind === 'zip' ? [] : meshOnly(job.parts), id }, lent as ArrayBuffer[]);
   });
 }
 
