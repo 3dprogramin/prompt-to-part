@@ -83,3 +83,25 @@ test('LayerTone generate_picture needs the filaments; a lithophane one stays a p
   assert.equal(stored.colour, undefined);
   assert.doesNotMatch(asked.at(-1)!.prompt, /strip/);
 });
+
+test('LayerTone with the image model can ask about the filaments even with Ask first off', () => {
+  const lt = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), {}, { pictures: { references: [], designId: 'design-strip-0004' }, layerTone: true, image, askFirst: false });
+  assert.ok(handlers(lt.server).ask_questions, 'LayerTone gets ask_questions');
+  const other = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), {}, { pictures: { references: [], designId: 'design-strip-0004' }, lithophane: true, image, askFirst: false });
+  assert.equal(handlers(other.server).ask_questions, undefined);
+});
+
+test('stale strip picture is pointed out', async () => {
+  const { staleStripNotes } = await import('../server/modes/layerTone');
+  const { stripSwaps, toStripImage } = await import('../shared/layertone');
+  const o = { width: 100, maxHeight: 1.6, baseHeight: 0.48 };
+  const stack = { filaments: FILAMENTS, swaps: stripSwaps(FILAMENTS, o), maxHeight: 1.6, baseHeight: 0.48 };
+  const img = toStripImage('portrait', 1, 1, [0, 0, 0, 255], stack, o);
+  const setup = JSON.stringify({ filaments: FILAMENTS, swaps: stack.swaps });
+  assert.deepEqual(staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: setup }, { maxHeight: 1.6 }), []);
+  const higher = staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: setup }, { maxHeight: 2.4 });
+  assert.equal(higher.length, 1);
+  assert.match(higher[0], /"portrait"[\s\S]*offer to repaint/);
+  const other = JSON.stringify({ filaments: [FILAMENTS[0], FILAMENTS[2]], swaps: [stack.swaps[0]] });
+  assert.equal(staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: other }, {}).length, 1);
+});

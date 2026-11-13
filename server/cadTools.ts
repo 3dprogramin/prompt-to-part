@@ -168,7 +168,8 @@ export function cadTools(file: string, emit: (e: AgentEvent) => void, opened: Re
       ...(lineArt?.pictures && !((layerTone || lithophane) && pictures) ? editPictureTools(ctx, lineArt, editPicture, { mode: 'lineart', frame: lineArtFrameOf(ctx, lineArt.signal), style: lineArt.style }) : []),
       ...(meshy ? meshyTools(ctx, meshy) : []),
       ...(designImage ? designImageTools(ctx, designImage) : []),
-      ...(askFirst ? questionTools(ctx) : []),
+      // LayerTone with the image model asks which filaments even with Ask first off (the picture is drawn for them).
+      ...(askFirst || (layerTone && !lithophane && pictures) ? questionTools(ctx) : []),
       tool('render_scad', 'Render an OpenSCAD file the user attached (saved in the workspace scad/ folder) with OpenSCAD itself, at the given Customizer parameter values (defaults for the rest): the same four views as render_model, plus its parameters and part sizes. Use it to compare your model.js with the original.', {
         file: z.string().max(100).describe('The attached file\'s name, e.g. "box.scad"'),
         values: valuesSchema,

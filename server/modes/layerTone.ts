@@ -2,7 +2,8 @@
 // and its notes on the user's setup and pictures (and on edit_picture, with the image model).
 import { loadsAtOnce, maxPiece, printer } from '../../shared/printer';
 import { FILAMENT_LIBRARY } from '../../shared/filaments';
-import { LAYERTONE_KEY, type LayerToneFilament } from '../../shared/layertone';
+import { LAYERTONE_KEY, parseLayerToneSetup, type LayerToneFilament, type LayerToneImage } from '../../shared/layertone';
+import type { ParamValues } from '../../shared/types';
 import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import { pictureEditNotes, type PictureWords } from './pictureEdits';
 import type { PromptMode } from './types';
@@ -31,9 +32,14 @@ LayerTone mode is ON: the user wants a LayerTone filament painting – a picture
     const params = { width: { label: 'Picture width', value: ${maxPiece()}, min: 40, max: ${maxPiece()}, step: 1, unit: 'mm', group: 'Picture' }, maxHeight: { label: 'Max height', value: 1.6, min: 0.8, max: 3, step: 0.08, unit: 'mm', group: 'Picture' }, border: { label: 'Frame', value: 0, min: 0, max: 10, step: 0.5, unit: 'mm', group: 'Picture' } };
     function build(p) { return { name: 'Picture', ...H.layertone('photo-1', { width: p.width, maxHeight: p.maxHeight, border: p.border }) }; }
 - Size: unless the user asks for another, make it as big as the ${printer().name}'s bed allows: ${maxPiece()} × ${maxPiece()} mm. The picture's longer side is ${maxPiece()} mm – landscape or square: width ${maxPiece()}; portrait: width = ${maxPiece()} × (picture width ÷ picture height), so its height is ${maxPiece()} – and with a frame, take 2 × the frame off (the frame adds to the outside). Give the width slider that same maximum.
-- The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture first.' : '; without one, ask the user to attach a photo.'}
-${pictures ? `- To change part of a picture already in the design (swap a person or a face, take something out, fix a detail), call edit_picture: it changes only that region of the stored picture and keeps its name, so keep the script unchanged, check with render_model and submit. Never call generate_picture for it (that makes a new picture). Region: the user's saved mark ("mark") when there is one, else a box picked on show_picture's grid; none redoes the whole picture. With a region, automatic swap layers are kept as they were (set in the LayerTone setup), so the print outside it stays the same: say so in your final message.
-` : ''}- Choose the filaments yourself, from the picture ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
+- The picture names are in the user's message: attached photos are stored as "photo-1", "photo-2"…${pictures ? '; without one, make a picture with generate_picture.' : '; without one, ask the user to attach a photo.'}
+${pictures ? `- Filaments first, then the picture (the image model draws it in the colours they print):
+  1. The stack: when the user's message names the filaments (colours, brands or how many), use those, matched to their own saved filaments or the library below (exact name, brand, colour and TD). When it doesn't and the design has no stack yet, ask once with ask_questions, even when Ask first is off (this one question only): how many filaments (usually 3 to 5) and which ones, with your suggested stack for this subject preselected (their own filaments first); then end your reply. Never ask about filaments again in a follow-up.
+  2. The picture: generate_picture with filaments (bottom to top), max_height (2.4 when the top filament's TD is above ~3 mm, else 1.6) and, for a photo the user attached, use_attached_photos: true and a name like "photo-1-toned": the photo is repainted for the stack, and the toned one is what you build with.
+  3. Build H.layertone with that picture and the same filaments, maxHeight and baseHeight; check render_model against the picture; submit. The swap layers come fixed in the LayerTone setup: leave them.
+  A picture drawn for a stack goes stale when the filaments or the max height change: say so and offer to repaint it (generate_picture again, or edit_picture with no region); don't repaint unasked.
+- To change part of a picture already in the design (swap a person or a face, take something out, fix a detail), call edit_picture: it changes only that region of the stored picture and keeps its name, so keep the script unchanged, check with render_model and submit. Never call generate_picture for it (that makes a new picture). Region: the user's saved mark ("mark") when there is one, else a box picked on show_picture's grid; none redoes the whole picture. With a region, automatic swap layers are kept as they were (set in the LayerTone setup), so the print outside it stays the same: say so in your final message.
+` : ''}- Choose the filaments ${pictures ? 'for your suggestion or when the user leaves them to you' : 'yourself, from the picture'} ({ name, brand, color: '#rrggbb', td } with TD in mm, bottom → top):
 ${loads > 1
     ? `  - ${cap(loadsAtOnce())} (AMS), so up to ${loads} filaments always work with no manual work: treat ${Math.min(loads, 4)} as your normal budget and use as many as the picture benefits from – 2 for a classic black-and-white print${loads >= 3 ? `, ${loads === 3 ? '3' : '3–4'} when the picture has colour or needs more tonal range` : ''}.
   - More than ${loads} only when really needed: each extra filament means a pause and a manual spool swap. If you go above ${loads}, say so in your final message and why.`
@@ -66,8 +72,28 @@ export const layerTone: PromptMode = {
     const edits = images ? pictureEditNotes(Object.fromEntries(names.map((n) => [n, photoFingerprint(layerToneImages[n])])), pictureValues, req.pictureEdits, PICTURE_WORDS) : [];
     return [
       ...(isFollowUp ? [setup ? `The LayerTone setup (the user's panel; set_layertone changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_layertone changes that).'] : []),
-      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'make one with generate_picture.' : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`,
+      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}${images ? `: once the filament stack is settled, repaint ${newPictures.length > 1 ? 'the one to print' : 'it'} for the stack with generate_picture (use_attached_photos) and build with the toned picture` : ''}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'settle the filament stack first (when the message names none, ask with ask_questions: Ask first being off does not cover this one question), then draw it with generate_picture for that stack.' : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`,
+      ...staleStripNotes(layerToneImages, pictureValues, req.renderValues ?? {}),
       ...edits,
     ];
   },
 };
+
+/**
+ * Notes on pictures drawn for a filament stack that no longer match the design: the setup's
+ * filaments or swaps changed, or the max height in `values` differs from the one it was drawn for.
+ */
+export function staleStripNotes(images: Record<string, LayerToneImage>, pictureValues: ParamValues, values: ParamValues): string[] {
+  const setup = parseLayerToneSetup(pictureValues[LAYERTONE_KEY]);
+  const same = (a: LayerToneFilament[] | undefined, b: LayerToneFilament[]) => !!a && a.length === b.length && a.every((f, i) => f.color.toLowerCase() === b[i].color.toLowerCase() && f.td === b[i].td);
+  const max = Number(values.maxHeight);
+  return Object.entries(images).flatMap(([name, img]) => {
+    if (!img.positions || !img.stack) return [];
+    const why = [
+      !same(setup.filaments, img.stack.filaments) ? 'the filaments' : '',
+      setup.swaps && setup.swaps.join() !== img.stack.swaps.join() ? 'the swap layers' : '',
+      Number.isFinite(max) && Math.abs(max - img.stack.maxHeight) > 0.01 ? `the max height (${max} mm, drawn for ${img.stack.maxHeight} mm)` : '',
+    ].filter(Boolean);
+    return why.length ? [`Picture "${name}" was drawn for another filament stack (${why.join(', ')} changed since), so the print no longer matches it: say so and offer to repaint it for the current stack; don't repaint unasked.`] : [];
+  });
+}
