@@ -172,18 +172,27 @@ export function picturePrompt(r: { subject: string; style?: string; references?:
  * for Claude to model from and the user to judge. `photos` user photos come first among the
  * references, then (with `render`) a render sheet of the current model.
  */
-export function designImagePrompt(r: { subject: string; style?: string; photos: number; render: boolean }): string {
+export function designImagePrompt(r: { subject: string; style?: string; photos: number; render: boolean; views?: boolean }): string {
   const refs = [
     r.photos ? `${r.photos === 1 ? 'The first attached picture is a photo' : `The first ${r.photos} attached pictures are photos`} the user gave of what they want: keep their subject, character and style, and do better than it where the request says so.` : '',
     r.render ? `The ${r.photos ? 'last' : ''} attached picture is a render sheet of the current 3D model (four views: 3D view top left, front, right side, top): it is a starting point; keep its overall design and proportions unless the request changes them, and make it look like the finished, much better object.` : '',
   ].filter(Boolean);
+  // A views sheet: the one object from four sides in one picture, so every side matches (drawn
+  // separately, each view would be a slightly different object).
+  const views = r.views
+    ? [
+      '- a reference sheet of ONE object for a 3D modeller: four views of the exact same object, at the same scale, in a 2x2 grid with wide empty gaps between them: top left FRONT (the object facing the viewer), top right SIDE (seen from the viewer\'s right of the front view, so the object faces left), bottom left BACK, bottom right TOP (from directly above, its front at the bottom)',
+      '- orthographic, no perspective, aligned so the heights match between FRONT, SIDE and BACK; each view whole, with a margin around it (nothing cut off)',
+      '- every detail where it is on the object: a part on one side shows in the views that face that side, and not in the others',
+    ]
+    : ['- the whole object in view, three-quarter front view from slightly above, with a margin around it (nothing cut off)'];
   return [
-    'A design picture of a 3D-printable object, which will be modelled in CAD from this picture and printed in plastic: it must show the object\'s shape and details clearly.',
+    `A design picture of a 3D-printable object, which will be modelled in CAD from this picture and printed in plastic: it must show the object's shape and details clearly${r.views ? ' from every side' : ''}.`,
     `Object: ${r.subject.trim()}`,
     ...refs,
     `Look: ${r.style?.trim() || 'a realistic studio product photo of the finished, 3D-printed object, crisp and detailed'}.`,
     'Rules:',
-    '- the whole object in view, three-quarter front view from slightly above, with a margin around it (nothing cut off)',
+    ...views,
     '- forms a printer can make: no hair-thin or floating parts',
     '- soft, even studio light that shows the form; a plain light background; no other objects',
     '- no text, logos, frame, signature or watermark unless the object asks for them',

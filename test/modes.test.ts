@@ -62,6 +62,17 @@ test('3D model mode can draw a picture to model from, only with the image model'
   assert.equal(detectModes(req({ imageMode: 'figure' }), {}, { images: true, meshy: true }).designImage, false);
 });
 
+test('generate_image: one three-quarter picture, or a views sheet laid out like render_model', async () => {
+  const { designImagePrompt } = await import('../server/artwork');
+  const one = designImagePrompt({ subject: 'a cow figure', photos: 0, render: false });
+  assert.match(one, /three-quarter front view/);
+  assert.doesNotMatch(one, /2x2/);
+  const sheet = designImagePrompt({ subject: 'a cow figure', photos: 0, render: false, views: true });
+  assert.match(sheet, /four views of the exact same object, at the same scale, in a 2x2 grid/);
+  assert.match(sheet, /top left FRONT[\s\S]*top right SIDE[\s\S]*object faces left[\s\S]*bottom left BACK[\s\S]*bottom right TOP[\s\S]*front at the bottom/);
+  assert.doesNotMatch(sheet, /three-quarter/);
+});
+
 test('generate_image works from the photos of earlier messages', async () => {
   const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');

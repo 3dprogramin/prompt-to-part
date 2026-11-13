@@ -42,13 +42,14 @@ export type DesignImageOptions = AiImages & { designId: string; dir?: string };
 
 export function designImageTools({ emit, drawImage, readModel, v }: ToolContext, opts: DesignImageOptions) {
   return [
-    tool('generate_image', `Have the image model (${imageModel()}, Gemini) draw a picture of how the object should look, which you then model from with geometry: use it when the user asks for an image or picture to be generated (e.g. "generate an image with Gemini, then model it"), or for a concept of a complex shape they asked you to improve on. It can work from the photos the user attached in this chat (use_photos) and from a render of the current model (use_model). The picture goes into no print; the user sees it in the chat. A few cents and ~10–20 s a picture: call again only if it is wrong.`, {
+    tool('generate_image', `Have the image model (${imageModel()}, Gemini) draw a picture of how the object should look, which you then model from with geometry: use it when the user asks for an image or picture to be generated (e.g. "generate an image with Gemini, then model it"), or for a concept of a complex shape they asked you to improve on. For a figure, animal or other organic shape modelled from a description or from a single view, a views sheet (views: true) shows it from four sides at one scale, laid out like render_model's FRONT, RIGHT and TOP (plus the back), so you can match its outline in each view. It can work from the photos the user attached in this chat (use_photos) and from a render of the current model (use_model). The picture goes into no print; the user sees it in the chat. A few cents and ~10–20 s a picture: call again only if it is wrong.`, {
       name: z.string().regex(/^[\w-]{1,40}$/).describe('A short name for the picture, e.g. "fox-v2"'),
       subject: z.string().min(10).max(2000).describe('The object to show: what it is, its shape, parts, details, colours and what to improve – be specific'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when not a realistic product photo of the printed object (e.g. "clay sculpture", "concept sketch")'),
       use_photos: z.boolean().optional().describe('Work from the photos the user attached in this chat (this message\'s first, then earlier ones)'),
       use_model: z.boolean().optional().describe('Work from a render of the current model.js (the design so far)'),
+      views: z.boolean().optional().describe('Draw a views sheet instead of one picture: the same object from the front, the side (as render_model\'s RIGHT, facing left), the back and the top (front at the bottom) at one scale, in a 2x2 grid (default aspect 1:1)'),
     }, async (a) => {
       const photos = a.use_photos ? await chatPhotos(opts.designId, opts.references, MAX_PHOTOS, opts.dir) : [];
       if (a.use_photos && !photos.length) return { content: [{ type: 'text', text: 'The user attached no photos in this chat.' }], isError: true };
@@ -63,18 +64,18 @@ export function designImageTools({ emit, drawImage, readModel, v }: ToolContext,
       emit({ type: 'step', step: { kind: 'status', text: `Generating picture "${a.name}" with ${imageModel()}…` } });
       try {
         const references = [...photos, ...(render ? [render] : [])];
-        const prompt = designImagePrompt({ subject: a.subject, style: a.style, photos: photos.length, render: !!render });
+        const prompt = designImagePrompt({ subject: a.subject, style: a.style, photos: photos.length, render: !!render, views: a.views });
         const { image, model, cost } = await drawImage(prompt, a.aspect ?? '1:1', references.length ? references : undefined, opts.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
         const from = [photos.length ? `${photos.length} photo${photos.length > 1 ? 's' : ''}` : '', render ? 'the current model' : ''].filter(Boolean).join(' and ');
         emit({ type: 'step', step: {
           kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
-          text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
+          text: `${a.views ? 'Views sheet' : 'Picture'} "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
           detail: `Prompt sent to ${model}${from ? ` with ${from}` : ''}:\n\n${prompt}`,
         } });
         return {
           content: [
             { type: 'image', data: image.data, mimeType: image.mediaType },
-            { type: 'text', text: `Picture "${a.name}" is ready. It is a reference only: model the object from it in model.js with geometry, as closely as printing allows, and compare your render_model with it. If the picture itself is wrong, call generate_image again with a better subject.` },
+            { type: 'text', text: `${a.views ? `Views sheet "${a.name}" is ready: front (top left), side as your RIGHT view sees it (top right), back (bottom left) and top, front at the bottom (bottom right), at one scale. ` : `Picture "${a.name}" is ready. `}It is a reference only: model the object from it in model.js with geometry, as closely as printing allows, and compare your render_model with it${a.views ? ', view by view (its FRONT, RIGHT and TOP against the sheet): match the outline and proportions in each' : ''}. If the picture itself is wrong, call generate_image again with a better subject.` },
           ],
         };
       } catch (e) {
