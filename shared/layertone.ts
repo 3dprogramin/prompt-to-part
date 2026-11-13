@@ -397,7 +397,9 @@ export function stackLayers(filaments: LayerToneFilament[], swaps: number[], r: 
 export function layerToneLayers(image: LayerToneImage, o: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): LayerColor[] {
   const r = resolveLayerToneOptions(o, quality);
   const filaments = setup.filaments ?? cleanFilaments(o.filaments) ?? DEFAULT_FILAMENTS;
-  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? checkSwaps(o.swaps, filaments.length) ?? autoSwaps(image, filaments, o), r);
+  // A picture drawn for a stack prints with that stack's swaps: automatic ones would read its strip positions as brightness.
+  const own = image.positions && image.stack?.filaments.length === filaments.length ? image.stack.swaps : undefined;
+  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? checkSwaps(o.swaps, filaments.length) ?? own ?? autoSwaps(image, filaments, o), r);
 }
 
 /** Layer colours returned by a script, checked, sorted and scaled by the runtime's uniform scale; undefined if unusable. */
@@ -529,7 +531,7 @@ function heightTable(layers: LayerColor[], r: LayerToneResolved, levels = LEVELS
 }
 
 /**
- * Picture value → layer count, at `levels` steps over 0–255: brightness through heightTable, or for
+ * Picture value → layer count, at `levels` steps over 0 to 255: brightness through heightTable, or for
  * a picture stored by strip position, the position straight onto the layers (nBase at 0, nMax at
  * 255; gamma and invert don't apply), so each pixel prints its strip colour exactly.
  */
@@ -540,7 +542,7 @@ export function countTable(image: LayerToneImage, layers: LayerColor[], r: Layer
   return counts;
 }
 
-/** The layer count a strip position (0–255) prints at. */
+/** The layer count a strip position (0 to 255) prints at. */
 const stripCount = (pos: number, r: LayerToneResolved) => r.nBase + Math.round((pos / 255) * (r.nMax - r.nBase));
 
 /** The options a stack's strip is made with: the stack's own heights over `o`. */
@@ -561,7 +563,7 @@ export function stripSwaps(filaments: LayerToneFilament[], o: LayerToneOptions):
   return Array.from({ length: k }, (_, i) => r.nBase + Math.floor((i * span) / k));
 }
 
-/** The 256 colours (sRGB 0–255) a stack prints, from its lowest layer (0) to its highest (255). */
+/** The 256 colours (sRGB 0 to 255) a stack prints, from its lowest layer (0) to its highest (255). */
 export function stripColors(stack: LayerToneStack, o: LayerToneOptions): [number, number, number][] {
   const r = stripResolved(stack, o);
   const layers = stackLayers(stack.filaments, stack.swaps, r);
@@ -574,7 +576,7 @@ export function stripColors(stack: LayerToneStack, o: LayerToneOptions): [number
   });
 }
 
-/** sRGB 0–255 → CIELAB (D65), for "nearest colour" as the eye sees it. */
+/** sRGB 0 to 255 to CIELAB (D65), for "nearest colour" as the eye sees it. */
 function toLab(c: readonly number[]): [number, number, number] {
   const [R, G, B] = c.map((v) => toLinear(v / 255));
   const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
@@ -693,7 +695,7 @@ export function autoSwaps(image: LayerToneImage, filaments: LayerToneFilament[],
 }
 
 /**
- * The picture's brightness (0–255) at pixel coordinates (px, py), for a grid whose cells are
+ * The picture's brightness (0 to 255) at pixel coordinates (px, py), for a grid whose cells are
  * `cellPx` pixels wide: averaged over the cell (box filter, from a summed-area table) when it spans
  * several pixels, bilinear otherwise.
  */
@@ -825,4 +827,18 @@ export function simulateImage(image: LayerToneImage, layers: LayerColor[], o: La
     }
   }
   return { width, height, rgba };
+}
+
+/**
+ * The stored picture as RGBA pixels, as a person should see it: a picture drawn for a filament
+ * stack in its strip colours (its bytes are strip positions, not brightness), any other in grey.
+ */
+export function layerToneRgba(img: LayerToneImage): Uint8ClampedArray {
+  const v = layerToneLuma(img), out = new Uint8ClampedArray(img.width * img.height * 4);
+  const strip = img.positions && img.stack ? stripColors(img.stack, { width: 100, maxHeight: img.stack.maxHeight, baseHeight: img.stack.baseHeight }) : null;
+  for (let p = 0; p < v.length; p++) {
+    const c = strip ? strip[v[p]] : [v[p], v[p], v[p]];
+    out[p * 4] = c[0]; out[p * 4 + 1] = c[1]; out[p * 4 + 2] = c[2]; out[p * 4 + 3] = 255;
+  }
+  return out;
 }

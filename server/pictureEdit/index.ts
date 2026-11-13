@@ -19,7 +19,6 @@ import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImage
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { stripPng } from '../layerToneStrip';
-import { DESIGNS, ID_RE, storeDesignPicture } from '../routes/store';
 import { alignTo, chooseCrop, featherPaste, resizeTo, seamlessPaste, type AlignFailure } from './raster';
 import { cleanBuild, greyOf, greyRaster, sharedSwaps, SWAPS_NOT_KEPT_NOTE, swapsKeptNote, swapsToKeep } from './layerTone';
 import { combineDrawing, offPalette, traceCrop } from './artwork';
@@ -647,6 +646,8 @@ async function editStripPhoto(r: PictureEditRequest, deps: Deps, img: LayerToneI
   const fresh = layerToneLuma(toStripImage(r.picture, W, H, pasted.data, stack, o));
   const was = layerToneLuma(img);
   const bytes = fullMask ? Uint8Array.from(was, (v, p) => (fullMask![p] ? fresh[p] : v)) : fresh;
+  // The store is loaded when needed: importing it fixes the data folder (PTP_DATA) for the process.
+  const { ID_RE, storeDesignPicture } = await import('../routes/store');
   const designId = deps.id && ID_RE.test(deps.id) ? deps.id : COLOUR_OWNER.exec(img.colour ?? '')?.[1];
   const colour = designId ? await storeDesignPicture(designId, encodePng({ width: W, height: H, data: pasted.data, channels: 4 })) : undefined;
   const next: LayerToneImage = { name: r.picture, width: W, height: H, luma: toBase64(bytes), positions: true, stack, ...(colour ? { colour } : {}) };
@@ -669,6 +670,7 @@ async function keptColour(img: LayerToneImage, w: number, h: number): Promise<Ra
   const m = /^\/api\/designs\/([a-zA-Z0-9-]{8,64})\/images\/([0-9a-f]{32}\.png)$/.exec(img.colour ?? '');
   if (!m) return null;
   try {
+    const { DESIGNS } = await import('../routes/store');
     const pic = decodeImage(await readFile(path.join(DESIGNS, m[1], m[2])));
     return pic.width === w && pic.height === h ? pic : resizeTo(pic, w, h);
   } catch {

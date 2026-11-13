@@ -72,7 +72,7 @@ export const layerTone: PromptMode = {
     const edits = images ? pictureEditNotes(Object.fromEntries(names.map((n) => [n, photoFingerprint(layerToneImages[n])])), pictureValues, req.pictureEdits, PICTURE_WORDS) : [];
     return [
       ...(isFollowUp ? [setup ? `The LayerTone setup (the user's panel; set_layertone changes it, and it wins over the script): ${setup}` : 'The LayerTone setup is empty: the script\'s filaments and automatic swaps apply (set_layertone changes that).'] : []),
-      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}${images ? `: once the filament stack is settled, repaint ${newPictures.length > 1 ? 'the one to print' : 'it'} for the stack with generate_picture (use_attached_photos) and build with the toned picture` : ''}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? 'settle the filament stack first (when the message names none, ask with ask_questions: Ask first being off does not cover this one question), then draw it with generate_picture for that stack.' : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`,
+      `LayerTone mode is on: make this a LayerTone filament painting with H.layertone (see the system prompt). ${newPictures.length ? `The attached photo${newPictures.length > 1 ? 's are' : ' is'} stored for it as ${newPictures.map((n) => `"${n}"`).join(', ')}${images ? `: once the filament stack is settled, repaint ${newPictures.length > 1 ? 'the one to print' : 'it'} for the stack with generate_picture (use_attached_photos) and build with the toned picture` : ''}.` : ''} ${names.length ? `Pictures available to H.layertone: ${names.map((n) => `"${n}" (${layerToneImages[n].width}×${layerToneImages[n].height})`).join(', ')}.` : 'There is no picture yet: ' + (images ? (isFollowUp ? 'draw it with generate_picture for the filament stack the user chose (don\'t ask about filaments again).' : 'settle the filament stack first (when the message names none, ask with ask_questions: Ask first being off does not cover this one question), then draw it with generate_picture for that stack.') : 'ask the user to attach a photo (there is no image model without OPENROUTER_API_KEY).')}`,
       ...staleStripNotes(layerToneImages, pictureValues, req.renderValues ?? {}),
       ...edits,
     ];
@@ -90,7 +90,7 @@ export function staleStripNotes(images: Record<string, LayerToneImage>, pictureV
   return Object.entries(images).flatMap(([name, img]) => {
     if (!img.positions || !img.stack) return [];
     const why = [
-      !same(setup.filaments, img.stack.filaments) ? 'the filaments' : '',
+      setup.filaments && !same(setup.filaments, img.stack.filaments) ? 'the filaments' : '',
       setup.swaps && setup.swaps.join() !== img.stack.swaps.join() ? 'the swap layers' : '',
       Number.isFinite(max) && Math.abs(max - img.stack.maxHeight) > 0.01 ? `the max height (${max} mm, drawn for ${img.stack.maxHeight} mm)` : '',
     ].filter(Boolean);

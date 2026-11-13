@@ -7,10 +7,9 @@ import { encode as encodePng } from 'fast-png';
 import { z } from 'zod';
 import { decodeImage } from '../artwork';
 import { editPicture, outlined } from '../pictureEdit/index';
-import { greyRaster } from '../pictureEdit/layerTone';
 import { resizeTo } from '../pictureEdit/raster';
 import type { PictureEditRequest } from '../../shared/api';
-import { LAYERTONE_IMAGES_KEY, parseLayerToneImages } from '../../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, layerToneRgba, parseLayerToneImages } from '../../shared/layertone';
 import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import type { Raster } from '../../shared/meshFormats';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../../shared/artworkEdits';
@@ -61,7 +60,7 @@ function pictureOf(values: ToolContext['base'], name: string, mode: PictureTools
     const all = parseLayerToneImages(values[LAYERTONE_IMAGES_KEY]);
     if (!Object.hasOwn(all, name)) return null;
     const img = all[name], aspect = img.width / img.height;
-    return { aspect, fp: photoFingerprint(img), render: (h) => resizeTo(greyRaster(img), Math.max(1, Math.round(h * aspect)), h) };
+    return { aspect, fp: photoFingerprint(img), render: (h) => resizeTo({ width: img.width, height: img.height, data: Uint8Array.from(layerToneRgba(img)) }, Math.max(1, Math.round(h * aspect)), h) };
   }
   const d = drawingOf(values, name);
   if (!d) return null;
@@ -204,7 +203,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       emit({ type: 'step', step: { kind: 'status', text: `Changing "${a.picture}"…` } });
       try {
         const r = await edit({ mode, picture: a.picture, values: base, ...(mark ? { mark } : {}), change: a.change, photos, ...(layerTone ? { layerTone } : {}), ...(frame ? { lineArt: frame } : kind.mode === 'lineart' && kind.style ? { lineArt: { k: 0, lineWidth: 0, style: kind.style } } : {}) }, {
-          image: drawImage, signal: images.signal, onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
+          image: drawImage, signal: images.signal, ...(images.designId ? { id: images.designId } : {}), onStatus: (text) => emit({ type: 'step', step: { kind: 'status', text } }),
         });
         // From now on every check and render uses the new picture; the app keeps the same values.
         // (Changed in place: every tool of the generation holds this same `base`.)

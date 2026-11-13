@@ -1,4 +1,4 @@
-import { MAX_LAYERTONE_IMAGE_SIDE, toLayerToneImage, type LayerToneImage } from '../../shared/layertone';
+import { MAX_LAYERTONE_IMAGE_SIDE, toLayerToneImage, type LayerToneImage, layerToneRgba } from '../../shared/layertone';
 
 // LayerTone pictures in the browser: a file or data URL → LayerToneImage (via a canvas), and back to
 // pictures the side panel can show.
@@ -30,14 +30,7 @@ export function rgbaToDataUrl(width: number, height: number, rgba: Uint8ClampedA
   return canvas.toDataURL('image/png');
 }
 
-/** The stored picture (brightness only) as a grey PNG data URL. */
+/** The stored picture as a PNG data URL: grey, or in its strip colours when drawn for a filament stack. */
 export function layerToneImageToDataUrl(img: LayerToneImage): string {
-  const luma = Uint8Array.from(atob(img.luma), (c) => c.charCodeAt(0));
-  const rgba = new Uint8ClampedArray(img.width * img.height * 4);
-  for (let i = 0; i < img.width * img.height; i++) {
-    const v = luma[i] ?? 0;
-    rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = v;
-    rgba[i * 4 + 3] = 255;
-  }
-  return rgbaToDataUrl(img.width, img.height, rgba);
+  return rgbaToDataUrl(img.width, img.height, layerToneRgba(img));
 }

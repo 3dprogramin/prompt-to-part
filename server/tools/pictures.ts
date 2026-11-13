@@ -7,7 +7,6 @@ import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt } from
 import { encode as encodePng } from 'fast-png';
 import { cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, stripSwaps, toLayerToneImage, toStripImage, type LayerToneStack } from '../../shared/layertone';
 import { stripPng } from '../layerToneStrip';
-import { storeDesignPicture } from '../routes/store';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
 import type { AiImages, ToolContext } from './context';
 
@@ -54,7 +53,7 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
         const raster = decodeImage(Buffer.from(image.data, 'base64'));
         let picture = stack ? toStripImage(a.name, raster.width, raster.height, raster.data, stack, o) : toLayerToneImage(a.name, raster.width, raster.height, raster.data);
         // The colour picture is kept with the design (for the chat and for edits).
-        if (stack && pictures.designId) picture = { ...picture, colour: await storeDesignPicture(pictures.designId, encodePng({ width: raster.width, height: raster.height, data: raster.data, channels: 4 })) };
+        if (stack && pictures.designId) picture = { ...picture, colour: await (await import('../routes/store')).storeDesignPicture(pictures.designId, encodePng({ width: raster.width, height: raster.height, data: raster.data, channels: 4 })) };
         base[LAYERTONE_IMAGES_KEY] = JSON.stringify({ ...parseLayerToneImages(base[LAYERTONE_IMAGES_KEY]), [a.name]: picture });
         emit({ type: 'layerToneImage', name: a.name, image: picture });
         if (stack) {

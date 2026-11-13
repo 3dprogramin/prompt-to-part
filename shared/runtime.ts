@@ -9,7 +9,7 @@ import { FACE_SCALE_KEY, normalizeParams, parsePartColors, PART_COLORS_KEY, reso
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits } from './artworkEdits';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
-import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
+import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, parseLayerToneSetup, resolveLayerToneOptions, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
 import { drawingFingerprint } from './lineart/strokes';
 import { cleanLineArtInfo, lineArtPrint, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtDepth, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
 import { cleanLithophaneSource, lithoVertexColors, type LithophaneSource } from './lithophane';
@@ -307,10 +307,11 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     // The coloured meshes the script used (H.mesh): their triangles keep their colours (paintOf).
     const painted: PaintedMesh[] = [];
     const userPrint = parseProfile(inputValues?.[PRINT_KEY]);
+    const layerTonePictures = parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]);
     const originals = parseDrawings(inputValues?.[DRAWINGS_KEY]);
     const svgUsed: string[] = [];
     const H = makeHelpers(rt, quality, withArtworkEdits(originals, parseArtworkEdits(inputValues?.[ARTWORK_EDITS_KEY])), {
-      images: parseLayerToneImages(inputValues?.[LAYERTONE_IMAGES_KEY]), setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
+      images: layerTonePictures, setup: parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]),
     }, meshes, painted, parseLineArtEdits(inputValues?.[LINEART_EDITS_KEY]), {
       split: parseLineArtSplit(inputValues?.[LINEART_SPLIT_KEY]),
       size: parseLineArtSize(inputValues?.[LINEART_SIZE_KEY]),
@@ -385,6 +386,14 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         // A LayerTone part (H.layertone): its filament stack, scaled with the part.
         layerColors = cleanLayerColors(o.layerColors, scale);
         layerTone = layerColors && cleanLayerToneSource(o.layerTone, scale);
+        // A picture drawn for a filament stack prints its colours only at the heights it was drawn for.
+        const drawn = layerTone && layerTonePictures[layerTone.image];
+        if (layerTone && drawn?.positions && drawn.stack) {
+          const off = (built: number, want: number) => Math.abs(built - resolveLayerToneOptions({ width: 1, maxHeight: want, baseHeight: drawn.stack!.baseHeight })[built === layerTone!.options.maxHeight ? 'maxHeight' : 'baseHeight']) > 0.01;
+          if (off(layerTone.options.maxHeight, drawn.stack.maxHeight) || off(layerTone.options.baseHeight, drawn.stack.baseHeight)) {
+            warnings.push(`Picture "${layerTone.image}" was drawn for max height ${drawn.stack.maxHeight} mm and base height ${drawn.stack.baseHeight} mm, but part "${name}" is built at ${layerTone.options.maxHeight.toFixed(2)} and ${layerTone.options.baseHeight.toFixed(2)} mm, so its colours don't match the picture: build H.layertone with maxHeight: ${drawn.stack.maxHeight}, baseHeight: ${drawn.stack.baseHeight}.`);
+          }
+        }
         // A lithophane part (H.lithophane): what it was made from, scaled with the part. A design is
         // one or the other.
         lithophane = layerColors ? undefined : cleanLithophaneSource(o.lithophane, scale);
