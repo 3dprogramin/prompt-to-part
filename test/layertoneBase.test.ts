@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import {
-  LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxHeightNote, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
+  cleanLayerToneSource, firstFilamentBase, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxHeightNote, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
   type LayerToneFilament, type LayerToneSetup, type LayerToneStack,
 } from '../shared/layertone';
 
@@ -109,4 +109,28 @@ test('the part says how much the First filament raised it, for a note under Max 
   assert.ok(near(raised.raised!, 0.72));
   assert.equal(maxHeightNote(raised), 'Prints up to 3.52 mm: the First filament adds 0.72 mm');
   assert.equal(maxHeightNote(lowered), 'Prints up to 2.48 mm: the First filament takes off 0.32 mm');
+});
+
+test('firstFilamentBase: the setup base wins over a part still being rebuilt, in script units', () => {
+  const built = run().parts[0].layerTone!;
+  assert.deepEqual(firstFilamentBase({}, built, 1), { baseHeight: 0.48, layerHeight: 0.08, firstLayerHeight: 0.16 });
+  // The part still shows 0.48 mm while the setup already says 1.2 mm.
+  assert.equal(firstFilamentBase({ baseHeight: 1.2 }, built, 1).baseHeight, 1.2);
+  // A second move before the rebuild: swaps move from the setup's base, not the lagging part's.
+  const next = rebaseSetup({ swaps: [14, 16, 20], baseHeight: 1.2 }, 1.6, firstFilamentBase({ baseHeight: 1.2 }, built, 1));
+  assert.deepEqual(next.swaps, [19, 21, 25]);
+  // The whole design at 2 x: the part's heights are doubled, the setup is in the script's mm.
+  const scaled = cleanLayerToneSource(built, 2)!;
+  const b = firstFilamentBase({}, scaled, 2);
+  assert.ok(near(b.baseHeight, 0.48) && near(b.layerHeight, 0.08) && near(b.firstLayerHeight, 0.16), JSON.stringify(b));
+});
+
+test('the render report tells the AI the First filament raised the print', async () => {
+  const { formatReport, geometry } = await import('../server/geometry');
+  try {
+    const values = (setup?: LayerToneSetup) => ({ [LAYERTONE_IMAGES_KEY]: JSON.stringify({ g: gradient }), ...(setup ? { [LAYERTONE_KEY]: JSON.stringify(setup) } : {}) });
+    const report = formatReport(await geometry.evaluate(DON_SCRIPT, values({ baseHeight: 1.2 }), 'draft'));
+    assert.match(report, /First filament 1\.20 mm \(the user's slider\): everything raised 0\.72 mm above the script's maxHeight/);
+    assert.doesNotMatch(formatReport(await geometry.evaluate(DON_SCRIPT, values(), 'draft')), /First filament/);
+  } finally { geometry.stop(); }
 });

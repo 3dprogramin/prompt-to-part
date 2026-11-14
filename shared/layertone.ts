@@ -426,6 +426,16 @@ export function rebaseSetup(setup: LayerToneSetup, to: number, built: { baseHeig
   return { ...setup, ...(setup.swaps ? { swaps: shiftSwaps(setup.swaps, d) } : {}), baseHeight: to };
 }
 
+/**
+ * Where the First filament slider stands, in the script's mm (the setup's unit): the setup's base
+ * when it has one (the part may still be rebuilding from an earlier one), else the part's; the
+ * part's heights are divided by the design's overall scale.
+ */
+export function firstFilamentBase(setup: LayerToneSetup, source: LayerToneSource, scale = 1): { baseHeight: number; layerHeight: number; firstLayerHeight: number } {
+  const o = source.options;
+  return { baseHeight: setup.baseHeight ?? o.baseHeight / scale, layerHeight: o.layerHeight / scale, firstLayerHeight: o.firstLayerHeight / scale };
+}
+
 /** Layer heights when nothing says otherwise (a strip's stack doesn't keep them). */
 const DEFAULT_LAYERS = { layerHeight: 0.08, firstLayerHeight: 0.16 };
 
