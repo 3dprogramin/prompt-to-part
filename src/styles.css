@@ -1287,6 +1287,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .layertone-slider { display: flex; align-items: center; gap: 8px; padding-left: 24px; padding-right: 4px; }
 .layertone-slider input { flex: 1; min-width: 0; }
 .layertone-slider .mono { width: 58px; text-align: right; color: var(--text-2); }
+.layertone-base { display: flex; flex-direction: column; gap: 2px; }
+.layertone-base-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.layertone-base-slider { padding-left: 0; }
 .layertone-custom { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
 .layertone-custom .layertone-swatch { grid-row: span 2; align-self: start; }
 .layertone-custom .layertone-td { grid-column: 2; }

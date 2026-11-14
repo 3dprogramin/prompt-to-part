@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import {
-  LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
+  LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
   type LayerToneFilament, type LayerToneSetup, type LayerToneStack,
 } from '../shared/layertone';
 
@@ -93,4 +93,11 @@ test('a strip picture does not warn about its heights when only the base was rai
   assert.equal(warned(1.6), false);
   assert.equal(warned(1.6, { baseHeight: 1.0 }), false);
   assert.equal(warned(2.0, { baseHeight: 1.0 }), true);
+});
+
+test('rebaseSetup: the slider moves the setup swaps with the base', () => {
+  const built = { baseHeight: 0.48, layerHeight: 0.08, firstLayerHeight: 0.16 };
+  assert.deepEqual(rebaseSetup({ swaps: [5, 7, 11], filaments: DON }, 1.2, built), { swaps: [14, 16, 20], filaments: DON, baseHeight: 1.2 });
+  assert.deepEqual(rebaseSetup({ swaps: [5, 7, 11], filaments: DON }, 0.16, built).swaps, [1, 3, 7]);
+  assert.deepEqual(rebaseSetup({}, 1.2, built), { baseHeight: 1.2 });
 });

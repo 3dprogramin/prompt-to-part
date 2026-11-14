@@ -408,6 +408,15 @@ export function applySetupBase(o: LayerToneOptions, setup: LayerToneSetup = {}, 
   return { options: { ...o, baseHeight: raised.baseHeight, maxHeight: layerTop(r.nMax + shift, r) }, shift };
 }
 
+/**
+ * The setup with the first filament `to` mm thick, from a print built with `built`: its swaps (built
+ * layers) move by the same number of layers, so every filament stays over the same part of the relief.
+ */
+export function rebaseSetup(setup: LayerToneSetup, to: number, built: { baseHeight: number; layerHeight: number; firstLayerHeight: number }): LayerToneSetup {
+  const d = layerCount(to, built) - layerCount(built.baseHeight, built);
+  return { ...setup, ...(setup.swaps ? { swaps: shiftSwaps(setup.swaps, d) } : {}), baseHeight: to };
+}
+
 /** Layer heights when nothing says otherwise (a strip's stack doesn't keep them). */
 const DEFAULT_LAYERS = { layerHeight: 0.08, firstLayerHeight: 0.16 };
 

@@ -1,7 +1,7 @@
 import { printer, shortName } from '../../shared/printer';
 import { useMemo, useRef, useState } from 'react';
 import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
-import { checkSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerTop, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
+import { checkSwaps, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerCount, layerTop, maxLayerToneFilaments, rebaseSetup, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
 import { estimatedTd } from '../../shared/filaments';
 import { layerToneImageToDataUrl, loadLayerToneImage, rgbaToDataUrl } from '../lib/layerToneImage';
 import { FilamentPicker } from './FilamentPicker';
@@ -47,9 +47,11 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
   const manual = !!manualSwaps;
   const swaps = manualSwaps ?? built ? layers.slice(1).map((l) => l.layer) : evenSwaps(filaments.length, grid.total);
 
-  const save = (next: LayerToneSetup) => onSetup(next.filaments || next.swaps ? next : null);
+  // The First filament slider's thickness goes with every save.
+  const base = setup.baseHeight != null ? { baseHeight: setup.baseHeight } : {};
+  const save = (next: LayerToneSetup) => onSetup(next.filaments || next.swaps || next.baseHeight != null ? next : null);
   const change = (list: LayerToneFilament[], nextSwaps = manual ? swaps : undefined) =>
-    save({ filaments: list, ...(nextSwaps ? { swaps: sanitizeSwaps(nextSwaps, grid.total) } : {}) });
+    save({ filaments: list, ...(nextSwaps ? { swaps: sanitizeSwaps(nextSwaps, grid.total) } : {}), ...base });
   const move = (i: number, to: number) => {
     const list = [...filaments];
     [list[i], list[to]] = [list[to], list[i]];
@@ -62,10 +64,10 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
     const last = swaps.at(-1) ?? 0;
     change([...filaments, stackFilament(f)], manual ? [...swaps, Math.round((last + grid.total) / 2)] : undefined);
   };
-  const setManual = (on: boolean) => save({ ...(setup.filaments ? { filaments: setup.filaments } : {}), ...(on ? { filaments, swaps: sanitizeSwaps(swaps, grid.total) } : {}) });
+  const setManual = (on: boolean) => save({ ...(setup.filaments ? { filaments: setup.filaments } : {}), ...(on ? { filaments, swaps: sanitizeSwaps(swaps, grid.total) } : {}), ...base });
   const setSwap = (i: number, layer: number) => {
     const lo = (swaps[i - 1] ?? 0) + 1, hi = (swaps[i + 1] ?? grid.total) - 1;
-    save({ filaments, swaps: swaps.map((s, j) => (j === i ? Math.min(hi, Math.max(lo, Math.round(layer))) : s)) });
+    save({ filaments, swaps: swaps.map((s, j) => (j === i ? Math.min(hi, Math.max(lo, Math.round(layer))) : s)), ...base });
   };
 
   // The filament picker: open on a stack row (its index) or to add one; `trigger` is the control that opened it.
@@ -90,6 +92,10 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
       <div className="layertone-stats small" role="status">
         <span className="mono">{grid.total} layers</span> · <span className="mono">{grid.top.toFixed(2)} mm</span> · {changes} filament change{changes === 1 ? '' : 's'}
       </div>
+      {part.layerTone && (
+        <BaseSlider name={filaments[0]?.name ?? 'first filament'} baseHeight={part.layerTone.options.baseHeight} grid={grid}
+          onCommit={(mm) => onSetup(rebaseSetup(setup, mm, { baseHeight: part.layerTone!.options.baseHeight, layerHeight: grid.lh, firstLayerHeight: grid.first }))} />
+      )}
       {filaments.length > printer().filaments && (
         <div className="layertone-warn small" role="alert">
           <Icon name="alert" size={13} /> {filaments.length} filaments: the {shortName()} loads {printer().filaments} at once, so the print stops for you to load the others by hand.
@@ -98,7 +104,7 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
 
       <div className="layertone-head">
         <h4>Filaments <span className="h4-hint">top of the print first</span></h4>
-        {values[LAYERTONE_KEY] != null && <button className="link" onClick={() => onSetup(null)} title="Back to the filaments and swaps the script chose">Reset</button>}
+        {values[LAYERTONE_KEY] != null && <button className="link" onClick={() => onSetup(null)} title="Back to the script's filaments, swaps and first filament thickness">Reset</button>}
       </div>
       <div className="layertone-swap-mode">
         <span className="dim small">Swaps</span>
@@ -178,6 +184,28 @@ function SwapSlider({ name, layer, min, max, grid, onCommit }: { name: string; l
     <div className="layertone-slider">
       <input type="range" min={min} max={Math.max(min, max)} step={1} aria-label={`Layer where ${name} starts`} aria-valuetext={`${zOf(slider.shown, grid).toFixed(2)} mm, layer ${slider.shown + 1}`} {...slider.inputProps} />
       <span className="mono small">{zOf(slider.shown, grid).toFixed(2)} mm</span>
+    </div>
+  );
+}
+
+/** The thickest first filament the slider offers, mm. */
+const MAX_BASE = 4;
+
+/** The First filament slider: how thick the solid first filament is; everything above moves with it. */
+function BaseSlider({ name, baseHeight, grid, onCommit }: { name: string; baseHeight: number; grid: Grid; onCommit: (mm: number) => void }) {
+  const r = { layerHeight: grid.lh, firstLayerHeight: grid.first };
+  const max = layerCount(MAX_BASE, r);
+  const slider = useReleaseSlider(Math.min(max, layerCount(baseHeight, r)), (n) => onCommit(Number(zOf(n, grid).toFixed(3))));
+  return (
+    <div className="layertone-base">
+      <div className="layertone-base-head">
+        <span className="small">First filament</span>
+        <span className="h4-hint" title="A thicker first filament makes the print stiffer; everything above it moves up, so it looks the same">solid {name} under the picture</span>
+      </div>
+      <div className="layertone-slider layertone-base-slider">
+        <input type="range" min={1} max={max} step={1} aria-label="First filament thickness" aria-valuetext={`${zOf(slider.shown, grid).toFixed(2)} mm`} {...slider.inputProps} />
+        <span className="mono small">{zOf(slider.shown, grid).toFixed(2)} mm</span>
+      </div>
     </div>
   );
 }
