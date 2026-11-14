@@ -72,9 +72,15 @@ export interface LayerToneSetup {
   filaments?: LayerToneFilament[];
   /**
    * The layer (0-based, counted from the bed) at which each filament after the first starts:
-   * filaments.length - 1 ascending numbers. Missing = automatic (autoSwaps).
+   * filaments.length - 1 ascending numbers, as built (they already include baseHeight's shift).
+   * Missing = automatic (autoSwaps).
    */
   swaps?: number[];
+  /**
+   * The first filament's thickness, mm (the First filament slider): replaces the script's
+   * baseHeight and raises the relief, its top and the script's swaps by the same number of layers.
+   */
+  baseHeight?: number;
 }
 
 /** H.layertone options (sliders in the script); all lengths in mm. */
@@ -337,6 +343,7 @@ export function parseLayerToneSetup(raw: unknown): LayerToneSetup {
   const filaments = cleanFilaments(s.filaments);
   if (filaments) out.filaments = filaments;
   if (Array.isArray(s.swaps) && s.swaps.length <= maxLayerToneFilaments() && s.swaps.every((n) => Number.isFinite(n))) out.swaps = s.swaps.map((n) => Math.round(n as number));
+  if (typeof s.baseHeight === 'number' && Number.isFinite(s.baseHeight) && s.baseHeight > 0) out.baseHeight = s.baseHeight;
   return out;
 }
 
@@ -365,7 +372,7 @@ export function resolveLayerToneOptions(o: LayerToneOptions, quality: Quality = 
   if (!(width > 0) || !Number.isFinite(width)) throw new Error('H.layertone: width must be > 0 (mm)');
   const layerHeight = num(o.layerHeight, 0.08, 0.04, 0.32);
   const firstLayerHeight = num(o.firstLayerHeight, 0.16, 0.04, 0.4);
-  const count = (h: number) => (h <= firstLayerHeight + 1e-9 ? 1 : 1 + Math.round((h - firstLayerHeight) / layerHeight));
+  const count = (h: number) => layerCount(h, { layerHeight, firstLayerHeight });
   const baseHeight = num(o.baseHeight, 0.48, firstLayerHeight, 20);
   const nBase = count(baseHeight);
   const nMax = Math.max(nBase + 1, count(num(o.maxHeight, 1.6, 0, 50)));
@@ -375,6 +382,30 @@ export function resolveLayerToneOptions(o: LayerToneOptions, quality: Quality = 
     border: num(o.border, 0, 0, width), invert: !!o.invert, gamma: num(o.gamma, 1, 0.1, 10),
     resolution: num(o.resolution, RESOLUTION[quality] ?? RESOLUTION.normal, 0.05, 10), nBase, nMax,
   };
+}
+
+/** How many layers make up `h` mm (at least 1). */
+export function layerCount(h: number, r: { layerHeight: number; firstLayerHeight: number }): number {
+  return h <= r.firstLayerHeight + 1e-9 ? 1 : 1 + Math.round((h - r.firstLayerHeight) / r.layerHeight);
+}
+
+/** Swaps moved by `d` layers, kept ascending with the first at layer 1 or above. */
+export function shiftSwaps(swaps: number[], d: number): number[] {
+  const out: number[] = [];
+  swaps.forEach((s, i) => out.push(Math.max(i ? out[i - 1] + 1 : 1, s + d)));
+  return out;
+}
+
+/**
+ * The options the print is built with: with the setup's baseHeight, that base and the max height
+ * raised by the same number of layers (`shift`, negative when lowered), so the relief keeps its depth.
+ */
+export function applySetupBase(o: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): { options: LayerToneOptions; shift: number } {
+  if (setup.baseHeight == null) return { options: o, shift: 0 };
+  const r = resolveLayerToneOptions(o, quality);
+  const raised = resolveLayerToneOptions({ ...o, baseHeight: setup.baseHeight }, quality);
+  const shift = raised.nBase - r.nBase;
+  return { options: { ...o, baseHeight: raised.baseHeight, maxHeight: layerTop(r.nMax + shift, r) }, shift };
 }
 
 /** Height of the top of `n` layers, mm. */
@@ -394,12 +425,15 @@ export function stackLayers(filaments: LayerToneFilament[], swaps: number[], r: 
  * The stack for a picture: filaments from the user's setup, else the script's, else black and
  * white; the user's swaps if they fit, else autoSwaps.
  */
-export function layerToneLayers(image: LayerToneImage, o: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): LayerColor[] {
+export function layerToneLayers(image: LayerToneImage, script: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): LayerColor[] {
+  const { options: o, shift } = applySetupBase(script, setup, quality);
   const r = resolveLayerToneOptions(o, quality);
   const filaments = setup.filaments ?? cleanFilaments(o.filaments) ?? DEFAULT_FILAMENTS;
-  // A picture drawn for a stack prints with that stack's swaps: automatic ones would read its strip positions as brightness.
-  const own = image.positions && image.stack?.filaments.length === filaments.length ? image.stack.swaps : undefined;
-  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? checkSwaps(o.swaps, filaments.length) ?? own ?? autoSwaps(image, filaments, o), r);
+  // A picture drawn for a stack prints with that stack's swaps (moved with the base): automatic ones would read its strip positions as brightness.
+  const stack = image.positions && image.stack?.filaments.length === filaments.length ? image.stack : undefined;
+  const own = stack && checkSwaps(stack.swaps, filaments.length) && shiftSwaps(stack.swaps, r.nBase - layerCount(stack.baseHeight, r));
+  const scriptSwaps = checkSwaps(o.swaps, filaments.length) && shiftSwaps(o.swaps!, shift);
+  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? scriptSwaps ?? own ?? autoSwaps(image, filaments, o), r);
 }
 
 /** Layer colours returned by a script, checked, sorted and scaled by the runtime's uniform scale; undefined if unusable. */

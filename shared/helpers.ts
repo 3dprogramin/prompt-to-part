@@ -4,7 +4,7 @@ import { layoutText, type TextLayoutOptions } from './text';
 import { add, cross, dist3, dot, norm, scale, sub } from './vec3';
 import type { Quality, Vec2, Vec3 } from './types';
 import { defaultColors, drawingSection, type SvgDrawing } from './svgFeatures';
-import { layerToneLayers, layerToneMesh, resolveLayerToneOptions, type LayerToneImage, type LayerToneOptions, type LayerTonePart, type LayerToneSetup } from './layertone';
+import { applySetupBase, layerToneLayers, layerToneMesh, resolveLayerToneOptions, type LayerToneImage, type LayerToneOptions, type LayerTonePart, type LayerToneSetup } from './layertone';
 import { buildLineArt, drawingFingerprint, type LineArtDeps, type LineArtEdits, type LineArtOptions, type LineArtResult } from './lineart';
 import { lithoPrint, lithophaneMesh, resolveLithoOptions, type LithophaneOptions, type LithophanePart } from './lithophane';
 import { getMeshData, type MeshEntry } from './meshes';
@@ -525,7 +525,8 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
     layertone(imageName: string, opts: LayerToneOptions): LayerTonePart {
       const image = layerToneInput.images[imageName];
       if (!image) throw new Error(`H.layertone: no picture named "${imageName}" (pictures: ${Object.keys(layerToneInput.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
-      const r = resolveLayerToneOptions(opts, quality);
+      // The First filament slider (the setup's baseHeight) raises the whole relief.
+      const r = resolveLayerToneOptions(applySetupBase(opts, layerToneInput.setup, quality).options, quality);
       const layerColors = layerToneLayers(image, opts, layerToneInput.setup, quality);
       const { vertProperties, triVerts } = layerToneMesh(image, layerColors, r);
       const shape = new M(new wasm.Mesh({ numProp: 3, vertProperties, triVerts })) as Manifold;
