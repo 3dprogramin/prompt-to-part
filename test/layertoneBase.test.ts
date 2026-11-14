@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import {
-  cleanLayerToneSource, firstFilamentBase, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxHeightNote, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
+  cleanLayerToneSource, firstFilamentBase, hiddenLayerToneParams, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxHeightNote, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
   type LayerToneFilament, type LayerToneSetup, type LayerToneStack,
 } from '../shared/layertone';
 
@@ -47,15 +47,48 @@ test('shiftSwaps moves every swap and keeps them ascending, the first at layer 1
   assert.deepEqual(shiftSwaps([2, 3, 4], -3), [1, 2, 3]);
 });
 
-test('no setup base: built as before', () => {
-  const a = run().parts[0], b = run({}).parts[0];
+/** The setup that builds a design as before the 1.6 mm default: the script's own 0.48 mm base. */
+const OLD: LayerToneSetup = { baseHeight: 0.48 };
+
+test('a setup at the script\'s base builds as before', () => {
+  const a = run(OLD).parts[0];
   assert.deepEqual(a.layerColors!.map((l) => l.layer), [0, 5, 7, 11]);
-  assert.deepEqual(b.layerColors, a.layerColors);
   assert.ok(near(a.bbox.max[2], 2.8));
+  assert.equal(a.layerTone!.raised, undefined);
+});
+
+test('no setup base: the first filament is 1.6 mm by default and everything above moves up', () => {
+  const a = run().parts[0], b = run({}).parts[0];
+  assert.deepEqual(a.layerColors!.map((l) => l.layer), [0, 19, 21, 25]);
+  assert.deepEqual(b.layerColors, a.layerColors);
+  assert.ok(near(a.bbox.max[2], 2.8 + 1.12), `top ${a.bbox.max[2]}`);
+  assert.ok(near(a.layerTone!.options.baseHeight, 1.6));
+  assert.ok(near(a.layerTone!.raised!, 1.12));
+});
+
+test('setup swaps saved without a base move up with the default', () => {
+  const p = run({ swaps: [5, 7, 11] }).parts[0];
+  assert.deepEqual(p.layerColors!.map((l) => l.layer), [0, 19, 21, 25]);
+});
+
+test('a script base thicker than the default is kept', () => {
+  const script = DON_SCRIPT.replace('maxHeight: 2.8,', 'maxHeight: 3.2, baseHeight: 2,');
+  const p = run(undefined, script).parts[0];
+  assert.ok(near(p.layerTone!.options.baseHeight, 2));
+  assert.equal(p.layerTone!.raised, undefined);
+});
+
+test('a picture drawn for a stack is marked, so its Max height can be hidden', () => {
+  const o = { width: 100, maxHeight: 1.6, baseHeight: 0.48 };
+  const stack: LayerToneStack = { filaments: DON, swaps: stripSwaps(DON, o), maxHeight: o.maxHeight, baseHeight: o.baseHeight };
+  const strip = toStripImage('s', 60, 30, gradientRgba(60, 30), stack, o);
+  const script = `function build() { return { name: 'Picture', ...H.layertone('s', { width: 40, maxHeight: 1.6, filaments: ${JSON.stringify(DON)} }) }; }`;
+  assert.equal(run(undefined, script, { s: strip }).parts[0].layerTone!.strip, true);
+  assert.equal(run().parts[0].layerTone!.strip, undefined);
 });
 
 test('a raised base raises everything above it and keeps the look', () => {
-  const before = run().parts[0], after = run({ baseHeight: 1.2 }).parts[0];
+  const before = run(OLD).parts[0], after = run({ baseHeight: 1.2 }).parts[0];
   assert.ok(near(after.bbox.max[2], 2.8 + 0.72), `top ${after.bbox.max[2]}`);
   assert.deepEqual(after.layerColors!.map((l) => l.layer), [0, 14, 16, 20]);
   assert.deepEqual(after.layerColors!.map((l) => [l.color, l.td]), before.layerColors!.map((l) => [l.color, l.td]));
@@ -103,7 +136,7 @@ test('rebaseSetup: the slider moves the setup swaps with the base', () => {
 });
 
 test('the part says how much the First filament raised it, for a note under Max height', () => {
-  const plain = run().parts[0].layerTone!, raised = run({ baseHeight: 1.2 }).parts[0].layerTone!, lowered = run({ baseHeight: 0.16 }).parts[0].layerTone!;
+  const plain = run(OLD).parts[0].layerTone!, raised = run({ baseHeight: 1.2 }).parts[0].layerTone!, lowered = run({ baseHeight: 0.16 }).parts[0].layerTone!;
   assert.equal(plain.raised, undefined);
   assert.equal(maxHeightNote(plain), null);
   assert.ok(near(raised.raised!, 0.72));
@@ -112,8 +145,8 @@ test('the part says how much the First filament raised it, for a note under Max 
 });
 
 test('firstFilamentBase: the setup base wins over a part still being rebuilt, in script units', () => {
-  const built = run().parts[0].layerTone!;
-  assert.deepEqual(firstFilamentBase({}, built, 1), { baseHeight: 0.48, layerHeight: 0.08, firstLayerHeight: 0.16 });
+  const built = run(OLD).parts[0].layerTone!;
+  assert.deepEqual(firstFilamentBase({}, built, 1), { baseHeight: 0.48, swapsAt: 0.48, layerHeight: 0.08, firstLayerHeight: 0.16 });
   // The part still shows 0.48 mm while the setup already says 1.2 mm.
   assert.equal(firstFilamentBase({ baseHeight: 1.2 }, built, 1).baseHeight, 1.2);
   // A second move before the rebuild: swaps move from the setup's base, not the lagging part's.
@@ -125,12 +158,36 @@ test('firstFilamentBase: the setup base wins over a part still being rebuilt, in
   assert.ok(near(b.baseHeight, 0.48) && near(b.layerHeight, 0.08) && near(b.firstLayerHeight, 0.16), JSON.stringify(b));
 });
 
+test('firstFilamentBase with the default: shows 1.6 mm, setup swaps saved without a base move from the script\'s', () => {
+  const built = run().parts[0].layerTone!;
+  const b = firstFilamentBase({ swaps: [5, 7, 11] }, built, 1);
+  assert.ok(near(b.baseHeight, 1.6) && near(b.swapsAt, 0.48), JSON.stringify(b));
+  // To 2.0 mm (24 layers) from the script's 0.48 mm (5 layers): 19 layers up.
+  assert.deepEqual(rebaseSetup({ swaps: [5, 7, 11] }, 2, b), { swaps: [24, 26, 30], baseHeight: 2 });
+});
+
 test('the render report tells the AI the First filament raised the print', async () => {
   const { formatReport, geometry } = await import('../server/geometry');
   try {
     const values = (setup?: LayerToneSetup) => ({ [LAYERTONE_IMAGES_KEY]: JSON.stringify({ g: gradient }), ...(setup ? { [LAYERTONE_KEY]: JSON.stringify(setup) } : {}) });
     const report = formatReport(await geometry.evaluate(DON_SCRIPT, values({ baseHeight: 1.2 }), 'draft'));
-    assert.match(report, /First filament 1\.20 mm \(the user's slider\): everything raised 0\.72 mm above the script's maxHeight/);
-    assert.doesNotMatch(formatReport(await geometry.evaluate(DON_SCRIPT, values(), 'draft')), /First filament/);
+    assert.match(report, /First filament 1\.20 mm \(the First filament slider, 1\.6 mm by default\): everything raised 0\.72 mm above the script's maxHeight/);
+    assert.match(formatReport(await geometry.evaluate(DON_SCRIPT, values(), 'draft')), /First filament 1\.60 mm/);
+    assert.doesNotMatch(formatReport(await geometry.evaluate(DON_SCRIPT, values(OLD), 'draft')), /First filament/);
   } finally { geometry.stop(); }
+});
+
+test('the Max height slider is hidden for a picture drawn for a stack, kept for a photo', () => {
+  const photo = run().parts[0].layerTone!;
+  assert.deepEqual(hiddenLayerToneParams(photo), []);
+  assert.deepEqual(hiddenLayerToneParams({ ...photo, strip: true }), ['maxHeight']);
+  assert.deepEqual(hiddenLayerToneParams(undefined), []);
+});
+
+test('the AI is told about the First filament and to fix the max height for a drawn picture', async () => {
+  const { layerTone } = await import('../server/modes/layerTone');
+  const prompt = layerTone.system({ layerTone: { pictures: true, mine: [] } } as never);
+  assert.match(prompt, /First filament slider/);
+  assert.match(prompt, /1\.6 mm/);
+  assert.match(prompt, /no Max height slider/);
 });

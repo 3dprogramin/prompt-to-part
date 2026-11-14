@@ -85,7 +85,7 @@ test('filament plan: beyond 4 filaments, a pause and the AMS slot of a filament 
 const gradient = toLayerToneImage('gradient.png', 200, 100, Uint8Array.from({ length: 200 * 100 * 4 }, (_, i) => (i % 4 === 3 ? 255 : Math.round(((i >> 2) % 200) / 199 * 255))));
 const ENGINE_VALUES = {
   [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }),
-  [LAYERTONE_KEY]: JSON.stringify({ filaments: [['Black', '#161616', 0.6], ['Blue', '#1f4fd1', 1.2], ['Red', '#d12f1f', 1.5], ['White', '#ffffff', 3]].map(([name, color, td]) => ({ name, color, td })), swaps: [6, 9, 13] }),
+  [LAYERTONE_KEY]: JSON.stringify({ filaments: [['Black', '#161616', 0.6], ['Blue', '#1f4fd1', 1.2], ['Red', '#d12f1f', 1.5], ['White', '#ffffff', 3]].map(([name, color, td]) => ({ name, color, td })), swaps: [6, 9, 13], baseHeight: 0.48 }),
 };
 const ENGINE_SCRIPT = "function build() { return { name: 'Picture', ...H.layertone('gradient.png', { width: 100 }) }; }";
 

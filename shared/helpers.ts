@@ -536,7 +536,7 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       const { nBase: _b, nMax: _m, ...options } = r;
       return {
         shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' },
-        layerTone: { image: imageName, options, ...(Math.abs(raised) > 1e-9 ? { raised } : {}) },
+        layerTone: { image: imageName, options, ...(Math.abs(raised) > 1e-9 ? { raised } : {}), ...(image.positions && image.stack ? { strip: true as const } : {}) },
       };
     },
 

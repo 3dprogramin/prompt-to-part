@@ -95,7 +95,8 @@ test('autoSwaps: ascending layers inside the relief, every filament with room to
 
 // A gradient from black (left) to white (right) with a white bar along the top.
 const gradient = toLayerToneImage('gradient.png', 200, 100, picture(200, 100, (x, y) => (y < 10 ? 255 : Math.round((x / 199) * 255))));
-const values = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }) };
+// At the script's own 0.48 mm base (the setup's First filament), as these tests were written for; the 1.6 mm default is in layertoneBase.test.ts.
+const values = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ 'gradient.png': gradient }), [LAYERTONE_KEY]: JSON.stringify({ baseHeight: 0.48 }) };
 const SCRIPT = `
 const params = { width: { value: 100, min: 40, max: 200 }, border: { value: 0, min: 0, max: 10 } };
 function build(p) { return { name: 'Picture', ...H.layertone('gradient.png', { width: p.width, border: p.border }) }; }`;
@@ -144,7 +145,7 @@ test('H.layertone: border, the user\'s setup, scale, lite evaluations and errors
   assert.ok(Math.abs(framed.bbox.max[0] - 55) < 1e-4 && Math.abs(framed.bbox.max[1] - 30) < 1e-4);
   assert.equal(framed.components, 1);
   // The side panel's filaments and swaps win over the script's.
-  const setup = { filaments: FOUR, swaps: [6, 9, 13] };
+  const setup = { filaments: FOUR, swaps: [6, 9, 13], baseHeight: 0.48 };
   const r = evaluateScript(SCRIPT, { ...values, [LAYERTONE_KEY]: JSON.stringify(setup), $scale: 2 }, 'draft');
   const lc = r.parts[0].layerColors!;
   assert.deepEqual(lc.map((l) => l.layer), [0, 6, 9, 13]);
@@ -158,7 +159,7 @@ test('H.layertone: border, the user\'s setup, scale, lite evaluations and errors
   const sim = simulateImage(gradient, lc, src.options);
   assert.ok(sim.rgba[(50 * 200 + 5) * 4] < sim.rgba[(50 * 200 + 195) * 4], 'scaled options still preview the print');
   // Swaps that don't fit the filaments fall back to automatic ones.
-  const auto = evaluateScript(SCRIPT, { ...values, [LAYERTONE_KEY]: JSON.stringify({ filaments: FOUR, swaps: [9, 6] }) }, 'draft').parts[0].layerColors!;
+  const auto = evaluateScript(SCRIPT, { ...values, [LAYERTONE_KEY]: JSON.stringify({ filaments: FOUR, swaps: [9, 6], baseHeight: 0.48 }) }, 'draft').parts[0].layerColors!;
   assert.deepEqual(auto.map((l) => l.layer).slice(1), autoSwaps(gradient, FOUR, { width: 100 }));
   const lite = evaluateScript(SCRIPT, values, 'draft', { lite: true }).parts[0];
   assert.equal(lite.layerColors?.length, 2);

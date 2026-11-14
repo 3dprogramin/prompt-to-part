@@ -15,7 +15,8 @@ import { colourStrokes, drawingFingerprint, drawingPicture, LINE_ART_STYLES, LIN
 import { markBounds, markMask, parsePictureMarks, PICTURE_MARKS_KEY, type PictureMark } from '../../shared/pictureEdit/mark';
 import { renderDrawing, wholeWindow, type PictureWindow } from '../../shared/pictureEdit/render';
 import { cleanDrawing, drawingColors, DRAWINGS_KEY, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
-import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, stripColors, toBase64, toLayerToneImage, toStripImage, type LayerToneImage, type LayerToneStack } from '../../shared/layertone';
+import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLuma, parseLayerToneImages, parseLayerToneSetup, stripColors, toBase64, toLayerToneImage, toStripImage, type LayerToneImage, type LayerToneStack } from '../../shared/layertone';
+import { SCALE_KEY } from '../../shared/params';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { stripPng } from '../layerToneStrip';
@@ -530,12 +531,14 @@ async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEdit
   const whole = resizeTo(full, Math.max(1, Math.round(wholeHeight * aspect)), wholeHeight);
 
   let before: string, after: string, shown: PictureWindow, pasted: Raster, asked: Asked;
-  let align: PictureEditResponse['align'], kept: number[] | null = null, notKept = false, fullMask: Uint8Array | null = null;
+  let align: PictureEditResponse['align'], kept: number[] | null = null, keptBase: number | undefined, notKept = false, fullMask: Uint8Array | null = null;
   if (mark) {
     // A lithophane maps each pixel to a thickness on its own: nothing to keep for the print outside the mark.
     if (r.mode === 'layertone') {
       const build = cleanBuild(r.layerTone)!;
       kept = swapsToKeep(img, build, r.values);
+      // They are the built layers: saved with the base they were built on, else the default first filament would raise them again.
+      if (kept && parseLayerToneSetup(r.values[LAYERTONE_KEY]).baseHeight == null) keptBase = build.options.baseHeight / (Number(r.values[SCALE_KEY]) > 0 ? Number(r.values[SCALE_KEY]) : 1);
       // Swaps shared with another LayerTone picture would change its print: not kept, and said.
       if (kept && sharedSwaps(build)) { kept = null; notKept = true; }
     }
@@ -577,7 +580,7 @@ async function editPhoto(r: PictureEditRequest, deps: Deps): Promise<PictureEdit
   }
   const set: Record<string, string | null> = {};
   set[LAYERTONE_IMAGES_KEY] = withEntry(r.values[LAYERTONE_IMAGES_KEY], r.picture, next);
-  if (kept) set[LAYERTONE_KEY] = JSON.stringify({ ...rawObject(r.values[LAYERTONE_KEY]), swaps: kept });
+  if (kept) set[LAYERTONE_KEY] = JSON.stringify({ ...rawObject(r.values[LAYERTONE_KEY]), swaps: kept, ...(keptBase != null ? { baseHeight: +keptBase.toFixed(4) } : {}) });
   set[PICTURE_MARKS_KEY] = marksWithout(r.values, r.picture);
   return {
     set, before, after, window: shown, masked: !!mark, outsideSame,

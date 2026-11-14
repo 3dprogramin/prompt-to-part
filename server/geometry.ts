@@ -264,7 +264,7 @@ export function formatReport(r: EvalSummary | EvalFailure): string {
     if (p.layerColors?.length) {
       lines.push(`    LayerTone stack, bottom → top: ${p.layerColors.map((l, i) => `${l.brand ? `${l.brand} ` : ''}${l.name ?? l.color} (${l.color}, TD ${l.td}) ${i ? `from layer ${l.layer} (z ${f(l.z)} mm)` : 'from the bed'}`).join('; ')}`);
       const raised = p.layerTone?.raised;
-      if (raised) lines.push(`    First filament ${f(p.layerTone!.options.baseHeight)} mm (the user's slider): everything raised ${f(raised)} mm above the script's maxHeight and baseHeight, so the print is ${f(p.layerTone!.options.maxHeight)} mm tall; leave it, set_layertone base_height changes it.`);
+      if (raised) lines.push(`    First filament ${f(p.layerTone!.options.baseHeight)} mm (the First filament slider, 1.6 mm by default): everything raised ${f(raised)} mm above the script's maxHeight and baseHeight, so the print is ${f(p.layerTone!.options.maxHeight)} mm tall; leave it, set_layertone base_height changes it.`);
     }
     if (p.paint) {
       lines.push(`    Coloured (its coloured mesh's filaments, painted on the triangles; the script's own geometry in the part's colour): ${p.paint.filaments.map((x, i) => `${filamentLabel(x)} ${x.color} ${Math.round(p.paint!.share[i] * 100)} %`).join('; ')}`);

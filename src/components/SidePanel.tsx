@@ -18,7 +18,7 @@ import { SvgPanel } from './SvgPanel';
 import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
 import { LineArtPanel, lineArtPart } from './LineArtPanel';
-import { maxHeightNote, type LayerToneImage, type LayerToneSetup } from '../../shared/layertone';
+import { hiddenLayerToneParams, maxHeightNote, type LayerToneImage, type LayerToneSetup } from '../../shared/layertone';
 import type { LineArtEdits } from '../../shared/lineart';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
@@ -342,7 +342,9 @@ function ParamsTab({ result, hiddenParts, owners, onValue, onReset, fonts }: { r
     const o = ownersOf(k, d);
     return o.length && o.every((n) => hiddenParts.includes(n)) ? o : null;
   };
-  const entries = Object.entries(result.params);
+  // LayerTone: a picture drawn for a filament stack keeps the max height it was drawn for.
+  const hidden = hiddenLayerToneParams(findLayerTonePart(result)?.layerTone);
+  const entries = Object.entries(result.params).filter(([k]) => !hidden.includes(k));
   if (!entries.length) return <div className="empty-note">This model has no parameters.</div>;
   const groups = new Map<string, [string, ParamDef][]>();
   for (const e of entries) {

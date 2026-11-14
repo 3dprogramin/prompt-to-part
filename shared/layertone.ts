@@ -72,13 +72,14 @@ export interface LayerToneSetup {
   filaments?: LayerToneFilament[];
   /**
    * The layer (0-based, counted from the bed) at which each filament after the first starts:
-   * filaments.length - 1 ascending numbers, as built (they already include baseHeight's shift).
-   * Missing = automatic (autoSwaps).
+   * filaments.length - 1 ascending numbers, built at baseHeight when the setup has one, else at the
+   * script's base (they move up with the default first filament). Missing = automatic (autoSwaps).
    */
   swaps?: number[];
   /**
    * The first filament's thickness, mm (the First filament slider): replaces the script's
    * baseHeight and raises the relief, its top and the script's swaps by the same number of layers.
+   * Missing = DEFAULT_FIRST_FILAMENT, or the script's base when that is thicker.
    */
   baseHeight?: number;
 }
@@ -135,9 +136,17 @@ export interface LayerTonePart {
 export interface LayerToneSource {
   image: string;
   options: Required<Omit<LayerToneOptions, 'filaments' | 'swaps'>>;
-  /** mm the First filament slider (the setup's baseHeight) added to the script's max height; negative when lowered, missing when not moved. */
+  /** mm the First filament (the setup's baseHeight, or its default) added to the script's max height; negative when lowered, missing when the script's base is used. */
   raised?: number;
+  /** The picture was drawn for a filament stack: it matches only at the max height it was drawn for. */
+  strip?: true;
 }
+
+/**
+ * Script sliders the Params tab hides for a LayerTone part: Max height when its picture was drawn
+ * for a filament stack (it matches only at the height it was drawn for, so moving it only breaks the colours).
+ */
+export const hiddenLayerToneParams = (source: LayerToneSource | undefined): string[] => (source?.strip ? ['maxHeight'] : []);
 
 /** The line under the script's Max height slider when the First filament slider moved the top, else null. */
 export function maxHeightNote(source: LayerToneSource): string | null {
@@ -405,24 +414,28 @@ export function shiftSwaps(swaps: number[], d: number): number[] {
   return out;
 }
 
+/** The first filament's thickness when the setup doesn't set one, mm (thin prints bend). */
+export const DEFAULT_FIRST_FILAMENT = 1.6;
+
 /**
- * The options the print is built with: with the setup's baseHeight, that base and the max height
- * raised by the same number of layers (`shift`, negative when lowered), so the relief keeps its depth.
+ * The options the print is built with: the first filament as thick as the setup's baseHeight (else
+ * DEFAULT_FIRST_FILAMENT, or the script's base when thicker), and the max height moved by the same
+ * number of layers (`shift`, negative when lowered), so the relief keeps its depth.
  */
 export function applySetupBase(o: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): { options: LayerToneOptions; shift: number } {
-  if (setup.baseHeight == null) return { options: o, shift: 0 };
   const r = resolveLayerToneOptions(o, quality);
-  const raised = resolveLayerToneOptions({ ...o, baseHeight: setup.baseHeight }, quality);
-  const shift = raised.nBase - r.nBase;
-  return { options: { ...o, baseHeight: raised.baseHeight, maxHeight: layerTop(r.nMax + shift, r) }, shift };
+  const nBase = setup.baseHeight != null ? layerCount(Math.max(r.firstLayerHeight, setup.baseHeight), r) : Math.max(r.nBase, layerCount(DEFAULT_FIRST_FILAMENT, r));
+  const shift = nBase - r.nBase;
+  if (!shift) return { options: o, shift: 0 };
+  return { options: { ...o, baseHeight: layerTop(nBase, r), maxHeight: layerTop(r.nMax + shift, r) }, shift };
 }
 
 /**
  * The setup with the first filament `to` mm thick, from a print built with `built`: its swaps (built
  * layers) move by the same number of layers, so every filament stays over the same part of the relief.
  */
-export function rebaseSetup(setup: LayerToneSetup, to: number, built: { baseHeight: number; layerHeight: number; firstLayerHeight: number }): LayerToneSetup {
-  const d = layerCount(to, built) - layerCount(built.baseHeight, built);
+export function rebaseSetup(setup: LayerToneSetup, to: number, built: { baseHeight: number; swapsAt?: number; layerHeight: number; firstLayerHeight: number }): LayerToneSetup {
+  const d = layerCount(to, built) - layerCount(built.swapsAt ?? built.baseHeight, built);
   return { ...setup, ...(setup.swaps ? { swaps: shiftSwaps(setup.swaps, d) } : {}), baseHeight: to };
 }
 
@@ -431,9 +444,11 @@ export function rebaseSetup(setup: LayerToneSetup, to: number, built: { baseHeig
  * when it has one (the part may still be rebuilding from an earlier one), else the part's; the
  * part's heights are divided by the design's overall scale.
  */
-export function firstFilamentBase(setup: LayerToneSetup, source: LayerToneSource, scale = 1): { baseHeight: number; layerHeight: number; firstLayerHeight: number } {
+export function firstFilamentBase(setup: LayerToneSetup, source: LayerToneSource, scale = 1): { baseHeight: number; swapsAt: number; layerHeight: number; firstLayerHeight: number } {
   const o = source.options;
-  return { baseHeight: setup.baseHeight ?? o.baseHeight / scale, layerHeight: o.layerHeight / scale, firstLayerHeight: o.firstLayerHeight / scale };
+  // The script's own base: the part's, less what the First filament (or its default) added.
+  const scriptBase = (o.baseHeight - (source.raised ?? 0)) / scale;
+  return { baseHeight: setup.baseHeight ?? o.baseHeight / scale, swapsAt: setup.baseHeight ?? scriptBase, layerHeight: o.layerHeight / scale, firstLayerHeight: o.firstLayerHeight / scale };
 }
 
 /** Layer heights when nothing says otherwise (a strip's stack doesn't keep them). */
@@ -469,7 +484,9 @@ export function layerToneLayers(image: LayerToneImage, script: LayerToneOptions,
   const stack = image.positions && image.stack?.filaments.length === filaments.length ? image.stack : undefined;
   const own = stack && checkSwaps(stack.swaps, filaments.length) && shiftSwaps(stack.swaps, r.nBase - layerCount(stack.baseHeight, r));
   const scriptSwaps = checkSwaps(o.swaps, filaments.length) && shiftSwaps(o.swaps!, shift);
-  return stackLayers(filaments, checkSwaps(setup.swaps, filaments.length) ?? scriptSwaps ?? own ?? autoSwaps(image, filaments, o), r);
+  // Setup swaps saved without a base were built at the script's: they move with the default.
+  const setupSwaps = checkSwaps(setup.swaps, filaments.length) && (setup.baseHeight == null ? shiftSwaps(setup.swaps!, shift) : setup.swaps);
+  return stackLayers(filaments, setupSwaps || scriptSwaps || own || autoSwaps(image, filaments, o), r);
 }
 
 /** Layer colours returned by a script, checked, sorted and scaled by the runtime's uniform scale; undefined if unusable. */
@@ -502,6 +519,7 @@ export function cleanLayerToneSource(raw: unknown, scale = 1): LayerToneSource |
     image: o.image.slice(0, 120),
     options: { width, layerHeight, firstLayerHeight, baseHeight, maxHeight, border, resolution, invert: !!o.options.invert, gamma: n('gamma') },
     ...(typeof o.raised === 'number' && Number.isFinite(o.raised) && o.raised !== 0 ? { raised: o.raised * scale } : {}),
+    ...(o.strip === true ? { strip: true as const } : {}),
   };
 }
 

@@ -395,7 +395,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
           const want = resolveLayerToneOptions({ width: 1, maxHeight: drawn.stack.maxHeight, baseHeight: drawn.stack.baseHeight, layerHeight: layerTone.options.layerHeight, firstLayerHeight: layerTone.options.firstLayerHeight });
           const lt = layerTone.options;
           const built = { base: layerCount(lt.baseHeight, lt), max: layerCount(lt.maxHeight, lt) };
-          const raised = layerTonePictureSetup.baseHeight != null;
+          const raised = layerTone.raised != null || layerTonePictureSetup.baseHeight != null;
           if (built.max - built.base !== want.nMax - want.nBase || (!raised && built.base !== want.nBase)) {
             warnings.push(`Picture "${layerTone.image}" was drawn for max height ${drawn.stack.maxHeight} mm and base height ${drawn.stack.baseHeight} mm, but part "${name}" is built at ${layerTone.options.maxHeight.toFixed(2)} and ${layerTone.options.baseHeight.toFixed(2)} mm, so its colours don't match the picture: build H.layertone with maxHeight: ${drawn.stack.maxHeight}, baseHeight: ${drawn.stack.baseHeight}.`);
           }
