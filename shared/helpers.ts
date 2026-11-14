@@ -527,6 +527,7 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       if (!image) throw new Error(`H.layertone: no picture named "${imageName}" (pictures: ${Object.keys(layerToneInput.images).map((n) => `"${n}"`).join(', ') || 'none'})`);
       // The First filament slider (the setup's baseHeight) raises the whole relief.
       const r = resolveLayerToneOptions(applySetupBase(opts, layerToneInput.setup, quality).options, quality);
+      const raised = r.maxHeight - resolveLayerToneOptions(opts, quality).maxHeight;
       const layerColors = layerToneLayers(image, opts, layerToneInput.setup, quality);
       const { vertProperties, triVerts } = layerToneMesh(image, layerColors, r);
       const shape = new M(new wasm.Mesh({ numProp: 3, vertProperties, triVerts })) as Manifold;
@@ -535,7 +536,7 @@ export function makeHelpers(rt: HelperRuntime, quality: Quality, drawings: Recor
       const { nBase: _b, nMax: _m, ...options } = r;
       return {
         shape, layerColors, print: { layerHeight: r.layerHeight, firstLayerHeight: r.firstLayerHeight, infill: 100, infillPattern: 'zig-zag' },
-        layerTone: { image: imageName, options },
+        layerTone: { image: imageName, options, ...(Math.abs(raised) > 1e-9 ? { raised } : {}) },
       };
     },
 

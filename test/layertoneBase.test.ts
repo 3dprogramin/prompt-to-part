@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateScript } from '../shared/runtime';
 import {
-  LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
+  LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxHeightNote, parseLayerToneSetup, rebaseSetup, shiftSwaps, simulateImage, stripSwaps, toLayerToneImage, toStripImage,
   type LayerToneFilament, type LayerToneSetup, type LayerToneStack,
 } from '../shared/layertone';
 
@@ -100,4 +100,13 @@ test('rebaseSetup: the slider moves the setup swaps with the base', () => {
   assert.deepEqual(rebaseSetup({ swaps: [5, 7, 11], filaments: DON }, 1.2, built), { swaps: [14, 16, 20], filaments: DON, baseHeight: 1.2 });
   assert.deepEqual(rebaseSetup({ swaps: [5, 7, 11], filaments: DON }, 0.16, built).swaps, [1, 3, 7]);
   assert.deepEqual(rebaseSetup({}, 1.2, built), { baseHeight: 1.2 });
+});
+
+test('the part says how much the First filament raised it, for a note under Max height', () => {
+  const plain = run().parts[0].layerTone!, raised = run({ baseHeight: 1.2 }).parts[0].layerTone!, lowered = run({ baseHeight: 0.16 }).parts[0].layerTone!;
+  assert.equal(plain.raised, undefined);
+  assert.equal(maxHeightNote(plain), null);
+  assert.ok(near(raised.raised!, 0.72));
+  assert.equal(maxHeightNote(raised), 'Prints up to 3.52 mm: the First filament adds 0.72 mm');
+  assert.equal(maxHeightNote(lowered), 'Prints up to 2.48 mm: the First filament takes off 0.32 mm');
 });

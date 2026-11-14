@@ -135,6 +135,15 @@ export interface LayerTonePart {
 export interface LayerToneSource {
   image: string;
   options: Required<Omit<LayerToneOptions, 'filaments' | 'swaps'>>;
+  /** mm the First filament slider (the setup's baseHeight) added to the script's max height; negative when lowered, missing when not moved. */
+  raised?: number;
+}
+
+/** The line under the script's Max height slider when the First filament slider moved the top, else null. */
+export function maxHeightNote(source: LayerToneSource): string | null {
+  const d = source.raised;
+  if (d == null || Math.abs(d) < 0.005) return null;
+  return `Prints up to ${source.options.maxHeight.toFixed(2)} mm: the First filament ${d > 0 ? 'adds' : 'takes off'} ${Math.abs(d).toFixed(2)} mm`;
 }
 
 /** The user's loaded black and white, as in the filament library (shared/filaments.ts). */
@@ -482,6 +491,7 @@ export function cleanLayerToneSource(raw: unknown, scale = 1): LayerToneSource |
   return {
     image: o.image.slice(0, 120),
     options: { width, layerHeight, firstLayerHeight, baseHeight, maxHeight, border, resolution, invert: !!o.options.invert, gamma: n('gamma') },
+    ...(typeof o.raised === 'number' && Number.isFinite(o.raised) && o.raised !== 0 ? { raised: o.raised * scale } : {}),
   };
 }
 

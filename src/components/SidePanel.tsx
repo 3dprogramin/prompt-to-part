@@ -18,7 +18,7 @@ import { SvgPanel } from './SvgPanel';
 import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
 import { LineArtPanel, lineArtPart } from './LineArtPanel';
-import type { LayerToneImage, LayerToneSetup } from '../../shared/layertone';
+import { maxHeightNote, type LayerToneImage, type LayerToneSetup } from '../../shared/layertone';
 import type { LineArtEdits } from '../../shared/lineart';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
@@ -433,6 +433,9 @@ function ParamsTab({ result, hiddenParts, owners, onValue, onReset, fonts }: { r
     groups.get(g)!.push(e);
   }
   const modified = entries.some(([k, d]) => result.values[k] !== d.value);
+  // LayerTone: the First filament slider moves the top, so the script's Max height says where it really is.
+  const layerTone = findLayerTonePart(result)?.layerTone;
+  const maxNote = layerTone ? maxHeightNote(layerTone) : null;
   return (
     <div className="params">
       {result.meta.name && (
@@ -454,6 +457,7 @@ function ParamsTab({ result, hiddenParts, owners, onValue, onReset, fonts }: { r
             return (
               <fieldset key={k} className="param-fieldset" disabled={!!off} title={off ? `${off.join(', ')} ${off.length > 1 ? 'are' : 'is'} hidden` : undefined}>
                 <ParamRow k={k} def={d} value={result.values[k]} onValue={onValue} fonts={fonts} />
+                {k === 'maxHeight' && maxNote && <div className="hint-line param-note">{maxNote}</div>}
               </fieldset>
             );
           })}
