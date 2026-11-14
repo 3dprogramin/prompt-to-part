@@ -57,25 +57,15 @@ test('a setup at the script\'s base builds as before', () => {
   assert.equal(a.layerTone!.raised, undefined);
 });
 
-test('no setup base: the first filament is 1.6 mm by default and everything above moves up', () => {
+test('no setup base: the first filament is the script\'s own base (0.48 mm when it sets none)', () => {
   const a = run().parts[0], b = run({}).parts[0];
-  assert.deepEqual(a.layerColors!.map((l) => l.layer), [0, 19, 21, 25]);
+  assert.deepEqual(a.layerColors!.map((l) => l.layer), [0, 5, 7, 11]);
   assert.deepEqual(b.layerColors, a.layerColors);
-  assert.ok(near(a.bbox.max[2], 2.8 + 1.12), `top ${a.bbox.max[2]}`);
-  assert.ok(near(a.layerTone!.options.baseHeight, 1.6));
-  assert.ok(near(a.layerTone!.raised!, 1.12));
-});
-
-test('setup swaps saved without a base move up with the default', () => {
-  const p = run({ swaps: [5, 7, 11] }).parts[0];
-  assert.deepEqual(p.layerColors!.map((l) => l.layer), [0, 19, 21, 25]);
-});
-
-test('a script base thicker than the default is kept', () => {
-  const script = DON_SCRIPT.replace('maxHeight: 2.8,', 'maxHeight: 3.2, baseHeight: 2,');
-  const p = run(undefined, script).parts[0];
-  assert.ok(near(p.layerTone!.options.baseHeight, 2));
-  assert.equal(p.layerTone!.raised, undefined);
+  assert.ok(near(a.bbox.max[2], 2.8), `top ${a.bbox.max[2]}`);
+  assert.ok(near(a.layerTone!.options.baseHeight, 0.48));
+  assert.equal(a.layerTone!.raised, undefined);
+  // Setup swaps saved without a base stay where they are.
+  assert.deepEqual(run({ swaps: [5, 7, 11] }).parts[0].layerColors!.map((l) => l.layer), [0, 5, 7, 11]);
 });
 
 test('a picture drawn for a stack is marked, so its Max height can be hidden', () => {
@@ -158,21 +148,13 @@ test('firstFilamentBase: the setup base wins over a part still being rebuilt, in
   assert.ok(near(b.baseHeight, 0.48) && near(b.layerHeight, 0.08) && near(b.firstLayerHeight, 0.16), JSON.stringify(b));
 });
 
-test('firstFilamentBase with the default: shows 1.6 mm, setup swaps saved without a base move from the script\'s', () => {
-  const built = run().parts[0].layerTone!;
-  const b = firstFilamentBase({ swaps: [5, 7, 11] }, built, 1);
-  assert.ok(near(b.baseHeight, 1.6) && near(b.swapsAt, 0.48), JSON.stringify(b));
-  // To 2.0 mm (24 layers) from the script's 0.48 mm (5 layers): 19 layers up.
-  assert.deepEqual(rebaseSetup({ swaps: [5, 7, 11] }, 2, b), { swaps: [24, 26, 30], baseHeight: 2 });
-});
-
 test('the render report tells the AI the First filament raised the print', async () => {
   const { formatReport, geometry } = await import('../server/geometry');
   try {
     const values = (setup?: LayerToneSetup) => ({ [LAYERTONE_IMAGES_KEY]: JSON.stringify({ g: gradient }), ...(setup ? { [LAYERTONE_KEY]: JSON.stringify(setup) } : {}) });
     const report = formatReport(await geometry.evaluate(DON_SCRIPT, values({ baseHeight: 1.2 }), 'draft'));
-    assert.match(report, /First filament 1\.20 mm \(the First filament slider, 1\.6 mm by default\): everything raised 0\.72 mm above the script's maxHeight/);
-    assert.match(formatReport(await geometry.evaluate(DON_SCRIPT, values(), 'draft')), /First filament 1\.60 mm/);
+    assert.match(report, /First filament 1\.20 mm \(the First filament slider\): everything raised 0\.72 mm above the script's maxHeight/);
+    assert.doesNotMatch(formatReport(await geometry.evaluate(DON_SCRIPT, values(), 'draft')), /First filament/);
     assert.doesNotMatch(formatReport(await geometry.evaluate(DON_SCRIPT, values(OLD), 'draft')), /First filament/);
   } finally { geometry.stop(); }
 });
@@ -188,6 +170,7 @@ test('the AI is told about the First filament and to fix the max height for a dr
   const { layerTone } = await import('../server/modes/layerTone');
   const prompt = layerTone.system({ layerTone: { pictures: true, mine: [] } } as never);
   assert.match(prompt, /First filament slider/);
-  assert.match(prompt, /1\.6 mm/);
+  assert.match(prompt, /0\.48 mm/);
+  assert.doesNotMatch(prompt, /1\.6 mm by default/);
   assert.match(prompt, /no Max height slider/);
 });

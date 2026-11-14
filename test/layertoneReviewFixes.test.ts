@@ -25,9 +25,11 @@ test('importing the picture edit module does not fix the data folder before a te
 test('a strip picture with no swaps in the setup prints with its own stack swaps, not automatic ones', () => {
   const layers = layerToneLayers(pic, { ...O, filaments: FILAMENTS }, { filaments: FILAMENTS, baseHeight: O.baseHeight });
   assert.deepEqual(layers.slice(1).map((l) => l.layer), stack.swaps);
-  // With the 1.6 mm default first filament they move up with it (0.48 → 1.6 mm: 14 layers).
-  const raised = layerToneLayers(pic, { ...O, filaments: FILAMENTS }, { filaments: FILAMENTS });
+  // Raised with the First filament slider (0.48 → 1.6 mm: 14 layers), they move up with it.
+  const raised = layerToneLayers(pic, { ...O, filaments: FILAMENTS }, { filaments: FILAMENTS, baseHeight: 1.6 });
   assert.deepEqual(raised.slice(1).map((l) => l.layer), stack.swaps.map((s) => s + 14));
+  // No setup base: the script's own 0.48 mm, as drawn.
+  assert.deepEqual(layerToneLayers(pic, { ...O, filaments: FILAMENTS }, { filaments: FILAMENTS }).slice(1).map((l) => l.layer), stack.swaps);
 });
 
 test('stale notes: an empty setup (panel Reset) is not reported as changed filaments', async () => {

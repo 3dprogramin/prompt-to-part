@@ -73,13 +73,13 @@ export interface LayerToneSetup {
   /**
    * The layer (0-based, counted from the bed) at which each filament after the first starts:
    * filaments.length - 1 ascending numbers, built at baseHeight when the setup has one, else at the
-   * script's base (they move up with the default first filament). Missing = automatic (autoSwaps).
+   * script's base. Missing = automatic (autoSwaps).
    */
   swaps?: number[];
   /**
    * The first filament's thickness, mm (the First filament slider): replaces the script's
    * baseHeight and raises the relief, its top and the script's swaps by the same number of layers.
-   * Missing = DEFAULT_FIRST_FILAMENT, or the script's base when that is thicker.
+   * Missing = the script's base.
    */
   baseHeight?: number;
 }
@@ -136,7 +136,7 @@ export interface LayerTonePart {
 export interface LayerToneSource {
   image: string;
   options: Required<Omit<LayerToneOptions, 'filaments' | 'swaps'>>;
-  /** mm the First filament (the setup's baseHeight, or its default) added to the script's max height; negative when lowered, missing when the script's base is used. */
+  /** mm the First filament slider (the setup's baseHeight) added to the script's max height; negative when lowered, missing when the script's base is used. */
   raised?: number;
   /** The picture was drawn for a filament stack: it matches only at the max height it was drawn for. */
   strip?: true;
@@ -414,17 +414,14 @@ export function shiftSwaps(swaps: number[], d: number): number[] {
   return out;
 }
 
-/** The first filament's thickness when the setup doesn't set one, mm (thin prints bend). */
-export const DEFAULT_FIRST_FILAMENT = 1.6;
-
 /**
  * The options the print is built with: the first filament as thick as the setup's baseHeight (else
- * DEFAULT_FIRST_FILAMENT, or the script's base when thicker), and the max height moved by the same
- * number of layers (`shift`, negative when lowered), so the relief keeps its depth.
+ * the script's base: 0.48 mm when it sets none), and the max height moved by the same number of
+ * layers (`shift`, negative when lowered), so the relief keeps its depth.
  */
 export function applySetupBase(o: LayerToneOptions, setup: LayerToneSetup = {}, quality: Quality = 'normal'): { options: LayerToneOptions; shift: number } {
   const r = resolveLayerToneOptions(o, quality);
-  const nBase = setup.baseHeight != null ? layerCount(Math.max(r.firstLayerHeight, setup.baseHeight), r) : Math.max(r.nBase, layerCount(DEFAULT_FIRST_FILAMENT, r));
+  const nBase = setup.baseHeight != null ? layerCount(Math.max(r.firstLayerHeight, setup.baseHeight), r) : r.nBase;
   const shift = nBase - r.nBase;
   if (!shift) return { options: o, shift: 0 };
   return { options: { ...o, baseHeight: layerTop(nBase, r), maxHeight: layerTop(r.nMax + shift, r) }, shift };
