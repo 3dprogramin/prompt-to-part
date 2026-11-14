@@ -5,7 +5,7 @@ import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { ASPECTS, decodeImage, generateArtwork, imageModel, picturePrompt } from '../artwork';
 import { encode as encodePng } from 'fast-png';
-import { cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, stripSwaps, toLayerToneImage, toStripImage, type LayerToneStack } from '../../shared/layertone';
+import { cleanFilaments, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneImages, parseLayerToneSetup, stackSwapsAt, stripSwaps, toLayerToneImage, toStripImage, type LayerToneStack } from '../../shared/layertone';
 import { stripPng } from '../layerToneStrip';
 import { chatPhotos } from './designImage';
 import { DRAWINGS_KEY, parseDrawings } from '../../shared/svgFeatures';
@@ -58,19 +58,21 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
         if (stack && pictures.designId) picture = { ...picture, colour: await (await import('../routes/store')).storeDesignPicture(pictures.designId, encodePng({ width: raster.width, height: raster.height, data: raster.data, channels: 4 })) };
         base[LAYERTONE_IMAGES_KEY] = JSON.stringify({ ...parseLayerToneImages(base[LAYERTONE_IMAGES_KEY]), [a.name]: picture });
         emit({ type: 'layerToneImage', name: a.name, image: picture });
-        if (stack) {
+        // The strip's swaps as they print: moved up with a raised first filament (the setup's baseHeight).
+        const fixed = stack && stackSwapsAt(stack, parseLayerToneSetup(base[LAYERTONE_KEY]).baseHeight);
+        if (stack && fixed) {
           // The strip's swaps are the print's: fixed in the setup, so a brightness never moves to another colour.
-          const setup = { ...parseLayerToneSetup(base[LAYERTONE_KEY]), filaments: stack.filaments, swaps: stack.swaps };
+          const setup = { ...parseLayerToneSetup(base[LAYERTONE_KEY]), filaments: stack.filaments, swaps: fixed };
           base[LAYERTONE_KEY] = JSON.stringify(setup);
           emit({ type: 'layerToneSetup', setup });
         }
         emit({ type: 'step', step: {
           kind: 'render', ok: true, image: `data:${image.mediaType};base64,${image.data}`, detailOpen: true,
           text: `Picture "${a.name}" from ${model}${cost != null ? ` · $${cost.toFixed(3)}` : ''}`,
-          detail: `Prompt sent to ${model}${strip ? ' with the colour strip' : ''}:\n\n${prompt}\n\nStored for ${use.helper} as ${picture.width}×${picture.height} pixels${stack ? `, by position on the strip; swap layers fixed at ${stack.swaps.join(', ')}` : ''}.`,
+          detail: `Prompt sent to ${model}${strip ? ' with the colour strip' : ''}:\n\n${prompt}\n\nStored for ${use.helper} as ${picture.width}×${picture.height} pixels${stack ? `, by position on the strip; swap layers fixed at ${fixed!.join(', ')}` : ''}.`,
         } });
         const build = stack
-          ? ` Build it with H.layertone("${a.name}", { width, maxHeight: ${o.maxHeight}${lt.base_height != null ? `, baseHeight: ${o.baseHeight}` : ''}, filaments: [the same ${stack.filaments.length}] }): the same stack and heights it was drawn for, or the print stops matching it. Its swap layers (${stack.swaps.join(', ')}) are fixed in the LayerTone setup.`
+          ? ` Build it with H.layertone("${a.name}", { width, maxHeight: ${o.maxHeight}${lt.base_height != null ? `, baseHeight: ${o.baseHeight}` : ''}, filaments: [the same ${stack.filaments.length}] }): the same stack and heights it was drawn for, or the print stops matching it. Its swap layers (${fixed!.join(', ')}) are fixed in the LayerTone setup.`
           : '';
         return {
           content: [

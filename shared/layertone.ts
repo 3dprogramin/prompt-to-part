@@ -408,6 +408,14 @@ export function applySetupBase(o: LayerToneOptions, setup: LayerToneSetup = {}, 
   return { options: { ...o, baseHeight: raised.baseHeight, maxHeight: layerTop(r.nMax + shift, r) }, shift };
 }
 
+/** Layer heights when nothing says otherwise (a strip's stack doesn't keep them). */
+const DEFAULT_LAYERS = { layerHeight: 0.08, firstLayerHeight: 0.16 };
+
+/** A stack's swaps where they print under a setup base height (moved with it; as drawn without one). */
+export function stackSwapsAt(stack: LayerToneStack, baseHeight: number | undefined, r: { layerHeight: number; firstLayerHeight: number } = DEFAULT_LAYERS): number[] {
+  return baseHeight == null ? stack.swaps : shiftSwaps(stack.swaps, layerCount(baseHeight, r) - layerCount(stack.baseHeight, r));
+}
+
 /** Height of the top of `n` layers, mm. */
 export function layerTop(n: number, r: { layerHeight: number; firstLayerHeight: number }): number {
   return n <= 0 ? 0 : r.firstLayerHeight + (n - 1) * r.layerHeight;

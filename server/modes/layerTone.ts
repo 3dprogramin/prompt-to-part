@@ -2,7 +2,7 @@
 // and its notes on the user's setup and pictures (and on edit_picture, with the image model).
 import { loadsAtOnce, maxPiece, printer } from '../../shared/printer';
 import { FILAMENT_LIBRARY } from '../../shared/filaments';
-import { LAYERTONE_KEY, parseLayerToneSetup, type LayerToneFilament, type LayerToneImage } from '../../shared/layertone';
+import { LAYERTONE_KEY, parseLayerToneSetup, stackSwapsAt, type LayerToneFilament, type LayerToneImage } from '../../shared/layertone';
 import type { ParamValues } from '../../shared/types';
 import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import { pictureEditNotes, type PictureWords } from './pictureEdits';
@@ -91,7 +91,7 @@ export function staleStripNotes(images: Record<string, LayerToneImage>, pictureV
     if (!img.positions || !img.stack) return [];
     const why = [
       setup.filaments && !same(setup.filaments, img.stack.filaments) ? 'the filaments' : '',
-      setup.swaps && setup.swaps.join() !== img.stack.swaps.join() ? 'the swap layers' : '',
+      setup.swaps && setup.swaps.join() !== stackSwapsAt(img.stack, setup.baseHeight).join() ? 'the swap layers' : '',
       Number.isFinite(max) && Math.abs(max - img.stack.maxHeight) > 0.01 ? `the max height (${max} mm, drawn for ${img.stack.maxHeight} mm)` : '',
     ].filter(Boolean);
     return why.length ? [`Picture "${name}" was drawn for another filament stack (${why.join(', ')} changed since), so the print no longer matches it: say so and offer to repaint it for the current stack; don't repaint unasked.`] : [];

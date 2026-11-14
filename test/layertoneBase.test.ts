@@ -83,3 +83,14 @@ test('a strip picture prints with its own swaps moved with the base', () => {
   const p = run({ baseHeight: 0.8 }, script, { s: strip }).parts[0];
   assert.deepEqual(p.layerColors!.slice(1).map((l) => l.layer), stack.swaps.map((s) => s + 4));
 });
+
+test('a strip picture does not warn about its heights when only the base was raised', () => {
+  const o = { width: 100, maxHeight: 1.6, baseHeight: 0.48 };
+  const stack: LayerToneStack = { filaments: DON, swaps: stripSwaps(DON, o), maxHeight: o.maxHeight, baseHeight: o.baseHeight };
+  const strip = toStripImage('s', 60, 30, gradientRgba(60, 30), stack, o);
+  const script = (max: number) => `function build() { return { name: 'Picture', ...H.layertone('s', { width: 40, maxHeight: ${max}, filaments: ${JSON.stringify(DON)} }) }; }`;
+  const warned = (max: number, setup?: LayerToneSetup) => run(setup, script(max), { s: strip }).warnings.some((w) => /Picture "s" was drawn/.test(w));
+  assert.equal(warned(1.6), false);
+  assert.equal(warned(1.6, { baseHeight: 1.0 }), false);
+  assert.equal(warned(2.0, { baseHeight: 1.0 }), true);
+});

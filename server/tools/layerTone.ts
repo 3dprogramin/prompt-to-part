@@ -1,7 +1,7 @@
 // The CAD tool for the LayerTone setup (set_layertone): the filaments and their swap layers.
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { checkSwaps, cleanFilaments, LAYERTONE_KEY, maxLayerToneFilaments, parseLayerToneSetup, type LayerToneSetup } from '../../shared/layertone';
+import { checkSwaps, cleanFilaments, LAYERTONE_KEY, layerCount, maxLayerToneFilaments, parseLayerToneSetup, shiftSwaps, type LayerToneSetup } from '../../shared/layertone';
 import type { ToolContext } from './context';
 
 /** set_layertone, for a LayerTone design. */
@@ -16,6 +16,7 @@ export function layerToneTools({ base, emit }: ToolContext) {
       })).min(1).max(maxLayerToneFilaments()).optional().describe('All filaments, bottom (printed first) → top'),
       swaps: z.union([z.array(z.number().int().min(1)).max(maxLayerToneFilaments() - 1), z.literal('auto')]).optional()
         .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts: one ascending number per filament after the first; "auto" lets the app choose'),
+      base_height: z.number().min(0.04).max(4).optional().describe('Thickness of the first filament, mm (the First filament slider; default the script\'s baseHeight): raises everything above it by the same amount, so the print gets thicker and looks the same. Setup swaps move with it.'),
       reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
     }, async (a) => {
       const now = parseLayerToneSetup(base[LAYERTONE_KEY]);
@@ -25,6 +26,15 @@ export function layerToneTools({ base, emit }: ToolContext) {
       else if (a.swaps) setup.swaps = a.swaps;
       // New filaments without new swaps: the old swaps no longer fit, so they go automatic.
       else if (a.filaments && setup.swaps && setup.swaps.length !== setup.filaments!.length - 1) delete setup.swaps;
+      if (!a.reset && a.base_height != null) {
+        // Swaps kept from before are built layers: they move with the base, which must be known.
+        if (setup.swaps && !a.swaps) {
+          if (now.baseHeight == null) return { content: [{ type: 'text', text: 'The setup has swap layers but no base height yet: pass swaps too (the layers where each filament should start with the new base, from the render report) or swaps: "auto".' }], isError: true };
+          const L = { layerHeight: 0.08, firstLayerHeight: 0.16 };
+          setup.swaps = shiftSwaps(setup.swaps, layerCount(a.base_height, L) - layerCount(now.baseHeight, L));
+        }
+        setup.baseHeight = a.base_height;
+      }
       const count = setup.filaments?.length;
       // Swaps only mean something against a known filament list (the script's may change without notice).
       if (setup.swaps && count == null) {
@@ -38,7 +48,7 @@ export function layerToneTools({ base, emit }: ToolContext) {
       if (Object.keys(setup).length) base[LAYERTONE_KEY] = JSON.stringify(setup); else delete base[LAYERTONE_KEY];
       emit({ type: 'layerToneSetup', setup: Object.keys(setup).length ? setup : null });
       const text = !Object.keys(setup).length ? 'The LayerTone setup is cleared: the script\'s filaments and automatic swaps apply.'
-        : `LayerTone setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}.`;
+        : `LayerTone setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}${setup.baseHeight != null ? `; first filament ${setup.baseHeight} mm thick` : ''}.`;
       emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
       return { content: [{ type: 'text', text: `${text} The user sees it in the LayerTone panel. Call render_model to check the print.` }] };
     }),

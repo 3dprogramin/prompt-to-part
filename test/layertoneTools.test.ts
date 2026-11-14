@@ -106,6 +106,47 @@ test('stale strip picture is pointed out', async () => {
   assert.equal(staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: other }, {}).length, 1);
 });
 
+test('a stale strip note ignores swaps moved with a raised base', async () => {
+  const { staleStripNotes } = await import('../server/modes/layerTone');
+  const { stripSwaps, toStripImage } = await import('../shared/layertone');
+  const o = { width: 100, maxHeight: 1.6, baseHeight: 0.48 };
+  const stack = { filaments: FILAMENTS, swaps: stripSwaps(FILAMENTS, o), maxHeight: 1.6, baseHeight: 0.48 };
+  const img = toStripImage('portrait', 1, 1, [0, 0, 0, 255], stack, o);
+  // 0.8 mm is 4 layers more than 0.48 mm.
+  const raised = JSON.stringify({ filaments: FILAMENTS, swaps: stack.swaps.map((s) => s + 4), baseHeight: 0.8 });
+  assert.deepEqual(staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: raised }, { maxHeight: 1.6 }), []);
+  const moved = JSON.stringify({ filaments: FILAMENTS, swaps: stack.swaps.map((s) => s + 5), baseHeight: 0.8 });
+  assert.equal(staleStripNotes({ portrait: img }, { [LAYERTONE_KEY]: moved }, { maxHeight: 1.6 }).length, 1);
+});
+
+test('generate_picture keeps a raised base and fixes the strip swaps moved with it', async () => {
+  const { stripSwaps } = await import('../shared/layertone');
+  const base: Record<string, string> = { [LAYERTONE_KEY]: JSON.stringify({ baseHeight: 0.8 }) };
+  const { server: cad } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { pictures: { references: [], designId: 'design-strip-0005' }, layerTone: true, image });
+  const out = await handlers(cad).generate_picture.handler({ name: 'p', subject: 'a lighthouse at dusk', filaments: FILAMENTS }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  const setup = parseLayerToneSetup(base[LAYERTONE_KEY]);
+  assert.equal(setup.baseHeight, 0.8);
+  assert.deepEqual(setup.swaps, stripSwaps(FILAMENTS, { width: 100, maxHeight: 1.6, baseHeight: 0.48 }).map((s) => s + 4));
+});
+
+test('set_layertone sets the base height, moves the swaps with it, and reset clears it', async () => {
+  const base: Record<string, string> = { [LAYERTONE_KEY]: JSON.stringify({ filaments: FILAMENTS, swaps: [5, 9], baseHeight: 0.48 }) };
+  const { server: cad } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { layerTone: true });
+  const set = handlers(cad).set_layertone.handler;
+  let out = await set({ base_height: 1.2 }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.match(out.content[0].text!, /1\.2 mm/);
+  assert.deepEqual(parseLayerToneSetup(base[LAYERTONE_KEY]), { filaments: FILAMENTS, swaps: [14, 18], baseHeight: 1.2 });
+  // Swaps the setup has without a known base: the AI must say where they go.
+  base[LAYERTONE_KEY] = JSON.stringify({ filaments: FILAMENTS, swaps: [5, 9] });
+  assert.ok((await set({ base_height: 1.2 }, {})).isError);
+  out = await set({ base_height: 1.2, swaps: [14, 18] }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  out = await set({ reset: true }, {});
+  assert.equal(base[LAYERTONE_KEY], undefined);
+});
+
 /** A design whose first message had two photos (a scene, then a face); returns their data URLs. */
 async function designWithEarlierPhotos(id: string) {
   const { mkdirSync, writeFileSync } = await import('node:fs');
