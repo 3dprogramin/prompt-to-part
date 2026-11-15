@@ -526,13 +526,16 @@ export function cleanLayerToneSource(raw: unknown, scale = 1): LayerToneSource |
 //
 // Each filament is a filter over what lies below it. Light through it falls off exponentially with
 // thickness (Beer–Lambert), so its coverage of the colour beneath is 1 - e^(-k·t/TD). The
-// published TD of a filament is the thickness beyond which more filament no longer visibly changes the colour (not where
-// light stops entirely), taken here as letting 5 % through: k = 3. Exponential coverage composes
+// published TD is measured with light shining through the filament; a print seen from the front
+// hides what is under it much sooner. Fitted on real prints (The Don, Ninja Rider) and in line
+// with other tools (Kromacut and AutoForge scale TD by 0.1): 95 % covered at TD × 0.1, k = 30.
+// With k = 3 (95 % at the full TD) thin layers previewed far too see-through: three layers of
+// blue over black looked near-black and printed clearly blue. Exponential coverage composes
 // exactly (two 0.1 mm layers look like one 0.2 mm layer), unlike a linear min(1, t/TD), and gives
 // the strong change of the first layers and the slow saturation seen on real prints. Colours mix
 // in linear light, as light does, and the first filament (the base) is taken as opaque.
 
-const TD_ABSORB = 3;
+const TD_ABSORB = 30;
 /** How much of a filament's own colour shows through `t` mm of it (0–1). */
 const coverage = (t: number, td: number) => (t > 1e-6 ? 1 - Math.exp((-TD_ABSORB * t) / td) : 0);
 
@@ -675,7 +678,7 @@ export function stripColors(stack: LayerToneStack, o: LayerToneOptions): [number
 }
 
 /** sRGB 0 to 255 to CIELAB (D65), for "nearest colour" as the eye sees it. */
-function toLab(c: readonly number[]): [number, number, number] {
+export function toLab(c: readonly number[]): [number, number, number] {
   const [R, G, B] = c.map((v) => toLinear(v / 255));
   const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
   const x = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047), y = f(0.2126 * R + 0.7152 * G + 0.0722 * B), z = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
