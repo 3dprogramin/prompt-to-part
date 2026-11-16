@@ -20,3 +20,4 @@ data/
 # Internal plans and specs from AI-assisted work (kept locally, not part of the repo)
 docs/superpowers/
 test-data/
+.mcp.json
