@@ -149,11 +149,11 @@ export function DesignsMenu(p: Props) {
           <div className="menu-filters" role="group" aria-label="Show">
             {chip({ kind: 'all' }, 'All', p.designs.length, 'Every design', 'all')}
             {chip({ kind: 'starred' }, <Icon name="star" size={11} />, p.designs.filter((d) => d.starred).length, 'Starred designs', 'starred', 'starred')}
+            {markCount > 0 && chip({ kind: 'printed' }, <><Icon name="printer" size={11} />Printed</>, markCount, 'Printed versions: one row each, open it or download its 3MF', 'printed', 'printed')}
             {counts.map(({ tag, count }) => {
               const b = builtinTag(tag);
               return chip({ kind: 'tag', tag }, <>{b && <Icon name={b.icon} size={11} />}{tag}</>, count, b ? `${b.title}${tag === 'Temp' ? '. New designs get this tag while the list shows it.' : ''}` : `Designs tagged ${tag}`, `tag:${tag}`, b ? `tag-${b.name.toLowerCase()}` : '');
             })}
-            {markCount > 0 && chip({ kind: 'printed' }, <><Icon name="printer" size={11} />Printed</>, markCount, 'Printed versions: one row each, open it or download its 3MF', 'printed', 'printed')}
             {chip({ kind: 'untagged' }, 'No tag', p.designs.filter((d) => !d.tags?.length).length, 'Designs without a tag', 'untagged')}
           </div>
         )}

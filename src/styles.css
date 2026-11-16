@@ -1524,7 +1524,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .printed-badge { flex-shrink: 0; font-size: 10.5px; color: var(--accent); border: 1px solid #e0a43c66; border-radius: 999px; padding: 0 6px; }
 .icon-btn.printed-mark.on { color: var(--accent); }
 .kind-icon.printed-icon { color: var(--accent); margin-left: 4px; }
-.filter-chip.printed svg { color: var(--accent); }
+.filter-chip.printed { color: var(--accent); border-color: #e0a43c73; background: #e0a43c1f; font-weight: 600; }
+.filter-chip.printed:hover { border-color: var(--accent); }
+.filter-chip.printed.on { color: #1a1a1a; background: var(--accent); border-color: var(--accent); }
 .composer textarea:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* sale sizes in the product photos */
