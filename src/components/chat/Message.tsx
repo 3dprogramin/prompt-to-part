@@ -61,7 +61,11 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
   };
   const all = (m.steps ?? []).filter((s) => !(s.kind === 'text' && s.text === m.text) && s.kind !== 'assembly');
   const steps = all;
-  const renders = steps.filter((s) => s.kind === 'render' && s.image && !s.verbose);
+  // Folded, a reply keeps every picture it made (AI drawings, colour strips: `detailOpen`) and its latest render.
+  const images = steps.filter((s) => s.kind === 'render' && s.image && !s.verbose);
+  const picture = (s: AgentStep) => s.detailOpen || s.text.startsWith('Colour strip'); // older strips have no flag
+  const latest = images.filter((s) => !picture(s)).at(-1);
+  const shown = images.filter((s) => picture(s) || s === latest);
   // The full step log is open while Claude works; afterwards it folds into one line.
   const showSteps = live || open;
   const interrupted = wasInterrupted(m, live);
@@ -104,9 +108,9 @@ export function Message({ m, live, versions, currentVersion, onRestore, onImage,
           {live && <li className="step live peek" {...peekProps}><span className="spinner" /> <span className="step-text" role="status" aria-live="polite">{m.live ?? 'Starting…'}</span>{thinkingAt != null && <ThinkTime ms={elapsed - thinkingAt} live />}</li>}
         </ol>
       )}
-      {!showSteps && renders.length > 0 && (
+      {!showSteps && shown.length > 0 && (
         <div className="render-strip">
-          {renders.slice(-1).map((s, i) => <ImageButton key={i} src={s.image!} alt="Latest render" onOpen={onImage} />)}
+          {shown.map((s, i) => <ImageButton key={i} src={s.image!} alt={s === latest ? 'Latest render' : s.text} onOpen={onImage} />)}
         </div>
       )}
       {m.text && <div className="bubble md-bubble"><Markdown text={m.text} /></div>}

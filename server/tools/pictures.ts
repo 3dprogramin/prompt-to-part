@@ -44,7 +44,7 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
         const strip = stack && stripPng(stack, o);
         if (stack && strip) {
           emit({ type: 'step', step: {
-            kind: 'render', ok: true, image: strip.dataUrl,
+            kind: 'render', ok: true, image: strip.dataUrl, detailOpen: true,
             text: `Colour strip of the print: ${stack.filaments.map((f) => f.name).join(', ')}`,
             detail: `The colours this stack prints, lowest layer (left) to highest (right), at max height ${o.maxHeight} mm. Sent to ${imageModel()} with the prompt; the picture is drawn only in them.`,
           } });

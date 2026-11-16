@@ -205,6 +205,8 @@ select { background: var(--panel-2); border: 1px solid var(--input-line); border
 .step.bad::before { content: '✗ '; }
 .step-text { cursor: default; white-space: pre-wrap; }
 .step img, .render-strip img { display: block; margin-top: 4px; width: 100%; max-width: 300px; border-radius: 6px; border: 1px solid var(--line-2); cursor: zoom-in; }
+.render-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.render-strip .img-btn { flex: 1 1 140px; max-width: 300px; }
 .version-row { display: flex; align-items: center; gap: 8px; }
 .version-chip { font-family: var(--mono); font-size: 11px; background: #e0a43c22; color: var(--accent-2); border: 1px solid #e0a43c55; border-radius: 5px; padding: 0 6px; }
 
