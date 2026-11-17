@@ -752,7 +752,7 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .modal p { margin: 0 0 16px; color: var(--text-2); }
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 /* Settings: a wider dialog with a tab row that scrolls sideways when it doesn't fit. */
-.settings-dialog { width: min(640px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+.settings-dialog { width: min(640px, 100%); min-width: 0; max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
 .settings-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; flex-shrink: 0; }
 .settings-tabs button { flex: 0 0 auto; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--text-3); font-weight: 500; white-space: nowrap; }
 .settings-tabs button:hover { color: var(--text-2); }

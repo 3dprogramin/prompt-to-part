@@ -9,7 +9,7 @@
 // picture mode menu on a phone (every mode, Line art's style ▾) and a part's filament picker in the Object
 // tab, Shop photos (a set of 5 from their own renders, the size one beside a light switch, with a stand-in for the image model), and sale sizes (S / M / L built, shown and
 // resized alone, sliced one at a time by a stand-in for Bambu Studio, scene photos for every size from one scene), and a picture edit from the artwork brush (the
-// stand-in fills the area marked), also on a version marked printed meanwhile, and from a LayerTone photo's picture editor. Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
+// stand-in fills the area marked), also on a version marked printed meanwhile, and from a LayerTone photo's picture editor, and the Settings dialog's Filaments tab (adding from the library, rolls, custom filaments, phone width, the picker's link). Each test closes its pages, passed or not, and has a bounded time. A screenshot of each step is saved to
 // PTP_UI_SHOTS (default: a temp folder) for a look at what the browser saw.
 // Needs Playwright's Chromium (`pnpm exec playwright-core install chromium` once).
 import { test, before, after, afterEach } from 'node:test';
@@ -2156,5 +2156,387 @@ test('Settings on a phone-width screen: nothing runs off the side, the tabs stay
   } finally {
     await page.close();
     await fetch(`${A}/api/settings/reset`, { method: 'POST', headers: json }).catch(() => {});
+  }
+});
+
+// ---- the Filaments tab of Settings
+const jsonHeaders = { 'Content-Type': 'application/json', 'X-PTP': '1' };
+type Shelf = { name: string; brand?: string; color: string; td: number; rolls?: number };
+const putShelf = (list: Shelf[]) => fetch(`${A}/api/filaments/mine`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ filaments: list }) });
+/** A known printer, so the first-start question does not cover the page. */
+const knownPrinter = () => fetch(`${A}/api/printer`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
+const getShelf = async (): Promise<Shelf[]> => (await (await fetch(`${A}/api/filaments/mine`)).json()).filaments;
+/** Five filaments of different brands, one custom, for the screenshots and the phone test. */
+const SHELF: Shelf[] = [
+  { name: 'PLA Basic Jade White', brand: 'Bambu Lab', color: '#ffffff', td: 4.2, rolls: 2 },
+  { name: 'PLA Matte Charcoal', brand: 'Bambu Lab', color: '#000000', td: 0.4, rolls: 1 },
+  { name: 'PLA+ White', brand: 'eSUN', color: '#f2f2f2', td: 5.1, rolls: 3 },
+  { name: 'PLA+ Black', brand: 'eSUN', color: '#111111', td: 0.3, rolls: 1 },
+  { name: 'Workshop Teal Silk With A Rather Long Name For A Row', brand: 'Acme Filaments', color: '#1f9d8f', td: 1.7, rolls: 4 },
+];
+/** What the browser reports about the Settings dialog's layout. */
+const settingsLayout = async (page: Page) => {
+  // (Nothing named inside the evaluate: the test runner's transpiler would add a helper the page does not have.)
+  const l = await page.evaluate(() => {
+    const dialog = document.querySelector('[role=dialog][aria-labelledby=settings-title]')!;
+    const panel = dialog.querySelector('[role=tabpanel]')!;
+    const rects = [dialog, ...dialog.querySelectorAll('.fil-pane')].map((e) => e.getBoundingClientRect().toJSON() as { x: number; y: number; width: number; height: number });
+    return { rects, panelScroll: { w: panel.scrollWidth, cw: panel.clientWidth }, pageSideways: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  });
+  const box = (r: { x: number; y: number; width: number; height: number }) => ({ x: r.x, y: r.y, w: r.width, h: r.height });
+  return { dialog: box(l.rects[0]), panes: l.rects.slice(1).map(box), panelScroll: l.panelScroll, pageSideways: l.pageSideways };
+};
+
+test('Settings: the Filaments tab adds a library colour, counts its rolls and keeps them', TEST, async () => {
+  await knownPrinter();
+  assert.equal((await putShelf([])).status, 200);
+  const page = await newPage();
+  const gear = page.getByRole('button', { name: 'Settings', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const mine = dialog.getByRole('region', { name: 'My filaments' });
+  const library = dialog.getByRole('region', { name: 'Library' });
+  const cards = library.getByRole('list', { name: 'Library filaments' }).getByRole('button');
+  const rows = mine.getByRole('listitem');
+  const rollsBox = (name: string) => dialog.getByRole('spinbutton', { name: `Rolls of ${name}` });
+  const open = async (tab = 'Filaments') => {
+    await gear.click();
+    await dialog.waitFor();
+    await dialog.getByRole('tab', { name: tab, exact: true }).click();
+  };
+  const shelfSummary = () => mine.locator('.fil-pane-head .small').innerText();
+  const libCount = () => library.locator('.fil-pane-head .small').innerText();
+  const pill = (group: string, name: string) => library.getByRole('group', { name: group, exact: true }).getByRole('button', { name, exact: true });
+  const cardNames = () => cards.evaluateAll((els) => els.map((e) => e.querySelector('.fil-card-name')!.textContent!));
+  const active = () => page.evaluate(() => {
+    const e = document.activeElement as HTMLElement | null;
+    return e ? `${e.tagName.toLowerCase()}:${e.getAttribute('aria-label') ?? e.textContent?.trim().slice(0, 30)}` : '';
+  });
+  try {
+    await page.goto(`${A}/`);
+    await gear.waitFor();
+
+    // The empty state, and the footer: no Save or Reset here (they stay on Keys and services).
+    await open('Printer');
+    const printerWidth = (await dialog.boundingBox())!.width;
+    await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
+    await mine.getByText('No filaments yet. Add one from the library, or a custom one.').waitFor();
+    assert.equal(await shelfSummary(), '0 colours · 0 rolls');
+    assert.equal(await libCount(), '92 colours');
+    assert.equal(await dialog.getByRole('button', { name: 'Save', exact: true }).count(), 0, 'no Save on the Filaments tab');
+    assert.equal(await dialog.getByRole('button', { name: 'Reset to defaults' }).count(), 0, 'no Reset on the Filaments tab');
+
+    // Wider than the Printer tab, inside the window, the panes side by side, the dialog never taller than the window.
+    const lay = await settingsLayout(page);
+    const view = page.viewportSize()!;
+    assert.ok(lay.dialog.w > printerWidth + 100, `wider on Filaments (${lay.dialog.w}) than on Printer (${printerWidth})`);
+    assert.ok(lay.dialog.w <= view.width && lay.dialog.x >= 0 && lay.dialog.x + lay.dialog.w <= view.width, 'inside the window');
+    assert.ok(lay.dialog.h <= view.height && lay.dialog.y >= 0 && lay.dialog.y + lay.dialog.h <= view.height, `not taller than the window (${JSON.stringify(lay.dialog)})`);
+    assert.equal(lay.panes.length, 2);
+    assert.ok(Math.abs(lay.panes[0].y - lay.panes[1].y) < 2 && lay.panes[1].x > lay.panes[0].x + lay.panes[0].w - 1, `panes side by side (${JSON.stringify(lay.panes)})`);
+    assert.ok(lay.panelScroll.w <= lay.panelScroll.cw, 'the panel does not scroll sideways');
+    await dialog.getByRole('tab', { name: 'Keys and services', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).waitFor();
+    await dialog.getByRole('button', { name: 'Reset to defaults' }).waitFor();
+    await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
+
+    // The library: 92 cards that scroll inside their pane, not the dialog.
+    const libScroll = library.locator('.fil-scroll');
+    assert.equal(await cards.count(), 92);
+    const lib0 = await libScroll.evaluate((el) => ({ over: el.scrollHeight > el.clientHeight + 20 }));
+    assert.ok(lib0.over, 'the library grid overflows its pane');
+    const cols = await cards.evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().x))).size);
+    assert.ok(cols >= 3, `the card grid has ${cols} columns`);
+    await libScroll.evaluate((el) => { el.scrollTop = 400; });
+    assert.equal(await dialog.getByRole('tabpanel').evaluate((el) => el.scrollTop), 0, 'the panel itself did not scroll');
+    assert.equal(await mine.locator('.fil-scroll').evaluate((el) => el.scrollTop), 0);
+    assert.ok((await libScroll.evaluate((el) => el.scrollTop)) > 0, 'the library pane scrolled by itself');
+    assert.ok((await dialog.boundingBox())!.height <= view.height, 'still inside the window after scrolling');
+    await libScroll.evaluate((el) => { el.scrollTop = 0; });
+
+    // Search: "white" shows the white filaments first and a count smaller than the library; nonsense shows the empty line.
+    const search = library.getByRole('searchbox', { name: 'Search the library' });
+    await search.fill('white');
+    const white = await cardNames();
+    assert.ok(white.length > 0 && white.length < 20, `${white.length} cards for "white"`);
+    assert.ok(white.slice(0, 7).every((n) => /white/i.test(n)), `the first cards are the white ones: ${white.join(' | ')}`);
+    assert.equal(await libCount(), `${white.length} of 92 colours`);
+    await search.fill('zzqqxx');
+    await library.getByText('Nothing matches. Try another colour or brand.').waitFor();
+    assert.equal(await cards.count(), 0);
+    await search.fill('');
+    assert.equal(await cards.count(), 92);
+
+    // Brand and line pills narrow the grid and combine; changing the brand drops a line it does not have.
+    await pill('Brand', 'eSUN').click();
+    assert.equal(await libCount(), '24 of 92 colours');
+    assert.ok((await cardNames()).length === 24 && (await cards.evaluateAll((els) => els.every((e) => /eSUN/.test(e.querySelector('.fil-card-meta')!.textContent!)))));
+    await page.screenshot({ path: path.join(shots, 'filaments-library-esun-empty-shelf.png') });
+    await pill('Brand', 'Bambu Lab').click();
+    assert.equal(await libCount(), '68 of 92 colours');
+    await pill('Line', 'PLA Matte').click();
+    assert.equal(await libCount(), '25 of 92 colours');
+    assert.equal(await pill('Line', 'PLA Matte').getAttribute('aria-pressed'), 'true');
+    await search.fill('white');
+    const combined = await cardNames();
+    assert.ok(combined.length > 0 && combined.length < white.length && combined.every((n) => n.startsWith('PLA Matte')), `brand, line and search together: ${combined.join(' | ')}`);
+    await search.fill('');
+    await pill('Brand', 'eSUN').click();
+    assert.equal(await library.getByRole('group', { name: 'Line', exact: true }).getByRole('button').count(), 2, 'eSUN has one line: the pills are "All lines" and "PLA+"');
+    assert.equal(await pill('Line', 'All lines').getAttribute('aria-pressed'), 'true', 'a line the brand does not have is dropped');
+    assert.equal(await libCount(), '24 of 92 colours');
+
+    // Add one: the card is clicked, the row is on the shelf and in view, 1 roll, the card marked owned; a second click adds nothing.
+    await pill('Brand', 'Bambu Lab').click();
+    await pill('Line', 'PLA Basic').click();
+    const first = cards.first();
+    const label = (await first.getAttribute('aria-label'))!;
+    assert.match(label, /^Add .+, Bambu Lab, TD [\d.]+$/);
+    const name = label.split(',')[0].replace(/^Add /, '');
+    await first.click();
+    await rows.first().waitFor();
+    assert.equal(await rows.count(), 1);
+    assert.equal(await shelfSummary(), '1 colour · 1 roll');
+    const rowBox = (await rows.first().boundingBox())!, shelfBox = (await mine.locator('.fil-scroll').boundingBox())!;
+    assert.ok(rowBox.y >= shelfBox.y - 1 && rowBox.y + rowBox.height <= shelfBox.y + shelfBox.height + 1, 'the new row is in view');
+    assert.equal(await rollsBox(name).inputValue(), '1');
+    assert.equal(await first.getAttribute('aria-label'), `${name}, Bambu Lab, TD ${label.split('TD ')[1]}, owned`);
+    assert.equal(await first.getAttribute('aria-disabled'), 'true');
+    assert.ok(await first.locator('.fil-tag.owned').isVisible(), 'the card shows "owned"');
+    await dialog.getByText('Saved', { exact: true }).waitFor();
+    await first.click({ force: true }); // (Playwright counts aria-disabled as not enabled: the click is what we mean to try)
+    assert.equal(await rows.count(), 1, 'a second click adds no second row');
+    assert.equal((await getShelf()).length, 1);
+
+    // Rolls: 3 and blur; saved on the server; close, reopen, reload: still 3.
+    await rollsBox(name).fill('3');
+    await rollsBox(name).blur();
+    await until(async () => (await shelfSummary()) === '1 colour · 3 rolls', 'the header counts 3 rolls');
+    await until(async () => (await getShelf())[0]?.rolls === 3, 'the server holds 3 rolls');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await open();
+    assert.equal(await rollsBox(name).inputValue(), '3');
+    await page.reload();
+    await gear.waitFor();
+    await open();
+    await rows.first().waitFor();
+    assert.equal(await rollsBox(name).inputValue(), '3', 'still 3 after a reload');
+    assert.equal(await shelfSummary(), '1 colour · 3 rolls');
+    // Too many: 250 is 99; text and a negative are made valid too.
+    await rollsBox(name).fill('250');
+    await rollsBox(name).blur();
+    assert.equal(await rollsBox(name).inputValue(), '99');
+    await until(async () => (await getShelf())[0]?.rolls === 99, 'the server holds 99');
+    assert.equal(await shelfSummary(), '1 colour · 99 rolls');
+    await rollsBox(name).fill('-4');
+    await rollsBox(name).blur();
+    assert.equal(await rollsBox(name).inputValue(), '0');
+    await until(async () => (await getShelf())[0]?.rolls === 0, 'the server holds 0');
+    await rollsBox(name).fill('3');
+    await rollsBox(name).blur();
+    await until(async () => (await getShelf())[0]?.rolls === 3, 'back to 3');
+
+    // Keyboard: Tab from the shelf's search reaches the pills, the cards and the roll inputs; Enter on a card adds it, Enter in a roll input saves.
+    await pill('Brand', 'All').click();
+    await pill('Line', 'All lines').click();
+    await mine.getByRole('searchbox', { name: 'Search my filaments' }).focus();
+    const seen: string[] = [];
+    for (let i = 0; i < 25; i++) { seen.push(await active()); await page.keyboard.press('Tab'); }
+    assert.ok(seen.some((s) => s === 'input:Search my filaments'), seen.join(' > '));
+    assert.ok(seen.some((s) => s === `input:Rolls of ${name}`), `a roll input: ${seen.join(' > ')}`);
+    assert.ok(seen.some((s) => s === 'input:Search the library'), `the library search: ${seen.join(' > ')}`);
+    assert.ok(seen.some((s) => s === 'button:eSUN') && seen.some((s) => s === 'button:PLA Matte'), `the pills: ${seen.join(' > ')}`);
+    assert.ok(seen.some((s) => /^button:Add /.test(s)), `a card: ${seen.join(' > ')}`);
+    await pill('Brand', 'eSUN').click();
+    const esun = cards.first();
+    const esunName = (await esun.getAttribute('aria-label'))!.split(',')[0].replace(/^Add /, '');
+    await esun.focus();
+    await page.keyboard.press('Enter');
+    await until(async () => (await rows.count()) === 2, 'Enter on a card adds it');
+    assert.equal(await shelfSummary(), '2 colours · 4 rolls');
+    await rollsBox(esunName).focus();
+    await rollsBox(esunName).fill('5');
+    await page.keyboard.press('Enter');
+    await until(async () => (await shelfSummary()) === '2 colours · 8 rolls', 'Enter in the roll input saves');
+    await until(async () => (await getShelf()).find((f) => f.name === esunName)?.rolls === 5, 'the server holds the 5 rolls');
+
+    // A custom filament: the form opens in the tab, "Save as mine" puts it on the shelf; Edit on its row opens the same form filled in.
+    await mine.getByRole('button', { name: 'Custom filament' }).click();
+    const form = mine.getByRole('group', { name: 'Custom filament' });
+    await form.waitFor();
+    await form.getByRole('textbox', { name: 'Filament name' }).fill('Smoke Test Orange');
+    await form.getByRole('textbox', { name: 'Brand' }).fill('Acme');
+    await page.screenshot({ path: path.join(shots, 'filaments-custom-form.png') });
+    await form.getByRole('button', { name: 'Save as mine' }).click();
+    // (Once saved the form is the one of a saved filament: its group is named "Edit …".)
+    const saved = mine.getByRole('group', { name: 'Edit Smoke Test Orange' });
+    await saved.getByRole('button', { name: 'Saved' }).waitFor();
+    await until(async () => (await rows.count()) === 3, 'the custom filament is on the shelf');
+    assert.equal((await getShelf()).find((f) => f.name === 'Smoke Test Orange')?.rolls ?? 1, 1);
+    await saved.getByRole('button', { name: 'Done' }).click();
+    await saved.waitFor({ state: 'detached' });
+    await mine.getByRole('button', { name: 'Edit Smoke Test Orange' }).click();
+    const edit = mine.getByRole('group', { name: 'Edit Smoke Test Orange' });
+    assert.equal(await edit.getByRole('textbox', { name: 'Filament name' }).inputValue(), 'Smoke Test Orange');
+    assert.equal(await edit.getByRole('textbox', { name: 'Brand' }).inputValue(), 'Acme');
+    await edit.getByRole('textbox', { name: 'Brand' }).fill('Acme Two');
+    await edit.getByRole('button', { name: 'Save changes' }).click();
+    await until(async () => (await getShelf()).find((f) => f.name === 'Smoke Test Orange')?.brand === 'Acme Two', 'the edit is saved');
+    assert.equal((await getShelf()).length, 3, 'editing did not add a row');
+    await edit.getByRole('button', { name: 'Done' }).click();
+
+    // The shelf's own search, then the two-click Remove down to the empty state.
+    await mine.getByRole('searchbox', { name: 'Search my filaments' }).fill('orange');
+    assert.equal(await rows.count(), 1);
+    await mine.getByRole('searchbox', { name: 'Search my filaments' }).fill('');
+    for (const f of await getShelf()) {
+      await mine.getByRole('button', { name: `Remove ${f.name}`, exact: true }).click();
+      await mine.getByRole('button', { name: `Remove ${f.name}: click again to confirm`, exact: true }).click();
+      await until(async () => !(await getShelf()).some((g) => g.name === f.name), `${f.name} is removed on the server`);
+    }
+    await mine.getByText('No filaments yet. Add one from the library, or a custom one.').waitFor();
+    assert.equal(await shelfSummary(), '0 colours · 0 rolls');
+
+    // Both panes scroll on their own: a long shelf scrolls inside its pane, the dialog keeps its size.
+    const many: Shelf[] = Array.from({ length: 30 }, (_, i) => ({ name: `Shelf filler ${String(i).padStart(2, '0')}`, brand: 'Filler', color: '#808080', td: 1, rolls: 1 }));
+    assert.equal((await putShelf(many)).status, 200);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await open();
+    await rows.nth(29).waitFor();
+    const shelfScroll = mine.locator('.fil-scroll');
+    assert.ok(await shelfScroll.evaluate((el) => el.scrollHeight > el.clientHeight + 20), 'the shelf overflows its pane');
+    await shelfScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    assert.equal(await dialog.getByRole('tabpanel').evaluate((el) => el.scrollTop), 0);
+    assert.equal(await libScroll.evaluate((el) => el.scrollTop), 0, 'the library pane did not move');
+    assert.ok((await dialog.boundingBox())!.height <= view.height);
+    // A card clicked while the shelf is scrolled to its end: the new row (sorted among the others) is scrolled into view.
+    await pill('Brand', 'Bambu Lab').click();
+    await cards.first().click();
+    await until(async () => (await rows.count()) === 31, 'the 31st row is added');
+    const added = rows.filter({ hasText: 'Bambu Lab' });
+    await added.first().waitFor();
+    const ab = (await added.first().boundingBox())!, sb = (await shelfScroll.boundingBox())!;
+    assert.ok(ab.y >= sb.y - 1 && ab.y + ab.height <= sb.y + sb.height + 1, `the added row is in view (${JSON.stringify(ab)} in ${JSON.stringify(sb)})`);
+
+    // The screenshots: five filaments of different brands, one custom; the library filtered to one brand.
+    assert.equal((await putShelf(SHELF)).status, 200);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await open();
+    await rows.nth(4).waitFor();
+    assert.equal(await shelfSummary(), '5 colours · 11 rolls');
+    await page.screenshot({ path: path.join(shots, 'filaments-desktop.png') });
+    await pill('Brand', 'eSUN').click();
+    await page.screenshot({ path: path.join(shots, 'filaments-library-esun.png') });
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+  } finally {
+    await page.close();
+    await putShelf([]);
+  }
+});
+
+test('Settings: the Filaments tab on a phone-width screen stacks its panes and nothing runs off the side', TEST, async () => {
+  await knownPrinter();
+  assert.equal((await putShelf(SHELF)).status, 200);
+  const page = await newPage({ viewport: { width: 380, height: 800 }, isMobile: true, hasTouch: true });
+  try {
+    await page.goto(`${A}/`);
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).tap();
+    await dialog.getByRole('tab', { name: 'Filaments', exact: true }).tap();
+    await dialog.getByRole('listitem').nth(4).waitFor();
+    const lay = await settingsLayout(page);
+    assert.ok(lay.dialog.h <= 800 && lay.dialog.w <= 380, `the dialog fits the screen (${JSON.stringify(lay.dialog)})`);
+    assert.ok(lay.panes[1].y >= lay.panes[0].y + lay.panes[0].h - 1 && Math.abs(lay.panes[0].x - lay.panes[1].x) < 2, `panes stacked (${JSON.stringify(lay.panes)})`);
+    assert.ok(lay.panelScroll.w <= lay.panelScroll.cw, `the panel does not scroll sideways (${lay.panelScroll.w} > ${lay.panelScroll.cw})`);
+    assert.ok(lay.pageSideways <= 0, 'the page does not scroll sideways');
+    // A row stays inside the panel: its name, rolls and buttons.
+    const overflow = await dialog.locator('.fil-row').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).length);
+    assert.equal(overflow, 0, 'no row is wider than itself');
+    await page.screenshot({ path: path.join(shots, 'filaments-phone.png') });
+    await dialog.getByRole('region', { name: 'Library' }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, 'filaments-phone-library.png') });
+    const after = await settingsLayout(page);
+    assert.ok(after.panelScroll.w <= after.panelScroll.cw && after.pageSideways <= 0, 'no sideways scroll after scrolling to the library');
+    await dialog.getByRole('button', { name: 'Close' }).tap();
+  } finally {
+    await page.close();
+    await putShelf([]);
+  }
+});
+
+test('Settings: "Edit my filaments in Settings" in a filament picker opens the Filaments tab, also over the line art editor, which keeps its shortcuts to itself', TEST, async () => {
+  assert.equal((await putShelf([{ name: 'Smoke Picker Teal', brand: 'Acme', color: '#1f9d8f', td: 1.7, rolls: 2 }])).status, 200);
+  const pid = 'ui-smoke-000000f1', lid = 'ui-smoke-000000f2';
+  const parts = 'function build() { return [{ name: \'Base\', color: \'#d0d0d0\', shape: Manifold.cube([30, 30, 6]) }, { name: \'Lid\', color: \'#d0d0d0\', shape: Manifold.cube([20, 20, 4]).translate([5, 5, 10]) }]; }';
+  assert.equal((await putDesign({ id: pid, name: 'Two parts for settings', createdAt: 1, updatedAt: 1, code: parts, values: {}, messages: [], currentVersion: 0,
+    versions: [{ code: parts, summary: 'A base and a lid', createdAt: 1, source: 'manual' }] })).status, 200);
+  const box = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const frame = { name: 'frame', aspect: 2, shapes: [{ rule: 'EvenOdd', contours: [box(-1, -0.5, 1, 0.5), box(-0.98, -0.48, 0.98, 0.48)], color: '#000000' }] };
+  const art = "function build() { return H.lineart('frame', { style: 'outline', width: 120 }); }";
+  assert.equal((await putDesign({ id: lid, name: 'Frame for settings', createdAt: 1, updatedAt: 1, code: art, values: { $drawings: JSON.stringify({ frame }) }, messages: [], currentVersion: 0,
+    versions: [{ code: art, summary: 'A frame', createdAt: 1, source: 'manual' }] })).status, 200);
+  const page = await newPage();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const picker = page.getByRole('dialog', { name: 'Add a filament' });
+  const link = picker.getByRole('button', { name: 'Edit my filaments in Settings' });
+  try {
+    // A part's picker: the filament is offered under "My filaments"; the link closes the popover and opens Settings on Filaments.
+    await page.goto(`${A}/?design=${pid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Two parts for settings');
+    await built(page);
+    const swatch = page.getByRole('button', { name: 'Filament of Lid', exact: true });
+    await swatch.click();
+    await picker.waitFor();
+    const group = picker.getByRole('group', { name: 'My filaments' });
+    await group.getByRole('option', { name: /^Smoke Picker Teal/ }).waitFor();
+    await link.click();
+    await picker.waitFor({ state: 'detached' });
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('tab', { selected: true }).innerText(), 'Filaments');
+    await dialog.getByRole('listitem').filter({ hasText: 'Smoke Picker Teal' }).waitFor();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    console.log(`settings from picker: focus after close is on ${await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName)}`);
+
+    // The line art editor's picker has the link too; Settings opens over the editor.
+    await page.goto(`${A}/?design=${lid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Frame for settings');
+    await built(page);
+    await page.getByRole('tab', { name: /Print/ }).click();
+    await page.getByRole('button', { name: 'Paint and fix the picture by hand' }).click();
+    const editor = page.getByRole('dialog', { name: 'Edit the drawing' });
+    await editor.waitFor();
+    await editor.getByRole('radio', { name: 'Paint' }).click();
+    await editor.getByRole('button', { name: 'Pick another filament' }).click();
+    await picker.waitFor();
+    await link.click();
+    await picker.waitFor({ state: 'detached' });
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('tab', { selected: true }).innerText(), 'Filaments');
+    // Typing in Settings works, and the editor's letter shortcuts (E erases, B draws, G fills) do not fire.
+    const shelfSearch = dialog.getByRole('searchbox', { name: 'Search my filaments' });
+    await shelfSearch.click();
+    await page.keyboard.type('begpqsc[]');
+    assert.equal(await shelfSearch.inputValue(), 'begpqsc[]');
+    await dialog.getByRole('tab', { name: 'Filaments', exact: true }).focus();
+    await page.keyboard.press('e');
+    await page.keyboard.press('g');
+    await page.keyboard.press('b');
+    assert.equal(await editor.getByRole('radio', { name: 'Paint' }).getAttribute('aria-checked'), 'true', 'the editor is still on Paint');
+    // Escape closes Settings only; the editor stays.
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(await editor.isVisible(), true, 'the editor is still open');
+    // Back in the editor its shortcuts work again.
+    await editor.getByRole('radio', { name: 'Paint' }).focus();
+    await page.keyboard.press('g');
+    await until(async () => (await editor.getByRole('radio', { name: 'Fill' }).getAttribute('aria-checked')) === 'true', 'the editor shortcut G works again');
+    await page.screenshot({ path: path.join(shots, 'filaments-over-editor.png') });
+  } finally {
+    await page.close();
+    await putShelf([]);
   }
 });
