@@ -140,14 +140,33 @@ function distinct(swaps: number[]) {
 
 test('strip swaps spread the colours: more distinct strip colours than equal bands, every filament 2 layers or more', () => {
   const r = resolveLayerToneOptions(W_O);
-  const span = r.nMax - r.nBase + 1, k = WEDDING.length - 1;
+  const span = r.nMax - r.nBase, k = WEDDING.length - 1;
   const even = Array.from({ length: k }, (_, i) => r.nBase + Math.floor((i * span) / k));
   const swaps = stripSwaps(WEDDING, W_O);
   // At least as many colours as equal bands: with filaments that hide what is under them within a
   // layer or two (TD x 0.1), extra layers of an opaque filament add no colour, so they go where they do.
   assert.ok(distinct(swaps) >= distinct(even), `${distinct(swaps)} colours with ${swaps}, ${distinct(even)} with equal bands ${even}`);
-  const starts = [r.nBase, ...swaps, r.nMax + 1];
+  const starts = [r.nBase, ...swaps, r.nMax];
   for (let i = 1; i < starts.length - 1; i++) assert.ok(starts[i + 1] - starts[i] >= 2, `filament ${i} gets ${starts[i + 1] - starts[i]} layers (${swaps})`);
+});
+
+test('strip swaps hand out the relief layers there are: the top filament prints up to the top layer', () => {
+  // The relief's layers are nBase to nMax - 1 (a point at nMax layers tops out on layer nMax - 1), so
+  // the last filament gets nMax - its swap, and one starting at nMax never prints (stackLayers, the 3MF export).
+  const stacks = { WEDDING, BYBW: [BLACK, YELLOW, BLUE, WHITE], BYWB: [BLACK, YELLOW, WHITE, BLUE], BRYW: [BLACK, RED, YELLOW, WHITE] };
+  for (const [label, filaments] of Object.entries(stacks)) {
+    const k = filaments.length - 1;
+    for (let maxHeight = 0.64; maxHeight <= 2.4 + 1e-9; maxHeight += 0.08) {
+      const o = { width: 100, maxHeight, baseHeight: 0.48 };
+      const r = resolveLayerToneOptions(o);
+      // Fewer layers than filaments: some can't print, whatever the swaps.
+      if (r.nMax - r.nBase < k) continue;
+      const swaps = stripSwaps(filaments, o);
+      const got = [...swaps, r.nMax].slice(1).map((end, i) => end - swaps[i]);
+      const least = r.nMax - r.nBase >= 2 * k ? 2 : 1;
+      assert.ok(got.every((n) => n >= least), `${label} at ${maxHeight.toFixed(2)} mm (${r.nMax - r.nBase} relief layers): swaps ${swaps} give ${got} layers, want ${least} or more each`);
+    }
+  }
 });
 
 test('a strip picture keeps its light and dark: greys snap to strip colours of about the same lightness', () => {

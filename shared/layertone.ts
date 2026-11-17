@@ -650,7 +650,8 @@ export function stripSwaps(filaments: LayerToneFilament[], o: LayerToneOptions):
   const k = filaments.length - 1;
   if (k <= 0) return [];
   const r = resolveLayerToneOptions(o);
-  const span = r.nMax - r.nBase + 1;
+  // The relief's layers, nBase to nMax - 1 (as autoSwaps): a filament starting at nMax never prints.
+  const span = r.nMax - r.nBase;
   if (span <= k) return Array.from({ length: k }, (_, i) => r.nBase + i);
   const counts = Array.from({ length: k }, () => (span >= 2 * k ? 2 : 1));
   const gain = (i: number) => coverage((counts[i] + 1) * r.layerHeight, filaments[i + 1].td) - coverage(counts[i] * r.layerHeight, filaments[i + 1].td);
