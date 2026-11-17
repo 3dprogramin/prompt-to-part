@@ -22,3 +22,13 @@ export function pickHits(raycaster: THREE.Raycaster, meshes: THREE.Object3D[], c
     for (const [mat, side] of saved) mat.side = side;
   }
 }
+
+/**
+ * The nearest hit on a surface that faces the ray, for putting something on a face (text): with a
+ * cut on, the removed front is skipped like in pickHits, and the inside of a far wall seen through
+ * the cut is not a face to put anything on.
+ */
+export function pickFrontHit(raycaster: THREE.Raycaster, meshes: THREE.Object3D[], clip: THREE.Plane | null): THREE.Intersection | null {
+  const n = new THREE.Vector3();
+  return pickHits(raycaster, meshes, clip).find((h) => h.face && n.copy(h.face.normal).transformDirection(h.object.matrixWorld).dot(raycaster.ray.direction) < 0) ?? null;
+}

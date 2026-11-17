@@ -4,7 +4,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
-import { pickHits } from './pickHits';
+import { pickFrontHit, pickHits } from './pickHits';
 import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
 import { scaleRefLayout, type TrueScale } from '../../shared/photos';
 import { buildGrid, buildPlate, updatePlate } from './stage';
@@ -728,7 +728,7 @@ export class Viewer {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.intersectObjects(this.meshes.filter((m) => m.parent?.visible), false)[0];
+    const hit = pickFrontHit(this.raycaster, this.meshes.filter((m) => m.parent?.visible), this.opts.section.enabled ? this.clipPlane : null);
     if (!hit?.face) return null;
     const n = hit.face.normal.clone().normalize();
     return { part: String(hit.object.userData.part), point: [hit.point.x, hit.point.y, hit.point.z], normal: [n.x, n.y, n.z] };

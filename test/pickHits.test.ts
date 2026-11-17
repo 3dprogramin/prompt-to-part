@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
-import { pickHits } from '../src/viewer/pickHits';
+import { pickFrontHit, pickHits } from '../src/viewer/pickHits';
 
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 (THREE.BufferGeometry.prototype as unknown as { computeBoundsTree: unknown }).computeBoundsTree = computeBoundsTree;
@@ -35,4 +35,10 @@ test('the pickable material is left as it was, so drawing and later rays are unc
 test('without a cut the nearest hit is the front wall', () => {
   const hits = pickHits(ray(), [box()], null);
   assert.ok(Math.abs(hits[0].point.z - 1) < 1e-6);
+});
+
+test('pickFrontHit: with a cut on, a click on the removed front finds nothing in front of the part; without a cut it finds the front', () => {
+  assert.equal(pickFrontHit(ray(), [box()], keepBack()), null, 'only the far wall is left, seen from inside');
+  const hit = pickFrontHit(ray(), [box()], null);
+  assert.ok(hit && Math.abs(hit.point.z - 1) < 1e-6);
 });
