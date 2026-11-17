@@ -1,9 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
-import { COMMON_FILAMENTS, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
+import { COMMON_FILAMENTS, DUPLICATE_FILAMENT, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, withMyFilament, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
 import { siteName } from '../../shared/sources';
 import { lookupFilament } from '../lib/api';
-import { saveMine, useMyFilaments } from '../lib/myFilaments';
+import { changeMine, useMyFilaments } from '../lib/myFilaments';
 import { Icon } from './Icon';
 import { NumBox } from './NumBox';
 import { usePopover } from './usePopover';
@@ -195,7 +195,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
       <div className="dim small"><span className="layertone-est">~</span> TD estimated, not measured</div>
       {!custom
         ? <button className="link layertone-custom-open" onClick={openCustom}><Icon name="pen" size={12} /> Custom colour…</button>
-        : <CustomFilament value={custom} onChange={setCustom} adding={!current} onDone={pick} mine={myFilaments} />}
+        : <CustomFilament value={custom} onChange={setCustom} adding={!current} onDone={pick} />}
     </div>
   );
 }
@@ -204,15 +204,19 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
  * A colour and name of the user's own, with a TD to type or look up (library, then the web). In the
  * picker it is used in a design ("Add" or "Use", `onDone`); Settings' Filaments tab only saves it.
  */
-export function CustomFilament({ value, onChange, adding, onDone, mine: list, save: saveList = saveMine }: {
+export function CustomFilament({ value, onChange, adding, onDone, change = changeMine }: {
   value: LayerToneFilament & { original?: string }; onChange: (f: LayerToneFilament & { original?: string }) => void; adding: boolean;
   /** "Add" or "Use" it; without it the form has no such button. */
   onDone?: (f: LayerToneFilament) => void;
-  /** The user's saved filaments, which "Save as mine" adds to (or, editing one, changes). */
-  mine: MyFilament[];
-  /** Saves the changed list (default saveMine). */
-  save?: (list: MyFilament[]) => Promise<void>;
+  /**
+   * Makes "Save as mine" (or "Save changes") on the newest list of the user's filaments and saves it;
+   * settles when that change was saved or refused. Default changeMine; the Filaments tab passes its queue.
+   */
+  change?: (f: (list: MyFilament[]) => { list: MyFilament[]; problem?: string }) => Promise<void>;
 }) {
+  const nameNote = useId();
+  // A name and brand another saved filament has: said under the name, nothing saved.
+  const [taken, setTaken] = useState(false);
   const [lookup, setLookup] = useState<{ busy: boolean; result?: FilamentLookup; error?: string } | null>(null);
   const [saved, setSaved] = useState<{ busy?: boolean; ok?: boolean; error?: string } | null>(null);
   const latest = useRef(value);
@@ -232,20 +236,18 @@ export function CustomFilament({ value, onChange, adding, onDone, mine: list, sa
     const f = stackFields({ ...latest.current, name, brand: latest.current.brand?.trim() || undefined });
     const key = myFilamentKey(f);
     setSaved({ busy: true });
+    setTaken(false);
     try {
-      // In place when editing a saved one (or saving one again), else at the end.
-      const at = list.findIndex((m) => myFilamentKey(m) === (value.original ?? key));
-      const rest = list.filter((m, i) => i !== at && myFilamentKey(m) !== key);
-      // The roll count stays with the filament it belongs to (picker values never carry it).
-      const rolls = (list[at] ?? list.find((m) => myFilamentKey(m) === key))?.rolls;
-      const keep: MyFilament = rolls == null ? f : { ...f, rolls };
-      await saveList(at < 0 ? [...rest, keep] : [...rest.slice(0, at), keep, ...rest.slice(at)]);
+      // In place when editing a saved one (or saving one again), else at the end; never over another one.
+      await change((list) => withMyFilament(list, f, value.original));
       onChange({ ...latest.current, original: key });
       setSaved({ ok: true });
     } catch (e) {
-      setSaved({ error: (e as Error).message });
+      const message = (e as Error).message;
+      if (message === DUPLICATE_FILAMENT) { setTaken(true); setSaved(null); } else setSaved({ error: message });
     }
   };
+  const edit = (f: LayerToneFilament & { original?: string }) => { setTaken(false); onChange(f); };
   return (
     <div className="layertone-custom-box">
       {value.original && <div className="dim small">Editing a saved filament: “Save changes” keeps it for every design.</div>}
@@ -253,13 +255,15 @@ export function CustomFilament({ value, onChange, adding, onDone, mine: list, sa
         <label className="layertone-swatch big" style={{ background: value.color }} title={value.color}>
           <input type="color" value={value.color} aria-label="Colour" onChange={(e) => onChange({ ...value, color: e.target.value })} />
         </label>
-        <input className="text-param" autoFocus value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} placeholder="Name, e.g. PLA Matte Ivory White" aria-label="Filament name" />
-        <input className="text-param" value={value.brand ?? ''} onChange={(e) => onChange({ ...value, brand: e.target.value })} placeholder="Brand, e.g. Bambu Lab" aria-label="Brand" />
+        <input className="text-param" autoFocus value={value.name} onChange={(e) => edit({ ...value, name: e.target.value })} placeholder="Name, e.g. PLA Matte Ivory White" aria-label="Filament name"
+          aria-invalid={taken || undefined} aria-describedby={taken ? nameNote : undefined} />
+        <input className="text-param" value={value.brand ?? ''} onChange={(e) => edit({ ...value, brand: e.target.value })} placeholder="Brand, e.g. Bambu Lab" aria-label="Brand" />
         <label className="layertone-td" title="Transmission distance: the thickness at which this filament hides what is under it">
           <span className="dim small">TD</span>
           <NumBox value={value.td} min={MY_TD_RANGE[0]} max={MY_TD_RANGE[1]} label="TD" onCommit={(td) => onChange({ ...latest.current, td })} />
         </label>
       </div>
+      {taken && <div id={nameNote} className="bad-note small" role="alert">{DUPLICATE_FILAMENT}</div>}
       {lookup?.result && <LookupNote r={lookup.result} />}
       {lookup?.error && <div className="bad-note small" role="alert">{lookup.error}</div>}
       {saved?.error && <div className="bad-note small" role="alert">{saved.error}</div>}

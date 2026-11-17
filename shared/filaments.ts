@@ -86,6 +86,30 @@ export function cleanMyFilaments(raw: unknown): MyFilament[] {
 /** Brand and name, in any case and spelling: a saved filament with the same key is the same one. */
 export const myFilamentKey = (f: { brand?: string; name: string }) => `${normalizeFilamentText(f.brand ?? '')}|${normalizeFilamentText(f.name)}`;
 
+/** Why one more filament can't be saved. */
+export const MY_FILAMENTS_FULL = `My filaments is full: ${MAX_MY_FILAMENTS} at most. Remove one first.`;
+/** Why a saved filament can't be renamed to another's brand and name. */
+export const DUPLICATE_FILAMENT = 'You already have a filament with this brand and name.';
+
+/**
+ * The list with a filament saved: `original` (the key of the saved one being edited) changed in place, or
+ * else the one with the same brand and name changed in place, or else this one added at the end. The roll
+ * count stays with the filament it belongs to. Refused when an edit would take another saved filament's
+ * brand and name (that one would be lost), or when a new one does not fit.
+ */
+export function withMyFilament(list: MyFilament[], f: LayerToneFilament, original?: string): { list: MyFilament[]; problem?: string } {
+  const key = myFilamentKey(f);
+  if (original != null && key !== original && list.some((m) => myFilamentKey(m) === key)) return { list, problem: DUPLICATE_FILAMENT };
+  const at = list.findIndex((m) => myFilamentKey(m) === (original ?? key));
+  const same = list.findIndex((m) => myFilamentKey(m) === key);
+  if (at < 0 && same < 0 && list.length >= MAX_MY_FILAMENTS) return { list, problem: MY_FILAMENTS_FULL };
+  const rest = list.filter((_, i) => i !== at && i !== same);
+  const rolls = (list[at] ?? list[same])?.rolls;
+  const keep: MyFilament = { name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td, ...(rolls == null ? {} : { rolls }) };
+  if (at < 0) return { list: same < 0 ? [...rest, keep] : [...rest.slice(0, same), keep, ...rest.slice(same)] };
+  return { list: [...rest.slice(0, at), keep, ...rest.slice(at)] };
+}
+
 // Published TD values only, each with its source; sorted by brand, line, then name. Where sources
 // disagree, a TD measured on a swatch (filamentcolors.xyz, with that swatch's colour) wins over the
 // community-compiled lists, and color_tools only fills colours nothing else has (marked unverified).

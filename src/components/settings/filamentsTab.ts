@@ -1,6 +1,7 @@
 // The Filaments tab of Settings, its decisions: the user's filaments (the shelf) with their roll counts,
 // the library to add from, and the saves. FilamentsTab.tsx only renders these.
-import { cleanRolls, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, myFilamentKey, rollsOf, searchFilaments, searchMyFilaments, type LibraryFilament, type MyFilament } from '../../../shared/filaments';
+import { NOT_LOADED } from '../../lib/mineStore';
+import { cleanRolls, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, MY_FILAMENTS_FULL, myFilamentKey, rollsOf, searchFilaments, searchMyFilaments, type LibraryFilament, type MyFilament } from '../../../shared/filaments';
 import { latestWins } from './latestWins';
 
 const byText = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
@@ -62,7 +63,7 @@ export function libraryCount(shown: number, total: number): string {
 export function addFromLibrary(mine: MyFilament[], f: LibraryFilament): { list: MyFilament[]; problem?: string } {
   const key = myFilamentKey(f);
   if (mine.some((m) => myFilamentKey(m) === key)) return { list: mine };
-  if (mine.length >= MAX_MY_FILAMENTS) return { list: mine, problem: `My filaments is full: ${MAX_MY_FILAMENTS} at most. Remove one first.` };
+  if (mine.length >= MAX_MY_FILAMENTS) return { list: mine, problem: MY_FILAMENTS_FULL };
   // As the picker's "Save as mine": name, brand, colour and TD (not the library's line, source or estimate mark).
   return { list: [...mine, { name: f.name, brand: f.brand, color: f.color, td: f.td, rolls: 1 }] };
 }
@@ -80,42 +81,72 @@ export function without(mine: MyFilament[], key: string): MyFilament[] {
   return mine.filter((f) => myFilamentKey(f) !== key);
 }
 
-export type SaverEvent = { kind: 'start' } | { kind: 'saved' } | { kind: 'failed'; error: Error };
+/** A change to the list: the new list, and why not when it is refused (then nothing is saved). */
+export type ShelfChange = (list: MyFilament[]) => MyFilament[] | { list: MyFilament[]; problem?: string };
+export type SaverEvent = { kind: 'queued' } | { kind: 'start' } | { kind: 'saved' } | { kind: 'failed'; error: Error };
 
-/** The tab's saves, made once for the Settings dialog's lifetime so a save outlives the tab being switched away. */
+/** The tab's saves (the custom form's too), made once for the Settings dialog's lifetime so a save outlives the tab being switched away. */
 export interface ShelfSaver {
-  /** Saves the list: one save at a time, of those waiting only the newest. Settles when the newest save does. */
-  save(list: MyFilament[]): Promise<void>;
-  /** The newest list sent or waiting, until the saves end; null when none is. Changes are made on it. */
+  /**
+   * Makes a change on the newest list (the one waiting to be saved, else the one read) and saves the result:
+   * one save at a time, of those waiting only the newest, which holds every change made meanwhile. Settles
+   * when a save holding this change answered: resolved when it was saved, rejected with why not (refused,
+   * the list was never read, or the save failed).
+   */
+  change(f: ShelfChange): Promise<void>;
+  /** The newest list made and not saved yet; null when none is. */
   pending(): MyFilament[] | null;
-  /** Hears each save start and the end of the newest; returns the way to stop. */
+  /** Hears each change queued, each save start and the end of the newest; returns the way to stop. */
   listen(f: (e: SaverEvent) => void): () => void;
 }
 
-/** A ShelfSaver over `save` (saveMine); after a failed save the list is read again with `refresh`. */
-export function shelfSaver(save: (list: MyFilament[]) => Promise<void>, refresh: () => Promise<void>): ShelfSaver {
-  let pending: MyFilament[] | null = null;
-  let waiters: { resolve: () => void; reject: (e: Error) => void }[] = [];
+/**
+ * A ShelfSaver over `save` (saveMine). `base` is the list as read, or null while it has not been read
+ * (then every change is refused: a list never read must not be written). After a failed save the list is
+ * read again with `refresh`.
+ */
+export function shelfSaver(save: (list: MyFilament[]) => Promise<void>, refresh: () => Promise<void>, base: () => MyFilament[] | null): ShelfSaver {
+  let pending: { list: MyFilament[]; n: number } | null = null;
+  let made = 0;
+  let waiters: { n: number; resolve: () => void; reject: (e: Error) => void }[] = [];
   const listeners = new Set<(e: SaverEvent) => void>();
   const tell = (e: SaverEvent) => listeners.forEach((f) => f(e));
-  const settle = (error?: Error) => {
-    pending = null;
-    const ws = waiters;
-    waiters = [];
-    for (const w of ws) { if (error) w.reject(error); else w.resolve(); }
+  // The changes up to `n` are in a save that answered.
+  const settle = (n: number, error?: Error) => {
+    const done = waiters.filter((w) => w.n <= n);
+    waiters = waiters.filter((w) => w.n > n);
+    for (const w of done) { if (error) w.reject(error); else w.resolve(); }
   };
-  const enqueue = latestWins<MyFilament[]>(save, {
+  const enqueue = latestWins<{ list: MyFilament[]; n: number }>(async (v) => {
+    try {
+      await save(v.list);
+      settle(v.n);
+    } catch (e) {
+      // A newer list waiting to be saved holds these changes too: its answer is theirs.
+      if (made === v.n) settle(v.n, e as Error);
+      throw e;
+    }
+  }, {
     onStart: () => tell({ kind: 'start' }),
-    onSaved: () => { settle(); tell({ kind: 'saved' }); },
-    onFailed: (error) => { settle(error); tell({ kind: 'failed', error }); refresh().catch(() => {}); },
+    onSaved: () => { pending = null; tell({ kind: 'saved' }); },
+    onFailed: (error) => { pending = null; tell({ kind: 'failed', error }); refresh().catch(() => {}); },
   });
   return {
-    save: (list) => new Promise<void>((resolve, reject) => {
-      pending = list;
-      waiters.push({ resolve, reject });
-      enqueue(list);
-    }),
-    pending: () => pending,
+    change: (f) => {
+      const from = pending?.list ?? base();
+      if (!from) return Promise.reject(new Error(NOT_LOADED));
+      const r = f(from);
+      const { list, problem } = Array.isArray(r) ? { list: r, problem: undefined } : r;
+      if (problem) return Promise.reject(new Error(problem));
+      if (list === from) return Promise.resolve();
+      const n = ++made;
+      pending = { list, n };
+      const done = new Promise<void>((resolve, reject) => waiters.push({ n, resolve, reject }));
+      tell({ kind: 'queued' });
+      enqueue(pending);
+      return done;
+    },
+    pending: () => pending?.list ?? null,
     listen: (f) => { listeners.add(f); return () => { listeners.delete(f); }; },
   };
 }

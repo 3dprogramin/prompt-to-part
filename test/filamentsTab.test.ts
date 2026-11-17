@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { colourFamilies, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, myFilamentKey, rollsOf, type MyFilament } from '../shared/filaments';
+import { colourFamilies, DUPLICATE_FILAMENT, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, myFilamentKey, rollsOf, withMyFilament, type MyFilament } from '../shared/filaments';
+import { mineStore, NOT_LOADED } from '../src/lib/mineStore';
 import { addFromLibrary, cardLabel, libraryBrands, libraryCount, libraryLines, libraryView, shelfSaver, shelfSummary, shelfView, summaryText, withRolls, without } from '../src/components/settings/filamentsTab';
 import { openSettings, setSettingsOpener } from '../src/components/settings/openSettings';
 
@@ -145,75 +146,213 @@ test('a roll count that changes nothing gives the same list (nothing to save)', 
   assert.deepEqual(withRolls(mine, key, '5').map((f) => f.name), mine.map((f) => f.name));
 });
 
-// ---- saves: one at a time, the newest list last (as the Printer tab does)
+// ---- saves: one at a time, the newest list last (as the Printer tab does); every change applied to the newest list
 
 function slowSaves() {
   const calls: MyFilament[][] = [];
-  const releases: (() => void)[] = [];
-  const save = (list: MyFilament[]) => { calls.push(list); return new Promise<void>((r) => releases.push(r)); };
-  return { calls, releases, save };
+  const settle: { ok: () => void; fail: (e: Error) => void }[] = [];
+  const save = (list: MyFilament[]) => { calls.push(list); return new Promise<void>((ok, fail) => settle.push({ ok, fail })); };
+  return { calls, settle, save };
 }
+const ready = (list: MyFilament[]) => () => list;
 
 test('two quick roll edits are saved one at a time, the newest list last', async () => {
-  const { calls, releases, save } = slowSaves();
-  const saver = shelfSaver(save, async () => {});
+  const { calls, settle, save } = slowSaves();
+  const saver = shelfSaver(save, async () => {}, ready(mine));
   const key = myFilamentKey(mine[1]);
-  const a = withRolls(mine, key, 5), b = withRolls(a, key, 7), c = withRolls(b, key, 9);
-  void saver.save(a); void saver.save(b); void saver.save(c);
-  assert.deepEqual(calls, [a]);
-  assert.equal(saver.pending(), c);
-  releases[0]();
+  void saver.change((l) => withRolls(l, key, 5)); void saver.change((l) => withRolls(l, key, 7)); void saver.change((l) => withRolls(l, key, 9));
+  assert.equal(calls.length, 1);
+  assert.equal(rollsOf(calls[0].find((f) => myFilamentKey(f) === key)!), 5);
+  assert.equal(rollsOf(saver.pending()!.find((f) => myFilamentKey(f) === key)!), 9);
+  settle[0].ok();
   await tick();
-  assert.deepEqual(calls, [a, c]);
-  assert.equal(saver.pending(), c);
-  releases[1]();
+  assert.equal(calls.length, 2);
+  assert.equal(rollsOf(calls[1].find((f) => myFilamentKey(f) === key)!), 9);
+  settle[1].ok();
   await tick();
   assert.equal(calls.length, 2);
   assert.equal(saver.pending(), null);
 });
 
 test('an add then a roll edit: the edit is made on the added list, and both are saved in order', async () => {
-  const { calls, releases, save } = slowSaves();
-  const saver = shelfSaver(save, async () => {});
+  const { calls, settle, save } = slowSaves();
+  const saver = shelfSaver(save, async () => {}, ready(mine));
   const f = lib[0];
-  const added = addFromLibrary(mine, f).list;
-  void saver.save(added);
-  // The tab builds the next change on what it sent, not on the store the server has not answered yet.
-  const edited = withRolls(saver.pending() ?? mine, myFilamentKey(f), '4');
-  void saver.save(edited);
-  releases[0]();
+  void saver.change((l) => addFromLibrary(l, f));
+  void saver.change((l) => withRolls(l, myFilamentKey(f), '4'));
+  settle[0].ok();
   await tick();
-  assert.deepEqual(calls, [added, edited]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].length, 4);
   assert.equal(rollsOf(calls[1].find((x) => myFilamentKey(x) === myFilamentKey(f))!), 4);
-  releases[1]();
+  settle[1].ok();
   await tick();
 });
 
-test('the saver tells its listeners: started, then saved; the promise settles with the newest save', async () => {
-  const { releases, save } = slowSaves();
-  const saver = shelfSaver(save, async () => {});
-  const events: string[] = [];
-  const stop = saver.listen((e) => events.push(e.kind));
-  const done = saver.save(mine);
-  releases[0]();
-  await done;
-  assert.deepEqual(events, ['start', 'saved']);
-  stop();
-  void saver.save(mine);
-  releases[1]();
+test('a form save queued behind a tab save is not replaced by the next tab action: changes compose', async () => {
+  const { calls, settle, save } = slowSaves();
+  const saver = shelfSaver(save, async () => {}, ready(mine));
+  const results: string[] = [];
+  void saver.change((l) => withRolls(l, myFilamentKey(mine[0]), 6)).then(() => results.push('rolls saved'));
+  const custom = { name: 'Smoke Orange', brand: 'Acme', color: '#ff8800', td: 2 };
+  void saver.change((l) => withMyFilament(l, custom)).then(() => results.push('form saved'));
+  void saver.change((l) => without(l, myFilamentKey(mine[2]))).then(() => results.push('remove saved'));
+  // The pending list holds all three at once.
+  assert.deepEqual(saver.pending()!.map((f) => f.name), ['Jade White', 'Black', 'Smoke Orange']);
+  assert.equal(results.length, 0);
+  settle[0].ok();
   await tick();
-  assert.deepEqual(events, ['start', 'saved']);
+  assert.deepEqual(results, ['rolls saved'], 'the form is not told "saved" before its own change is');
+  assert.deepEqual(calls[1].map((f) => f.name), ['Jade White', 'Black', 'Smoke Orange']);
+  assert.equal(calls[1][0].rolls, 6);
+  settle[1].ok();
+  await tick();
+  assert.deepEqual(results.sort(), ['form saved', 'remove saved', 'rolls saved']);
 });
 
-test('a failed save says why and reads the list again from the server', async () => {
+test('a change whose save fails is told so; one carried by a later save that works is told saved', async () => {
+  const { settle, save } = slowSaves();
   let refreshed = 0;
-  const saver = shelfSaver(async () => { throw new Error('Disk full'); }, async () => { refreshed++; });
-  const events: string[] = [];
-  saver.listen((e) => events.push(e.kind === 'failed' ? `failed ${e.error.message}` : e.kind));
-  await assert.rejects(saver.save(mine), /Disk full/);
-  assert.deepEqual(events, ['start', 'failed Disk full']);
+  const saver = shelfSaver(save, async () => { refreshed++; }, ready(mine));
+  const told: string[] = [];
+  const report = (what: string, p: Promise<void>) => p.then(() => told.push(`${what} saved`), (e: Error) => told.push(`${what} failed: ${e.message}`));
+  report('a', saver.change((l) => withRolls(l, myFilamentKey(mine[0]), 6)));
+  report('b', saver.change((l) => withRolls(l, myFilamentKey(mine[1]), 8)));
+  settle[0].fail(new Error('Busy'));
+  await tick();
+  assert.deepEqual(told, [], 'a is in the next save too: not told yet');
+  settle[1].ok();
+  await tick();
+  assert.deepEqual(told.sort(), ['a saved', 'b saved']);
+  report('c', saver.change((l) => withRolls(l, myFilamentKey(mine[0]), 7)));
+  settle[2].fail(new Error('Disk full'));
+  await tick();
+  assert.deepEqual(told.slice(2), ['c failed: Disk full']);
   assert.equal(refreshed, 1);
   assert.equal(saver.pending(), null);
+});
+
+test('nothing is saved before the list was read, nor for a refused change', async () => {
+  const { calls, save } = slowSaves();
+  const unread = shelfSaver(save, async () => {}, () => null);
+  await assert.rejects(unread.change((l) => addFromLibrary(l, lib[0])), { message: NOT_LOADED });
+  const saver = shelfSaver(save, async () => {}, ready(mine));
+  const full = Array.from({ length: MAX_MY_FILAMENTS }, (_, i) => ({ name: `F${i}`, color: '#000000', td: 1 }));
+  const fullSaver = shelfSaver(save, async () => {}, ready(full));
+  await assert.rejects(fullSaver.change((l) => addFromLibrary(l, lib[0])), { message: 'My filaments is full: 100 at most. Remove one first.' });
+  // No change at all (already owned): nothing to send, done at once.
+  await saver.change((l) => addFromLibrary(l, { ...lib[0], name: mine[0].name, brand: mine[0].brand! }));
+  assert.equal(calls.length, 0);
+  assert.equal(saver.pending(), null);
+});
+
+test('the saver tells its listeners at once when a change is queued, then started, then saved', async () => {
+  const { settle, save } = slowSaves();
+  const saver = shelfSaver(save, async () => {}, ready(mine));
+  const events: string[] = [];
+  const stop = saver.listen((e) => events.push(e.kind));
+  const done = saver.change((l) => without(l, myFilamentKey(mine[2])));
+  assert.deepEqual(events, ['queued', 'start']);
+  settle[0].ok();
+  await done;
+  await tick();
+  assert.deepEqual(events, ['queued', 'start', 'saved']);
+  stop();
+  void saver.change((l) => without(l, myFilamentKey(mine[1])));
+  settle[1].ok();
+  await tick();
+  assert.equal(events.length, 3);
+});
+
+// ---- the store: never written from a list it has not read
+
+function fakeServer(start: MyFilament[]) {
+  const server = { list: start, reads: 0, writes: [] as MyFilament[][], failReads: false, holdReads: [] as (() => void)[], hold: false };
+  const io = {
+    read: async () => {
+      server.reads++;
+      if (server.hold) await new Promise<void>((r) => server.holdReads.push(r));
+      if (server.failReads) throw new Error('Server down');
+      return server.list;
+    },
+    write: async (list: MyFilament[]) => { server.writes.push(list); server.list = list; return list; },
+  };
+  return { server, io };
+}
+
+test('the store starts loading, and a save before the first read is refused with nothing written', async () => {
+  const { server, io } = fakeServer(mine);
+  const store = mineStore(io);
+  assert.equal(store.get().status, 'loading');
+  await assert.rejects(store.save([{ name: 'Only one', color: '#000000', td: 1 }]), { message: NOT_LOADED });
+  assert.equal(server.writes.length, 0);
+  await store.refresh();
+  assert.deepEqual(store.get(), { list: mine, status: 'ready' });
+});
+
+test('a change asked for before the first read reads first and is made on what the server has', async () => {
+  const { server, io } = fakeServer(mine);
+  const store = mineStore(io);
+  await store.change((l) => withMyFilament(l, { name: 'New one', color: '#123123', td: 1 }));
+  assert.equal(server.writes.length, 1);
+  assert.deepEqual(server.writes[0].map((f) => f.name), ['Jade White', 'Black', 'My blend', 'New one']);
+  assert.equal(store.get().status, 'ready');
+});
+
+test('a failed read leaves the store "failed": changes are refused with a plain message until a read works', async () => {
+  const { server, io } = fakeServer(mine);
+  server.failReads = true;
+  const store = mineStore(io);
+  await assert.rejects(store.refresh());
+  assert.equal(store.get().status, 'failed');
+  await assert.rejects(store.change((l) => addFromLibrary(l, lib[0])), { message: NOT_LOADED });
+  assert.equal(server.writes.length, 0);
+  assert.equal(NOT_LOADED, 'Your filaments could not be loaded. Nothing was changed.');
+  server.failReads = false;
+  const retry = store.refresh();
+  assert.equal(store.get().status, 'loading', 'Try again shows loading');
+  await retry;
+  assert.deepEqual(store.get(), { list: mine, status: 'ready' });
+});
+
+test('a read answered after a save that started later does not undo the save', async () => {
+  const { server, io } = fakeServer(mine);
+  const store = mineStore(io);
+  await store.refresh();
+  server.hold = true;
+  const late = store.refresh();
+  await tick();
+  const saved = without(mine, myFilamentKey(mine[2]));
+  await store.save(saved);
+  server.list = mine; // (what the slow read saw)
+  server.holdReads.forEach((r) => r());
+  await late;
+  assert.deepEqual(store.get().list, saved);
+});
+
+// ---- the custom form's save: change one in place, add one, never take another's brand and name
+
+test('editing a saved filament keeps its place and rolls; renaming onto another saved one is refused', () => {
+  const black = myFilamentKey(mine[1]);
+  const renamed = withMyFilament(mine, { name: 'Black Two', brand: 'Bambu Lab', color: '#010101', td: 0.7 }, black);
+  assert.equal(renamed.problem, undefined);
+  assert.deepEqual(renamed.list.map((f) => f.name), ['Jade White', 'Black Two', 'My blend']);
+  assert.equal(renamed.list[1].rolls, 3);
+  const clash = withMyFilament(mine, { name: 'jade  white', brand: 'BambuLab', color: '#010101', td: 0.7 }, black);
+  assert.equal(clash.list, mine);
+  assert.equal(clash.problem, DUPLICATE_FILAMENT);
+  assert.equal(DUPLICATE_FILAMENT, 'You already have a filament with this brand and name.');
+});
+
+test('"Save as mine" adds at the end, saves one again in place with its rolls, and refuses a 101st', () => {
+  const added = withMyFilament(mine, { name: 'New', color: '#ffffff', td: 3 });
+  assert.deepEqual(added.list.map((f) => f.name), ['Jade White', 'Black', 'My blend', 'New']);
+  const again = withMyFilament(mine, { name: 'Black', brand: 'Bambu Lab', color: '#020202', td: 0.5 });
+  assert.equal(again.problem, undefined);
+  assert.deepEqual(again.list.map((f) => [f.name, f.color, f.rolls]), [['Jade White', '#f4f4f0', 2], ['Black', '#020202', 3], ['My blend', '#123456', undefined]]);
+  const full = Array.from({ length: MAX_MY_FILAMENTS }, (_, i) => ({ name: `F${i}`, color: '#000000', td: 1 }));
+  assert.deepEqual(withMyFilament(full, { name: 'One more', color: '#000000', td: 1 }), { list: full, problem: 'My filaments is full: 100 at most. Remove one first.' });
+  assert.equal(withMyFilament(full, { name: 'F3', color: '#111111', td: 1 }).problem, undefined, 'changing one on a full shelf is fine');
 });
 
 test('the picker opens Settings on a tab through the opener the app registers', () => {

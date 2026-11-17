@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PrinterInfo } from '../../../shared/api';
 import type { PrinterSetup } from '../../../shared/printer';
-import { refreshMine, saveMine } from '../../lib/myFilaments';
+import { readMine, refreshMine, saveMine } from '../../lib/myFilaments';
 import { useEscape } from '../useEscape';
 import { shelfSaver } from './filamentsTab';
 import { FilamentsTab } from './FilamentsTab';
@@ -37,7 +37,7 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsS
   // Where the Keys and services tab puts Save and Reset: the footer, which never scrolls.
   const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null);
   // The Filaments tab's saves, one at a time for as long as the dialog is open (not per visit to the tab).
-  const [filamentSaver] = useState(() => shelfSaver(saveMine, refreshMine));
+  const [filamentSaver] = useState(() => shelfSaver(saveMine, refreshMine, readMine));
   const mayLeave = () => !keysDirty.current?.() || window.confirm(DISCARD_QUESTION);
   const close = () => { if (mayLeave()) onClose(); };
   useEscape(true, close);
