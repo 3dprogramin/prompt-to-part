@@ -70,7 +70,7 @@ test('the library search finds by colour word, name, brand and line', () => {
   assert.ok(keys('white').includes(myFilamentKey({ brand: 'Bambu Lab', name: 'PLA Basic Jade White' })));
   assert.ok(keys('jade').includes(myFilamentKey({ brand: 'Bambu Lab', name: 'PLA Basic Jade White' })));
   assert.ok(keys('esun').length > 0 && libraryView({ query: 'esun', brand: null, line: null }, [], lib).every((c) => c.filament.brand === 'eSUN'));
-  assert.ok(libraryView({ query: 'silk', brand: null, line: null }, [], lib).every((c) => c.filament.line === 'PLA Silk+'));
+  assert.ok(libraryView({ query: 'silk', brand: null, line: null }, [], lib).every((c) => /silk/i.test(`${c.filament.line} ${c.filament.name}`)));
   // The search and the brand together.
   assert.ok(libraryView({ query: 'blue', brand: 'eSUN', line: null }, [], lib).every((c) => c.filament.brand === 'eSUN'));
 });

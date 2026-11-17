@@ -5,6 +5,7 @@ import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { cleanMyFilaments, cleanRolls, FILAMENT_LIBRARY, matchFilament, myFilamentsProblem, normalizeFilamentText, rollsOf, searchFilaments, withoutRolls } from '../shared/filaments';
+import { ADDED_FILAMENTS, BASE_FILAMENT_LIBRARY } from '../shared/filamentLibrary';
 
 // The server reads its data folder when loaded: a folder of its own, and a stand-in for Claude.
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-filaments-test-'));
@@ -27,10 +28,14 @@ test('every library filament has a colour, a usable TD and a source', () => {
     assert.ok(!seen.has(id(f)), `${id(f)} twice`);
     seen.add(id(f));
   }
-  // Sorted by brand, line, then name.
+  // The base is sorted by brand, line, then name; each added brand by line, then name.
   const key = (f: (typeof FILAMENT_LIBRARY)[number]) => [f.brand, f.line ?? '', f.name].map((s) => s.toLowerCase()).join('\u0000');
-  const keys = FILAMENT_LIBRARY.map(key);
+  const keys = BASE_FILAMENT_LIBRARY.map(key);
   assert.deepEqual(keys, [...keys].sort());
+  for (const brand of new Set(ADDED_FILAMENTS.map((f) => f.brand))) {
+    const added = ADDED_FILAMENTS.filter((f) => f.brand === brand).map(key);
+    assert.deepEqual(added, [...added].sort(), brand);
+  }
   for (const brand of ['Bambu Lab', 'eSUN']) assert.ok(FILAMENT_LIBRARY.some((f) => f.brand === brand), brand);
 });
 

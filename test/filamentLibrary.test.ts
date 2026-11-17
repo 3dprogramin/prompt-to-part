@@ -99,20 +99,39 @@ test('the LayerTone prompt lists the library lines of the brands the user owns',
   assert.deepEqual(library(prompt([])), ['Bambu Lab PLA Basic', 'Bambu Lab PLA Matte', 'Bambu Lab PLA Silk+', 'eSUN PLA+']);
   // Only custom filaments: the base list, as with none.
   assert.deepEqual(library(prompt([{ name: 'Galaxy Sparkle', brand: 'My own', color: '#223344', td: 1 }])), ['Bambu Lab PLA Basic', 'Bambu Lab PLA Matte', 'Bambu Lab PLA Silk+', 'eSUN PLA+']);
-  assert.deepEqual(library(prompt([{ name: 'PLA+ Black', brand: 'eSUN', color: '#000000', td: 0.2 }])), ['eSUN PLA+']);
+  assert.deepEqual(library(prompt([{ name: 'PLA+ Black', brand: 'eSUN', color: '#000000', td: 0.2 }])), ['eSUN PLA+', 'eSUN eSilk-PLA']);
   // With a brand added to the library: no filaments or custom ones only still give exactly the base text,
   // and an owner of the added brand is shown its line.
   const custom = [{ name: 'Galaxy Sparkle', brand: 'My own', color: '#223344', td: 1 }];
   const before = { none: prompt([]), custom: prompt(custom) };
-  const added: LibraryFilament = { brand: 'Polymaker', line: 'Panchroma Matte', name: 'Panchroma Matte Charcoal Black', color: '#1a1a1a', td: 0.1, source: 'test' };
+  const added: LibraryFilament = { brand: 'Zzz', line: 'Matte', name: 'Matte Charcoal Black', color: '#1a1a1a', td: 0.1, source: 'test' };
   FILAMENT_LIBRARY.push(added);
   try {
     assert.equal(prompt([]), before.none);
     assert.equal(prompt(custom), before.custom);
-    const owner = prompt([{ name: 'Charcoal Black', brand: 'Polymaker', color: '#1a1a1a', td: 0.1 }]);
-    assert.ok(owner.includes('\n  Polymaker Panchroma Matte: Charcoal Black #1a1a1a 0.1\n'), 'the added brand\'s line');
+    const owner = prompt([{ name: 'Charcoal Black', brand: 'Zzz', color: '#1a1a1a', td: 0.1 }]);
+    assert.ok(owner.includes('\n  Zzz Matte: Charcoal Black #1a1a1a 0.1\n'), 'the added brand\'s line');
     assert.deepEqual(library(owner), []);
   } finally {
     FILAMENT_LIBRARY.splice(-1);
   }
+});
+
+const EXPECTED_BRANDS = ['Polymaker', 'Prusament', '3D-Fuel', 'eSUN'];
+
+test('the added brands are in the library with their sources', () => {
+  const brands = new Set(ADDED_FILAMENTS.map((f) => f.brand));
+  for (const b of EXPECTED_BRANDS) assert.ok(brands.has(b), b); // the brands whose research file has at least one usable item
+  for (const f of ADDED_FILAMENTS) assert.match(f.source!, /^https:\/\//, f.name);
+});
+
+test('added entries never replace or repeat a base entry', () => {
+  const base = new Set(BASE_FILAMENT_LIBRARY.map(myFilamentKey));
+  for (const f of ADDED_FILAMENTS) assert.ok(!base.has(myFilamentKey(f)), f.name);
+});
+
+test('the same colour name from two makers stays two entries, told apart by brand', () => {
+  const blacks = FILAMENT_LIBRARY.filter((f) => /\bblack\b/i.test(f.name));
+  assert.ok(new Set(blacks.map((f) => f.brand)).size >= 3);
+  assert.equal(new Set(blacks.map(myFilamentKey)).size, blacks.length);
 });
