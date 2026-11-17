@@ -48,7 +48,7 @@ test('test-server.sh only stops a pid that is still its own server', () => {
     const script = readFileSync(path.join(root, 'scripts/test-server.sh'), 'utf8')
       .replace('PID_FILE=test-data/server.pid', `PID_FILE=${dir}/server.pid`)
       .replace(/^npx vite build.*$/m, 'exit 0');
-    spawnSync('bash', ['-c', script, 'x', 'stop'], { cwd: root, encoding: 'utf8' });
+    spawnSync('bash', ['-c', script, path.join(root, 'scripts/test-server.sh'), 'stop'], { cwd: root, encoding: 'utf8' });
     assert.doesNotThrow(() => process.kill(pid, 0), 'the unrelated process was killed');
   } finally {
     try { process.kill(pid); } catch { /* gone */ }

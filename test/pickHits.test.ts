@@ -42,3 +42,10 @@ test('pickFrontHit: with a cut on, a click on the removed front finds nothing in
   const hit = pickFrontHit(ray(), [box()], null);
   assert.ok(hit && Math.abs(hit.point.z - 1) < 1e-6);
 });
+
+test('pickFrontHit: a part hidden behind the far wall seen through the cut is not picked', () => {
+  const near = box(), far = box();
+  far.position.z = -4;
+  far.updateMatrixWorld();
+  assert.equal(pickFrontHit(ray(), [near, far], keepBack()), null, 'what is visible is the near box\'s far wall, from inside');
+});

@@ -24,11 +24,14 @@ export function pickHits(raycaster: THREE.Raycaster, meshes: THREE.Object3D[], c
 }
 
 /**
- * The nearest hit on a surface that faces the ray, for putting something on a face (text): with a
- * cut on, the removed front is skipped like in pickHits, and the inside of a far wall seen through
- * the cut is not a face to put anything on.
+ * The face the user sees under the pointer, for putting something on it (text): the first hit as
+ * pickHits has it (with a cut on, the removed front is skipped), and null when that hit faces away
+ * (the inside of a far wall seen through the cut is not a face to put anything on; what lies
+ * behind that wall is hidden, so it is not looked for).
  */
 export function pickFrontHit(raycaster: THREE.Raycaster, meshes: THREE.Object3D[], clip: THREE.Plane | null): THREE.Intersection | null {
-  const n = new THREE.Vector3();
-  return pickHits(raycaster, meshes, clip).find((h) => h.face && n.copy(h.face.normal).transformDirection(h.object.matrixWorld).dot(raycaster.ray.direction) < 0) ?? null;
+  const h = pickHits(raycaster, meshes, clip)[0];
+  if (!h?.face) return null;
+  const n = new THREE.Vector3().copy(h.face.normal).transformDirection(h.object.matrixWorld);
+  return n.dot(raycaster.ray.direction) < 0 ? h : null;
 }
