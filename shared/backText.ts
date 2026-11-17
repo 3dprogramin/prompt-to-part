@@ -98,6 +98,17 @@ export function planBackText(setting: BackTextSetting, layers: LayerColor[], r: 
 }
 
 /**
+ * What the LayerTone panel says about a back text that is on: printed (`printLayers` of the print's
+ * layers, its mesh built with the part), or why not. `built`: the built part has the text (none when
+ * a part is too small for the corner). Null: nothing to say (an empty text).
+ */
+export function backTextStatus(plan: BackTextPlan, printLayers: number, built: boolean): 'printed' | 'tooThin' | 'noRoom' | null {
+  if (!plan.on) return plan.reason === 'tooThin' ? 'tooThin' : null;
+  if (printLayers === 0) return 'tooThin';
+  return built ? 'printed' : 'noRoom';
+}
+
+/**
  * The values with `$backText` written out as it prints now (for marking printed): the text, size,
  * position and a chosen filament, or off (no PTP_BACK_TEXT, turned off, or an empty text), so re-exporting later
  * prints the same whatever the default becomes. An automatic filament stays unpinned: the printed
@@ -153,6 +164,9 @@ export function backTextMesh(plan: Extract<BackTextPlan, { on: true }>, box: Box
   const k = corner
     ? Math.min((plan.size / 100) * W / tw, CORNER_MAX_HEIGHT / th, (W - 2 * CORNER_MARGIN) / tw, (D - 2 * CORNER_MARGIN) / th)
     : Math.min((plan.size / 100) * W / tw, (MAX_DEPTH_SHARE * D) / th);
+  // A part 16 mm or less across has no corner inside the margins: a scale of 0 or below would build a
+  // flat or flipped text off the part. No text (the panel says so).
+  if (!(k > 0)) return { positions: new Float32Array(0), indices: new Uint32Array(0) };
   // Centred on its own bounds (the font's centre line isn't the glyphs' middle), then mirrored.
   const cx = corner ? box.min[0] + CORNER_MARGIN + (tw * k) / 2 : (box.min[0] + box.max[0]) / 2;
   const cy = corner ? box.min[1] + CORNER_MARGIN + (th * k) / 2 : (box.min[1] + box.max[1]) / 2;

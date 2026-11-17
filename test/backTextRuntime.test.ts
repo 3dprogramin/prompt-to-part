@@ -133,3 +133,14 @@ test('by default the text sits small in a corner: bottom-right seen from the bac
   const lt = extent(long.backText!.positions);
   assert.ok(lt.max[1] - lt.min[1] <= 8 + 1e-3);
 });
+
+test('a part too small for the corner (16 mm or less across) gets no back text, not a flipped or flat one', async () => {
+  setBackTextDefault('shop.example');
+  for (const width of [14, 16]) {
+    const r = await run({}, `function build() { return { name: 'Picture', ...H.layertone('pic.png', { width: ${width} }) }; }`);
+    assert.equal(r.parts[0].backText, undefined, `${width} mm wide`);
+  }
+  // The centre still has room.
+  const centre = await run(CENTRE, "function build() { return { name: 'Picture', ...H.layertone('pic.png', { width: 14 }) }; }");
+  assert.ok(centre.parts[0].backText);
+});

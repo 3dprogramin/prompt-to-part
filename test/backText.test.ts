@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { layerTop, type LayerColor, type LayerToneFilament } from '../shared/layertone';
 import { pictureValues } from '../src/app/designValues';
 import { describeSettings } from '../src/lib/settings';
-import { autoBackTextFilament, backTextDefault, parseBackText, pinBackText, planBackText, setBackTextDefault } from '../shared/backText';
+import { autoBackTextFilament, backTextDefault, backTextStatus, parseBackText, pinBackText, planBackText, setBackTextDefault } from '../shared/backText';
 
 const R = { layerHeight: 0.08, firstLayerHeight: 0.16 };
 const at = (layer: number, color: string, td: number, name: string): LayerColor => ({ z: layerTop(layer, R), layer, color, td, name });
@@ -117,4 +117,15 @@ test('the back text goes to the server with the pictures (the chat keeps it and 
 
 test('a version saved with a back text change says "back text"', () => {
   assert.equal(describeSettings({}, { $backText: '{"off":true}' }, {}), 'Settings: back text');
+});
+
+test('backTextStatus: printed only when the built part has the text; no room when it has none', () => {
+  setBackTextDefault('shop.example');
+  const plan = planBackText({}, stack, R);
+  assert.equal(backTextStatus(plan, 2, true), 'printed');
+  // Planned, but the part came out without it (a part too small for the corner).
+  assert.equal(backTextStatus(plan, 2, false), 'noRoom');
+  assert.equal(backTextStatus(plan, 0, false), 'tooThin', 'scaled onto the print\'s layers: none left');
+  assert.equal(backTextStatus(planBackText({}, [black(), white(1)], R), 0, false), 'tooThin');
+  assert.equal(backTextStatus(planBackText({ text: '  ' }, stack, R), 0, false), null);
 });

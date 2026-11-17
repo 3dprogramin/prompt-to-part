@@ -4,7 +4,7 @@ import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { checkSwaps, firstFilamentBase, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerCount, layerTop, maxLayerToneFilaments, rebaseSetup, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
 import { estimatedTd } from '../../shared/filaments';
-import { autoBackTextFilament, BACK_TEXT_KEY, backTextDefault, backTextDefaultSize, DEFAULT_BACK_TEXT_POSITION, parseBackText, planBackText, type BackTextPosition, type BackTextSetting } from '../../shared/backText';
+import { autoBackTextFilament, BACK_TEXT_KEY, backTextDefault, backTextDefaultSize, backTextStatus, DEFAULT_BACK_TEXT_POSITION, parseBackText, planBackText, type BackTextPosition, type BackTextSetting } from '../../shared/backText';
 import { backTextPrintLayers } from '../lib/bambu3mf';
 import { layerToneImageToDataUrl, loadLayerToneImage, rgbaToDataUrl } from '../lib/layerToneImage';
 import { FilamentPicker } from './FilamentPicker';
@@ -210,6 +210,7 @@ function BackText({ raw, layers, grid, part, printLayers, onChange }: { raw: unk
   const place = (p: BackTextPosition) => { if (p !== position) save({ position: p, size: undefined }); };
   const size = useReleaseSlider(setting.size ?? backTextDefaultSize(position), (v) => save({ size: v }));
   const notes = plan.on ? plan.notes : [];
+  const status = on ? backTextStatus(plan, printed, !!part.backText) : null;
   return (
     <div className="layertone-backtext">
       <div className="layertone-head">
@@ -244,8 +245,9 @@ function BackText({ raw, layers, grid, part, printLayers, onChange }: { raw: unk
       </div>
       {disabled
         ? <div className="dim small">Set PTP_BACK_TEXT to print your website on the back of every LayerTone print.</div>
-        : on && plan.on && printed > 0 && <div className="dim small">Mirrored on the back{position === 'corner' ? ', bottom-right when turned over' : ''}, in the first {printed === 1 ? '1 layer' : `${printed} layers`}.</div>}
-      {on && ((!plan.on && plan.reason === 'tooThin') || (plan.on && printed === 0)) && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The first filament is one layer: no back text. Raise the First filament slider.</div>}
+        : status === 'printed' && <div className="dim small">Mirrored on the back{position === 'corner' ? ', bottom-right when turned over' : ''}, in the first {printed === 1 ? '1 layer' : `${printed} layers`}.</div>}
+      {status === 'tooThin' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The first filament is one layer: no back text. Raise the First filament slider.</div>}
+      {status === 'noRoom' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> {position === 'corner' ? 'No room for the back text in the corner of a print this small. Try the centre.' : 'No back text on this print: it could not be built.'}</div>}
       {notes.includes('sameColour') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text is in the first filament's colour, so it won't show.</div>}
       {notes.includes('showsThrough') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text may show faintly from the front. Raise the First filament slider or use a darker first filament.</div>}
     </div>
