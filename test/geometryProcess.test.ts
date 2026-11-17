@@ -113,7 +113,7 @@ test('a worker killed by running out of JavaScript heap counts as out of memory 
   assert.equal(diedOfOom(0, null), false);
 });
 
-test('the back text from PTP_BACK_TEXT reaches the geometry process', async () => {
+test('the evaluation summary carries no back text of its own (nothing reads one; the mesh is the client\'s)', async () => {
   const { toLayerToneImage, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } = await import('../shared/layertone');
   const rgba = new Uint8Array(20 * 15 * 4).fill(255);
   for (let i = 0; i < rgba.length; i += 4) rgba[i] = rgba[i + 1] = rgba[i + 2] = (i / 4) % 20 * 12;
@@ -121,14 +121,10 @@ test('the back text from PTP_BACK_TEXT reaches the geometry process', async () =
   const script = "function build() { return { name: 'P', ...H.layertone('p.png', { width: 60 }) }; }";
   const saved = process.env.PTP_BACK_TEXT;
   try {
-    delete process.env.PTP_BACK_TEXT;
-    const off = await geometry.evaluate(script, values);
     process.env.PTP_BACK_TEXT = 'shop.example';
-    const on = await geometry.evaluate(script, values);
-    assert.ok(off.ok && on.ok, JSON.stringify([off, on]));
-    const text = (r: typeof on) => (r as { parts: { backText?: string }[] }).parts[0].backText;
-    assert.equal(text(off), undefined);
-    assert.equal(text(on), 'shop.example');
+    const r = await geometry.evaluate(script, values);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal('backText' in r.parts[0], false);
   } finally {
     if (saved === undefined) delete process.env.PTP_BACK_TEXT; else process.env.PTP_BACK_TEXT = saved;
   }
