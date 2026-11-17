@@ -31,6 +31,9 @@ process.env.NODE_ENV = 'production';
 process.env.PTP_AUTH = 'subscription';
 process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 delete process.env.PTP_DOCKER;
+// The Settings test types its own Meshy key and expects the provider address locked: nothing of this
+// computer's environment may decide that.
+for (const name of ['PTP_PASSWORD', 'MESHY_API_KEY', 'ANTHROPIC_BASE_URL']) delete process.env[name];
 // No presets of this computer's Bambu Studio user in the printer list.
 process.env.BAMBU_STUDIO_USER_DIR = path.join(dataDir, 'no-bambu-user');
 const shots = process.env.PTP_UI_SHOTS ?? path.join(os.tmpdir(), 'ptp-ui-shots');
@@ -1956,6 +1959,161 @@ test('through OpenRouter the model menu lists its top models with prices, finds 
     await page.locator('.msg', { hasText: 'Done.' }).waitFor();
     assert.equal(sent[0].model, 'deepseek/deepseek-v4.1-flash');
     assert.match(await page.locator('.msg', { hasText: 'Done.' }).innerText(), /\$0\.004/);
+  } finally {
+    await page.close();
+  }
+});
+
+test('Settings: the gear opens the dialog, the chip opens Keys and services, a key is saved masked and reset', TEST, async () => {
+  const KEY = 'msy_0123456789abcdef';
+  const json = { 'Content-Type': 'application/json', 'X-PTP': '1' };
+  // A known printer, whatever the tests before left.
+  await fetch(`${A}/api/printer`, { method: 'PUT', headers: json, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
+  const page = await newPage();
+  const asked: string[] = [];
+  let answer = false;
+  page.on('dialog', (d) => { asked.push(d.message()); void (answer ? d.accept() : d.dismiss()); });
+  const gear = page.getByRole('button', { name: 'Settings', exact: true });
+  const chip = page.getByRole('button', { name: /^Claude subscription/ });
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const tab = (name: string) => dialog.getByRole('tab', { name });
+  const focusIn = () => page.evaluate(() => !!document.activeElement?.closest('[role=dialog]'));
+  const focusOn = (label: RegExp) => page.evaluate((src) => new RegExp(src).test((document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent ?? '').trim()), label.source);
+  const meshy = () => dialog.locator('.keys-row', { hasText: 'Meshy key' });
+  try {
+    await page.goto(`${A}/`);
+    await gear.waitFor();
+
+    // The gear: three tabs, Printer selected, focus inside; Escape closes it and focus goes back to the gear.
+    await gear.click();
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('tab').count(), 3);
+    assert.deepEqual(await dialog.getByRole('tab').allInnerTexts(), ['Printer', 'Filaments', 'Keys and services']);
+    assert.equal(await tab('Printer').getAttribute('aria-selected'), 'true');
+    assert.ok(await focusIn(), 'focus is inside the dialog');
+    await page.screenshot({ path: path.join(shots, 'settings-printer.png') });
+
+    // Tabs by keyboard: Right goes on and wraps, Home and End jump.
+    const selected = () => dialog.getByRole('tab', { selected: true }).innerText();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await selected(), 'Filaments');
+    await page.screenshot({ path: path.join(shots, 'settings-filaments.png') });
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await selected(), 'Keys and services');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await selected(), 'Printer');
+    await page.keyboard.press('End');
+    assert.equal(await selected(), 'Keys and services');
+    await page.keyboard.press('Home');
+    assert.equal(await selected(), 'Printer');
+
+    // The Printer tab saves at once, and the new count is still there when the dialog is opened again.
+    await dialog.getByLabel('Filaments it loads at once').selectOption('8');
+    await dialog.getByText('Saved', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.ok(await focusOn(/^Settings$/), 'focus is back on the gear');
+    await gear.click();
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel('Filaments it loads at once').inputValue(), '8');
+
+    // A click on the backdrop does not close it.
+    await page.mouse.click(4, 4);
+    assert.equal(await dialog.isVisible(), true, 'the backdrop did not close the dialog');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+
+    // The chip opens Keys and services; Escape gives the focus back to the chip.
+    await chip.click();
+    await dialog.waitFor();
+    assert.equal(await selected(), 'Keys and services');
+    assert.ok(await focusIn(), 'focus is inside the dialog');
+    const panel = dialog.getByRole('tabpanel');
+    await meshy().getByRole('button', { name: 'Add Meshy key' }).waitFor();
+    await page.screenshot({ path: path.join(shots, 'settings-keys.png') });
+    const before = (await meshy().innerText()).replace(/\s+/g, ' ');
+    assert.match(before, /not set/);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.ok(await focusOn(/^Claude subscription/), `focus is back on the chip (on: ${await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 120))})`);
+    await chip.click();
+    await dialog.waitFor();
+
+    // A typed key asks before Escape throws it away; "Cancel" keeps the row as changed.
+    await meshy().getByRole('button', { name: 'Add Meshy key' }).click();
+    await meshy().getByLabel('Meshy key', { exact: true }).fill(KEY);
+    await page.keyboard.press('Escape');
+    await until(async () => asked.length > 0, 'Escape asked before discarding');
+    assert.match(asked[0], /^Discard the changes you have not saved\?/);
+    assert.equal(await dialog.isVisible(), true, 'the dialog stays open when the question is cancelled');
+    await meshy().getByText('Not saved yet').waitFor();
+    assert.equal(await meshy().getByLabel('Meshy key', { exact: true }).inputValue(), KEY);
+
+    // Save: masked, "set here", the full key nowhere in the page, a connection result line, the chip still alive.
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await dialog.getByText('Saved.', { exact: true }).waitFor();
+    const row = (await meshy().innerText()).replace(/\s+/g, ' ');
+    assert.match(row, /msy…def/, row);
+    assert.ok(!row.includes('0123456789ab'), row);
+    assert.match(row, /set here/);
+    assert.ok(!(await page.content()).includes(KEY), 'the page does not hold the full key');
+    assert.ok(!(await page.evaluate(() => document.body.innerText)).includes('0123456789ab'));
+    const result = panel.locator('.keys-conn-result');
+    await until(async () => /Claude subscription: /.test(await result.innerText()), 'the Keys tab shows a connection result');
+    assert.match(await result.innerText(), /Stand-in for the smoke test\./);
+    await chip.waitFor();
+    assert.ok(!/Checking/.test(await page.locator('.conn-chip').innerText()), 'the chip is not stuck on Checking');
+    await page.screenshot({ path: path.join(shots, 'settings-keys-saved.png') });
+    // The server holds it in secrets.json and never hands it out.
+    assert.ok(readFileSync(path.join(dataDir, 'secrets.json'), 'utf8').includes(KEY));
+    assert.ok(!(await (await fetch(`${A}/api/settings`)).text()).includes(KEY));
+
+    // The provider address is locked without a password, and says why.
+    const address = dialog.locator('.keys-row', { hasText: 'Other provider address' });
+    assert.match(await address.innerText(), /PTP_PASSWORD/);
+    assert.equal(await address.locator('input').count(), 0, 'no input for the locked address');
+
+    // Reset (confirmed) puts the Meshy row back to what it was.
+    answer = true;
+    await dialog.getByRole('button', { name: 'Reset to defaults' }).click();
+    await dialog.getByText('Everything comes from .env again.').waitFor();
+    assert.equal((await meshy().innerText()).replace(/\s+/g, ' '), before);
+    assert.ok(asked.some((q) => /Reset to defaults\?$/.test(q) && q.includes('Meshy key')), asked.join(' | '));
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'detached' });
+  } finally {
+    await page.close();
+    await fetch(`${A}/api/settings/reset`, { method: 'POST', headers: json }).catch(() => {});
+    await fetch(`${A}/api/printer`, { method: 'PUT', headers: json, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
+  }
+});
+
+test('Settings on a phone-width screen: nothing runs off the side, the tabs stay readable, Keys and services rows wrap', TEST, async () => {
+  const page = await newPage({ viewport: { width: 380, height: 800 }, isMobile: true, hasTouch: true });
+  try {
+    await page.goto(`${A}/`);
+    const gear = page.getByRole('button', { name: 'Settings', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await gear.waitFor();
+    const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert.ok((await sideways()) <= 0, 'the top bar does not overflow sideways');
+    assert.ok((await gear.boundingBox())!.x + (await gear.boundingBox())!.width <= 380, 'the gear is on screen');
+    await gear.click();
+    await dialog.waitFor();
+    const tabs = dialog.getByRole('tab');
+    const boxes = await Promise.all([0, 1, 2].map((i) => tabs.nth(i).boundingBox()));
+    const keysTab = boxes[2]!;
+    assert.ok(Math.abs(keysTab.height - boxes[0]!.height) < 2, `"Keys and services" is on one line (${keysTab.height} vs ${boxes[0]!.height})`);
+    const tabRow = await dialog.getByRole('tablist').evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    await page.screenshot({ path: path.join(shots, 'settings-phone-printer.png') });
+    await tabs.nth(2).click();
+    await dialog.getByRole('button', { name: 'Add Meshy key' }).waitFor();
+    // Keys tab rows wrap: nothing wider than the panel inside it, and the page doesn't scroll sideways.
+    const panel = await dialog.getByRole('tabpanel').evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    assert.ok(panel.scroll <= panel.client, `the panel does not scroll sideways (${panel.scroll} > ${panel.client})`);
+    assert.ok((await sideways()) <= 0, 'the page does not scroll sideways with the dialog open');
+    await page.screenshot({ path: path.join(shots, 'settings-phone-keys.png') });
+    console.log(`settings phone: tab row scrollWidth ${tabRow.scroll} / clientWidth ${tabRow.client}`);
   } finally {
     await page.close();
   }
