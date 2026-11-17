@@ -52,7 +52,7 @@ import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
 import { forgetChatMode } from './lib/chatModes';
 import { latestOnly } from './lib/latest';
 import { cleanTags } from '../shared/tags';
-import { newDesign, keepAppValues, UNTITLED, withEditHistoryOf, withLayerToneImage, withMesh, withoutEditHistory } from './app/designValues';
+import { newDesign, keepAppValues, UNTITLED, withLayerToneImage, withMesh, withoutEditHistory } from './app/designValues';
 import type { Notice } from './app/notice';
 import { useDesignTabs } from './app/useDesignTabs';
 import { useSidebars } from './app/useSidebars';
@@ -71,6 +71,7 @@ import { useDesignList } from './app/useDesignList';
 import { useModelLayout } from './app/useModelLayout';
 import { modelChecks } from './app/modelChecks';
 import { closedDesignUpdates, type ClosedDesignUpdates } from './app/closedDesignUpdates';
+import { restoreChoice, withVersion } from './app/versionSwitch';
 
 const geo = new GeometryClient();
 
@@ -429,15 +430,16 @@ export default function App() {
     currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
     autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues });
 
+  // A reply running on the design (here or in another tab) keeps it on its version until it ends.
+  const replying = generating || busyElsewhere;
   const restore = (vi: number) => {
-    const v = design.versions[vi];
-    if (v) setDesign((d) => ({ ...d, code: v.code, currentVersion: vi, values: withEditHistoryOf(v.values, d.values), updatedAt: Date.now() }));
+    if (replying) return void setNotice({ text: 'Wait for the reply to finish before switching versions: its pictures and meshes go into the version it makes.', level: 'info', details: false });
+    if (design.versions[vi]) setDesign((d) => withVersion(d, vi));
   };
   // Switching versions replaces the sliders with that version's settings: ask first if yours aren't saved.
   const [pendingRestore, setPendingRestore] = useState<number | null>(null);
   const onRestore = (vi: number) => {
-    // A printed version's changes can't be saved: there is nothing to ask.
-    if (vi !== design.currentVersion && unsavedSettings && !lockReason) setPendingRestore(vi);
+    if (restoreChoice({ to: vi, current: design.currentVersion, unsavedSettings, locked: !!lockReason, replying }) === 'ask') setPendingRestore(vi);
     else restore(vi);
   };
 
