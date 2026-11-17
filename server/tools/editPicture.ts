@@ -3,6 +3,7 @@
 // the image model and keeps everything else exactly, under the same name; show_picture shows it with
 // a grid to pick that box from.
 import { chatPhotos } from './designImage';
+import { cutPhotos } from './photoRefs';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { encode as encodePng } from 'fast-png';
 import { z } from 'zod';
@@ -194,7 +195,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       if (a.use_attached_photos) {
         // This message's photos, or those of earlier messages in the chat when it has none (e.g. a face sent before).
         const all = await chatPhotos(images.designId ?? '', images.references, MAX_PHOTOS * 2);
-        photos = all.filter((p) => PHOTO.test(p)).slice(0, MAX_PHOTOS);
+        photos = cutPhotos(images.references, all.filter((p) => PHOTO.test(p)), MAX_PHOTOS);
         if (!photos.length) return fail(all.length ? 'The photos attached in this chat are not PNG, JPEG or WebP pictures.' : 'The user attached no photos in this chat.');
       }
       // A marked LayerTone edit keeps the swap layers the part is built with now.

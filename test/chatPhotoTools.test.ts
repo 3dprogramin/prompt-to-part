@@ -149,3 +149,17 @@ test('picture tools draw only from this message\'s photos when it has some (earl
   await ask('generate_line_art', { lineArt: { references: [current], designId: 'chat-photo-mix-5', style: 'outline', pictures: true } }, { use_attached_photos: true });
   assert.deepEqual(asked.at(-1)!.references, [current]);
 });
+
+test('a picture sent mid-run is still seen by the image tools when the reply already holds four photos', async () => {
+  const references = [1, 2, 3, 4].map((n) => `data:image/png;base64,P${n}`);
+  const inbox = new Inbox();
+  steering.set('d3', { inbox, emit: () => {}, references });
+  steerGeneration('d3', 'use this face instead', [{ mediaType: 'image/jpeg', data: 'FIVE' }]);
+  steering.delete('d3');
+  inbox.close();
+  assert.equal(references.length, 5);
+  const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), {}, { artwork: { references, designId: 'chat-photo-cap-6' }, image });
+  const out = await handlers(server).generate_artwork.handler({ name: 'face', subject: 'the face in the photo, smiling', use_attached_photos: true }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.deepEqual(asked.at(-1)!.references, [...references.slice(0, 3), 'data:image/jpeg;base64,FIVE']);
+});

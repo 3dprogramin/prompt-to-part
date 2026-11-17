@@ -3,6 +3,7 @@
 import { type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, GenerateRequest, ImageData } from '../../shared/api';
 import { geometry, formatReport } from '../geometry';
+import { addSteeredPhotos } from '../tools/photoRefs';
 import type { ParamValues } from '../../shared/types';
 
 export const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -92,7 +93,7 @@ export function steerGeneration(designId: string, text: string, images: ImageDat
   // New pictures are appended: generate_3d addresses photos by number, so the ones already attached keep theirs.
   const urls = [...new Set(pictures.map((img) => `data:${img.mediaType};base64,${img.data}`))].filter((url) => !run.references.includes(url));
   const first = run.references.length + 1;
-  const numbers = urls.length ? ` They are photo${urls.length > 1 ? `s ${first} to ${first + urls.length - 1}` : ` ${first}`} (photos are numbered in the order sent; earlier numbers stay the same).` : '';
+  const numbers = urls.length ? ` They are photo${urls.length > 1 ? `s ${first} to ${first + urls.length - 1}` : ` ${first}`} (photos are numbered in the order sent${run.references.length ? '; earlier numbers stay the same' : ''}).` : '';
   const ok = run.inbox.push({
     type: 'user', parent_tool_use_id: null, priority: 'next',
     message: { role: 'user', content: [
@@ -101,7 +102,7 @@ export function steerGeneration(designId: string, text: string, images: ImageDat
     ] },
   });
   if (!ok) return false;
-  run.references.push(...urls);
+  addSteeredPhotos(run.references, urls);
   run.emit({ type: 'step', step: { kind: 'user', text: text.trim() || `${pictures.length} picture${pictures.length > 1 ? 's' : ''}`, ...(pictures[0] ? { image: `data:${pictures[0].mediaType};base64,${pictures[0].data}` } : {}) } });
   return true;
 }

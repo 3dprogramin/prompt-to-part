@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { geometry } from '../geometry';
 import { ASPECTS, designImagePrompt, imageModel } from '../artwork';
 import { DESIGNS, ID_RE, IMAGE_NAME, IMAGE_TYPES } from '../routes/store';
+import { cutPhotos } from './photoRefs';
 import type { AiImages, ToolContext } from './context';
 
 /** Most photos sent to the image model with one picture. */
@@ -18,7 +19,7 @@ const MAX_PHOTOS = 4;
  * message with its own photos is about them: earlier ones may be another subject).
  */
 export async function chatPhotos(designId: string, current: string[], max = MAX_PHOTOS, dir = DESIGNS): Promise<string[]> {
-  const photos = current.slice(0, max);
+  const photos = cutPhotos(current, current, max);
   if (photos.length || !ID_RE.test(designId)) return photos;
   let messages: { role?: string; images?: unknown }[] = [];
   try { messages = (JSON.parse(await readFile(path.join(dir, `${designId}.json`), 'utf8')) as { messages?: typeof messages }).messages ?? []; } catch { return photos; }
