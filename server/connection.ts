@@ -11,8 +11,9 @@ import { recordUsage, usageWindows } from './usage';
 const TIMEOUT_MS = 8000;
 let cached: { at: number; value: Connection } | null = null;
 
-export async function checkConnection(fresh = false): Promise<Connection> {
-  if (fresh || !cached || Date.now() - cached.at >= 60_000) cached = { at: Date.now(), value: await check() };
+/** `run` does the check itself (tests pass a stand-in, under the same cache). */
+export async function checkConnection(fresh = false, run: () => Promise<Connection> = check): Promise<Connection> {
+  if (fresh || !cached || Date.now() - cached.at >= 60_000) cached = { at: Date.now(), value: await run() };
   if (cached.value.via !== 'subscription' || !cached.value.ok) return cached.value;
   // The usage as last reported (replies report it as they run), so a check right after one is current.
   await refreshUsage(fresh);
@@ -22,6 +23,12 @@ export async function checkConnection(fresh = false): Promise<Connection> {
 let asked = 0;
 let asking: Promise<void> | null = null;
 let unavailableUntil = 0;
+
+/** The keys or the mode changed (Settings): the next check runs afresh, and a new login may read the usage. */
+export function forgetConnection(): void {
+  cached = null;
+  unavailableUntil = 0;
+}
 
 /**
  * Asks Claude Code for its /usage data (the plan's windows from claude.ai): at most every 5 minutes,

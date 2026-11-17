@@ -93,7 +93,7 @@ export function openRouterModels(fetchImpl: typeof fetch = fetch): Promise<OpenR
   return pending;
 }
 
-/** For tests: forget the cached list. */
+/** Forgets the cached list (a new key in Settings, and tests). */
 export function forgetOpenRouterModels() {
   cache = null;
   pending = null;

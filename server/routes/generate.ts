@@ -55,6 +55,8 @@ function fitBudget() {
 }
 /** Replies under way in this process, over all designs (each runs Claude Code and spends the API key). */
 let running = 0;
+/** How many replies are under way (Settings warns that a change applies to the next one). */
+export const runningReplies = () => running;
 
 /** Streams `run`'s events from `from` on to `res`, which takes over from any page following it before. */
 function follow(run: Run, res: express.Response, from: number) {

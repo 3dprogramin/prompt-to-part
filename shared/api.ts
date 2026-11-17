@@ -13,6 +13,7 @@ import type { ImportReport } from './meshRepair';
 import type { UsageWindow } from './usage';
 import type { ChatQuestion } from './questions';
 import type { StabilityReport } from './stability';
+import type { ClaudeVia, SettingRow } from './settings';
 import type { PictureMark } from './pictureEdit/mark';
 import type { PictureWindow } from './pictureEdit/render';
 
@@ -354,3 +355,5 @@ export interface PictureEditResponse {
   cost: number | null;
 }
 
+/** GET /api/settings, and the reply of PUT /api/settings and POST /api/settings/reset. */
+export interface SettingsView { rows: SettingRow[]; via: ClaudeVia | null; running: number }

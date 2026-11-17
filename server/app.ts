@@ -29,6 +29,7 @@ import { registerBackupRoutes } from './routes/backup';
 import { registerExportRoutes } from './routes/exports';
 import { registerGenerateRoutes } from './routes/generate';
 import { registerPrinterRoutes } from './routes/printer';
+import { registerSettingsRoutes } from './routes/settings';
 import { loadPrinterSetting } from './printerSetting';
 
 export { endGenerations } from './routes/generate';
@@ -163,6 +164,8 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, origins = EXTRA_OR
   registerMeshRoutes(app, ctx);
   registerPrintedRoutes(app, ctx);
   registerSystemRoutes(app, { connection, models: () => models() });
+  // The provider address decides where keys are sent: only an app behind a password may change it.
+  registerSettingsRoutes(app, ctx, { allowRestricted: !!password });
   registerCostRoutes(app, ctx, { suggest });
   registerPrinterRoutes(app, ctx);
   // The saved printer becomes the server's current one (the AI's instructions, validation, templates).
