@@ -112,6 +112,7 @@ export function repairMesh(wasm: ManifoldToplevel, raw: RawMesh, opts: ImportOpt
   if (cleaned.duplicate) repairs.push(`Dropped ${count(cleaned.duplicate, 'duplicate triangle')}`);
   if (cleaned.internal) repairs.push(`Dropped ${count(cleaned.internal, 'double-sided face')} (back-to-back pairs)`);
   stage('weld');
+  if (!tris.length) throw new Error('The mesh has no usable triangles (every triangle is degenerate: no area)');
 
   // ---- consistent orientation, outward
   const orient = orientTriangles(verts, tris);

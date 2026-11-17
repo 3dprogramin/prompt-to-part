@@ -148,3 +148,8 @@ test('a tiny thin piece keeps its shells; specks next to it still go', () => {
   assert.equal(pair.components, 2);
   assert.match(pair.repairs.join('\n'), /Removed 1 loose fragment smaller than 0\.20 mm³/);
 });
+
+test('a mesh whose triangles are all degenerate is refused in words, not with a null error', () => {
+  const flat = raw([0, 0, 0, 50, 0, 0, 25, 0, 0], [0, 1, 2]);
+  assert.throws(() => repairMesh(wasm, flat), /no usable triangles/);
+});
