@@ -370,3 +370,22 @@ test('a restored settings.json on a fresh data folder is applied; an existing on
     assert.equal((await applied('PTP_COUNTRY')).value, 'Romania');
   } finally { await cleanSettings(); }
 });
+
+test('a damaged settings.json is left out; the designs in the same zip are still restored', async () => {
+  await cleanSettings();
+  const id = 'test-bkp-00000077';
+  try {
+    const text = JSON.stringify({ PTP_COUNTRY: 'Romania' });
+    const zip = zipSync({ 'settings.json': [strToU8(text), { level: 0 }], [`designs/${id}.json`]: strToU8(JSON.stringify(design({ id, name: 'Kept' }))) } as Zippable);
+    const at = Buffer.from(zip).indexOf(Buffer.from(text));
+    assert.ok(at > 0);
+    zip[at + 3] ^= 0xff; // the stored bytes no longer match their checksum
+    const r = await importZip(zip);
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.deepEqual(body.skipped, []);
+    assert.deepEqual(body.imported.map((d: { id: string }) => d.id), [id]);
+    assert.deepEqual(body.settings, []);
+    assert.ok(!existsSync(path.join(dataDir, 'settings.json')));
+  } finally { await cleanSettings(); await fetch(`${A}/api/designs/${id}`, { method: 'DELETE', headers: W }); }
+});

@@ -287,12 +287,14 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
         }
         if (existsSync(file)) continue;
         if (entry.name === 'settings.json') {
-          const rows = plainSettings(Buffer.from(await entry.read()).toString('utf8'), true);
-          if (!rows || !Object.keys(rows).length) continue;
-          await writeAtomically(file, `${JSON.stringify(rows, null, 2)}\n`, 0o600);
-          // The restored values take effect now, as a save in the dialog would.
-          initSettings(DATA_DIR);
-          out.settings.push(BACKUP_SETTINGS[entry.name]);
+          try {
+            const rows = plainSettings(Buffer.from(await entry.read()).toString('utf8'), true);
+            if (!rows || !Object.keys(rows).length) continue;
+            await writeAtomically(file, `${JSON.stringify(rows, null, 2)}\n`, 0o600);
+            // The restored values take effect now, as a save in the dialog would.
+            initSettings(DATA_DIR);
+            out.settings.push(BACKUP_SETTINGS[entry.name]);
+          } catch { /* a damaged settings file is left out */ }
           continue;
         }
         try {
