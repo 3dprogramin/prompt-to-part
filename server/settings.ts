@@ -88,14 +88,16 @@ function serially<T>(fn: () => Promise<T>): Promise<T> {
 export function saveSettings(change: SettingsChange, opts: { allowRestricted: boolean }): Promise<void> {
   return serially(async () => {
     folder();
+    if (!change || typeof change !== 'object' || Array.isArray(change)) throw new SettingsError('The changes must be an object.');
     const next = { ...saved };
     const files = new Set<string>();
     for (const [env, raw] of Object.entries(change)) {
       const def = defOf(env);
       if (!def) throw new SettingsError('Unknown setting.');
-      if (def.restricted && !opts.allowRestricted) throw new SettingsError(LOCKED_REASON);
       if (raw !== null && typeof raw !== 'string') throw new SettingsError(`${def.label} must be text.`);
       const v = raw === null ? '' : cleanSettingValue(raw);
+      // Going back to the environment can only remove a saved address, so only setting one is restricted.
+      if (def.restricted && v && !opts.allowRestricted) throw new SettingsError(LOCKED_REASON);
       const problem = v ? settingProblem(def, v) : undefined;
       if (problem) throw new SettingsError(problem);
       if (v) next[env] = v;

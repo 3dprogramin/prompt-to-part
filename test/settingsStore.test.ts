@@ -4,11 +4,24 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SETTINGS, cleanSettingValue, maskSecret } from '../shared/settings';
+import { SETTINGS, cleanSettingValue, maskSecret, type SettingsChange } from '../shared/settings';
 import { SettingsError, initSettings, resetSettings, saveSettings, settingRows } from '../server/settings';
 
 const KEY = 'sk-or-v1-0123456789abcdef0123456789abcdef';
 const row = (env: string) => settingRows({ allowRestricted: false }).find((r) => r.env === env)!;
+
+// The store remembers the environment's own value of a name once per process, the first time it lays
+// that name over, so no test may change the environment before a save. Instead the environment the
+// tests rely on is fixed here, before any test, whatever the shell or .env sets (put back after).
+const shellEnv = { PTP_CURRENCY: process.env.PTP_CURRENCY, MESHY_API_KEY: process.env.MESHY_API_KEY };
+process.env.PTP_CURRENCY = 'USD';
+delete process.env.MESHY_API_KEY;
+test.after(() => {
+  for (const [k, v] of Object.entries(shellEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
 
 let dir = '';
 let dir2 = '';
@@ -41,7 +54,6 @@ test('cleanSettingValue trims and strips one pair of quotes', () => {
   assert.equal(cleanSettingValue('   '), '');
 });
 test('a saved value overrides the environment and null gives the environment back', async () => {
-  process.env.PTP_CURRENCY = 'USD';
   initSettings(dir);
   await saveSettings({ PTP_CURRENCY: 'RON' }, { allowRestricted: false });
   assert.equal(process.env.PTP_CURRENCY, 'RON');
@@ -51,7 +63,6 @@ test('a saved value overrides the environment and null gives the environment bac
   assert.equal(row('PTP_CURRENCY').source, 'env');
 });
 test('a value the environment never had is unset again after reset', async () => {
-  delete process.env.MESHY_API_KEY;
   initSettings(dir);
   await saveSettings({ MESHY_API_KEY: 'msy_0123456789abcdef' }, { allowRestricted: false });
   await resetSettings();
@@ -78,6 +89,15 @@ test('invalid values are refused with a message that does not contain them', asy
   const changes: Record<string, string>[] = [{ PTP_EFFORT: 'huge' }, { PTP_CLAUDE: 'bedrock' }, { ANTHROPIC_BASE_URL: 'http://plain.example' }, { PTP_BACK_TEXT: 'x'.repeat(41) }, { OPENROUTER_API_KEY: 'has space inside' }, { NOT_A_SETTING: 'x' }];
   for (const change of changes)
     await assert.rejects(saveSettings(change, { allowRestricted: true }), (e: Error) => e instanceof SettingsError && !Object.values(change).some((v) => e.message.includes(v)));
+  await assert.rejects(saveSettings(null as unknown as SettingsChange, { allowRestricted: true }), SettingsError);
+});
+test('a saved provider address can go back to the environment without allowRestricted', async () => {
+  initSettings(dir);
+  await saveSettings({ ANTHROPIC_BASE_URL: 'https://example.com' }, { allowRestricted: true });
+  await saveSettings({ ANTHROPIC_BASE_URL: null }, { allowRestricted: false });
+  assert.equal(process.env.ANTHROPIC_BASE_URL, envBefore.ANTHROPIC_BASE_URL);
+  assert.notEqual(row('ANTHROPIC_BASE_URL').source, 'here');
+  await assert.rejects(saveSettings({ ANTHROPIC_BASE_URL: 'https://example.com' }, { allowRestricted: false }), SettingsError);
 });
 test('saved values are applied again by a new start, and a damaged file starts on the environment alone', async (t) => {
   initSettings(dir);
@@ -89,7 +109,7 @@ test('saved values are applied again by a new start, and a damaged file starts o
   const warn = t.mock.method(console, 'warn', () => {});
   initSettings(dir2);
   assert.equal(readFileSync(path.join(dir2, 'secrets.json'), 'utf8'), '{ not json');
-  assert.equal(process.env.PTP_COUNTRY, undefined);
+  assert.equal(process.env.PTP_COUNTRY, envBefore.PTP_COUNTRY);
   assert.deepEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), ['[settings] Could not read secrets.json: SyntaxError']);
 });
 test('a pasted key with quotes and a newline is stored clean; an empty one means not set', async () => {
