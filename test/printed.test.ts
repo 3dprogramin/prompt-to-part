@@ -52,6 +52,13 @@ test('markProblem gives the first reason marking can\'t happen', () => {
   assert.equal(markProblem(ok), null);
 });
 
+test('markProblem waits for the back text default before a LayerTone version is marked', () => {
+  // Pinning before the capabilities come (or when they fail) would lock the print's back text off for good.
+  const ok = { generating: false, unsavedSettings: false, hasCode: true };
+  assert.equal(markProblem({ ...ok, backTextPending: true }), 'Wait for the app to finish loading');
+  assert.equal(markProblem({ ...ok, backTextPending: false }), null);
+});
+
 const LT_CODE = 'return H.layertone({});';
 const ltDesign = (id: string, versions: { code: string; values?: Design['values'] }[], current = versions.length - 1): Design => ({
   id, name: id, createdAt: 0, updatedAt: 0, messages: [], currentVersion: current,

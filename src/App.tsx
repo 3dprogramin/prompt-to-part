@@ -46,6 +46,7 @@ import type { ValidationState } from './components/ValidationPanel';
 import { A1_DEFAULTS, defaultsFromTemplate, printDefaultsFor, type PrintSettings } from '../shared/print';
 import { setPrinter, type PrinterSetup } from '../shared/printer';
 import { backTextDefault, setBackTextDefault } from '../shared/backText';
+import { designKind } from '../shared/designKind';
 import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
 import { forgetChatMode } from './lib/chatModes';
@@ -189,9 +190,9 @@ export default function App() {
     const c = await api.capabilities().catch(() => null);
     setPrintBase(c?.printDefaults ?? printDefaultsFor(info.printer));
   };
-  // The LayerTone back text (PTP_BACK_TEXT), from the capabilities: a preview built before it came builds again.
-  const [backTextDef, setBackTextDef] = useState('');
-  const { result, lastGood, error, busy, resultCode, builtValues } = useLiveModel(geo, design, quality, `${printerInfo?.printer.id ?? ''}|${backTextDef}`);
+  // The LayerTone back text (PTP_BACK_TEXT), from the capabilities (null until they come): a preview built before it came builds again.
+  const [backTextDef, setBackTextDef] = useState<string | null>(null);
+  const { result, lastGood, error, busy, resultCode, builtValues } = useLiveModel(geo, design, quality, `${printerInfo?.printer.id ?? ''}|${backTextDef ?? ''}`);
   // Line art's joins of loose ends, shown in the 3D view while the Print tab's Line art section asks for them.
   const [showJoins, setShowJoins] = useState(false);
   const snapshotRef = useRef<(() => string | null) | null>(null);
@@ -605,7 +606,8 @@ export default function App() {
 
   // ---- printed versions: marking the shown one (its 3MF saved with it), unmarking
   // The 3MF comes from the stored version: a locked version's view changes don't count.
-  const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings: unsavedSettings && !lockReason, hasCode: !!design.code });
+  const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings: unsavedSettings && !lockReason, hasCode: !!design.code,
+    backTextPending: backTextDef === null && designKind(design.code, design.values) === 'layertone' });
   const markDisabled = marking ? 'Marking it as printed...' : problem;
   // A mark or unmark changes the list here and in the other tabs (they lock or unlock it at once).
   const printed = printedActions({ design, problem, printedVersions: lockedVersions, saveNow, setDesign, build3mf, setNotice, setMarking,

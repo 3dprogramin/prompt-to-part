@@ -10,10 +10,13 @@ import type { designExports } from './exports';
 import type { Notice } from './notice';
 
 /** Why the shown version can't be marked printed now, or null. */
-export function markProblem(s: { generating: boolean; unsavedSettings: boolean; hasCode: boolean }): string | null {
+export function markProblem(s: { generating: boolean; unsavedSettings: boolean; hasCode: boolean; backTextPending?: boolean }): string | null {
   if (s.generating) return 'Wait for the reply to finish';
   if (s.unsavedSettings) return 'Save or discard your settings first';
   if (!s.hasCode) return 'Nothing to print yet';
+  // A LayerTone version pins its back text when marked: with the default (PTP_BACK_TEXT) not in yet
+  // it would be pinned off for good.
+  if (s.backTextPending) return 'Wait for the app to finish loading';
   return null;
 }
 
