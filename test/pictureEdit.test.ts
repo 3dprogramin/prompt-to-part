@@ -23,6 +23,7 @@ import type { Raster } from '../shared/meshFormats';
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-picture-edit-test-'));
 process.env.PTP_DATA = dataDir;
 process.env.PTP_AUTH = 'subscription';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 const savedKey = process.env.OPENROUTER_API_KEY;
 // Only the stand-in below is ever asked: the key just lets the route through.
 process.env.OPENROUTER_API_KEY = 'test';

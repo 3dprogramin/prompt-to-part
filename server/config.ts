@@ -112,7 +112,7 @@ export function claudeKeyRefused(status?: number): string {
   if (via === 'openrouter') return `OpenRouter refused the key in OPENROUTER_API_KEY${code}: it may be wrong, revoked or out of credit. Check it in Settings.`;
   // Inferred, a token wins the message whenever one is set, as it did before PTP_CLAUDE.
   const token = claudeViaChosen() ? via === 'custom' : !!process.env.ANTHROPIC_AUTH_TOKEN;
-  if (token) return `${process.env.ANTHROPIC_BASE_URL || 'The API'} refused the token in ANTHROPIC_AUTH_TOKEN${code}. Check it in Settings.`;
+  if (token) return `${(claudeViaChosen() ? claudeBaseUrl() : process.env.ANTHROPIC_BASE_URL) || 'The API'} refused the token in ANTHROPIC_AUTH_TOKEN${code}. Check it in Settings.`;
   return `Anthropic refused the key in ANTHROPIC_API_KEY${code}: it may be wrong or revoked (see platform.claude.com). Check it in Settings.`;
 }
 

@@ -84,6 +84,7 @@ const { after } = await import('node:test');
 const dataDir = mkdtempSync(pathMod.join(os.tmpdir(), 'ptp-ideas-test-'));
 process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'sk-test';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 const { createApp } = await import('../server/app');
 
 let reply: () => string = () => '[]';
@@ -159,7 +160,7 @@ test('writeIdeas: its own timeout reads as taking too long, not as an abort', as
 });
 
 test('POST /api/ideas: 503 without Claude credentials', async () => {
-  const KEYS = ['PTP_AUTH', 'PTP_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
+  const KEYS = ['PTP_CLAUDE', 'PTP_AUTH', 'PTP_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
   const saved = { ...process.env };
   try {
     for (const k of KEYS) delete process.env[k];

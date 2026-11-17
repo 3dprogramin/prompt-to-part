@@ -20,6 +20,7 @@ const dataDir = mkdtempSync(path.join(tmpdir(), 'ptp-prompts-'));
 process.env.PTP_DATA = dataDir;
 after(() => rmSync(dataDir, { recursive: true, force: true }));
 process.env.ANTHROPIC_API_KEY = 'test';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 setPrinter(DEFAULT_PRINTER);
 const { runGeneration } = await import('../server/agent');
 

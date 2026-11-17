@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-photo-busy-test-'));
 process.env.PTP_DATA = dataDir;
 process.env.PTP_AUTH = 'subscription';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 const savedKey = process.env.OPENROUTER_API_KEY;
 process.env.OPENROUTER_API_KEY = 'test';
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });

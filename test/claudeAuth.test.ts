@@ -6,7 +6,7 @@ import path from 'node:path';
 import { claudeEnv } from '../server/agent';
 import { claudeAuthProblem } from '../server/config';
 
-const KEYS = ['PTP_AUTH', 'PTP_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
+const KEYS = ['PTP_CLAUDE', 'PTP_AUTH', 'PTP_DOCKER', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENROUTER_API_KEY'];
 
 /** Runs `fn` with only these of the app's auth variables set, then puts the environment back. */
 function withEnv(vars: Record<string, string>, fn: () => void) {

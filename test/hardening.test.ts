@@ -9,6 +9,7 @@ import path from 'node:path';
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-hardening-test-'));
 process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'sk-test';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 process.env.NODE_ENV = 'test';
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;

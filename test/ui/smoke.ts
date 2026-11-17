@@ -29,6 +29,7 @@ process.env.PTP_DATA = dataDir;
 process.env.NODE_ENV = 'production';
 // The stand-in for Claude needs no credentials, but the API checks them first.
 process.env.PTP_AUTH = 'subscription';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 delete process.env.PTP_DOCKER;
 // No presets of this computer's Bambu Studio user in the printer list.
 process.env.BAMBU_STUDIO_USER_DIR = path.join(dataDir, 'no-bambu-user');

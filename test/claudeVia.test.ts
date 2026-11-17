@@ -136,9 +136,9 @@ test('the texts that send the user to .env also point to Settings, and a refused
 
 test('the connection check sends no key to another provider', async () => {
   env({ PTP_CLAUDE: 'custom', ANTHROPIC_BASE_URL: 'https://p.example', ANTHROPIC_AUTH_TOKEN: 'T', ANTHROPIC_API_KEY: 'A' });
-  const seen: Headers[] = []; stubFetch((_url, init) => { seen.push(new Headers(init?.headers)); return new Response('{}'); });
+  const seen: Headers[] = []; const urls: string[] = []; stubFetch((url, init) => { urls.push(url); seen.push(new Headers(init?.headers)); return new Response('{}'); });
   const c = await checkConnection(true);
-  assert.equal(c.via, 'custom');
+  assert.equal(c.via, 'custom'); assert.deepEqual(urls, ['https://p.example/v1/models']);
   for (const h of seen) { assert.equal(h.get('x-api-key'), null); assert.equal(h.get('authorization'), null); }
 });
 

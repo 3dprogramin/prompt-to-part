@@ -122,7 +122,7 @@ function friendlyError(msg: string, limited: boolean) {
   if (limited) return `${authMode() === 'subscription' ? 'Your Claude subscription\'s usage limit is reached' : 'Claude usage limit reached for now'}. (${msg})`;
   if (/auth|login|credential|401|oauth|invalid api key/i.test(msg)) {
     if (authMode() === 'api-key') return `${claudeKeyRefused()} (${msg})`;
-    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed: the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart prompt-to-part. (${msg})`;
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return `Claude authentication failed: the token in CLAUDE_CODE_OAUTH_TOKEN may have expired or been revoked: make a new one with \`claude setup-token\` and restart prompt-to-part, or save it in Settings (the gear). (${msg})`;
     return `Claude authentication failed: run \`claude\` in a terminal and log in (/login) with your subscription. (${msg})`;
   }
   return msg;

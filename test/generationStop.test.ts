@@ -13,6 +13,7 @@ const dataDir = mkdtempSync(path.join(tmpdir(), 'ptp-stop-'));
 // server/config.ts reads these when it is first imported.
 process.env.PTP_DATA = dataDir;
 process.env.ANTHROPIC_API_KEY = 'test';
+process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 setPrinter(DEFAULT_PRINTER);
 const { runGeneration } = await import('../server/agent');
 const { geometry } = await import('../server/geometry');
