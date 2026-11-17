@@ -2467,6 +2467,103 @@ test('Settings: the Filaments tab on a phone-width screen stacks its panes and n
   }
 });
 
+test('Settings: the Filaments tab changes nothing before your list is read, and its edit form opens in view and refuses a name you already have', TEST, async () => {
+  await knownPrinter();
+  assert.equal((await putShelf(SHELF)).status, 200);
+  const page = await newPage({ viewport: { width: 380, height: 800 }, isMobile: true, hasTouch: true });
+  // The first read of the list fails, the second (Try again) waits until released; every PUT is counted.
+  let reads = 0, puts = 0;
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  await page.route('**/api/filaments/mine', async (route) => {
+    if (route.request().method() === 'PUT') { puts++; return route.continue(); }
+    reads++;
+    if (reads === 1) return route.fulfill({ status: 500, json: { error: 'Server busy' } });
+    if (reads === 2) await held;
+    return route.continue();
+  });
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const mine = dialog.getByRole('region', { name: 'My filaments' });
+  const library = dialog.getByRole('region', { name: 'Library' });
+  const cards = library.getByRole('list', { name: 'Library filaments' }).getByRole('button');
+  const rows = mine.getByRole('listitem');
+  const empty = mine.getByText('No filaments yet. Add one from the library, or a custom one.');
+  const active = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName ?? '');
+  try {
+    await page.goto(`${A}/`);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
+
+    // The read failed: said so, with Try again; not the empty shelf; nothing can be added.
+    await mine.getByText('Your filaments could not be loaded. Nothing was changed.').waitFor();
+    assert.equal(await empty.count(), 0, 'a failed read is not "No filaments yet"');
+    assert.equal(await mine.getByRole('button', { name: 'Custom filament' }).isDisabled(), true);
+    assert.equal(await cards.first().getAttribute('aria-disabled'), 'true');
+    await cards.first().click({ force: true });
+    await page.waitForTimeout(400);
+    assert.equal(puts, 0, 'a card click after a failed read sends nothing');
+
+    // Try again: loading (the read is held), still not the empty shelf, a card click still sends nothing.
+    await mine.getByRole('button', { name: 'Try again' }).click();
+    await mine.getByText('Loading your filaments…').waitFor();
+    assert.equal(await empty.count(), 0, 'loading is not "No filaments yet"');
+    await cards.nth(1).click({ force: true });
+    await page.waitForTimeout(400);
+    assert.equal(puts, 0, 'a card click while loading sends nothing');
+    release();
+    await rows.nth(4).waitFor();
+    assert.equal(puts, 0);
+    assert.equal((await getShelf()).length, 5, 'the saved list is whole');
+
+    // On a phone a row is two lines: the name in full, then the rolls (a narrow box), Edit and Remove.
+    const rowsLayout = await mine.locator('.fil-row').evaluateAll((els) => els.map((e) => {
+      const name = e.querySelector('.fil-name')!.getBoundingClientRect(), rolls = e.querySelector('.fil-rolls input')!.getBoundingClientRect();
+      const title = e.querySelector('.layertone-title')!;
+      return { nameBottom: name.bottom, rollsTop: rolls.top, rollsW: rolls.width, clipped: title.scrollWidth > title.clientWidth + 1, font: parseFloat(getComputedStyle(e.querySelector('.fil-rolls input')!).fontSize) };
+    }));
+    for (const r of rowsLayout) {
+      assert.ok(r.rollsTop >= r.nameBottom - 1, `rolls under the name (${JSON.stringify(r)})`);
+      assert.ok(r.rollsW <= r.font * 3.6, `the rolls box is narrow (${r.rollsW}px)`);
+      assert.equal(r.clipped, false, 'the name is not cut');
+    }
+    await page.screenshot({ path: path.join(shots, 'filaments-phone-fixed.png') });
+
+    // Edit on the last row: the form is in view with the focus in its name.
+    const last = rows.nth(4);
+    const lastName = (await last.locator('.layertone-title').innerText()).trim();
+    await last.scrollIntoViewIfNeeded();
+    await last.getByRole('button', { name: `Edit ${lastName}` }).click();
+    const form = mine.getByRole('group', { name: `Edit ${lastName}` });
+    await form.waitFor();
+    assert.equal(await active(), 'Filament name', 'the focus is in the form');
+    const fb = (await form.boundingBox())!;
+    assert.ok(fb.y >= 0 && fb.y < 800, `the form is on screen (${JSON.stringify(fb)})`);
+    await page.screenshot({ path: path.join(shots, 'filaments-form-fixed.png') });
+
+    // Renamed to another saved filament's name and brand: refused under the name, nothing sent.
+    const other = rows.nth(3);
+    const otherName = (await other.locator('.layertone-title').innerText()).trim();
+    const nameBox = form.getByRole('textbox', { name: 'Filament name' });
+    await nameBox.fill(otherName);
+    await form.getByRole('button', { name: 'Save changes' }).click();
+    await form.getByText('You already have a filament with this brand and name.').waitFor();
+    assert.equal(await nameBox.getAttribute('aria-invalid'), 'true');
+    assert.ok((await nameBox.getAttribute('aria-describedby'))?.length);
+    await page.waitForTimeout(300);
+    assert.equal(puts, 0, 'nothing was sent');
+    assert.deepEqual((await getShelf()).map((f) => f.name).sort(), SHELF.map((f) => f.name).sort());
+    // Done: the focus goes back to the row's Edit.
+    await form.getByRole('button', { name: 'Done' }).click();
+    await form.waitFor({ state: 'detached' });
+    assert.equal(await active(), `Edit ${lastName}`);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+  } finally {
+    release();
+    await page.close();
+    await putShelf([]);
+  }
+});
+
 test('Settings: "Edit my filaments in Settings" in a filament picker opens the Filaments tab, also over the line art editor, which keeps its shortcuts to itself', TEST, async () => {
   assert.equal((await putShelf([{ name: 'Smoke Picker Teal', brand: 'Acme', color: '#1f9d8f', td: 1.7, rolls: 2 }])).status, 200);
   const pid = 'ui-smoke-000000f1', lid = 'ui-smoke-000000f2';
