@@ -11,31 +11,33 @@ The file is plain JavaScript and runs in a sandbox (no imports, no async, no DOM
 
 \`\`\`js
 const meta = {
-  name: 'Wine Bottle Opener',
-  description: 'Corkscrew with T-handle',
+  name: 'Taper Candle Holder',
+  description: 'Low dish with a tapered socket',
 };
 
 // Parameters → sliders/toggles in the UI. Keys are used as p.<key> in build().
 const params = {
-  handleLength: { label: 'Handle length', type: 'number', min: 60, max: 140, step: 1, value: 95, unit: 'mm', group: 'Handle', drives: 'x' },
-  turns:        { label: 'Spiral turns', type: 'integer', min: 3, max: 9, value: 5, group: 'Spiral' },
-  pitch:        { label: 'Spiral pitch', type: 'number', min: 4, max: 12, step: 0.1, value: 7, unit: 'mm', group: 'Spiral', description: 'Rise per turn' },
-  grip:         { label: 'Grip texture', type: 'boolean', value: true, group: 'Handle' },
-  style:        { label: 'Handle style', type: 'select', options: ['round', 'flat'], value: 'round', group: 'Handle' },
+  candleD:   { label: 'Candle diameter', type: 'number', min: 6, max: 30, step: 0.1, value: 22, unit: 'mm', group: 'Candle' },
+  clearance: { label: 'Clearance', type: 'number', min: 0.1, max: 1, step: 0.05, value: 0.3, unit: 'mm', group: 'Candle', description: 'Gap per side at the socket mouth' },
+  dishD:     { label: 'Dish diameter', type: 'number', min: 40, max: 120, step: 1, value: 60, unit: 'mm', group: 'Dish', drives: 'x' },
+  ribs:      { label: 'Grip ribs', type: 'integer', min: 0, max: 8, value: 4, group: 'Candle' },
+  rim:       { label: 'Drip rim', type: 'boolean', value: true, group: 'Dish' },
+  style:     { label: 'Dish style', type: 'select', options: ['round', 'hex'], value: 'round', group: 'Dish' },
 };
 
 function build(p) {
   // derive & clamp dependent values so EVERY slider combination produces valid geometry
-  const wire = Math.min(3, p.pitch * 0.4);
+  const socketD = p.candleD + 2 * p.clearance;
+  const dishD = Math.max(p.dishD, socketD + 12);
   ...
   return {
     parts: [
-      { name: 'Opener', shape: opener, color: '#c9a26b' },
+      { name: 'Holder', shape: holder, color: '#c9a26b' },
     ],
     // 2–6 callouts of the most important feature dimensions (the app already shows the overall W×D×H).
     dimensions: [
-      { label: 'Spiral length', from: [0, 0, 0], to: [0, 0, spiralLen], offset: [12, 0, 0] },
-      { label: 'Handle', from: [-p.handleLength / 2, 0, top], to: [p.handleLength / 2, 0, top], param: 'handleLength' },
+      { label: 'Socket depth', from: [0, 0, top - socketDepth], to: [0, 0, top], offset: [dishD / 2 + 8, 0, 0] },
+      { label: 'Socket', from: [-socketD / 2, 0, top], to: [socketD / 2, 0, top], param: 'candleD' },
     ],
   };
 }

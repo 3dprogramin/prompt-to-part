@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildSync } from 'esbuild';
-import { ROOT } from './config';
+import { ROOT, backText } from './config';
 import { loadFontBuffers } from './fonts';
 import { readMeshFile } from './meshes';
 import type { ImportOptions, ImportReport } from '../shared/meshRepair';
@@ -166,7 +166,7 @@ function attempt(w: Worker, msg: Record<string, unknown>, timeoutMs: number, sig
       : `Timed out after ${Math.round(timeoutMs / 1000)} s: the script is too slow (or loops forever). Reduce segment counts, avoid huge loops/minkowski/levelSet.`)), timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
     pending.set(id, { worker: w, resolve: (r) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve(r); } });
-    w.send({ ...msg, id, printer: printer() });
+    w.send({ ...msg, id, printer: printer(), backText: backText() });
   });
 }
 

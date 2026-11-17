@@ -27,6 +27,9 @@ RUN --mount=type=cache,target=/pnpm-store pnpm install --frozen-lockfile --store
 # ---- the browser app (dist/) ----
 FROM deps AS build
 COPY . .
+# The commit this image is built from (scripts/rebuild.sh passes it; empty without it: version only).
+ARG PTP_COMMIT=
+ENV VITE_APP_COMMIT=$PTP_COMMIT
 RUN pnpm run build
 
 # ---- runtime dependencies only ----
@@ -88,6 +91,8 @@ COPY --from=blender /opt/blender /opt/blender
 RUN if [ "$WITH_BLENDER" = 1 ]; then ln -s /opt/blender/blender /usr/local/bin/blender; else rmdir /opt/blender; fi
 
 WORKDIR /app
+# Declared here, after the package layers, so a new commit does not rebuild them.
+ARG PTP_COMMIT=
 # UV_THREADPOOL_SIZE: name lookups and file reads share Node's thread pool (4 threads by default), so
 # a slow DNS server would otherwise hold up every file read and stall the whole server.
 ENV NODE_ENV=production \
@@ -96,6 +101,7 @@ ENV NODE_ENV=production \
     PORT=8787 \
     PTP_DATA=/data \
     PTP_DOCKER=1 \
+    PTP_COMMIT=$PTP_COMMIT \
     CLAUDE_CONFIG_DIR=/home/node/.claude
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

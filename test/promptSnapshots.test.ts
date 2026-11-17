@@ -154,6 +154,10 @@ test('prompt for picture-edit-layertone', async () => {
     pictureEditPrompt({ mode: 'layertone', change: 'take out the lamp post', masked: false, photos: 0 }),
     '# marked, padded, with two photos',
     pictureEditPrompt({ mode: 'layertone', change: 'make her smile', masked: true, photos: 2, padded: true }),
+    '# strip picture, marked, with a photo',
+    pictureEditPrompt({ mode: 'layertone', change: 'swap the man on the left for the man in the photo', masked: true, photos: 1, strip: [{ name: 'Black' }, { name: 'Dark Brown' }, { name: 'Ash Gray' }, { name: 'Cold White' }] }),
+    '# strip picture, the whole picture',
+    pictureEditPrompt({ mode: 'layertone', change: 'make the glow behind him slightly dimmer', masked: false, photos: 0, strip: [{ name: 'Black' }, { name: 'Cold White' }] }),
     '',
   ].join('\n');
   const file = path.join(FIXTURES, 'picture-edit-layertone.md');

@@ -69,9 +69,9 @@ export function artworkPrompt(r: ArtworkRequest): string {
 }
 
 /** Asks the image model for the artwork and traces it. */
-export async function generateArtwork(name: string, r: ArtworkRequest, signal?: AbortSignal, onStatus?: (text: string) => void): Promise<Artwork> {
+export async function generateArtwork(name: string, r: ArtworkRequest, signal?: AbortSignal, onStatus?: (text: string) => void, draw = requestImage): Promise<Artwork> {
   const prompt = artworkPrompt(r);
-  const { image, model, cost } = await requestImage(prompt, r.aspect ?? '1:1', r.references, signal, onStatus);
+  const { image, model, cost } = await draw(prompt, r.aspect ?? '1:1', r.references, signal, onStatus);
   const traced = traceArtwork(decodeImage(Buffer.from(image.data, 'base64')), r.colors?.length ? r.colors : undefined, r.tones ?? 4, name);
   return { prompt, model, cost, image, ...traced };
 }

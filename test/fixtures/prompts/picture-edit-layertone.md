@@ -25,3 +25,22 @@ Rules for what you change:
 - a realistic photo, like the rest of the picture: the same light, focus, grain, brightness and contrast, so that it blends in with no visible seam
 - in grey tones only, as the rest of the picture (the print has no colour)
 - no outline, border or frame around the change, and no text, signature or watermark
+# strip picture, marked, with a photo
+Edit the first attached picture: it is part of a picture 3D printed as a LayerTone filament painting, painted only in the colours that print can show. The second attached picture is the same part with the area to change outlined in magenta; the third is the whole picture, for context only.
+The last attached picture is the colour strip of that print (filaments Black, then Dark Brown, then Ash Gray, then Cold White): every colour it can show, from its lowest layers (left) to its highest (right).
+Change only this inside the outlined area: swap the man on the left for the man in the photo
+The attached photo after them shows the real person or subject for the part you change: keep their likeness.
+Keep everything else exactly as it is: the same picture size and framing, and every person, object, edge and colour outside the outlined area where it is; copy them, don't redraw them. Answer with the first picture changed, without the magenta outline.
+Rules for what you change:
+- only colours from the strip, as the rest of the picture: every area in the strip colour it should print in, so it blends in with no visible seam
+- the same light and detail as the rest of the picture
+- no outline, border or frame around the change, and no text, signature or watermark; the strip itself does not appear in the answer
+# strip picture, the whole picture
+Edit the first attached picture: it is a picture 3D printed as a LayerTone filament painting, painted only in the colours that print can show.
+The last attached picture is the colour strip of that print (filaments Black, then Cold White): every colour it can show, from its lowest layers (left) to its highest (right).
+Change only this: make the glow behind him slightly dimmer
+Keep everything else exactly as it is: the same picture size and framing, the same people and things in the same places and poses, and every colour you are not asked to change; copy them, don't redraw them.
+Rules for what you change:
+- only colours from the strip, as the rest of the picture: every area in the strip colour it should print in, so it blends in with no visible seam
+- the same light and detail as the rest of the picture
+- no outline, border or frame around the change, and no text, signature or watermark; the strip itself does not appear in the answer

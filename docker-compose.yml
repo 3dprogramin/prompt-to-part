@@ -16,6 +16,8 @@ services:
         WITH_BAMBU: ${PTP_WITH_BAMBU:-0}
         # 1 adds Blender for .blend export (larger image, amd64 only).
         WITH_BLENDER: ${PTP_WITH_BLENDER:-0}
+        # The commit the image is built from (scripts/rebuild.sh sets it), recorded on new versions and prints.
+        PTP_COMMIT: ${PTP_COMMIT:-}
     image: prompt-to-part:local
     env_file: .env
     # These win over .env, which may still hold a local install's paths.

@@ -4,6 +4,7 @@ import { usePopover } from './usePopover';
 import { whenFull, whenShort } from '../lib/when';
 import { versionNote } from '../lib/pictureEdit';
 import { Icon } from './Icon';
+import { formatAppBuild, type AppBuild } from '../../shared/appBuild';
 
 interface Props {
   versions: DesignVersion[];
@@ -12,7 +13,7 @@ interface Props {
   /** Start a new design from this version (its own chat and Claude session). */
   onFork: (index: number) => void;
   /** The versions marked printed: when, and whether a 3MF was saved. */
-  printed: ReadonlyMap<number, { at: number; file: boolean }>;
+  printed: ReadonlyMap<number, { at: number; file: boolean; app?: AppBuild }>;
   /** Why the shown version can't be marked printed now, or null. */
   markDisabled: string | null;
   /** Mark the shown version printed. */
@@ -38,10 +39,10 @@ export function VersionMenu({ versions, current, onRestore, onFork, printed, mar
                 <span className="version-line">
                   <span className={`version-chip ${v.source}`}>v{i + 1}</span>
                   <span className="version-summary">{v.summary}</span>
-                  {printed.has(i) && <span className="printed-badge" title={`Marked printed ${whenFull(printed.get(i)!.at)}: locked`}>Printed</span>}
+                  {printed.has(i) && <span className="printed-badge" title={`Marked printed ${whenFull(printed.get(i)!.at)}${printed.get(i)!.app ? ` with ${formatAppBuild(printed.get(i)!.app)}` : ''}: locked`}>Printed</span>}
                 </span>
                 <span className="dim small">
-                  <time title={whenFull(v.createdAt)}>{whenShort(v.createdAt)}</time> · {versionNote(v, versions.length)}{i === current ? ' · shown now' : ''}
+                  <time title={`${whenFull(v.createdAt)}${v.app ? `\nMade with ${formatAppBuild(v.app)}` : ''}`}>{whenShort(v.createdAt)}</time> · {versionNote(v, versions.length)}{i === current ? ' · shown now' : ''}
                 </span>
               </button>
               {i === current && (printed.has(i)

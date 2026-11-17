@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
@@ -5,6 +6,11 @@ import react from '@vitejs/plugin-react';
 
 // The app's version (package.json), shown in the top bar as import.meta.env.VITE_APP_VERSION.
 process.env.VITE_APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
+// The short git commit of this build (import.meta.env.VITE_APP_COMMIT), '' without git. A value passed in
+// (the Docker build has no .git) wins.
+process.env.VITE_APP_COMMIT ||= (() => {
+  try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; }
+})();
 
 const API = `http://127.0.0.1:${process.env.API_PORT ?? 8787}`;
 // Forward slashes: the deny globs below don't match Windows backslashes.

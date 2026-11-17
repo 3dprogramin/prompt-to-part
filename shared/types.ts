@@ -1,5 +1,6 @@
 import type { Load, StabilityReport } from './stability';
 import type { DimensionSource } from './sources';
+import type { AppBuild } from './appBuild';
 import type { PrintProfile } from './print';
 import type { LayerToneSource, LayerColor } from './layertone';
 import type { LithophaneSource } from './lithophane';
@@ -128,7 +129,15 @@ export interface PartMesh {
    * index into them. Triangles of the script's own geometry are in the part's colour.
    */
   paint?: { filaments: PaintFilament[]; tri: Uint8Array; source?: PaintSource };
+  /** LayerTone part: the mirrored back text in its first layers, a separate mesh in its own filament (shared/backText.ts). */
+  backText?: BackTextMesh;
 }
+
+/**
+ * The back text of a LayerTone part, in the part's coordinates: from its bottom (bbox min z) up to
+ * min z + topZ, mirrored in X so it reads from the back. Its filament is name/brand/color/td.
+ */
+export interface BackTextMesh { positions: Float32Array; indices: Uint32Array; text: string; color: string; name: string; brand?: string; td: number; layers: number; topZ: number }
 
 /**
  * Where each triangle of a painted part came from, for repainting by hand (a click on the part
@@ -282,6 +291,8 @@ export interface DesignVersion {
   stability?: StabilityReport;
   /** Set when this version came from editing a picture. */
   pictureEdit?: PictureEditInfo;
+  /** The build of the app that made this version (missing before it was recorded). Beside values, never in them. */
+  app?: AppBuild;
 }
 
 export interface Design {
@@ -354,7 +365,7 @@ export interface DesignSummary {
   /** Its tags (shared/tags.ts), built-ins first; none: left out. */
   tags?: string[];
   /** Its versions marked Printed (shared/printed.ts), without the fingerprint; none: left out. */
-  printed?: { v: number; at: number; file: boolean; settings: boolean }[];
+  printed?: { v: number; at: number; file: boolean; settings: boolean; app?: AppBuild }[];
   /** What kind of design its current code makes (shared/designKind.ts). */
   kind?: DesignKind;
 }

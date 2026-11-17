@@ -1,11 +1,14 @@
 import { whenFull, whenShort } from '../lib/when';
 import { Icon } from './Icon';
+import { formatAppBuild, type AppBuild } from '../../shared/appBuild';
 
 interface Props {
   /** The printed version's index (0-based). */
   v: number;
   /** When it was marked. */
   at: number;
+  /** The build that marked it (missing on older marks). */
+  app?: AppBuild;
   /** A 3MF was saved with the mark. */
   file: boolean;
   /** The saved 3MF has print settings in it. */
@@ -24,12 +27,14 @@ interface Props {
 }
 
 /** Over the 3D view while a printed version is shown: it is locked, its 3MF and how to change it. */
-export function PrintedBanner({ v, at, file, settings, fileUrl, onClone, onMake3mf, makeDisabled, making, onUnmark }: Props) {
+export function PrintedBanner({ v, at, app, file, settings, fileUrl, onClone, onMake3mf, makeDisabled, making, onUnmark }: Props) {
+  const build = formatAppBuild(app);
   return (
     <span className="printed-banner">
       <Icon name="printer" size={13} />
       <b>Printed v{v + 1} · locked</b>
-      <time className="dim" title={`Marked ${whenFull(at)}`}>{whenShort(at)}</time>
+      <time className="dim" title={`Marked ${whenFull(at)}${build ? ` with prompt-to-part ${build}` : ''}`}>{whenShort(at)}</time>
+      {build && <span className="dim"> · {build}</span>}
       {file
         ? <span><a className="link" href={fileUrl} download title="The 3MF saved when it was marked">Download 3MF</a>{!settings && <span className="dim"> (no print settings)</span>}</span>
         : making

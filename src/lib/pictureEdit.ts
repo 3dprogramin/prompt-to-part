@@ -9,6 +9,7 @@ import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { formatCost } from '../../shared/duration';
 import { request } from './api';
 import { uid } from './files';
+import { appBuild } from './appBuild';
 
 /** Two bounding boxes agree to this many mm on all six bounds. */
 const BOX_TOLERANCE = 0.01;
@@ -120,7 +121,7 @@ export function applyPictureEdit(d: Design, r: PictureEditResponse, info: Omit<P
   const now = Date.now();
   const short = change.length > SUMMARY_CHANGE ? `${change.slice(0, SUMMARY_CHANGE - 1).trimEnd()}…` : change;
   const versions: DesignVersion[] = [...d.versions, {
-    code: d.code, summary: `Picture edit: ${short}`, createdAt: now, source: 'manual', values: versionValues,
+    code: d.code, summary: `Picture edit: ${short}`, createdAt: now, source: 'manual', values: versionValues, app: appBuild(),
     pictureEdit: { ...info, change, parent: d.currentVersion, linesUp: false },
   }];
   const vi = versions.length - 1;

@@ -1,5 +1,6 @@
 import type { DimTarget, EvalResult, ParamValues, Quality, ScriptErrorInfo, SolveResult } from '../../shared/types';
 import { printer } from '../../shared/printer';
+import { backTextDefault } from '../../shared/backText';
 import type { ValidateOptions, ValidationReport } from './validate';
 
 export type EvalOutcome =
@@ -177,7 +178,7 @@ export class GeometryClient {
       this.pump();
     }, job.timeoutMs);
     this.running = { id, job, timer, started: performance.now() };
-    this.worker.postMessage({ printer: printer(), ...(job.owners
+    this.worker.postMessage({ printer: printer(), backText: backTextDefault(), ...(job.owners
       ? { id, kind: 'owners', code: job.code, values: job.values }
       : job.solve
       ? { id, kind: 'solve', code: job.code, values: job.values, quality: job.quality, ...job.solve }

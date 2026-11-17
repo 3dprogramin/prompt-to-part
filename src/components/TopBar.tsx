@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import type { Design, DesignSummary } from '../../shared/types';
 import type { DesignKind } from '../../shared/designKind';
 import { TEMP_TAG } from '../../shared/tags';
+import type { AppBuild } from '../../shared/appBuild';
 import { cleanFilter, tagCounts, type DesignFilter } from '../lib/designList';
 import { load, store } from '../lib/storage';
 import { Icon } from './Icon';
@@ -24,7 +25,7 @@ interface Props {
   /** New design from a version. */
   onFork: (versionIndex: number) => void;
   /** The open design's printed versions, and marking the shown one (VersionMenu). */
-  printed: ReadonlyMap<number, { at: number; file: boolean }>;
+  printed: ReadonlyMap<number, { at: number; file: boolean; app?: AppBuild }>;
   markDisabled: string | null;
   onMark: () => void;
   onUnmark: (versionIndex: number) => void;

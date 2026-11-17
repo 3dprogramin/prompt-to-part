@@ -9,8 +9,11 @@ import type { GeometryClient } from '../geometry/client';
  * from another design; `resultCode` is the code `result` was built from; `builtValues` the values
  * object built, the same while only the picture marks change.
  */
-/** `printerId`: the chosen printer; a new one builds the model again (what fits, its checks and line art splits follow the bed). */
-export function useLiveModel(geo: GeometryClient, design: Design, quality: Quality, printerId = '') {
+/**
+ * `buildKey`: what the build depends on besides the design (the chosen printer: what fits, its checks
+ * and line art splits follow the bed; the LayerTone back text default); a new one builds the model again.
+ */
+export function useLiveModel(geo: GeometryClient, design: Design, quality: Quality, buildKey = '') {
   const [result, setResult] = useState<EvalResult | null>(null);
   const [lastGood, setLastGood] = useState<EvalResult | null>(null);
   const [error, setError] = useState<ScriptErrorInfo | null>(null);
@@ -42,7 +45,7 @@ export function useLiveModel(geo: GeometryClient, design: Design, quality: Quali
       else { setError(o.error); setResult(null); }
     });
     return () => { cancelled = true; };
-  }, [geo, design.id, design.code, values, quality, printerId]);
+  }, [geo, design.id, design.code, values, quality, buildKey]);
 
   return { result, lastGood, error, busy, resultCode, builtValues: values };
 }

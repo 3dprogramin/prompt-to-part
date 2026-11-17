@@ -7,6 +7,7 @@ import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProf
 import { bedShift, printer } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
+import type { LayerColor } from '../../shared/layertone';
 import { CONTENT_TYPES, esc, num } from './threeMf';
 
 /**
@@ -152,10 +153,48 @@ export interface FilamentPlan {
   paint: number[][];
   /** Each part's filament changes, bottom → top (none for a normal part). */
   changes: FilamentChange[][];
+  /** Each part's back text filament (1-based; PartMesh.backText), printed in its first layers; 0 for none. */
+  backText: number[];
+  /**
+   * How many print layers each part's back text covers (0 for none): its own count, but always
+   * below the first filament change on the print's layers, so the first filament keeps a layer
+   * above it; no text when there is no room.
+   */
+  backTextLayers: number[];
   /** The AMS slot (1–4) each filament goes in; 0 for a filament nothing prints with. */
   ams: number[];
   /** Why the filaments don't fit the AMS even with pauses (more than 4 needed at the same layer). */
   problem?: string;
+}
+
+type PrintLayers = { layerHeight: number; firstLayerHeight: number };
+
+/** The print layer whose bottom is nearest to z (the end of a part: the first layer above it). */
+const printLayerAt = (z: number, r: PrintLayers) => (z < r.firstLayerHeight / 2 ? 0 : Math.max(1, Math.round((z - r.firstLayerHeight) / r.layerHeight + 1e-6) + 1));
+
+/**
+ * A LayerTone stack on the print's layers, bottom up: `all` its filaments, `kept` those that print
+ * a layer (not when the next one starts on the same layer, or when it starts above the top) with
+ * the layer each starts on, the first from layer 0. `height`: the part's.
+ */
+function printStack(layerColors: LayerColor[], height: number, r: PrintLayers) {
+  const top = printLayerAt(height, r) - 1;
+  const all = [...layerColors].sort((a, b) => a.z - b.z).map((l) => ({ colour: hex(l.color), name: l.name ?? '', layer: printLayerAt(l.z, r) }));
+  const kept = all.filter((s, k) => s.layer <= top && (k + 1 === all.length || all[k + 1].layer > s.layer));
+  if (!kept.length || kept[0].layer > 0) kept.unshift({ ...all[0], layer: 0 });
+  return { all, kept, top };
+}
+
+/**
+ * How many print layers a LayerTone part's back text gets (FilamentPlan.backTextLayers): its own
+ * count (`textLayers`, decided on the part's layers), but below the first filament change on the
+ * print's layers, which can come sooner (a scaled part), so the first filament keeps a layer above
+ * it; 0 when there is no room. The Print tab says the same.
+ */
+export function backTextPrintLayers(textLayers: number, layerColors: LayerColor[], height: number, r: PrintLayers): number {
+  const { kept } = printStack(layerColors, height, r);
+  const k = kept.findIndex((s, i) => i > 0 && (s.colour !== kept[i - 1].colour || s.name !== kept[i - 1].name));
+  return Math.max(0, Math.min(textLayers, (k < 0 ? Infinity : kept[k].layer) - 1));
 }
 
 /**
@@ -173,16 +212,16 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
     if (i < 0) i = filaments.push(name ? { colour, name } : { colour }) - 1;
     return i + 1;
   };
-  const h = layers.layerHeight, first = layers.firstLayerHeight, eps = 1e-6;
+  const h = layers.layerHeight, first = layers.firstLayerHeight;
   const bottom = (i: number) => (i === 0 ? 0 : first + (i - 1) * h);
-  /** The layer whose bottom is nearest to z (the end of a part: the first layer above it). */
-  const layerAt = (z: number) => (z < first / 2 ? 0 : Math.max(1, Math.round((z - first) / h + eps) + 1));
+  const layerAt = (z: number) => printLayerAt(z, layers);
   const used: [number, number][][] = []; // per filament: [first, last] layer ranges
   const use = (f: number, from: number, to: number) => { if (to >= from) (used[f - 1] ??= []).push([from, to]); };
   const floor = Math.min(...parts.map((p) => p.bbox.min[2]));
 
-  const slot: number[] = [], changes: FilamentChange[][] = [], paint: number[][] = [];
+  const slot: number[] = [], changes: FilamentChange[][] = [], paint: number[][] = [], backText: number[] = [], backTextLayers: number[] = [];
   for (const p of parts) {
+    backText.push(0); backTextLayers.push(0);
     const top = layerAt(p.bbox.max[2] - p.bbox.min[2]) - 1;
     if (p.paint?.filaments.length && !p.layerColors?.length) {
       // Painted: every filament of it counts for its whole height; the part's own is its most used.
@@ -200,14 +239,22 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
       use(f, layerAt(p.bbox.min[2] - floor), layerAt(p.bbox.max[2] - floor) - 1);
       continue;
     }
-    const stack = [...p.layerColors].sort((a, b) => a.z - b.z).map((l) => ({ f: add(hex(l.color), l.name ?? ''), layer: layerAt(l.z) }));
-    // A filament that would print no layer (the next one starts on the same layer, or it starts above the top) is left out.
-    const kept = stack.filter((s, k) => s.layer <= top && (k + 1 === stack.length || stack[k + 1].layer > s.layer));
-    if (!kept.length || kept[0].layer > 0) kept.unshift({ ...stack[0], layer: 0 });
+    // A filament that would print no layer is left out (it is still listed).
+    const stack = printStack(p.layerColors, p.bbox.max[2] - p.bbox.min[2], layers);
+    for (const s of stack.all) add(s.colour, s.name);
+    const kept = stack.kept.map((s) => ({ f: add(s.colour, s.name), layer: s.layer }));
     kept.forEach((s, k) => use(s.f, s.layer, k + 1 < kept.length ? kept[k + 1].layer - 1 : top));
     slot.push(kept[0].f);
     changes.push(kept.slice(1).filter((s, k) => s.f !== kept[k].f)
       .map((s) => ({ filament: s.f, layer: s.layer, z: +bottom(s.layer).toFixed(5), topZ: +(first + s.layer * h).toFixed(5) })));
+    // The back text: its own filament (the stack's when the same), in its first print layers.
+    const n = p.backText ? backTextPrintLayers(p.backText.layers, p.layerColors, p.bbox.max[2] - p.bbox.min[2], layers) : 0;
+    if (n > 0) {
+      const f = add(hex(p.backText!.color), p.backText!.name);
+      use(f, 0, n - 1);
+      backText[backText.length - 1] = f;
+      backTextLayers[backTextLayers.length - 1] = n;
+    }
   }
 
   // AMS slots, in the order the filaments are first needed: a free slot, else one whose filament is done.
@@ -224,7 +271,7 @@ export function filamentPlan(parts: PartMesh[], layers: { layerHeight: number; f
     ams[f - 1] = free.s + 1;
     for (const list of changes) for (const c of list) if (c.filament === f && c.layer === start) c.pause = { slot: free.s + 1, replaces: free.g };
   }
-  return { filaments, slot, paint, changes, ams, ...(problem ? { problem } : {}) };
+  return { filaments, slot, paint, changes, backText, backTextLayers, ams, ...(problem ? { problem } : {}) };
 }
 
 /** The design's filaments, as the Bambu project gets them (the same colour and name share one). */
@@ -267,6 +314,26 @@ function meshXml(p: PartMesh, c: number[], paint?: { filament: number[]; own: nu
     t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${f && f !== paint!.own ? ` paint_color="${paintColor(f)}"` : ''}/>`);
   }
   return `<mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh>`;
+}
+
+/** How far the back text pokes below the bed, so its bottom layer is surely inside it. */
+const TEXT_BELOW = 0.1;
+
+/**
+ * A part's back text mesh (PartMesh.backText), its heights moved onto the print's layers: its
+ * bottom TEXT_BELOW under the part's bottom (the bed), its top at the top of print layer `count`
+ * (FilamentPlan.backTextLayers; the part's own topZ follows its scaled layers, not the print's),
+ * minus the centre `c` like meshXml.
+ */
+function backTextXml(p: PartMesh, c: number[], layers: { layerHeight: number; firstLayerHeight: number }, count: number): string {
+  const t = p.backText!, z0 = p.bbox.min[2];
+  const top = layers.firstLayerHeight + (count - 1) * layers.layerHeight;
+  const z = (v: number) => -TEXT_BELOW + ((v - z0) / t.topZ) * (top + TEXT_BELOW);
+  const v: string[] = [];
+  for (let k = 0; k < t.positions.length; k += 3) v.push(`<vertex x="${num(t.positions[k] - c[0])}" y="${num(t.positions[k + 1] - c[1])}" z="${num(z0 + z(t.positions[k + 2]) - c[2])}"/>`);
+  const f: string[] = [];
+  for (let k = 0; k < t.indices.length; k += 3) f.push(`<triangle v1="${t.indices[k]}" v2="${t.indices[k + 1]}" v3="${t.indices[k + 2]}"/>`);
+  return `<mesh><vertices>${v.join('')}</vertices><triangles>${f.join('')}</triangles></mesh>`;
 }
 
 export function toBambuProject(
@@ -322,12 +389,16 @@ export function toBambuProject(
     const main = group.reduce((a, b) => (parts[b].volume > parts[a].volume ? b : a));
     const file = `3D/Objects/object_${gi + 1}.model`;
     const meshIds = group.map(() => nextId++);
+    // A LayerTone part's back text: a modifier part of its object, in the text's filament (not in one colour).
+    const texts = multi ? group.filter((i) => parts[i].backText && plan.backText[i]) : [];
+    const textIds = texts.map(() => nextId++);
     const objId = nextId++;
     // A painted part (a coloured mesh): its triangles painted with their filaments, unless it prints in one colour.
     const painting = (i: number) => (multi && plan.paint[i].length ? { filament: plan.paint[i], own: plan.slot[i] } : undefined);
-    files[file] = strToU8(`${header}<resources>${group.map((i, k) => `<object id="${meshIds[k]}" type="model">${meshXml(parts[i], c, painting(i))}</object>`).join('')}</resources>\n<build/>\n</model>`);
+    const textObjects = texts.map((i, k) => `<object id="${textIds[k]}" type="model">${backTextXml(parts[i], c, globalSettings, plan.backTextLayers[i])}</object>`).join('');
+    files[file] = strToU8(`${header}<resources>${group.map((i, k) => `<object id="${meshIds[k]}" type="model">${meshXml(parts[i], c, painting(i))}</object>`).join('')}${textObjects}</resources>\n<build/>\n</model>`);
     rels.push(`<Relationship Target="/${file}" Id="rel-${gi + 1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
-    resources.push(`<object id="${objId}" type="model"><components>${meshIds.map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
+    resources.push(`<object id="${objId}" type="model"><components>${[...meshIds, ...textIds].map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
     items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
     // Objects only carry what differs from the model-wide settings (which live in the project), and
     // each part what differs from its object.
@@ -338,7 +409,7 @@ export function toBambuProject(
     const partCfg = group.map((i, k) => {
       const partOverrides = Object.entries(bambuOverrides(own[k], objSettings)).filter(([key]) => !OBJECT_ONLY.has(key));
       return `<part id="${meshIds[k]}" subtype="normal_part"><metadata key="name" value="${esc(parts[i].name)}"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${slot[i]}"/>${partOverrides.map(([key, v]) => `<metadata key="${key}" value="${esc(v)}"/>`).join('')}</part>`;
-    }).join('');
+    }).join('') + texts.map((i, k) => `<part id="${textIds[k]}" subtype="modifier_part"><metadata key="name" value="Back text"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${plan.backText[i]}"/></part>`).join('');
     objectCfg.push(`<object id="${objId}"><metadata key="name" value="${esc(name)}"/><metadata key="extruder" value="${slot[main]}"/>${Object.entries(overrides).map(([k, v]) => `<metadata key="${k}" value="${esc(v)}"/>`).join('')}${partCfg}</object>`);
     instances[plateOfGroup[gi]] = (instances[plateOfGroup[gi]] ?? '') + `<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`;
   });
@@ -384,7 +455,8 @@ export function toBambuProject(
  * several with the same changes) gets Bambu Studio's "change filament" marks on the layer slider
  * (Metadata/custom_gcode_per_layer.xml: a tool change at the top of the first layer in the new
  * filament). Those only apply when every object prints with a single filament, so next to other
- * objects each LayerTone object gets height ranges printed in its filaments instead
+ * objects, or with a back text (a modifier in its own filament), each LayerTone object gets height
+ * ranges printed in its filaments instead
  * (Metadata/layer_config_ranges.xml; objects by their 1-based order, and the slicer crashes on a
  * range without a layer height). Pauses for AMS slot swaps are slider marks either way; on the
  * same layer as a tool change the pause comes first.
@@ -393,7 +465,8 @@ function filamentChangeFiles(parts: PartMesh[], groups: number[][], plan: Filame
   const changing = groups.map((g) => (g.length === 1 && plan.changes[g[0]].length ? g[0] : -1));
   if (changing.every((i) => i < 0)) return {};
   const key = (i: number) => JSON.stringify([plan.slot[i], plan.changes[i]]);
-  const onSlider = changing.every((i) => i >= 0) && new Set(changing.map(key)).size === 1;
+  // A back text is a modifier in its own filament: slider tool changes would switch it too.
+  const onSlider = changing.every((i) => i >= 0 && !plan.backText[i]) && new Set(changing.map(key)).size === 1;
   const label = (f: number) => plan.filaments[f - 1].name || plan.filaments[f - 1].colour;
   // Slider marks by top_z (one pause and one tool change at most per layer).
   const pauses = new Map<number, string>(), toolChanges = new Map<number, string>();

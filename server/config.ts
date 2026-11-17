@@ -1,15 +1,18 @@
 // Settings from the environment, read once. Paths are resolved from the app's folder rather than the
 // working directory, so the server also works when started from somewhere else.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CURRENCY, parseCurrency } from '../shared/cost';
+import { cleanAppBuild, type AppBuild } from '../shared/appBuild';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Secrets such as ELEVENLABS_API_KEY can live in .env next to package.json (git ignores it);
 // variables already set in the environment win.
 if (existsSync(path.join(ROOT, '.env'))) process.loadEnvFile(path.join(ROOT, '.env'));
+/** The build this server runs: the package.json version and, when known, the commit (PTP_COMMIT, set by the Docker build). */
+export const APP_BUILD: AppBuild = cleanAppBuild({ version: JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version, commit: process.env.PTP_COMMIT }) ?? { version: 'unknown' };
 export const PORT = Number(process.env.PORT ?? 8787);
 /** The address the server listens on: this computer only, unless PTP_HOST says otherwise (0.0.0.0 in the Docker image). */
 export const HOST = process.env.PTP_HOST?.trim() || '127.0.0.1';
@@ -90,3 +93,6 @@ function positiveInt(v: string | undefined): number | null {
   const n = Number(v?.trim() || NaN);
   return Number.isInteger(n) && n >= 1 ? n : null;
 }
+
+/** The text printed mirrored on the back of every LayerTone print (PTP_BACK_TEXT); empty turns it off. */
+export const backText = () => (process.env.PTP_BACK_TEXT ?? '').trim().slice(0, 40);

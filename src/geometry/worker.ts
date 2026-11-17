@@ -9,6 +9,7 @@ import { evaluateScript, formatScriptError, initRuntime, instantiateWith, runtim
 import { solveDimension } from '../../shared/solver';
 import { probeParamOwners } from '../../shared/paramOwners';
 import { setPrinter, type ActivePrinter } from '../../shared/printer';
+import { setBackTextDefault } from '../../shared/backText';
 import { withFonts } from '../../shared/text';
 import { decodeMesh, withMeshes, type MeshData } from '../../shared/meshes';
 import { validateResult, type ValidateOptions } from './validate';
@@ -92,7 +93,7 @@ function displayMesh(part: PartMesh): { display: PartDisplay; transfer: Transfer
 }
 
 /** Every job carries the chosen printer (its bed decides how line art splits, what fits). */
-type Req = { printer?: ActivePrinter } & (
+type Req = { printer?: ActivePrinter; backText?: string } & (
   | { id: number; kind: 'eval'; code: string; values: ParamValues; quality: Quality; validate?: ValidateOptions; display?: boolean }
   | { id: number; kind: 'solve'; code: string; values: ParamValues; quality: Quality; target: DimTarget; goal: number }
   | { id: number; kind: 'owners'; code: string; values: ParamValues });
@@ -100,6 +101,7 @@ type Req = { printer?: ActivePrinter } & (
 self.onmessage = async (ev: MessageEvent<Req>) => {
   const req = ev.data;
   if (req.printer) setPrinter(req.printer);
+  if (typeof req.backText === 'string') setBackTextDefault(req.backText);
   // `crashed` tells the client the wasm instance trapped, so it replaces this worker and retries
   // (unless it ran out of memory, which a retry would only repeat).
   const post = (msg: object, transfer: Transferable[] = []) =>
@@ -140,6 +142,7 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
       // Only a buffer of its own (not a view into a bigger one) can be handed over.
       if (p.vertexColors && p.vertexColors.byteLength === p.vertexColors.buffer.byteLength) transfer.push(p.vertexColors.buffer);
       if (p.paint) transfer.push(p.paint.tri.buffer, ...(p.paint.source ? [p.paint.source.mesh.buffer, p.paint.source.face.buffer] : []));
+      if (p.backText) transfer.push(p.backText.positions.buffer, p.backText.indices.buffer);
     }
     if (report) transfer.push(report.overlay.overhang.buffer, report.overlay.thin.buffer);
     post({ id: req.id, result, report }, transfer);

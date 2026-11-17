@@ -413,7 +413,8 @@ test('a pictureEdited then a model event make a version with the picture edit, i
   // A reply without a picture edit makes the version it always did.
   const plainVersion = withReplyVersion(start, modelEvent, 'a1');
   assert.equal(plainVersion.versions[2].pictureEdit, undefined);
-  assert.deepEqual(Object.keys(plainVersion.versions[2]).sort(), ['code', 'createdAt', 'source', 'sources', 'summary', 'values']);
+  assert.deepEqual(Object.keys(plainVersion.versions[2]).sort(), ['app', 'code', 'createdAt', 'source', 'sources', 'summary', 'values']);
+  assert.equal(plainVersion.versions[2].app?.version, 'unknown');
 });
 
 test('a reply that submits again: the edit goes to the version that took it only; a later edit starts from that version', () => {

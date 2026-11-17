@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Design } from '../shared/types';
 import { blockedChange } from '../src/lib/printedLock';
+import { printedGuard, versionFingerprint } from '../server/printed';
 
 const base = (): Design => ({
   id: 'a', name: 'n', createdAt: 0, updatedAt: 0, messages: [],
@@ -33,4 +34,17 @@ test("the script's own layout choice is for looking when it is passed as a view 
   assert.equal(blockedChange(p, next, locked), true);
   assert.equal(blockedChange(p, next, locked, ['layout']), false);
   assert.equal(blockedChange(p, { ...next, values: { ...next.values, width: 11 } }, locked, ['layout']), true);
+});
+
+test('adding app to a version does not change its fingerprint', () => {
+  const v = { code: 'c', values: { a: 1 } };
+  assert.equal(versionFingerprint({ ...v, app: { version: '0.2.0', commit: 'abc1234' } } as never), versionFingerprint(v));
+});
+
+test('a design with no app anywhere still locks', () => {
+  const ver = { code: 'c', values: { a: 1 } } as never;
+  const mark = { v: 0, at: 1, fp: versionFingerprint(ver), file: false, settings: false };
+  assert.equal(printedGuard({ versions: [ver] }, [mark]), null);
+  assert.equal(printedGuard({ versions: [{ ...(ver as object), app: { version: '0.2.0' } } as never] }, [mark]), null);
+  assert.equal(printedGuard({ versions: [{ code: 'changed', values: { a: 1 } } as never] }, [mark]), mark);
 });

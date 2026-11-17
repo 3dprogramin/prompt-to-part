@@ -2,6 +2,8 @@
 // The server keeps the marks apart from the designs (data/printed.json), like tags, and refuses
 // any save that would change a printed version.
 
+import { cleanAppBuild, type AppBuild } from './appBuild';
+
 export interface PrintedMark {
   /** The version's index in the design's versions. */
   v: number;
@@ -13,6 +15,8 @@ export interface PrintedMark {
   file: boolean;
   /** That 3MF has print settings in it. */
   settings: boolean;
+  /** The build that marked it (missing on marks made before it was recorded). */
+  app?: AppBuild;
 }
 
 /** Marks by design id, each list sorted by v, one mark per v. */
@@ -32,7 +36,8 @@ export function cleanPrintedMap(v: unknown, validId: (id: string) => boolean): P
     const byV = new Map<number, PrintedMark>();
     for (const m of list as Partial<PrintedMark>[]) {
       if (!m || typeof m !== 'object' || !Number.isInteger(m.v) || m.v! < 0 || typeof m.fp !== 'string' || byV.has(m.v!)) continue;
-      byV.set(m.v!, { v: m.v!, at: Number.isFinite(m.at) ? m.at! : 0, fp: m.fp, file: m.file === true, settings: m.settings === true });
+      const app = cleanAppBuild(m.app);
+      byV.set(m.v!, { v: m.v!, at: Number.isFinite(m.at) ? m.at! : 0, fp: m.fp, file: m.file === true, settings: m.settings === true, ...(app && { app }) });
     }
     if (byV.size) out[id] = [...byV.values()].sort((a, b) => a.v - b.v);
   }

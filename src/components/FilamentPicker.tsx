@@ -47,13 +47,15 @@ interface Props {
   /** A library filament or a custom one: replace `current` with it, or add it. */
   onPick: (f: LayerToneFilament) => void;
   onClose: () => void;
+  /** An "Automatic" choice above the search (the app picks the filament); `on` when it is the current choice. */
+  automatic?: { on: boolean; title: string; onPick: () => void };
 }
 
 /**
  * The filament picker, a popover under (or over) its anchor, the nearest positioned ancestor: search,
  * the library's lines, a swatch grid with the common colours first, and a custom colour.
  */
-export function FilamentPicker({ current, trigger, onPick, onClose }: Props) {
+export function FilamentPicker({ current, trigger, onPick, onClose, automatic }: Props) {
   const pop = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
@@ -153,6 +155,11 @@ export function FilamentPicker({ current, trigger, onPick, onClose }: Props) {
 
   return (
     <div ref={pop} className={`layertone-picker ${up ? 'up' : ''}`} role="dialog" aria-label={current ? `Change ${current.name}` : 'Add a filament'} onKeyDown={onKey}>
+      {automatic && (
+        <button className={`btn ghost layertone-auto${automatic.on ? ' on' : ''}`} aria-pressed={automatic.on} title={automatic.title} onClick={automatic.onPick}>
+          {automatic.on && <Icon name="check" size={13} />} Automatic
+        </button>
+      )}
       <input ref={search} className="text-param" autoFocus value={query} placeholder='Search, e.g. "matte black", "esun red"' aria-label="Search the filaments" aria-controls={`${id}-grid`}
         onChange={(e) => { setQuery(e.target.value); setActive(null); }}
         onKeyDown={(e) => {

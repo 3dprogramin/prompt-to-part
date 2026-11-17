@@ -5,6 +5,7 @@ import type { Design, PictureEditInfo } from '../../shared/types';
 import { pageKey } from '../../shared/sources';
 import { withSet } from '../../shared/pictureEdit/set';
 import { keepAppValues, withoutEditHistory } from './designValues';
+import { appBuild } from '../lib/appBuild';
 
 /** The picture edits of one reply so far, as its version will record them. */
 export type ReplyEdit = Extract<AgentEvent, { type: 'pictureEdited' }>['info'];
@@ -44,7 +45,7 @@ export function withReplyVersion(d: Design, ev: ModelEvent, asstId: string, edit
   const pictureEdit: PictureEditInfo | undefined = edit && {
     picture: edit.edit.picture, change: edit.edit.change, masked: edit.edit.masked, parent: edit.parent, linesUp: false, cost: edit.edit.cost,
   };
-  const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values: withoutEditHistory(values), sources, ...(ev.stability && { stability: ev.stability }), ...(pictureEdit && { pictureEdit }) }];
+  const versions = [...d.versions, { code: ev.code, summary: ev.summary, createdAt: Date.now(), source: 'ai' as const, values: withoutEditHistory(values), app: appBuild(), sources, ...(ev.stability && { stability: ev.stability }), ...(pictureEdit && { pictureEdit }) }];
   const vi = versions.length - 1;
   return {
     ...d, versions, currentVersion: vi, code: ev.code, values, updatedAt: Date.now(),

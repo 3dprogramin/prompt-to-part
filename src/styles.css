@@ -1310,6 +1310,16 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* The filament picker opens under its row (or the Add button), the row's width, so it fits the side
    panel at any width; .up opens it above when there is more room there. */
 .layertone-add-wrap { position: relative; }
+.layertone-backtext { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.layertone-backtext .layertone-head { align-items: center; margin-top: 0; }
+.layertone-backtext-row { position: relative; display: flex; align-items: center; gap: 6px; }
+.layertone-backtext-row .text-param { flex: 1; min-width: 0; }
+.layertone-backtext-row .layertone-pick { display: flex; align-items: center; gap: 5px; background: none; border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 7px; color: var(--text-2); }
+.layertone-backtext-row .layertone-pick:disabled { opacity: 0.5; cursor: default; }
+.layertone-backtext input:disabled, .layertone-backtext .switch:has(input:disabled) { opacity: 0.5; cursor: default; }
+.layertone-backtext .layertone-slider .dim { width: 28px; }
+.layertone-auto { justify-content: center; gap: 5px; }
+.layertone-auto.on { border-color: var(--accent); color: var(--text); }
 .layertone-picker { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 40; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 12px 40px #000a; }
 .layertone-picker.up { top: auto; bottom: calc(100% + 4px); box-shadow: 0 -12px 40px #000a; }
 .layertone-picker .text-param { font-size: 12.5px; padding: 5px 8px; }

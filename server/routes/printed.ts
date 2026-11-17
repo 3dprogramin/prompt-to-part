@@ -5,6 +5,7 @@ import { mkdir, readFile, rm } from 'node:fs/promises';
 import type { Design } from '../../shared/types';
 import { MAX_PRINTED_BYTES, printedFileName, type PrintedMark } from '../../shared/printed';
 import { slug } from '../../shared/slug';
+import { APP_BUILD } from '../config';
 import { versionFingerprint } from '../printed';
 import { ID_RE, writeAtomically, type RouteContext } from './store';
 
@@ -38,7 +39,10 @@ export function registerPrintedRoutes(app: express.Express, { designFile, imageD
       await changePrinted((all) => {
         // Marked again (Make 3MF) with nothing changed: it keeps the date it was printed.
         const old = all[id]?.find((m) => m.v === v);
-        mark = { v, at: old && old.fp === fp ? old.at : Date.now(), fp, file: !!bytes, settings: !!bytes && req.query.settings === '1' };
+        // The same goes for the build that marked it; an old mark without one stays without.
+        const same = !!old && old.fp === fp;
+        const app = same ? old.app : APP_BUILD;
+        mark = { v, at: same ? old.at : Date.now(), fp, file: !!bytes, settings: !!bytes && req.query.settings === '1', ...(app && { app }) };
         all[id] = [...(all[id] ?? []).filter((m) => m.v !== v), mark].sort((a, b) => a.v - b.v);
       });
       res.json(without(mark));

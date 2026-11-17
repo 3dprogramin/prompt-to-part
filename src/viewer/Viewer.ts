@@ -294,6 +294,32 @@ export class Viewer {
         edges.name = 'edges';
         edges.raycast = () => {};
         group.add(mesh, backMesh, edges);
+        // LayerTone back text: sits just under the picture's bottom, so it shows from below (Bottom view).
+        // Never pickable or measurable, no outline; it hides and is disposed with the group.
+        if (part.backText) {
+          // Only the text's bottom face, facing down: seen from below it shows, from above it is culled.
+          // The whole solid sits a fraction of a millimetre under the relief's top and flickered through
+          // it from a distance (the relief's polygon offset pushes it back).
+          const { positions: tp, indices: ti } = part.backText;
+          let minZ = Infinity;
+          for (let k = 2; k < tp.length; k += 3) minZ = Math.min(minZ, tp[k]);
+          const bottom: number[] = [];
+          for (let k = 0; k < ti.length; k += 3) {
+            if ([0, 1, 2].every((j) => tp[ti[k + j] * 3 + 2] <= minZ + 1e-6)) bottom.push(ti[k], ti[k + 1], ti[k + 2]);
+          }
+          const tg = new THREE.BufferGeometry();
+          tg.setAttribute('position', new THREE.BufferAttribute(tp, 3));
+          tg.setIndex(bottom);
+          tg.computeVertexNormals();
+          const textMesh = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({
+            color: new THREE.Color(part.backText.color), roughness: 1, metalness: 0, side: THREE.FrontSide,
+          }));
+          // Moved by the mesh, not the geometry: the attribute shares the result's positions array.
+          textMesh.position.z = -0.01;
+          textMesh.name = 'backText';
+          textMesh.raycast = () => {};
+          group.add(textMesh);
+        }
         this.modelGroup.add(group);
         this.meshes.push(mesh);
       });

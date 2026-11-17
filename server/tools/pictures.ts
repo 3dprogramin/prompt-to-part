@@ -89,7 +89,7 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
 }
 
 /** generate_artwork, in AI artwork mode. */
-export function artworkTools({ base, emit }: ToolContext, artwork: AiImages) {
+export function artworkTools({ base, emit, drawImage }: ToolContext, artwork: AiImages) {
   return [
     tool('generate_artwork', `Have an image model (${imageModel()}) draw real artwork, traced into an SVG drawing for H.svg: people, characters, animals, portraits, scenes and illustrations on wall art, reliefs, signs, plaques and coasters – anything you can't draw convincingly with geometry. It comes back in flat colours (the filament colours you give, or shades of grey) on no background; each colour is one shape: H.svg(name, { height, colors: [colour] }). Each call costs a few cents and takes ~10–20 s: describe the subject well and call again only if the picture is wrong.`, {
       name: z.string().regex(/^[\w-]{1,40}$/).describe('Name to use with H.svg, e.g. "players"'),
@@ -98,12 +98,13 @@ export function artworkTools({ base, emit }: ToolContext, artwork: AiImages) {
       tones: z.number().int().min(2).max(6).optional().describe('Without colors: how many shades of grey (default 4)'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when it should not be the default realistic posterized print (e.g. "bold cartoon", "minimal line art")'),
-      use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (a person, a pet, a place)'),
+      use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached in this chat (this message\'s first, then earlier ones): a person, a pet, a place'),
     }, async (a) => {
-      if (a.use_attached_photos && !artwork.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
+      const photos = a.use_attached_photos ? await chatPhotos(artwork.designId ?? '', artwork.references) : [];
+      if (a.use_attached_photos && !photos.length) return { content: [{ type: 'text', text: 'The user attached no photos in this chat.' }], isError: true };
       emit({ type: 'step', step: { kind: 'status', text: `Generating artwork "${a.name}" with ${imageModel()}…` } });
       try {
-        const art = await generateArtwork(a.name, { subject: a.subject, colors: a.colors, tones: a.tones, aspect: a.aspect, style: a.style, references: a.use_attached_photos ? artwork.references : undefined }, artwork.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }));
+        const art = await generateArtwork(a.name, { subject: a.subject, colors: a.colors, tones: a.tones, aspect: a.aspect, style: a.style, references: photos.length ? photos : undefined }, artwork.signal, (text) => emit({ type: 'step', step: { kind: 'status', text } }), drawImage);
         // From now on every check and render can use it, and the app keeps it with the design.
         base[DRAWINGS_KEY] = JSON.stringify({ ...parseDrawings(base[DRAWINGS_KEY]), [a.name]: art.drawing });
         emit({ type: 'drawing', name: a.name, drawing: art.drawing });

@@ -8,6 +8,7 @@ import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
 import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
+import { BACK_TEXT_KEY } from '../../shared/backText';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -64,6 +65,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === PRINT_KEY) return 'print settings';
     if (k === ONE_COLOUR_KEY) return v ? 'one colour' : 'colours (AMS)';
     if (k === LAYERTONE_KEY) return 'LayerTone filaments';
+    if (k === BACK_TEXT_KEY) return 'back text';
     if (k === LINEART_EDITS_KEY) return 'line art edits';
     if (k === ARTWORK_EDITS_KEY) return 'artwork edits';
     const d = params[k];

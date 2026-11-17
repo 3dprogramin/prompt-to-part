@@ -3,6 +3,7 @@
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import { printer, type ActivePrinter } from '../../shared/printer';
+import { backTextDefault } from '../../shared/backText';
 import type { toBambuProject } from './bambu3mf';
 
 export type ProjectJob =
@@ -12,13 +13,13 @@ export type ProjectJob =
 /** Files for a zip, by path in it; `compress` false stores them as they are (pictures, 3MF). */
 export type ZipFiles = Record<string, { data: Uint8Array; compress: boolean }>;
 /** A job as the worker gets it: with the page's printer, as the worker's own module state is never set. */
-export type WorkerJob = (ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles }) & { printer: ActivePrinter };
+export type WorkerJob = (ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles }) & { printer: ActivePrinter; backText?: string };
 
 let worker: Worker | null = null;
 let seq = 0;
 const pending = new Map<number, { parts: PartMesh[]; type: string; resolve: (b: Blob) => void; reject: (e: Error) => void }>();
 
-/** The worker gets the meshes only: not the viewer's display data. */
+/** The worker gets the meshes only: not the viewer's display data. A LayerTone back text stays (small, so copied, not lent). */
 const meshOnly = (parts: PartMesh[]): PartMesh[] => parts.map(({ display: _d, vertexColors: _v, ...p }) => p);
 
 function run(job: ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles }, lent: ArrayBufferLike[], type: string): Promise<Blob> {
@@ -42,7 +43,7 @@ function run(job: ProjectJob | { kind: 'zip'; parts: []; files: ZipFiles }, lent
   const id = ++seq;
   return new Promise((resolve, reject) => {
     pending.set(id, { parts: job.parts, type, resolve, reject });
-    worker!.postMessage({ ...job, printer: printer(), parts: job.kind === 'zip' ? [] : meshOnly(job.parts), id }, lent as ArrayBuffer[]);
+    worker!.postMessage({ ...job, printer: printer(), backText: backTextDefault(), parts: job.kind === 'zip' ? [] : meshOnly(job.parts), id }, lent as ArrayBuffer[]);
   });
 }
 

@@ -4,6 +4,8 @@ import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { checkSwaps, firstFilamentBase, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerCount, layerTop, maxLayerToneFilaments, rebaseSetup, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
 import { estimatedTd } from '../../shared/filaments';
+import { autoBackTextFilament, BACK_TEXT_KEY, backTextDefault, backTextDefaultSize, DEFAULT_BACK_TEXT_POSITION, parseBackText, planBackText, type BackTextPosition, type BackTextSetting } from '../../shared/backText';
+import { backTextPrintLayers } from '../lib/bambu3mf';
 import { layerToneImageToDataUrl, loadLayerToneImage, rgbaToDataUrl } from '../lib/layerToneImage';
 import { FilamentPicker } from './FilamentPicker';
 import { Icon } from './Icon';
@@ -28,13 +30,17 @@ interface Props {
   onSetup: (s: LayerToneSetup | null) => void;
   /** Replace a stored picture. */
   onImage: (name: string, image: LayerToneImage) => void;
+  /** The back text setting (BACK_TEXT_KEY); null = the defaults. */
+  onBackText: (s: BackTextSetting | null) => void;
+  /** The print's layer heights (Print tab): the 3MF prints the back text on these; default the part's own. */
+  printLayers?: { layerHeight: number; firstLayerHeight: number };
 }
 
 /**
  * Print tab, LayerTone section: the picture and how it will print, the filament stack and where the
  * filaments change. Everything is saved under LAYERTONE_KEY, so the model rebuilds as it is edited.
  */
-export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props) {
+export function LayerTonePanel({ result, part, values, onSetup, onImage, onBackText, printLayers }: Props) {
   const setup = useMemo(() => parseLayerToneSetup(values[LAYERTONE_KEY]), [values[LAYERTONE_KEY]]);
   // The whole design's scale: the part's heights are scaled, the setup's are the script's.
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
@@ -149,6 +155,99 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage }: Props
           title={filaments.length >= maxLayerToneFilaments() ? `At most ${maxLayerToneFilaments()} filaments` : undefined}><Icon name="plus" size={14} /> Add filament</button>
         {picking === 'add' && filaments.length < maxLayerToneFilaments() && <FilamentPicker trigger={trigger} onPick={picked} onClose={() => setPicking(null)} />}
       </div>
+
+      <BackText raw={values[BACK_TEXT_KEY]} layers={previewLayers} grid={grid} part={part} printLayers={printLayers} onChange={onBackText} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- back text
+
+const BACK_TEXT_MAX = 40;
+
+/** Only what differs from the defaults; null when nothing does (the key is removed). */
+function backTextDiff(s: BackTextSetting): BackTextSetting | null {
+  const text = s.text?.trim();
+  const position = s.position ?? DEFAULT_BACK_TEXT_POSITION;
+  const out: BackTextSetting = {
+    ...(s.off ? { off: true as const } : {}),
+    ...(text && text !== backTextDefault() ? { text } : {}),
+    ...(s.filament ? { filament: s.filament } : {}),
+    ...(s.size != null && s.size !== backTextDefaultSize(position) ? { size: s.size } : {}),
+    ...(position !== DEFAULT_BACK_TEXT_POSITION ? { position } : {}),
+  };
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The back text: a mirrored line (PTP_BACK_TEXT by default) in the first layers, in its own filament.
+ * Read-only, and off, when the server has no PTP_BACK_TEXT.
+ */
+function BackText({ raw, layers, grid, part, printLayers, onChange }: { raw: unknown; layers: LayerColor[]; grid: Grid; part: LayerTonePartMesh; printLayers?: Props['printLayers']; onChange: (s: BackTextSetting | null) => void }) {
+  const setting = useMemo(() => parseBackText(raw), [raw]);
+  const def = backTextDefault();
+  const disabled = !def;
+  const o = part.layerTone?.options;
+  const own = { layerHeight: o?.layerHeight ?? grid.lh, firstLayerHeight: o?.firstLayerHeight ?? grid.first };
+  const plan = planBackText(setting, layers, own);
+  // What the 3MF prints: on the print's layers, a scaled part's first change can come sooner (filamentPlan).
+  const printed = plan.on ? backTextPrintLayers(plan.layers, layers, part.bbox.max[2] - part.bbox.min[2], printLayers ?? own) : 0;
+  const on = !disabled && !setting.off;
+  const save = (patch: Partial<BackTextSetting>) => onChange(backTextDiff({ ...setting, ...patch }));
+
+  // The text is saved on Enter or leaving the box (each change rebuilds the model); Esc puts it back.
+  const saved = setting.text ?? '';
+  const [draft, setDraft] = useState<string | null>(null);
+  const commitText = () => { if (draft != null) { save({ text: draft }); setDraft(null); } };
+
+  const filament = setting.filament ?? autoBackTextFilament(layers);
+  const [picking, setPicking] = useState(false);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const done = () => { setPicking(false); trigger.current?.focus(); };
+
+  const position: BackTextPosition = setting.position ?? DEFAULT_BACK_TEXT_POSITION;
+  // Another place starts at that place's own size (small in the corner, wide in the centre).
+  const place = (p: BackTextPosition) => { if (p !== position) save({ position: p, size: undefined }); };
+  const size = useReleaseSlider(setting.size ?? backTextDefaultSize(position), (v) => save({ size: v }));
+  const notes = plan.on ? plan.notes : [];
+  return (
+    <div className="layertone-backtext">
+      <div className="layertone-head">
+        <h4>{disabled ? 'Back text: off' : 'Back text'}</h4>
+        <label className="switch" title={disabled ? undefined : on ? 'Turn the back text off for this design' : 'Print the back text'}>
+          <input type="checkbox" checked={on} disabled={disabled} aria-label="Print the back text" onChange={(e) => save({ off: e.target.checked ? undefined : true })} />
+          <span className="track" />
+        </label>
+      </div>
+      <div className="layertone-backtext-row">
+        <input className="text-param" value={draft ?? saved} placeholder={def} maxLength={BACK_TEXT_MAX} disabled={!on} aria-label="Back text"
+          onChange={(e) => setDraft(e.target.value)} onBlur={commitText}
+          onKeyDown={(e) => { if (e.key === 'Enter') commitText(); if (e.key === 'Escape' && draft != null) { e.stopPropagation(); setDraft(null); } }} />
+        <button ref={trigger} className="layertone-pick" disabled={!on} onClick={() => setPicking(!picking)} aria-haspopup="dialog" aria-expanded={picking}
+          aria-label={`Text filament: ${setting.filament ? filament.name : `automatic (${filament.name})`}`} title={setting.filament ? `${filament.name}: change the filament` : `Automatic: ${filament.name}, the filament that stands out most against the first one`}>
+          <span className="layertone-swatch" style={{ background: filament.color }} />
+          <span className="small">{setting.filament ? 'Filament' : 'Auto'}</span>
+        </button>
+        {picking && on && (
+          <FilamentPicker current={setting.filament} trigger={trigger} onClose={() => setPicking(false)} onPick={(f) => { save({ filament: f }); done(); }}
+            automatic={{ on: !setting.filament, title: "The stack's filament that stands out most against the first one", onPick: () => { save({ filament: undefined }); done(); } }} />
+        )}
+      </div>
+      <div className="seg" role="group" aria-label="Back text position">
+        <button className={position === 'corner' ? 'on' : ''} aria-pressed={position === 'corner'} disabled={!on} onClick={() => place('corner')} title="Small, in the bottom-right corner when the print is turned over, like a maker's mark">Corner</button>
+        <button className={position === 'centre' ? 'on' : ''} aria-pressed={position === 'centre'} disabled={!on} onClick={() => place('centre')} title="Large, in the middle of the back">Centre</button>
+      </div>
+      <div className="layertone-slider layertone-base-slider">
+        <span className="dim small">Size</span>
+        <input type="range" min={20} max={95} step={1} disabled={!on} aria-label="Back text size, % of the print's width" aria-valuetext={`${size.shown} %`} {...size.inputProps} />
+        <span className="mono small">{size.shown} %</span>
+      </div>
+      {disabled
+        ? <div className="dim small">Set PTP_BACK_TEXT to print your website on the back of every LayerTone print.</div>
+        : on && plan.on && printed > 0 && <div className="dim small">Mirrored on the back{position === 'corner' ? ', bottom-right when turned over' : ''}, in the first {printed === 1 ? '1 layer' : `${printed} layers`}.</div>}
+      {on && ((!plan.on && plan.reason === 'tooThin') || (plan.on && printed === 0)) && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The first filament is one layer: no back text. Raise the First filament slider.</div>}
+      {notes.includes('sameColour') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text is in the first filament's colour, so it won't show.</div>}
+      {notes.includes('showsThrough') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text may show faintly from the front. Raise the First filament slider or use a darker first filament.</div>}
     </div>
   );
 }

@@ -2,13 +2,15 @@
 // Print tab settings.
 import { maxPiece, printer } from '../../shared/printer';
 import { drawingFingerprint, LINE_ART_STYLE_INFO, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtEdits, parseLineArtEnds, parseLineArtSize, parseLineArtSplit } from '../../shared/lineart';
+import { myFilamentNames } from './layerTone';
+import type { LayerToneFilament } from '../../shared/layertone';
 import { pictureEditNotes, type PictureWords } from './pictureEdits';
 import type { PromptMode, TurnContext } from './types';
 
 /** A default size that fits the chosen printer's bed. */
 const cap = (mm: number) => Math.min(mm, maxPiece());
 
-function lineArtSection(pictures: boolean) {
+function lineArtSection(pictures: boolean, mine: LayerToneFilament[] = []) {
   return `# Line art mode
 Line art mode is ON: the user wants line art – a wall cut-out of a drawing (a motorbike and a car standing on a key-holder bar, a woman's figure in a rectangular frame, a pet's outline), printed flat in one colour, about 2 mm thick with lines about 1 mm wide, its flat back stuck to the wall – one piece, or for a big one (up to a whole wall) several pieces that each fit the bed. Many are designs the user sells, so they must look clean and professional – like a product photo, not a sketch.
 - Build it with H.lineart(source, opts) → { parts, print, lineArt, note } and return that result as it is from build(), so its print settings and line-art info go with it (to add parts, push them onto its parts and keep print and lineArt). The app thickens lines too thin to print (keeping the drawing's own line weights), joins lines that would dangle (held at one point only, so they'd lift off the wall) to a nearby line, joins loose bits to the rest with short bridges, drops specks too small to print, and adds the style's bar, frame, pegs or base. Don't draw the lines, bars or frames yourself.
@@ -36,7 +38,7 @@ Line art mode is ON: the user wants line art – a wall cut-out of a drawing (a 
 - The drawing: ${pictures
     ? 'without one, draw it with generate_line_art (style and aspect to suit the piece: 16:9 or 21:9 for a key holder with several subjects side by side); for the user\'s own car, bike, pet or person, generate_line_art with use_attached_photos redraws their photo as line art; an attached picture that already is line art (dark lines on white) goes through trace_line_art as it is (free); an attached SVG is a drawing already – use it directly.'
     : 'There is no image model here (no OPENROUTER_API_KEY), so use an attached SVG directly, trace an attached picture that already is line art with trace_line_art, and otherwise ask the user to attach an SVG or a line-art picture (dark lines on white).'}
-- It prints flat, back on the bed, in one colour – black PLA unless the user wants another (e.g. Bambu PLA Basic Black or Matte Charcoal) – with 0.2 mm layers, 100 % infill and no brim; those settings come with the result's print, so don't override them. The result's note says how to print and hang it.
+- It prints flat, back on the bed, in one colour – black PLA unless the user wants another (e.g. Bambu PLA Basic Black or Matte Charcoal) – with 0.2 mm layers, 100 % infill and no brim; those settings come with the result's print, so don't override them. The result's note says how to print and hang it.${mine.length ? ` The user's own filaments (name (brand) #hex): name one of these when you suggest a colour:\n${myFilamentNames(mine)}` : ''}
 - Colours: the user can colour lines in other filaments by hand (Edit drawing: draw a line in a filament, or paint lines, the frame, the bar, the sign's text or the pegs with one: lips, a wine glass's rim). H.lineart then returns them as parts of their own beside the piece ("Line art (Red)"; split: "A1 (Red)"), printed with it as one piece: through the whole thickness, or only its top layers (the Print tab's Colours: Top layers, as few as hide the filament under them by its TD, or a number of them; a painted peg is that colour whole). Every layer a colour is on costs a filament change (about 1.6 min and 0.35 g of purge each, measured on an A1), so top layers print much faster; the Print tab shows the estimate. Return its parts as they are (they follow the drawing and the edits); don't colour lines yourself with extra parts, and to change a colour or its depth point the user to Edit drawing and the Print tab.
 - Check it with render_model: for line art it adds a large straight-on picture of the piece as it hangs: judge that like the product photo the user will see (clean, smooth lines, every detail readable, no dark blotches where lines merged). The report's line-art line says how many bridges the app added (split: per piece too, and the seams, dovetails and names) (and the longest), how many specks it dropped, how many dangling lines it joined (and any still loose) and how many openings between lines closed up. A few short bridges are normal. Openings that closed up are detail lost because lines are closer together than the print can keep apart: more than a few (about 10 % of them), or a blotchy picture, means the drawing is too fine for this size: ${pictures ? 'redraw it with generate_line_art, bolder and simpler (pass the planned width), or ' : ''}make the piece larger. Never tell the user lost detail won't be noticed. Many bridges (more than about 10) or long ones (more than about 15 mm) mean the drawing isn't connected enough: ${pictures ? 'redraw it with generate_line_art, asking for every detail to touch the main outline, or ' : ''}raise lineWidth so near-touching lines merge. Dropped specks that were real details (an eye, a badge) mean the same.
 - It's sold as one piece (or a few, split) the buyer sticks to a wall with double-sided tape, so nothing may dangle or flop: lines still loose after the app's joining mean the drawing should be redrawn with every line ending on another line; a few larger solid areas (window glass, tyres) give the tape room to hold. joinEnds (mm, default 8; 0 = off) sets how far the app reaches to join a dangling line.
@@ -83,7 +85,7 @@ export const lineArt: PromptMode = {
   id: 'lineArt',
   picture: true,
   active: (m) => m.lineArt,
-  system: (o) => (o.lineArt ? lineArtSection(o.lineArt.pictures) : ''),
+  system: (o) => (o.lineArt ? lineArtSection(o.lineArt.pictures, o.myFilaments) : ''),
   turnNotes: (c) => [
     lineArtNote(c),
     // edit_picture's notes (the tool is there with the image model).

@@ -7,6 +7,7 @@ import { makeHelpers, type PaintedMesh } from './helpers';
 import { sameFilament, storedSlots, type PaintFilament } from './meshColors';
 import { FACE_SCALE_KEY, normalizeParams, parsePartColors, PART_COLORS_KEY, resolveValues, SCALE_KEY } from './params';
 import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
+import { BACK_TEXT_KEY, backTextMesh, parseBackText, planBackText, requireBackTextFont } from './backText';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits } from './artworkEdits';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerCount, parseLayerToneImages, parseLayerToneSetup, resolveLayerToneOptions, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
@@ -19,7 +20,7 @@ import { getMeshData, MESHES_KEY, MeshMissingError, parseMeshes, type MeshData, 
 import { parseMeshFile, type Raster } from './meshFormats';
 import { repairMesh, type ImportOptions, type ImportReport } from './meshRepair';
 import type {
-  AssemblyStep, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
+  AssemblyStep, BackTextMesh, Box3, DimensionAnnotation, EvalResult, ModelMeta, ParamDef, ParamValues,
   PaintSource, PartMesh, Quality, ScriptErrorInfo, Vec3,
 } from './types';
 
@@ -301,6 +302,8 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
   const warnings: string[] = [];
   applyQuality(rt.wasm, quality);
   takeFontSubstitutions();
+  // The back text's font, loaded before the script runs (the retry would build the picture again).
+  if (!opts.lite) requireBackTextFont(code, inputValues?.[BACK_TEXT_KEY]);
   heapAtStart = heapSize();
   try {
     const meshes = parseMeshes(inputValues?.[MESHES_KEY]);
@@ -370,6 +373,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const textFeatures = parseTextFeatures(inputValues?.[TEXT_KEY]);
     const partColors = parsePartColors(inputValues?.[PART_COLORS_KEY]);
     const svgFeatures = parseSvgFeatures(inputValues?.[SVG_KEY]);
+    const backTextSetting = parseBackText(inputValues?.[BACK_TEXT_KEY]);
     const partNames = rawParts.map((rp, i) => {
       const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name.slice(0, 120) : '';
       return n || (rawParts.length === 1 ? meta.name || 'Model' : `Part ${i + 1}`);
@@ -462,6 +466,21 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         litColors = lithoVertexColors(thickness, lithophane.options);
       }
       const paint = painted.length && !layerColors && !lithophane ? paintOf(mesh, painted, meshes, color) : undefined;
+      // A LayerTone part's back text: its own mesh in its own filament, never merged into the part.
+      let backText: BackTextMesh | undefined;
+      const plan = layerColors && layerTone ? planBackText(backTextSetting, layerColors, layerTone.options) : undefined;
+      if (plan?.on) {
+        const box: Box3 = { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] };
+        try {
+          const { name: fname, brand, color: fcolor, td } = plan.filament;
+          const m = backTextMesh(plan, box, rt.CrossSection);
+          // No glyph the font can draw: nothing to print.
+          if (m.indices.length) backText = { ...m, text: plan.text, color: fcolor, name: fname, ...(brand ? { brand } : {}), td, layers: plan.layers, topZ: plan.topZ };
+        } catch (e) {
+          if (e instanceof FontMissingError) throw e;
+          warnings.push(`Back text failed: ${(e as Error).message}`);
+        }
+      }
       parts.push({
         name, color, positions, indices: new Uint32Array(mesh.triVerts),
         bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase,
@@ -475,6 +494,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         ...(plate ? { plate } : {}),
         ...keepScript,
         ...(paint ? { paint } : {}),
+        ...(backText ? { backText } : {}),
       });
     });
 

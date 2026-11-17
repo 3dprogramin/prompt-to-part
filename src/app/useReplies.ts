@@ -9,6 +9,7 @@ import { MAX_SCAD_FILES, type ScadFile } from '../../shared/scad';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing, type SvgFeature } from '../../shared/svgFeatures';
 import type { TextFeature } from '../../shared/textFeatures';
 import { LAYERTONE_KEY } from '../../shared/layertone';
+import { BACK_TEXT_KEY } from '../../shared/backText';
 import { DEFAULT_LINE_ART_STYLE, LINEART_EDITS_KEY, parseLineArtEdits } from '../../shared/lineart';
 import { CONCEPTS_KEY, freeMeshName, MESHES_KEY, parseMeshes, withConcept } from '../../shared/meshes';
 import type { GenerateRequest, MeshUpload } from '../../shared/api';
@@ -115,6 +116,10 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
         else if (ev.type === 'layerToneSetup') update((d) => {
           const { [LAYERTONE_KEY]: _old, ...rest } = d.values;
           return { ...d, values: ev.setup ? { ...rest, [LAYERTONE_KEY]: JSON.stringify(ev.setup) } : rest };
+        });
+        else if (ev.type === 'backText') update((d) => {
+          const { [BACK_TEXT_KEY]: _old, ...rest } = d.values;
+          return { ...d, values: ev.value ? { ...rest, [BACK_TEXT_KEY]: ev.value } : rest };
         });
         else if (ev.type === 'step') {
           // Meshy started a task (credits spent, even if it fails later).

@@ -2,11 +2,14 @@ import { createApp, endGenerations } from './app';
 import { DATA_DIR, HOST, PASSWORD, PORT } from './config';
 import { isLoopback } from './auth';
 import { geometry } from './geometry';
+import { pinLegacyBackText } from './printed';
 import { sweepDataDir } from './sweep';
 
 geometry.warmup();
 // Leftovers of a crash (a half-restored backup, temp files, workspaces of designs never saved).
 void sweepDataDir().then(({ removed }) => { if (removed.length) console.log(`[prompt-to-part] Removed ${removed.length} leftover file(s) from the data folder`); }, (e) => console.warn('[sweep]', (e as Error).message));
+// Versions marked printed by code from before the back text keep printing without it (once, before any request).
+await pinLegacyBackText().then((n) => { if (n) console.log(`[prompt-to-part] Turned the back text off in ${n} printed version(s) that had none`); }, (e) => console.warn('[printed]', (e as Error).message));
 createApp().listen(PORT, HOST, () => {
   console.log(`prompt-to-part server on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
   // In Docker the container listens on 0.0.0.0 and PTP_PUBLISHED (PTP_BIND, set by docker-compose.yml) says

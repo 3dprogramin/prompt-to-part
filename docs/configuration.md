@@ -10,6 +10,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 |---|---|---|
 | `PORT` | `8787` | API server port |
 | `PTP_HOST` | `127.0.0.1` | The address the server listens on (`0.0.0.0` in the Docker image, which Compose publishes on `127.0.0.1` only). prompt-to-part has no login by default: set `PTP_PASSWORD` before making it reachable from other computers |
+| `PTP_BACK_TEXT` | empty | Text printed mirrored on the back of every LayerTone print, e.g. your shop's address; empty turns it off |
 | `PTP_PASSWORD` | none | A password for every page and API call (HTTP Basic auth, any user name; the browser asks once). Set it whenever prompt-to-part is reachable from your network |
 | `PTP_MAX_GENERATIONS` | `4` | Most replies prompt-to-part works on at once, over all designs; one more is refused until one finishes |
 | `ELEVENLABS_API_KEY` | | Turns on dictation (the microphone button) |

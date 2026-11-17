@@ -23,7 +23,7 @@ esac
 
 if [ "${1:-}" != "--check" ]; then
   echo "Building the new image (prompt-to-part keeps running)…"
-  docker compose build
+  PTP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)" docker compose build
 fi
 
 case "${1:-}" in

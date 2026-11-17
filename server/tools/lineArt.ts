@@ -7,6 +7,7 @@ import { ASPECTS, decodeImage, imageModel, lineArtPrompt, traceLineArt } from '.
 import { editWholeLineArt } from '../pictureEdit/lineArt';
 import { drawingFingerprint, LINE_ART_STYLE_INFO, LINE_ART_STYLES, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits, type LineArtStyle } from '../../shared/lineart';
 import { DRAWINGS_KEY, MAX_DRAWINGS, MAX_SVG_POINTS, parseDrawings, type SvgDrawing } from '../../shared/svgFeatures';
+import { chatPhotos } from './designImage';
 import type { LineArtOptions, ToolContext } from './context';
 
 /**
@@ -47,12 +48,13 @@ export function lineArtTools(ctx: ToolContext, lineArt: LineArtOptions) {
       style: z.enum(LINE_ART_STYLES).optional().describe(`The piece it is drawn for, which sets the composition (default "${lineArt.style}", the user's menu): ${LINE_ART_STYLES.map((s) => `${s} = ${LINE_ART_STYLE_INFO[s].desc.toLowerCase()}`).join('; ')}`),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 16:9 for keyholder, sign and stand, else 1:1); 16:9 or 21:9 for a key holder with several subjects side by side, 3:4 or 4:5 for a standing figure'),
       look: z.string().max(400).optional().describe('A different line style, only when the user asks for one (e.g. "thin elegant single-line drawing", "bold comic outlines")'),
-      use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached to this message (their own car, bike, pet or person)'),
+      use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached in this chat (this message\'s first, then earlier ones): their own car, bike, pet or person'),
       width: z.number().min(40).max(1000).optional().describe('The piece\'s planned width in mm (default by style, e.g. 240 for a key holder): the line weight and the detail are drawn for it'),
       line_width: z.number().min(0.4).max(10).optional().describe('The planned lineWidth in mm (default 1)'),
       edit: z.string().regex(/^[\w-]{1,40}$/).optional().describe('Change part of an existing drawing instead of drawing a new one: its name. The image model gets that drawing as it is now (with the user\'s hand edits) and changes only what `subject` says (e.g. "replace the exhaust with a short angular Akrapovic silencer"), keeping every other line; use it for any change to part of a drawing the user likes'),
     }, async (a) => {
-      if (a.use_attached_photos && !lineArt.references.length) return { content: [{ type: 'text', text: 'The user attached no photos to this message.' }], isError: true };
+      const photos = a.use_attached_photos ? await chatPhotos(lineArt.designId ?? '', lineArt.references) : undefined;
+      if (photos && !photos.length) return { content: [{ type: 'text', text: 'The user attached no photos in this chat.' }], isError: true };
       const style = a.style ?? lineArt.style;
       const status = (text: string) => emit({ type: 'step', step: { kind: 'status', text } });
       const drawings = parseDrawings(base[DRAWINGS_KEY]);
@@ -60,7 +62,6 @@ export function lineArtTools(ctx: ToolContext, lineArt: LineArtOptions) {
       if (a.edit && !old) return { content: [{ type: 'text', text: `There is no drawing "${a.edit}" to edit (drawings: ${Object.keys(drawings).map((n) => `"${n}"`).join(', ') || 'none'}).` }], isError: true };
       status(old ? `Changing line art "${a.edit}" with ${imageModel()}…` : `Drawing line art "${a.name}" with ${imageModel()}…`);
       try {
-        const photos = a.use_attached_photos ? lineArt.references : undefined;
         // A change to part of a drawing: the drawing as it is (hand edits drawn in) goes first.
         const edits = old ? parseLineArtEdits(base[LINEART_EDITS_KEY])[a.edit!] : undefined;
         const hand = edits && edits.fp === drawingFingerprint(old!) ? edits.strokes : [];

@@ -19,10 +19,11 @@ import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
 import { LineArtPanel, lineArtPart } from './LineArtPanel';
 import { hiddenLayerToneParams, maxHeightNote, type LayerToneImage, type LayerToneSetup } from '../../shared/layertone';
+import type { BackTextSetting } from '../../shared/backText';
 import type { LineArtEdits } from '../../shared/lineart';
 import type { SvgFeature } from '../../shared/svgFeatures';
 import type { useCost } from '../hooks/useCost';
-import type { PrintProfile, PrintSettings } from '../../shared/print';
+import { effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
 import { FontPicker } from './FontPicker';
 import { ExportButton } from './ExportButton';
@@ -62,6 +63,8 @@ interface Props {
   /** The design's values (the LayerTone setup and pictures). */
   values: ParamValues;
   onLayerTone: (s: LayerToneSetup | null) => void;
+  /** The LayerTone back text (BACK_TEXT_KEY); null = the defaults. */
+  onBackText: (s: BackTextSetting | null) => void;
   /** Change the line-art hand edits (LINEART_EDITS_KEY). */
   onLineArtEdits: (update: (edits: LineArtEdits) => LineArtEdits, label?: string) => void;
   /** Show line art's joins of loose ends in the 3D view. */
@@ -146,6 +149,9 @@ export function SidePanel(p: Props) {
   const hiddenCount = shown ? shown.parts.filter((x) => p.hiddenParts.includes(x.name)).length : 0;
   const decorations = p.textFeatures.length + p.svgFeatures.length;
   const layerTonePart = findLayerTonePart(shown);
+  // The print's layer heights, as the 3MF uses them (the back text's layer count follows them).
+  const eff = effectiveSettings(p.aiPrint, p.userPrint, undefined, p.printBase);
+  const printLayers = { layerHeight: eff.layerHeight, firstLayerHeight: eff.firstLayerHeight };
   const lithoPart = lithophanePart(shown);
   const lineArt = lineArtPart(shown);
   // Four tabs, each with two sections one under the other (a LayerTone print, a lithophane or line
@@ -203,7 +209,7 @@ export function SidePanel(p: Props) {
         </>}
         {tab === 'print' && <>
           {shown && edits(<OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />)}
-          {shown && layerTonePart && section('layertone', 'LayerTone', () => edits(<LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onImage={p.onLayerToneImage} />))}
+          {shown && layerTonePart && section('layertone', 'LayerTone', () => edits(<LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onBackText={p.onBackText} onImage={p.onLayerToneImage} printLayers={printLayers} />))}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => edits(<LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />))}
           {shown && lineArt && section('lineart', 'Line art', () => edits(<LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onValue={p.onValue} onShowJoins={p.onShowJoins} />))}
           {section('print', 'Print settings', () => (shown

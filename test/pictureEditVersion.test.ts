@@ -108,6 +108,9 @@ test('applyPictureEdit: the values merged (null deletes), a version after the cu
   const nv = out.versions[2];
   assert.equal(nv.code, 'code v2');
   assert.equal(nv.source, 'manual');
+  // Outside Vite there is no build: the helper says so, and the field sits beside values, never in them.
+  assert.deepEqual(nv.app, { version: 'unknown' });
+  assert.equal('app' in (nv.values ?? {}), false);
   assert.equal(nv.summary, 'Picture edit: make him look like the man in the photo');
   // The version's values leave out the restore points, as every version's do.
   assert.deepEqual(nv.values, { size: 3, $drawings: '{"art":"new"}', $artworkEdits: '{"art":"cut"}' });

@@ -10,6 +10,7 @@ import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } f
 import type { MeshyBalance, PrinterInfo } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api } from './lib/api';
+import { appBuild } from './lib/appBuild';
 import type { AutoBuild } from './lib/autoBuild';
 import { describeSettings, settingsChanged } from './lib/settings';
 import { blockedChange, VIEW_KEYS } from './lib/printedLock';
@@ -44,6 +45,7 @@ import type { TrueScale } from '../shared/photos';
 import type { ValidationState } from './components/ValidationPanel';
 import { A1_DEFAULTS, defaultsFromTemplate, printDefaultsFor, type PrintSettings } from '../shared/print';
 import { setPrinter, type PrinterSetup } from '../shared/printer';
+import { backTextDefault, setBackTextDefault } from '../shared/backText';
 import { oneColourFilament } from './lib/bambu3mf';
 import { DEFAULT_LINE_ART_STYLE } from '../shared/lineart';
 import { forgetChatMode } from './lib/chatModes';
@@ -187,7 +189,9 @@ export default function App() {
     const c = await api.capabilities().catch(() => null);
     setPrintBase(c?.printDefaults ?? printDefaultsFor(info.printer));
   };
-  const { result, lastGood, error, busy, resultCode, builtValues } = useLiveModel(geo, design, quality, printerInfo?.printer.id);
+  // The LayerTone back text (PTP_BACK_TEXT), from the capabilities: a preview built before it came builds again.
+  const [backTextDef, setBackTextDef] = useState('');
+  const { result, lastGood, error, busy, resultCode, builtValues } = useLiveModel(geo, design, quality, `${printerInfo?.printer.id ?? ''}|${backTextDef}`);
   // Line art's joins of loose ends, shown in the 3D view while the Print tab's Line art section asks for them.
   const [showJoins, setShowJoins] = useState(false);
   const snapshotRef = useRef<(() => string | null) | null>(null);
@@ -222,7 +226,7 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); setBackTextDefault(c.backText ?? ''); setBackTextDef(backTextDefault()); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -242,7 +246,7 @@ export default function App() {
 
   const { layout, shownPanel, showPanel, shownTab, newModel } = useLayoutPanels({ design, picking });
 
-  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
+  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setBackText, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
   const [editingLineArt, setEditingLineArt] = useState(false);
   const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
   // The LayerTone photo open in the picture editor (its name under $images).
@@ -438,7 +442,7 @@ export default function App() {
 
   const onApplyCode = (code: string) => {
     setDesign((d) => {
-      const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const, values: withoutEditHistory(d.values) }];
+      const versions = [...d.versions, { code, summary: 'Manual code edit', createdAt: Date.now(), source: 'manual' as const, values: withoutEditHistory(d.values), app: appBuild() }];
       return { ...d, code, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };
@@ -455,7 +459,7 @@ export default function App() {
     if (!shown) return;
     setDesign((d) => {
       const base = d.versions[d.currentVersion]?.values ?? {};
-      const versions = [...d.versions, { code: d.code, summary: describeSettings(base, d.values, shown.params), createdAt: Date.now(), source: 'settings' as const, values: withoutEditHistory(d.values) }];
+      const versions = [...d.versions, { code: d.code, summary: describeSettings(base, d.values, shown.params), createdAt: Date.now(), source: 'settings' as const, values: withoutEditHistory(d.values), app: appBuild() }];
       return { ...d, versions, currentVersion: versions.length - 1, updatedAt: Date.now() };
     });
   };
@@ -604,7 +608,7 @@ export default function App() {
   const problem = markProblem({ generating: generating || busyElsewhere, unsavedSettings: unsavedSettings && !lockReason, hasCode: !!design.code });
   const markDisabled = marking ? 'Marking it as printed...' : problem;
   // A mark or unmark changes the list here and in the other tabs (they lock or unlock it at once).
-  const printed = printedActions({ design, problem, saveNow, build3mf, setNotice, setMarking,
+  const printed = printedActions({ design, problem, printedVersions: lockedVersions, saveNow, setDesign, build3mf, setNotice, setMarking,
     refreshList: () => { refreshList(); tell({ type: 'printed', id: design.id }); } });
 
   // A design opened on one of its versions (the Printed filter): that version is shown once the design's
@@ -858,7 +862,7 @@ export default function App() {
             <button className="link" onClick={() => sizes.view(null)}>Back to the design</button>
           </> : null}
           pinnedBanner={shownMark && !playback ? (
-            <PrintedBanner v={shownMark.v} at={shownMark.at} file={shownMark.file} settings={shownMark.settings} fileUrl={printedFileUrl(design.id, shownMark.v)}
+            <PrintedBanner v={shownMark.v} at={shownMark.at} app={shownMark.app} file={shownMark.file} settings={shownMark.settings} fileUrl={printedFileUrl(design.id, shownMark.v)}
               onClone={() => void forkVersion(design.currentVersion)} onMake3mf={() => void printed.mark()} makeDisabled={markDisabled} making={marking}
               onUnmark={() => void printed.unmark(shownMark.v)} />
           ) : null}
@@ -957,6 +961,7 @@ export default function App() {
           onResetValues={() => setDesign((d) => ({ ...d, values: keepAppValues(d.values) }))}
           values={design.values}
           onLayerTone={setLayerTone}
+          onBackText={setBackText}
           onLineArtEdits={setLineArtEdits}
           onPartColor={setPartColor}
           onShowJoins={setShowJoins}

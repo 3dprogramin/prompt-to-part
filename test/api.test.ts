@@ -292,6 +292,18 @@ test('without an API key (and not in subscription mode) Claude is never started'
 });
 
 
+test('capabilities carry the back text from PTP_BACK_TEXT, trimmed, empty when unset', async () => {
+  const saved = process.env.PTP_BACK_TEXT;
+  try {
+    process.env.PTP_BACK_TEXT = '  shop.example ';
+    assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).backText, 'shop.example');
+    delete process.env.PTP_BACK_TEXT;
+    assert.equal((await (await fetch(`${A}/api/capabilities`)).json()).backText, '');
+  } finally {
+    if (saved === undefined) delete process.env.PTP_BACK_TEXT; else process.env.PTP_BACK_TEXT = saved;
+  }
+});
+
 test('product photos: checked, need the OpenRouter key, stored with the design', async () => {
   const id = 'test-api-00000010';
   const photo = (extra: Record<string, unknown> = {}) => ({ render: { mediaType: 'image/png', data: PNG }, scene: 'table', aspect: '4:5', product: { name: 'Coaster', size: [100, 100, 5] }, ...extra });
@@ -402,7 +414,7 @@ test('printed: a version is marked with its 3MF, listed, downloaded, guarded aga
   const r = await post(1, 'PK3mf', '?settings=1');
   assert.equal(r.status, 200);
   const mark = await r.json();
-  assert.deepEqual({ ...mark, at: typeof mark.at }, { v: 1, file: true, settings: true, at: 'number' });
+  assert.deepEqual({ ...mark, at: typeof mark.at, app: typeof mark.app?.version }, { v: 1, file: true, settings: true, at: 'number', app: 'string' });
   const row = (await (await fetch(`${A}/api/designs`)).json()).find((d: { id: string }) => d.id === id);
   assert.deepEqual(row.printed, [mark]);
   const f = await fetch(`${url}/1/3mf`);

@@ -185,3 +185,40 @@ test('edit_picture shows the image model the photos from an earlier message when
   await tool.handler({ picture: 'portrait', change: 'the face from photo 2', region: undefined, use_attached_photos: true }, {});
   assert.deepEqual(seen, [photos]);
 });
+
+test('set_layertone back_text: false stores off, a string sets the text, "" returns to the default', async () => {
+  const { BACK_TEXT_KEY, parseBackText } = await import('../shared/backText');
+  const events: AgentEvent[] = [];
+  const filament = { name: 'Blue', color: '#1a3fbf', td: 1 };
+  const base: Record<string, string> = { [BACK_TEXT_KEY]: JSON.stringify({ filament, size: 50 }) };
+  const { server: cad } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { layerTone: true });
+  const run = (a: unknown) => handlers(cad).set_layertone.handler(a, {});
+  const last = () => events.filter((e) => e.type === 'backText').at(-1) as { value: string | null };
+
+  const off = await run({ back_text: false });
+  assert.ok(!off.isError, JSON.stringify(off));
+  assert.deepEqual(parseBackText(base[BACK_TEXT_KEY]), { off: true, filament, size: 50 });
+  assert.equal(last().value, base[BACK_TEXT_KEY]);
+  assert.match(off.content[0].text!, /Back text: off/);
+
+  await run({ back_text: 'Shop' });
+  assert.deepEqual(parseBackText(base[BACK_TEXT_KEY]), { text: 'Shop', filament, size: 50 });
+  assert.equal(last().value, base[BACK_TEXT_KEY]);
+
+  await run({ back_text: '' });
+  assert.deepEqual(parseBackText(base[BACK_TEXT_KEY]), { filament, size: 50 });
+
+  delete base[BACK_TEXT_KEY];
+  await run({ back_text: 'Shop' });
+  await run({ back_text: '' });
+  assert.ok(!(BACK_TEXT_KEY in base));
+  assert.equal(last().value, null);
+
+  process.env.PTP_BACK_TEXT = '';
+  const none = await run({ back_text: 'Shop' });
+  assert.match(none.content[0].text!, /no back text at all/);
+  process.env.PTP_BACK_TEXT = 'shop.example';
+  const dflt = await run({ back_text: '' });
+  assert.match(dflt.content[0].text!, /Back text: "shop.example" \(the default\)/);
+  delete process.env.PTP_BACK_TEXT;
+});

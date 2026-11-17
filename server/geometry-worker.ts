@@ -5,6 +5,7 @@
 // nothing to reach.
 import '../shared/sandbox'; // first: locks down the worker before anything else loads
 import { setPrinter, type ActivePrinter } from '../shared/printer';
+import { setBackTextDefault } from '../shared/backText';
 import dgram from 'node:dgram';
 import dns from 'node:dns';
 import inspector from 'node:inspector';
@@ -112,7 +113,7 @@ export interface EvalSummary {
   dimensions: EvalResult['dimensions'];
   assembly: EvalResult['assembly'];
   print: EvalResult['print'];
-  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; layerTone?: LayerToneSource; lithophane?: LithophaneSource; lineArt?: LineArtInfo; paint?: PaintSummary }[];
+  parts: { name: string; color: string; bbox: Box3; volume: number; surfaceArea: number; triCount: number; genus: number; components: number; layerColors?: LayerColor[]; layerTone?: LayerToneSource; lithophane?: LithophaneSource; lineArt?: LineArtInfo; paint?: PaintSummary; backText?: string }[];
 }
 /** A part coloured per triangle: its filaments and each one's share of the part's surface. */
 export interface PaintSummary { filaments: PaintFilament[]; share: number[] }
@@ -132,10 +133,10 @@ function summarize(r: EvalResult): EvalSummary {
     ok: true, meta: r.meta, params: r.params, values: r.values, bbox: r.bbox, timeMs: r.timeMs,
     warnings: r.warnings, logs: r.logs, dimensions: r.dimensions, assembly: r.assembly, print: r.print,
     parts: r.parts.map((p) => {
-      const { name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, layerTone, lithophane, lineArt } = p;
+      const { name, color, bbox, volume, surfaceArea, triCount, genus, components, layerColors, layerTone, lithophane, lineArt, backText } = p;
       const paint = paintSummary(p);
       // (A LayerTone part's picture and options: how it was built, which a marked edit_picture keeps its swaps by.)
-      return { name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...(paint ? { paint } : {}) };
+      return { name, color, bbox, volume, surfaceArea, triCount, genus, components, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...(paint ? { paint } : {}), ...(backText ? { backText: backText.text } : {}) };
     }),
   };
 }
@@ -150,7 +151,7 @@ async function run(code: string, values: ParamValues | undefined, quality: Quali
 }
 
 /** Every job carries the server's chosen printer (its bed decides how line art splits, what fits). */
-type Req = { printer?: ActivePrinter } & (
+type Req = { printer?: ActivePrinter; backText?: string } & (
   | { id: number; cmd: 'evaluate'; code: string; values?: ParamValues; quality?: Quality }
   | { id: number; cmd: 'render'; code: string; values?: ParamValues }
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
@@ -180,6 +181,7 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
     return;
   }
   if (req.printer) setPrinter(req.printer);
+  if (typeof req.backText === 'string') setBackTextDefault(req.backText);
   const post = (msg: { data?: unknown; error?: string; crashed?: boolean }) => send({ id: req.id, crashed: runtimeTrapped(), oom: runtimeOutOfMemory(), ...msg });
   try {
     await ready;

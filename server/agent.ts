@@ -19,6 +19,7 @@ import { describeDrawings, DRAWINGS_KEY, parseDrawings } from '../shared/svgFeat
 import { parseScadFiles } from '../shared/scad';
 import { formatScadReport, runScad } from './openscad';
 import { artworkAvailable, decodeImage } from './artwork';
+import { BACK_TEXT_KEY } from '../shared/backText';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, parseLayerToneImages, toLayerToneImage } from '../shared/layertone';
 import { parsePartColors, PART_COLORS_KEY } from '../shared/params';
 import { DEFAULT_LINE_ART_STYLE, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_JOIN_KEY, LINEART_LAYOUT_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY } from '../shared/lineart';
@@ -133,6 +134,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(Object.keys(drawings).length ? { [DRAWINGS_KEY]: JSON.stringify(drawings) } : {}),
     ...(Object.keys(layerToneImages).length ? { [LAYERTONE_IMAGES_KEY]: JSON.stringify(layerToneImages) } : {}),
     ...(typeof pictureValues[LAYERTONE_KEY] === 'string' ? { [LAYERTONE_KEY]: pictureValues[LAYERTONE_KEY] } : {}),
+    ...(typeof pictureValues[BACK_TEXT_KEY] === 'string' ? { [BACK_TEXT_KEY]: pictureValues[BACK_TEXT_KEY] } : {}),
     ...(typeof pictureValues[LINEART_EDITS_KEY] === 'string' ? { [LINEART_EDITS_KEY]: pictureValues[LINEART_EDITS_KEY] } : {}),
     ...(typeof pictureValues[ARTWORK_EDITS_KEY] === 'string' ? { [ARTWORK_EDITS_KEY]: pictureValues[ARTWORK_EDITS_KEY] } : {}),
     // The user's marks on pictures (edit_picture's region "mark").
@@ -145,8 +147,8 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(typeof pictureValues[LINEART_LAYOUT_KEY] === 'string' ? { [LINEART_LAYOUT_KEY]: pictureValues[LINEART_LAYOUT_KEY] } : {}),
     ...(typeof pictureValues[PART_COLORS_KEY] === 'string' ? { [PART_COLORS_KEY]: pictureValues[PART_COLORS_KEY] } : {}),
   };
-  // The user's own filaments, for Claude to prefer in a LayerTone print (a small file, read per request).
-  const myFilaments = layerTone ? await readMyFilaments() : [];
+  // The user's own filaments, for the LayerTone, artwork and line art sections of the prompt.
+  const myFilaments = layerTone || artwork || lineArt ? await readMyFilaments() : [];
   // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
   await printerLoaded().catch(() => undefined);
   const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());
@@ -266,7 +268,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   let limitHit = false;
   // Messages the user sends while Claude works go into the running reply (steerGeneration).
   const inbox = new Inbox();
-  steering.set(req.designId, { inbox, emit });
+  steering.set(req.designId, { inbox, emit, references });
   const run = async (resume?: string, recap?: string) => {
     async function* messages(): AsyncGenerator<SDKUserMessage> {
       // A fresh session after one that couldn't be continued starts with what was said before.
@@ -296,6 +298,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
           webSearch: !!req.webSearch,
           printBase,
           artwork,
+          myFilaments,
           layerTone: layerTone ? { pictures: artworkAvailable(), mine: myFilaments } : undefined,
           lithophane: lithophane ? { pictures: artworkAvailable() } : undefined,
           meshes: figure || meshTools || Object.keys(meshes).length ? { figure, meshy: meshTools, concepts: conceptTools, color: figureColor } : undefined,

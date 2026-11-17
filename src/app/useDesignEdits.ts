@@ -8,6 +8,7 @@ import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../../shared/text
 import { DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgFeature } from '../../shared/svgFeatures';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits, pruneArtworkEdits, type ArtworkEdits } from '../../shared/artworkEdits';
 import { LAYERTONE_KEY, parseLayerToneSetup, type LayerToneSetup } from '../../shared/layertone';
+import { BACK_TEXT_KEY, type BackTextSetting } from '../../shared/backText';
 import { LINEART_DEPTH_KEY, LINEART_EDITS_KEY, parseLineArtEdits, type LineArtEdits } from '../../shared/lineart';
 import { findLayerTonePart } from '../components/LayerTonePanel';
 import { recolourEdits } from '../lib/lineArtEdit';
@@ -58,6 +59,12 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
     if (setup) values[LAYERTONE_KEY] = JSON.stringify(setup); else delete values[LAYERTONE_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
+  // The LayerTone back text: only what differs from the defaults is saved; null removes the key.
+  const setBackText = (setting: BackTextSetting | null) => setDesign((d) => {
+    const values = { ...d.values };
+    if (setting) values[BACK_TEXT_KEY] = JSON.stringify(setting); else delete values[BACK_TEXT_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
   // Every change to the hand edits is a restore point (EDIT_HISTORY_KEY), of the edits as saved (as
   // they read back), `label` saying what it did.
   const record = <S,>(values: Design['values'], kind: HistoryKind, before: StrokeEdits<S>, after: StrokeEdits<S>, label = 'Hand edits changed') => {
@@ -102,5 +109,5 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
     if (Object.keys(all).length) values[PART_COLORS_KEY] = JSON.stringify(all); else delete values[PART_COLORS_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
-  return { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setLineArtEdits, setArtworkEdits, setPartColor };
+  return { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setBackText, setLineArtEdits, setArtworkEdits, setPartColor };
 }

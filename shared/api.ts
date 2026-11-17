@@ -107,6 +107,7 @@ export type AgentEvent =
   | { type: 'questions'; questions: ChatQuestion[] }
   /** Claude changed the LayerTone setup (set_layertone): the design's LAYERTONE_KEY value, or null to clear it. */
   | { type: 'layerToneSetup'; setup: LayerToneSetup | null }
+  | { type: 'backText'; value: string | null }
   /** Transient one-line status (throttled), replaced by the next one. */
   | { type: 'live'; text: string }
   /** Live transcript: a content block starts, its text grows, or a tool call's input fields are re-sent as they stream. */
@@ -145,6 +146,8 @@ export interface Capabilities {
   /** The chat's starting model and effort (PTP_MODEL, PTP_EFFORT). */
   model: string;
   effort: string;
+  /** The text printed mirrored on the back of every LayerTone print (PTP_BACK_TEXT), '' when off. */
+  backText: string;
   /** The currency costs are in (PTP_CURRENCY). */
   currency: string;
   /** Claude runs through OpenRouter, so the model menu offers OpenRouter's models (GET /api/models). */
