@@ -2,7 +2,7 @@
 
 ## Run prompt-to-part on your own computer only
 
-prompt-to-part has no login. Anyone who can reach its port can use your API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `pnpm start` listens there too. Keep it that way: don't expose it to the internet or put it behind a public proxy. To use it from a phone, only open it on a network you trust (`PTP_BIND` and `PTP_HOSTS` in `.env`).
+prompt-to-part has no login. Anyone who can reach its port can use your API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `pnpm start` listens there too. Keep it that way: don't expose it to the internet. To use it from a phone, only open it on a network you trust (`PTP_BIND` and `PTP_HOSTS` in `.env`). The one other way in is an HTTPS reverse proxy you control: set `PTP_PASSWORD` first and list the proxy's address in `PTP_ORIGINS` (see docs/running.md); a proxy that anyone on the internet can reach without that password is the same as exposing it.
 
 ## Run it in Docker
 

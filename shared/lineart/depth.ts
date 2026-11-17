@@ -16,7 +16,7 @@ export const MIN_COLOUR_LAYERS = 2;
 
 /**
  * A filament's TD (transmission distance, mm: LayerTone's model, where t mm of it hides
- * 1 - e^(-3t/TD) of what is under it, 95 % at t = TD): its own (the user's filaments), the library's,
+ * 1 - e^(-30t/TD) of what is under it, 95 % at t = 0.1 TD): its own (the user's filaments), the library's,
  * or for one the app doesn't know the middle TD of the library's filaments of its colour (light colours
  * let more through); `known` says which.
  */
