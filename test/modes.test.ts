@@ -86,8 +86,10 @@ test('generate_image works from the photos of earlier messages', async () => {
     { role: 'user', images: [`/api/designs/${id}/images/${name}`, `/api/designs/other-design/images/${name}`, '/etc/passwd'] },
     { role: 'assistant' },
   ] }));
-  const photos = await chatPhotos(id, ['data:image/png;base64,bm93'], 4, dir);
-  assert.deepEqual(photos, ['data:image/png;base64,bm93', `data:image/jpeg;base64,${Buffer.from('jpg').toString('base64')}`]);
+  const earlier = [`data:image/jpeg;base64,${Buffer.from('jpg').toString('base64')}`];
+  assert.deepEqual(await chatPhotos(id, [], 4, dir), earlier);
+  // A message with its own photos is about them: earlier ones may be another subject.
+  assert.deepEqual(await chatPhotos(id, ['data:image/png;base64,bm93'], 4, dir), ['data:image/png;base64,bm93']);
 });
 
 test('the image tool can be turned off', () => {
