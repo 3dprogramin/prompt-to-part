@@ -6,7 +6,15 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" | grep '^v26' | tail -1)/bin:$PATH"
 PID_FILE=test-data/server.pid
 mkdir -p test-data
-stop() { if [[ -f $PID_FILE ]] && kill -0 "$(cat $PID_FILE)" 2>/dev/null; then kill "$(cat $PID_FILE)"; echo "stopped $(cat $PID_FILE)"; fi; rm -f $PID_FILE; }
+# The pid file can outlive its server (a reboot, a crash) and the number then belongs to someone else's
+# process: only a node running server/index.ts is stopped.
+stop() {
+  if [[ -f $PID_FILE ]]; then
+    pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null && ps -o args= -p "$pid" 2>/dev/null | grep -q 'server/index.ts'; then kill "$pid"; echo "stopped $pid"; fi
+  fi
+  rm -f "$PID_FILE"
+}
 if [[ ${1:-} == stop ]]; then stop; exit 0; fi
 stop
 npx vite build > test-data/build.log 2>&1

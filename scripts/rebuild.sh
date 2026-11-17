@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rebuilds the Docker prompt-to-part without cutting off a reply: builds the new image first (it keeps
 # running), then waits while a reply is being generated (a Claude Code process in the container),
-# Bambu Studio is slicing or a picture edit runs (its marker file /tmp/ptp-busy-*), and only then
+# Bambu Studio is slicing, Blender is exporting or a picture edit runs (its marker file /tmp/ptp-busy-*), and only then
 # swaps the container (`docker compose up -d`, seconds) and waits for it to be healthy again.
 #   scripts/rebuild.sh          wait for idle (up to 30 min), then rebuild
 #   scripts/rebuild.sh --check  only say whether prompt-to-part is busy (exit 0 idle, 1 busy)
@@ -12,7 +12,7 @@ CONTAINER=${PTP_CONTAINER:-prompt-to-part-app-1}
 WAIT_S=${PTP_REBUILD_WAIT:-1800}
 
 busy() {
-  docker top "$CONTAINER" -eo pid,args 2>/dev/null | grep -Eiq 'claude|bambu' ||
+  docker top "$CONTAINER" -eo pid,args 2>/dev/null | grep -Eiq 'claude|bambu|blender' ||
     docker exec "$CONTAINER" sh -c 'ls /tmp/ptp-busy-* >/dev/null 2>&1' 2>/dev/null
 }
 

@@ -91,8 +91,6 @@ COPY --from=blender /opt/blender /opt/blender
 RUN if [ "$WITH_BLENDER" = 1 ]; then ln -s /opt/blender/blender /usr/local/bin/blender; else rmdir /opt/blender; fi
 
 WORKDIR /app
-# Declared here, after the package layers, so a new commit does not rebuild them.
-ARG PTP_COMMIT=
 # UV_THREADPOOL_SIZE: name lookups and file reads share Node's thread pool (4 threads by default), so
 # a slow DNS server would otherwise hold up every file read and stall the whole server.
 ENV NODE_ENV=production \
@@ -101,7 +99,6 @@ ENV NODE_ENV=production \
     PORT=8787 \
     PTP_DATA=/data \
     PTP_DOCKER=1 \
-    PTP_COMMIT=$PTP_COMMIT \
     CLAUDE_CONFIG_DIR=/home/node/.claude
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
@@ -109,6 +106,10 @@ COPY package.json pnpm-lock.yaml tsconfig.json index.html vite.config.ts LICENSE
 COPY server ./server
 COPY shared ./shared
 COPY src ./src
+# Declared after the dependency and source copies: an ARG that changes with every commit invalidates
+# the layers after it, so here only this cheap metadata layer is redone.
+ARG PTP_COMMIT=
+ENV PTP_COMMIT=$PTP_COMMIT
 # The volumes' mount points, owned by the user the app runs as: designs and the Bambu template (/data),
 # Claude Code's sessions (CLAUDE_CONFIG_DIR) and the OpenSCAD engine plus the bundled workers
 # (node_modules/.cache, the only place the sandboxed workers may read besides node_modules).
