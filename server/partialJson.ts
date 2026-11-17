@@ -68,3 +68,10 @@ export function partialFields(src: string): Record<string, string> {
   }
   return out;
 }
+
+/**
+ * How long to wait before sending the decoded fields again (ms). Each send carries the whole text
+ * so far, so a fixed 150 ms made a long script cost its size squared in events and decoding;
+ * waiting in proportion to the size keeps the traffic about the same per second at any length.
+ */
+export const fieldsDelay = (chars: number) => Math.max(150, Math.round(chars / 100));

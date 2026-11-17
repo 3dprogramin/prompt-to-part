@@ -17,3 +17,11 @@ test('nested values come back as raw JSON text', () => {
   assert.deepEqual(JSON.parse(r.a), { b: '}' });
   assert.deepEqual(JSON.parse(r.c), [1, { d: 2 }]);
 });
+
+test('the longer the tool input, the less often it is re-sent whole', async () => {
+  const { fieldsDelay } = await import('../server/partialJson');
+  assert.equal(fieldsDelay(0), 150);
+  assert.equal(fieldsDelay(5_000), 150, 'a short call keeps the quick refresh');
+  assert.ok(fieldsDelay(200_000) >= 1500, 'a 200 KB script is not re-sent six times a second');
+  assert.ok(fieldsDelay(400_000) > fieldsDelay(200_000));
+});

@@ -9,7 +9,7 @@ import { cadTools } from './cadTools';
 import { detectModes } from './modes/detect';
 import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
-import { partialFields } from './partialJson';
+import { fieldsDelay, partialFields } from './partialJson';
 import { authMode, claudeAuthProblem, claudeKeyRefused, claudeModel, claudeViaOpenRouter, DATA_DIR } from './config';
 import { modelIsTextOnly, openRouterModels, priceUsage, withoutPictures, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
@@ -349,7 +349,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
       if (pending) { emit({ type: 'block', op: 'append', text: pending }); pending = ''; }
       if (fieldsDirty) { fieldsDirty = false; emit({ type: 'block', op: 'fields', fields: partialFields(toolJson) }); }
     };
-    const flushSoon = () => { blockTimer ??= setTimeout(flushBlock, 150); };
+    const flushSoon = () => { blockTimer ??= setTimeout(flushBlock, fieldsDirty ? fieldsDelay(toolJson.length) : 150); };
     let block: { type: string; name?: string; chars: number; text: string } | null = null;
     const toolNames = new Map<string, string>();
     // Line counts of the Write/Edit calls in flight, by tool call.
