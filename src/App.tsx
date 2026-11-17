@@ -915,7 +915,7 @@ export default function App() {
                 capture={(view, aspect, scale) => photoRef.current?.(view, aspect, undefined, scale) ?? null}
                 jobs={photoJobs.jobs}
                 onStart={(r, more) => photoJobs.start(design.id, r, more)}
-                onStartSet={(rs, more) => photoJobs.startSet(design.id, rs, more)}
+                onStartSet={(designId, rs, more) => photoJobs.startSet(designId, rs, more)}
                 onRetry={photoJobs.retry}
                 onDismiss={photoJobs.dismiss}
                 imageModel={artworkModel}

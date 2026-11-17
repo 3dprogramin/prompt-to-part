@@ -12,6 +12,7 @@ import { Icon } from './Icon';
 import { useEscape } from './useEscape';
 import { ASPECT_HINT, ASPECT_RATIO, lookOf, mmText, photoLabel, SHOP_ORDER, sceneLabel, shopShot, STUDIO_SHOTS, UPDATED, writeScene } from './photos/photoHelpers';
 import type { PhotoJob, SizeGroup } from './photos/usePhotoJobs';
+import { takeShots } from './photos/shotSet';
 import { useTicker } from './photos/useTicker';
 import { BigPhoto } from './photos/BigPhoto';
 import { ScenePicker } from './photos/ScenePicker';
@@ -44,7 +45,7 @@ interface Props {
   jobs: PhotoJob[];
   onStart: (r: PhotoRequest, more?: Partial<PhotoJob>) => void;
   /** A shop set: its photos, made a few at a time. */
-  onStartSet: (rs: PhotoRequest[], more?: Partial<PhotoJob>[]) => void;
+  onStartSet: (designId: string, rs: PhotoRequest[], more?: Partial<PhotoJob>[]) => void;
   /** The design's sale sizes; the one the 3D view shows (its photos are of that size). */
   sizes?: SaleSizeInfo[];
   viewedSize?: string | null;
@@ -94,6 +95,9 @@ export function PhotosPanel(p: Props) {
   // The gallery shows every photo, one size's (with the studio shots every size shares) or those without a size.
   const [filter, setFilter] = useState<string>('all');
   const [big, setBig] = useState<ProductPhoto | null>(null);
+  // The design open now, read after each wait of a shop set (the click's closure keeps the old one).
+  const latestDesign = useRef(p.designId);
+  latestDesign.current = p.designId;
   const opener = useRef<HTMLElement | null>(null);
   const openBig = (ph: ProductPhoto) => { opener.current = document.activeElement as HTMLElement | null; setBig(ph); };
   const closeBig = () => { setBig(null); opener.current?.focus(); };
@@ -446,6 +450,7 @@ export function PhotosPanel(p: Props) {
   // The view's own camera is never moved: the renders use a camera of their own.
   const shopSet = async () => {
     setError(null);
+    const startedFor = p.designId;
     const prod = product();
     if (!size || !prod) return setError('There is no model to photograph yet.');
     const plan = shopPlan({ size, suggested });
@@ -453,26 +458,33 @@ export function PhotosPanel(p: Props) {
     // setting for both; the studio shots stay the same for every product.
     const scened = (item: (typeof plan)[number]) => item.scene === choice.scene && !STUDIO_SHOTS.includes(item.shot);
     const chosen = plan.some(scened) ? await look('shop') : {};
-    const rs: PhotoRequest[] = [];
+    let failure: string | null = null;
+    let run;
+    setRendering(1);
     try {
-      for (const [i, item] of plan.entries()) {
-        setRendering(i + 1);
+      run = await takeShots(startedFor, () => latestDesign.current, plan, async () => {
         await new Promise((r) => setTimeout(r, 30));
+      }, (item, i) => {
+        setRendering(i + 1);
         let shot: string | null;
         try {
           shot = p.capture(item.camera, 1, item.scaleRef ? { ref: item.scaleRef } : undefined);
         } catch (e) {
-          return setError(`Couldn't render the model: ${(e as Error).message}`);
+          failure = `Couldn't render the model: ${(e as Error).message}`;
+          return null;
         }
-        if (!shot) return setError('Every part is hidden: show at least one to photograph it.');
+        if (!shot) { failure = 'Every part is hidden: show at least one to photograph it.'; return null; }
         // The studio shots are every size's; the scene ones are of the size shown, if one is.
         const sale = viewedSale && !STUDIO_SHOTS.includes(item.shot) ? { saleSize: viewedSale } : {};
-        rs.push({ render: dataUrlToImage(shot), scene: item.scene, ...(scened(item) ? chosen : {}), aspect: '1:1', shop: item.shot, ...(item.scaleRef ? { scaleRef: item.scaleRef } : {}), ...sale, product: { ...prod, faceOn: item.faceOn } });
-      }
+        return { render: dataUrlToImage(shot), scene: item.scene, ...(scened(item) ? chosen : {}), aspect: '1:1' as const, shop: item.shot, ...(item.scaleRef ? { scaleRef: item.scaleRef } : {}), ...sale, product: { ...prod, faceOn: item.faceOn } } satisfies PhotoRequest;
+      });
     } finally {
       setRendering(null);
     }
-    p.onStartSet(rs, plan.map((item) => ({ camera: item.camera, shape: p.shape })));
+    // The design was switched while it rendered: nothing is started (the viewer shows the other design).
+    if (run.switched) return;
+    if ('failed' in run) return setError(failure ?? 'Couldn\'t render the model.');
+    p.onStartSet(startedFor, run.shots, plan.map((item) => ({ camera: item.camera, shape: p.shape })));
   };
 
   const save = async (ph: ProductPhoto, n: number) => {
