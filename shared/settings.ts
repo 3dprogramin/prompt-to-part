@@ -12,9 +12,9 @@ export const CLAUDE_VIA: ClaudeVia[] = ['subscription', 'anthropic', 'openrouter
 
 /** In the dialog's row order. */
 export const SETTINGS: SettingDef[] = [
-  { env: 'PTP_CLAUDE', kind: 'choice', label: 'How Claude runs', choices: CLAUDE_VIA },
+  { env: 'PTP_CLAUDE', kind: 'choice', label: 'Claude runs on', choices: CLAUDE_VIA },
   { env: 'CLAUDE_CODE_OAUTH_TOKEN', kind: 'secret', label: 'Subscription token', hint: 'Made with claude setup-token.' },
-  { env: 'ANTHROPIC_API_KEY', kind: 'secret', label: 'Anthropic key' },
+  { env: 'ANTHROPIC_API_KEY', kind: 'secret', label: 'Anthropic API key' },
   { env: 'OPENROUTER_API_KEY', kind: 'secret', label: 'OpenRouter key' },
   { env: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', label: 'Other provider token' },
   { env: 'ANTHROPIC_BASE_URL', kind: 'text', label: 'Other provider address', hint: 'An https:// address.', restricted: true },

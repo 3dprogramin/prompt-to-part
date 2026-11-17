@@ -232,7 +232,13 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); setBackTextDefault(c.backText ?? ''); setBackTextDef(backTextDefault()); if (c.printedProblem) setNotice({ text: c.printedProblem, level: 'warning', details: false }); }).catch(() => {}); }, []);
+  // What the server can do and runs on: read at load, and again after Settings saved keys or services
+  // (the printed.json notice only at load).
+  const loadCapabilities = (atLoad: boolean) => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); setBackTextDefault(c.backText ?? ''); setBackTextDef(backTextDefault()); if (atLoad && c.printedProblem) setNotice({ text: c.printedProblem, level: 'warning', details: false }); }).catch(() => {}); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => loadCapabilities(true), []);
+  // Goes up when Settings checked the connection afresh, so the chip in the top bar shows it too.
+  const [connectionChecked, setConnectionChecked] = useState(0);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);
@@ -769,6 +775,7 @@ export default function App() {
       <TopBar
         compact={layout === 'phone'}
         onSettings={(tab) => setSettings({ tab })}
+        connectionChecked={connectionChecked}
         design={design}
         kind={kind}
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
@@ -1065,7 +1072,8 @@ export default function App() {
         />
       )}
       {printerInfo?.firstStart && <PrinterDialog info={printerInfo} onSave={onPrinter} />}
-      {settings && !printerInfo?.firstStart && <SettingsDialog tab={settings.tab} printerInfo={printerInfo} onPrinter={onPrinter} onClose={() => setSettings(null)} />}
+      {settings && !printerInfo?.firstStart && <SettingsDialog tab={settings.tab} printerInfo={printerInfo} onPrinter={onPrinter}
+        onSettingsSaved={() => loadCapabilities(false)} onConnectionChecked={() => setConnectionChecked((n) => n + 1)} onClose={() => setSettings(null)} />}
       {pendingRestore != null && (
         <RestoreDialog
           target={pendingRestore}

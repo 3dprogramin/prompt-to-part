@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { PrinterInfo } from '../../../shared/api';
 import type { PrinterSetup } from '../../../shared/printer';
 import { useEscape } from '../useEscape';
+import { DISCARD_QUESTION } from './keysDraft';
+import { KeysTab } from './KeysTab';
 import { PrinterTab } from './PrinterTab';
 import { initialTab, SETTINGS_TAB_KEY, SETTINGS_TABS, type SettingsTab } from './settingsTabs';
 
@@ -12,6 +14,10 @@ interface Props {
   tab?: SettingsTab;
   printerInfo: PrinterInfo | null;
   onPrinter: (setup: PrinterSetup) => Promise<void>;
+  /** Keys or services were saved or reset: the page reads its capabilities again. */
+  onSettingsSaved: () => void;
+  /** The connection was checked afresh: the chip in the top bar shows it too. */
+  onConnectionChecked: () => void;
   onClose: () => void;
 }
 
@@ -19,11 +25,15 @@ function remembered(): string | null {
   try { return localStorage.getItem(SETTINGS_TAB_KEY); } catch { return null; }
 }
 
-export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onClose }: Props) {
+export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsSaved, onConnectionChecked, onClose }: Props) {
   const [tab, setTab] = useState<SettingsTab>(() => initialTab(asked, remembered()));
   const tabRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
   const dialog = useRef<HTMLDivElement>(null);
-  useEscape(true, onClose);
+  // Set by the Keys and services tab while it is open: whether it has changes not saved.
+  const keysDirty = useRef<(() => boolean) | null>(null);
+  const mayLeave = () => !keysDirty.current?.() || window.confirm(DISCARD_QUESTION);
+  const close = () => { if (mayLeave()) onClose(); };
+  useEscape(true, close);
   // Focus goes to the open tab and back to the opener (the gear or the chip) on close.
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -33,6 +43,7 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onClose }: 
   }, []);
 
   const choose = (id: SettingsTab, focus = false) => {
+    if (id !== tab && !mayLeave()) return;
     setTab(id);
     try { localStorage.setItem(SETTINGS_TAB_KEY, id); } catch { /* not remembered */ }
     if (focus) tabRefs.current[id]?.focus();
@@ -66,11 +77,11 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onClose }: 
         <div className="settings-panel" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
           {tab === 'printer' && <PrinterTab info={printerInfo} onPrinter={onPrinter} />}
           {tab === 'filaments' && <p>Your filaments move here in the next update. For now they are in the LayerTone filament picker.</p>}
-          {/* The Keys and services tab replaces this line in the next step. */}
-          {tab === 'keys' && <p>Keys and services are added in the next step.</p>}
+          {tab === 'keys' && <KeysTab dirtyRef={keysDirty} onSaved={onSettingsSaved} onChecked={onConnectionChecked} />}
         </div>
         <div className="modal-actions">
-          <button type="button" className="btn primary" onClick={onClose}>Close</button>
+          {/* On Keys and services, Save is the main button. */}
+          <button type="button" className={`btn ${tab === 'keys' ? 'ghost' : 'primary'}`} onClick={close}>Close</button>
         </div>
       </div>
     </div>

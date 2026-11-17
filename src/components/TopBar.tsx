@@ -65,6 +65,8 @@ interface Props {
   compact?: boolean;
   /** Open Settings, on this tab or the one used last. */
   onSettings: (tab?: SettingsTab) => void;
+  /** Goes up when Settings has just checked the connection afresh: the chip shows that answer. */
+  connectionChecked: number;
 }
 
 /** Logo, design name, versions, open designs and the Designs menu. */
@@ -137,7 +139,7 @@ export function TopBar(p: Props) {
           <Icon name="x" size={13} /> Close all
         </button>
       )}
-      <ConnectionChip generating={p.generating} onOpen={() => p.onSettings('keys')} />
+      <ConnectionChip generating={p.generating} checked={p.connectionChecked} onOpen={() => p.onSettings('keys')} />
       {!p.compact && <a className={`btn ghost ${newTags ? 'new-temp' : ''}`} href="/" title={newTitle} onClick={newHere}><Icon name="plus" size={14} /> New</a>}
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} aria-label="Designs"
@@ -168,7 +170,7 @@ export function TopBar(p: Props) {
   );
 }
 
-const VIA_LABEL: Record<Connection['via'], string> = {
+export const VIA_LABEL: Record<Connection['via'], string> = {
   subscription: 'Claude subscription',
   openrouter: 'OpenRouter API',
   anthropic: 'Anthropic API',
@@ -178,9 +180,9 @@ const VIA_LABEL: Record<Connection['via'], string> = {
 
 /**
  * What the app runs Claude on and whether it answers, with the subscription's usage: checked on load,
- * every 5 minutes and when a generation ends; a click opens Settings on the keys tab.
+ * every 5 minutes, when a generation ends and after Settings checked it afresh; a click opens Settings on the keys tab.
  */
-function ConnectionChip({ generating, onOpen }: { generating: number; onOpen: () => void }) {
+function ConnectionChip({ generating, checked, onOpen }: { generating: number; checked: number; onOpen: () => void }) {
   const [conn, setConn] = useState<Connection | null>(null);
   const [checking, setChecking] = useState(true);
   const check = (fresh: boolean) => {
@@ -197,6 +199,12 @@ function ConnectionChip({ generating, onOpen }: { generating: number; onOpen: ()
     if (generating < wasGenerating.current) check(false);
     wasGenerating.current = generating;
   }, [generating]);
+  // The server keeps the answer Settings just got for a minute, so this reads it without checking again.
+  const wasChecked = useRef(checked);
+  useEffect(() => {
+    if (checked !== wasChecked.current) check(false);
+    wasChecked.current = checked;
+  }, [checked]);
   const usage = usageSummary(conn?.usage);
   const state = checking && !conn ? 'checking' : !conn?.ok || usage?.level === 'limited' ? 'bad' : usage?.level === 'warn' ? 'warn' : 'ok';
   const extra = conn?.credit != null ? `$${conn.credit.toFixed(2)}`
