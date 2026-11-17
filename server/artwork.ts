@@ -140,6 +140,11 @@ async function requestOnce(key: string, model: string, prompt: string, aspect: s
       console.warn(`[image] ${model} refused image_size ${size} (${why}): drawing at its default size`);
       return requestOnce(key, model, prompt, aspect, references, signal);
     }
+    // Only a 400, 403 or 422 is the model turning the request down; a bad key, no credit or an unknown
+    // model is the setup's problem, and calling it a refusal sends the user to rewrite the prompt.
+    if (res.status === 401) throw new Error(`OpenRouter rejected the key in OPENROUTER_API_KEY (${why})`);
+    if (res.status === 402) throw new Error(`OpenRouter says there are not enough credits for the image model (${why})`);
+    if (res.status === 404) throw new Error(`OpenRouter does not know the image model ${model} (${why})`);
     throw new Error(`The image model refused: ${why}`);
   }
   const msg = body.choices?.[0]?.message;

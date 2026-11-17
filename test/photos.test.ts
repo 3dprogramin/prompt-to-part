@@ -475,3 +475,23 @@ test('an open cut-out (line art): the prompt keeps the areas between its lines e
   assert.match(photoProblem(request({ scene: SHOP_SCENE, product: { name: 'x', size: [1, 1, 1], open: 'yes' as unknown as boolean } }))!, /product.open/);
 });
 
+
+test('a key, credit or model problem is reported as such, not as the image model refusing the picture', async () => {
+  const saved = { fetch: globalThis.fetch, key: process.env.OPENROUTER_API_KEY, fallback: process.env.PTP_IMAGE_FALLBACK };
+  let status = 401;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: 'No auth credentials found' } }), { status })) as typeof fetch;
+  try {
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    process.env.PTP_IMAGE_FALLBACK = '';
+    await assert.rejects(requestImage('a cup', '1:1', undefined), (e: Error) => /OPENROUTER_API_KEY/.test(e.message) && !/refused/.test(e.message));
+    status = 402;
+    await assert.rejects(requestImage('a cup', '1:1', undefined), (e: Error) => /credits/i.test(e.message) && !/refused/.test(e.message));
+    status = 404;
+    await assert.rejects(requestImage('a cup', '1:1', undefined), (e: Error) => /model/i.test(e.message) && !/refused/.test(e.message));
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const [k, v] of [['OPENROUTER_API_KEY', saved.key], ['PTP_IMAGE_FALLBACK', saved.fallback]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
