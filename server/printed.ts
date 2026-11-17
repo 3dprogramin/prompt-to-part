@@ -30,57 +30,80 @@ export const printedGuard = (design: Pick<Design, 'versions'>, marks: PrintedMar
 export const PRINTED_JSON = path.join(DATA_DIR, 'printed.json');
 const validId = (id: string) => ID_RE.test(id);
 
-/** The stored marks: none when there is no file; a damaged or unreadable file is recovered first (recoverPrinted). */
+/**
+ * The stored marks: none when there is no file; a damaged file (text that isn't the marks) is
+ * recovered first (recoverPrinted). One that can't be read is not damaged: the read fails, so every
+ * save is refused rather than a printed version unlocked, until it can be read again.
+ */
 export async function readPrinted(): Promise<PrintedMap> {
   for (let tries = 0; tries < 3; tries++) {
     const marks = await readMarks();
-    if (marks) return marks;
+    if (marks !== 'damaged') return marks;
     recovery ??= recoverPrinted().finally(() => { recovery = null; });
     await recovery;
   }
   throw new Error('printed.json (the printed versions) could not be read or recovered');
 }
 
-/** The file's marks, {} when there is none, null when it is damaged or can't be read. */
-async function readMarks(): Promise<PrintedMap | null> {
+/** The file's marks ({} when there is none), or 'damaged'; throws when it can't be read. */
+async function readMarks(): Promise<PrintedMap | 'damaged'> {
   let text: string;
   try {
     text = await readFile(PRINTED_JSON, 'utf8');
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'ENOENT' ? {} : null;
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    tell(`The list of printed versions (printed.json) could not be read (${(e as Error).message}). Designs can't be saved until it can (so no printed version is unlocked): check the file in the data folder, e.g. its owner and permissions.`, true);
+    throw e;
   }
+  if (problem && unreadable) tell(null);
   try {
     const o: unknown = JSON.parse(text);
-    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return 'damaged';
     return cleanPrintedMap((o as { printed?: unknown }).printed, validId);
   } catch {
-    return null;
+    return 'damaged';
   }
 }
 
 let recovery: Promise<void> | null = null;
 let problem: string | null = null;
+/** The problem is that the file can't be read (it goes once it can). */
+let unreadable = false;
 /** What went wrong with printed.json in this run (for the page), or null. */
 export const printedProblem = () => problem;
+/** Sets the problem, logged when it changes. */
+function tell(text: string | null, cantRead = false) {
+  if (text && text !== problem) console.error(`[printed] ${text}`);
+  problem = text;
+  unreadable = cantRead;
+}
 
 /**
- * printed.json is damaged or can't be read: it must neither stop every save nor be taken as "nothing
- * printed". It is kept as it is under printed.json.damaged-<time>-<random> (linked, so the name never
- * goes missing in between), and the marks are rebuilt from what can still be read: each whole mark in
- * its text, and each stored print 3MF (designs/<id>/printed/vN.3mf) that has no mark from the text.
- * When the file can't be kept aside, nothing changes and the read fails, as before.
+ * printed.json is damaged (its text isn't the marks): it must neither stop every save nor be taken as
+ * "nothing printed". The marks are rebuilt from each whole mark in its text and each stored print 3MF
+ * (designs/<id>/printed/vN.3mf) that has no mark from the text; only when every one of those could be
+ * read (else the read fails and nothing changes) is the file kept as it is under
+ * printed.json.damaged-<time>-<random> (linked, so the name never goes missing in between) and the
+ * rebuilt marks written in its place. When it can't be kept aside, nothing changes either.
  */
 async function recoverPrinted(): Promise<void> {
-  if (await readMarks()) return; // another recovery (or a write) fixed it meanwhile
-  const aside = `${PRINTED_JSON}.damaged-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
-  await link(PRINTED_JSON, aside).catch(() => copyFile(PRINTED_JSON, aside, constants.COPYFILE_EXCL));
-  const text = await readFile(aside, 'utf8').catch(() => '');
-  const marks = salvageMarks(text);
-  const fromText = Object.values(marks).reduce((n, l) => n + l.length, 0);
-  const from3mf = await marksFromPrintFiles(marks);
-  await writeAtomically(PRINTED_JSON, JSON.stringify({ printed: marks }));
-  problem = `The list of printed versions (printed.json) was damaged or could not be read. It is kept as ${path.basename(aside)} in the data folder; ${fromText} printed mark(s) were read back from it and ${from3mf} from the stored print files. A version marked printed without a print file whose mark could not be read is no longer marked: mark it again.`;
-  console.error(`[printed] ${problem}`);
+  let text: string;
+  try {
+    text = await readFile(PRINTED_JSON, 'utf8');
+    const marks = salvageMarks(text);
+    if (await readMarks() !== 'damaged') return; // another write fixed it meanwhile
+    const fromText = Object.values(marks).reduce((n, l) => n + l.length, 0);
+    const from3mf = await marksFromPrintFiles(marks);
+    const aside = `${PRINTED_JSON}.damaged-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+    await link(PRINTED_JSON, aside).catch(() => copyFile(PRINTED_JSON, aside, constants.COPYFILE_EXCL));
+    // What was salvaged is what is kept aside (nothing wrote the file in between).
+    if (await readFile(aside, 'utf8') !== text) throw new Error('printed.json changed while it was being recovered');
+    await writeAtomically(PRINTED_JSON, JSON.stringify({ printed: marks }));
+    tell(`The list of printed versions (printed.json) was damaged. It is kept as ${path.basename(aside)} in the data folder; ${fromText} printed mark(s) were read back from it and ${from3mf} from the stored print files. A version marked printed without a print file whose mark could not be read is no longer marked: mark it again.`);
+  } catch (e) {
+    tell(`The list of printed versions (printed.json) is damaged and could not be recovered (${(e as Error).message}). Designs can't be saved until it is (so no printed version is unlocked): check the data folder.`);
+    throw e;
+  }
 }
 
 /** Every whole mark in a damaged printed.json's text, by design (each checked like a sound file's). */
@@ -96,21 +119,23 @@ function salvageMarks(text: string): PrintedMap {
   return cleanPrintedMap(raw, validId);
 }
 
-/** Adds a mark for each stored print 3MF that has none in `marks`; returns how many. */
+/** A folder's names; none when it isn't there, but a folder that can't be read fails. */
+const names = (dir: string) => readdir(dir).catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return [] as string[]; throw e; });
+
+/** Adds a mark for each stored print 3MF that has none in `marks`; returns how many. Fails when one can't be read. */
 async function marksFromPrintFiles(marks: PrintedMap): Promise<number> {
   let added = 0;
-  for (const id of await readdir(DESIGNS).catch(() => [] as string[])) {
+  for (const id of await names(DESIGNS)) {
     if (!validId(id)) continue;
     const dir = path.join(DESIGNS, id, 'printed');
-    const files = (await readdir(dir).catch(() => [] as string[])).filter((n) => PRINTED_FILE.test(n));
+    const files = (await names(dir)).filter((n) => PRINTED_FILE.test(n));
     if (!files.length) continue;
     const design = await readFile(path.join(DESIGNS, `${id}.json`), 'utf8').then((t) => JSON.parse(t) as Design, () => null);
     for (const n of files) {
       const v = Number(n.slice(1, -4)) - 1;
       if (marks[id]?.some((m) => m.v === v)) continue;
       const file = path.join(dir, n);
-      const [bytes, st] = await Promise.all([readFile(file), stat(file)]).catch(() => [null, null]);
-      if (!bytes || !st) continue;
+      const [bytes, st] = await Promise.all([readFile(file), stat(file)]);
       const ver = Array.isArray(design?.versions) ? design.versions[v] : undefined;
       // No version to fingerprint: an empty one, which locks the design's saves until the mark is removed.
       const fp = ver ? versionFingerprint(ver) : '';

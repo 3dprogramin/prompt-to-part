@@ -69,17 +69,50 @@ test('a damaged printed.json is kept aside, its readable marks and the printed 3
   assert.match(caps.printedProblem ?? '', new RegExp(aside[0].replace(/\./g, '\\.')));
 });
 
-test('a printed.json that can\'t be read is not taken as "nothing printed"', async () => {
-  const e = stored('printed-dmg-0000e', ['e0']);
-  print3mf(e.id, 0, false);
-  const text = JSON.stringify({ printed: { [e.id]: [mark(e, 0, 444, true)] } });
+// chmod 0 stops no one running as root.
+const asRoot = process.getuid?.() === 0;
+const capsProblem = async () => ((await (await fetch(`${A}/api/capabilities`)).json()) as { printedProblem?: string | null }).printedProblem ?? null;
+const asides = () => readdirSync(dataDir).filter((n) => n.startsWith('printed.json.damaged-'));
+
+test('a printed.json that can\'t be read is not rebuilt: saves are refused until it can, and its marks all stay', { skip: asRoot }, async () => {
+  const e = stored('printed-dmg-0000e', ['e0', 'e1']);
+  // Marked printed without a 3MF: only printed.json knows.
+  const text = JSON.stringify({ printed: { [e.id]: [mark(e, 0, 444, false)] } });
   writeFileSync(printedJson, text);
+  const before = asides().length;
   chmodSync(printedJson, 0);
   try {
-    assert.equal((await put(changed(e, 0))).status, 423, 'its printed version stays locked');
+    const r = await put(changed(e, 0));
+    assert.notEqual(r.status, 200, 'the printed version is not unlocked');
+    assert.equal((await put(changed(e, 1))).status >= 500, true, 'no save while the marks can\'t be read');
+    assert.match((await capsProblem()) ?? '', /could not be read/);
   } finally {
-    for (const n of readdirSync(dataDir)) if (n.startsWith('printed.json')) chmodSync(path.join(dataDir, n), 0o644);
+    chmodSync(printedJson, 0o644);
   }
-  const kept = readdirSync(dataDir).filter((n) => n.startsWith('printed.json')).map((n) => readFileSync(path.join(dataDir, n), 'utf8'));
-  assert.ok(kept.includes(text), 'the unreadable file is kept as it was');
+  assert.equal(readFileSync(printedJson, 'utf8'), text, 'printed.json is not rewritten');
+  assert.equal(asides().length, before, 'nothing set aside: it is not damaged');
+  // Readable again: the mark holds, and the problem is gone.
+  assert.equal((await put(changed(e, 0))).status, 423);
+  assert.equal(await capsProblem(), null);
+});
+
+test('a damaged printed.json is not rebuilt from a print 3MF folder that can\'t be read', { skip: asRoot }, async () => {
+  const f = stored('printed-dmg-0000f', ['f0']);
+  print3mf(f.id, 0, false);
+  const damaged = '{"printed": {"printed-dmg-0000f": [{"v": 0, "at": 5';
+  writeFileSync(printedJson, damaged);
+  const before = asides().length;
+  const dir = path.join(designs, f.id, 'printed');
+  chmodSync(dir, 0);
+  try {
+    assert.notEqual((await put(changed(f, 0))).status, 200, 'its printed version is not unlocked');
+    assert.match((await capsProblem()) ?? '', /could not/);
+  } finally {
+    chmodSync(dir, 0o755);
+  }
+  assert.equal(readFileSync(printedJson, 'utf8'), damaged, 'printed.json is not rewritten from part of its sources');
+  assert.equal(asides().length, before);
+  // Once the folder can be read, the recovery runs and the version is locked by its 3MF.
+  assert.equal((await put(changed(f, 0))).status, 423);
+  assert.equal(asides().length, before + 1);
 });
