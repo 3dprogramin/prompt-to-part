@@ -16,7 +16,7 @@ import { cleanTagMap } from '../../shared/tags';
 import { cleanPrintedMap, MAX_PRINTED_BYTES, PRINTED_FILE, printedFileName } from '../../shared/printed';
 import { printedGuard } from '../printed';
 import { MAX_MESH_BYTES, MESH_FILE, meshDir } from '../meshes';
-import { MAX_ZIP_BYTES, openZip, unpackProblem, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from '../backup';
+import { MAX_ZIP_BYTES, MAX_ZIP_ENTRIES, openZip, unpackProblem, writeZip, ZipError, zipSizeBound, type ZipEntry, type ZipSource } from '../backup';
 import { contentHash, DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
@@ -97,6 +97,9 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       for (const n of await readdir(imageDir(id)).catch(() => [] as string[])) if (IMAGE_NAME.test(n)) files.push({ name: `designs/${id}/${n}`, file: path.join(imageDir(id), n), compress: false });
       for (const n of await readdir(meshDir(id)).catch(() => [] as string[])) if (MESH_FILE.test(n)) files.push({ name: `designs/${id}/meshes/${n}`, file: path.join(meshDir(id), n), compress: false });
       for (const n of await readdir(path.join(imageDir(id), 'printed')).catch(() => [] as string[])) if (PRINTED_FILE.test(n)) files.push({ name: `designs/${id}/printed/${n}`, file: path.join(imageDir(id), 'printed', n), compress: false });
+    }
+    if (files.length > MAX_ZIP_ENTRIES) {
+      return void res.status(500).json({ error: `Your designs hold too many files for one zip (over ${MAX_ZIP_ENTRIES.toLocaleString('en')}): back up the data folder instead (see "Docker" in docs/running.md).` });
     }
     if (await zipSizeBound(files) > MAX_ZIP_BYTES) {
       return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in docs/running.md).' });

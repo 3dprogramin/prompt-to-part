@@ -11,6 +11,8 @@ const inflate = promisify(inflateRaw);
 
 /** fflate writes no ZIP64: every size and offset in the archive must stay under 4 GiB. */
 export const MAX_ZIP_BYTES = 0xffffffff;
+/** The entry count is 16 bits (0xffff means ZIP64): one more file and fflate's count wraps around. */
+export const MAX_ZIP_ENTRIES = 0xfffe;
 /** Bytes a zip adds per file besides its name (local header, data descriptor, central directory entry). */
 const ENTRY_OVERHEAD = 30 + 16 + 46;
 
@@ -66,6 +68,8 @@ const drained = (out: Writable) => new Promise<void>((resolve) => {
  * Throws when `out` is closed early or a file can't be read; `out` is then not ended.
  */
 export async function writeZip(files: ZipSource[], out: Writable): Promise<void> {
+  // Checked before the first byte: fflate would write a wrapped count and the zip would restore in part.
+  if (files.length > MAX_ZIP_ENTRIES) throw new Error(`Too many files for one zip (${files.length.toLocaleString('en')}, at most ${MAX_ZIP_ENTRIES.toLocaleString('en')})`);
   let failed: Error | null = null;
   const zip = new Zip((e, data, final) => {
     if (e) failed = e;
@@ -134,7 +138,8 @@ export async function openZip(file: string, maxEntries: number): Promise<{ entri
     if (cdStart + cdSize > tailStart + eocd) throw new ZipError('The zip file is damaged');
     const cd = await readAt(cdStart, cdSize);
     const entries: ZipEntry[] = [];
-    for (let i = 0, p = 0; i < count; i++) {
+    let p = 0;
+    for (let i = 0; i < count; i++) {
       if (p + 46 > cd.length || cd.readUInt32LE(p) !== 0x02014b50) throw new ZipError('The zip file is damaged');
       const flags = cd.readUInt16LE(p + 8), method = cd.readUInt16LE(p + 10), crc = cd.readUInt32LE(p + 16);
       const compressed = cd.readUInt32LE(p + 20), size = cd.readUInt32LE(p + 24);
@@ -171,6 +176,9 @@ export async function openZip(file: string, maxEntries: number): Promise<{ entri
         },
       });
     }
+    // A count that wrapped past 16 bits (an archive written without ZIP64) leaves entries unread in
+    // the directory: refuse it rather than restore only some of the designs.
+    if (p !== cd.length) throw new ZipError('The zip file lists more files than its count says: it is too large for this reader');
     return { entries, close: () => fh.close() };
   } catch (e) {
     await fh.close();
