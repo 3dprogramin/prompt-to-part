@@ -212,7 +212,7 @@ function BackText({ raw, layers, grid, part, printLayers, file, onChange }: { ra
   const place = (p: BackTextPosition) => { if (p !== position) save({ position: p, size: undefined }); };
   const size = useReleaseSlider(setting.size ?? backTextDefaultSize(position), (v) => save({ size: v }));
   const notes = plan.on ? plan.notes : [];
-  const status = on ? backTextStatus(plan, printed, !!part.backText, file) : null;
+  const status = on ? backTextStatus(plan, printed, part.bbox, file) : null;
   return (
     <div className="layertone-backtext">
       <div className="layertone-head">
@@ -251,7 +251,7 @@ function BackText({ raw, layers, grid, part, printLayers, file, onChange }: { ra
       {status === 'tooThin' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The first filament is one layer: no back text. Raise the First filament slider.</div>}
       {status === 'oneColour' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> Print in one colour is on: no back text. It needs its own filament.</div>}
       {status === 'noProject' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> No back text in a plain 3MF: it needs a Bambu Studio project (Bambu Studio installed, a one-nozzle printer).</div>}
-      {status === 'noRoom' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> {position === 'corner' ? 'No room for the back text in the corner of a print this small. Try the centre.' : 'No back text on this print: it could not be built.'}</div>}
+      {status === 'noRoom' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> No room for the back text in the corner of a print this small. Try the centre.</div>}
       {notes.includes('sameColour') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text is in the first filament's colour, so it won't show.</div>}
       {notes.includes('showsThrough') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text may show faintly from the front. Raise the First filament slider or use a darker first filament.</div>}
     </div>

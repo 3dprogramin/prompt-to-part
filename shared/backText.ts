@@ -99,17 +99,18 @@ export function planBackText(setting: BackTextSetting, layers: LayerColor[], r: 
 
 /**
  * What the LayerTone panel says about a back text that is on: printed (`printLayers` of the print's
- * layers, its mesh built with the part), or why not. `built`: the built part has the text (none when
- * a part is too small for the corner). `file`: the 3MF the export makes; the text is only in a Bambu
- * Studio project with colours (toBambuProject), so in one colour or a plain 3MF it isn't printed,
- * whatever the layers say. Null: nothing to say (an empty text).
+ * layers), or why not. `box`: the part's; no room in the corner is decided from it by the rule
+ * backTextMesh builds by (cornerFits), not from whether the last build has the text, which lags a
+ * change. `file`: the 3MF the export makes; the text is only in a Bambu Studio project with colours
+ * (toBambuProject), so in one colour or a plain 3MF it isn't printed, whatever the layers say.
+ * Null: nothing to say (an empty text).
  */
-export function backTextStatus(plan: BackTextPlan, printLayers: number, built: boolean, file: { oneColour: boolean; project: boolean }): 'printed' | 'tooThin' | 'noRoom' | 'oneColour' | 'noProject' | null {
+export function backTextStatus(plan: BackTextPlan, printLayers: number, box: Box3, file: { oneColour: boolean; project: boolean }): 'printed' | 'tooThin' | 'noRoom' | 'oneColour' | 'noProject' | null {
   if (!plan.on && plan.reason !== 'tooThin') return null;
   if (file.oneColour) return 'oneColour';
   if (!file.project) return 'noProject';
   if (!plan.on || printLayers === 0) return 'tooThin';
-  return built ? 'printed' : 'noRoom';
+  return plan.position === 'corner' && !cornerFits(box) ? 'noRoom' : 'printed';
 }
 
 /**
@@ -150,6 +151,11 @@ const MAX_DEPTH_SHARE = 0.25;
 const CORNER_MAX_HEIGHT = 8;
 const CORNER_MARGIN = 8;
 
+/** Whether the corner has room for the text: the part more than 16 mm (both margins) on both sides. */
+export function cornerFits(box: Box3): boolean {
+  return box.max[0] - box.min[0] > 2 * CORNER_MARGIN && box.max[1] - box.min[1] > 2 * CORNER_MARGIN;
+}
+
 /**
  * The back text's mesh in the part's coordinates, mirrored in X so it reads from the back, from the
  * box's bottom up to topZ. In the centre: `size` % of the box's width (25 % of its depth at most). In
@@ -165,11 +171,13 @@ export function backTextMesh(plan: Extract<BackTextPlan, { on: true }>, box: Box
   const tw = b.max[0] - b.min[0], th = b.max[1] - b.min[1];
   const W = box.max[0] - box.min[0], D = box.max[1] - box.min[1];
   const corner = plan.position === 'corner';
+  // No corner inside the margins on a part 16 mm or less on either side: no text (the panel says so).
+  if (corner && !cornerFits(box)) return { positions: new Float32Array(0), indices: new Uint32Array(0) };
   const k = corner
     ? Math.min((plan.size / 100) * W / tw, CORNER_MAX_HEIGHT / th, (W - 2 * CORNER_MARGIN) / tw, (D - 2 * CORNER_MARGIN) / th)
     : Math.min((plan.size / 100) * W / tw, (MAX_DEPTH_SHARE * D) / th);
-  // A part 16 mm or less across has no corner inside the margins: a scale of 0 or below would build a
-  // flat or flipped text off the part. No text (the panel says so).
+  // A scale of 0 or below would build a flat or flipped text off the part (cornerFits keeps the
+  // corner above 0; this also catches a degenerate glyph outline).
   if (!(k > 0)) return { positions: new Float32Array(0), indices: new Uint32Array(0) };
   // Centred on its own bounds (the font's centre line isn't the glyphs' middle), then mirrored.
   const cx = corner ? box.min[0] + CORNER_MARGIN + (tw * k) / 2 : (box.min[0] + box.max[0]) / 2;
