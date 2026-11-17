@@ -9,6 +9,7 @@ import { printerLoaded } from '../printerSetting';
 import { artworkAvailable, imageModel } from '../artwork';
 import { cachedBalance, meshyAvailable, meshyClient } from '../meshy';
 import { checkConnection } from '../connection';
+import { printedProblem } from '../printed';
 import type { MeshyBalance } from '../../shared/api';
 
 /**
@@ -27,7 +28,7 @@ export function registerSystemRoutes(app: express.Express, { connection, models 
   app.get('/api/capabilities', async (_req, res) => {
     await printerLoaded().catch(() => undefined);
     const blender = await blenderInfo();
-    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: appCurrency(), backText: backText(), openRouterModels: claudeViaOpenRouter() } satisfies Capabilities);
+    res.json({ blender: blender?.version ?? null, blenderProblem: blender?.problem ?? null, bambu: await bambuVersion(), speech: !!process.env.ELEVENLABS_API_KEY, printDefaults: await cachedPrintDefaults(), claude: claudeAuthProblem(), artwork: artworkAvailable() ? imageModel() : null, meshy: meshyAvailable(), model: defaultModel(), effort: defaultEffort(), currency: appCurrency(), backText: backText(), openRouterModels: claudeViaOpenRouter(), printedProblem: printedProblem() } satisfies Capabilities);
   });
 
   // The Meshy account's credits, for the 3D figure button (free to ask; asked at most once a minute).

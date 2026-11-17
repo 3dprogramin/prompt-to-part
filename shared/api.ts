@@ -152,6 +152,8 @@ export interface Capabilities {
   currency: string;
   /** Claude runs through OpenRouter, so the model menu offers OpenRouter's models (GET /api/models). */
   openRouterModels: boolean;
+  /** printed.json was damaged and recovered in this run: what happened and what to check, or null. */
+  printedProblem: string | null;
 }
 
 /** A model on OpenRouter that can run the app (tools, text in and out), for the model menu. */

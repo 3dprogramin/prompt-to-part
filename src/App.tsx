@@ -228,7 +228,7 @@ export default function App() {
   const [claudeProblem, setClaudeProblem] = useState<string | null>(null);
   // The print baseline: the profile in the user's Bambu Studio template (what the 3MF starts from).
   const [printBase, setPrintBase] = useState<Required<PrintSettings>>(A1_DEFAULTS);
-  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); setBackTextDefault(c.backText ?? ''); setBackTextDef(backTextDefault()); }).catch(() => {}); }, []);
+  useEffect(() => { api.capabilities().then((c) => { setBlender(c.blender ? { version: c.blender, problem: c.blenderProblem ?? null } : null); setBambu(c.bambu ?? null); setDictation(!!c.speech); if (c.printDefaults) setPrintBase(c.printDefaults); setClaudeProblem(c.claude ?? null);  setArtworkModel(c.artwork ?? null); setMeshy(!!c.meshy); setOpenRouterModels(!!c.openRouterModels); if (c.model) setChatDefaults((d) => ({ ...d, model: c.model, effort: c.effort ?? d.effort })); setCurrency(c.currency); setBackTextDefault(c.backText ?? ''); setBackTextDef(backTextDefault()); if (c.printedProblem) setNotice({ text: c.printedProblem, level: 'warning', details: false }); }).catch(() => {}); }, []);
   const [picking, setPicking] = useState<string | null>(null);
 
   useEffect(() => { api.listFonts().then(setFonts).catch(() => {}); }, []);

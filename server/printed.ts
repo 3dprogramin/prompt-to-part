@@ -1,11 +1,12 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { constants } from 'node:fs';
+import { copyFile, link, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_DIR } from './config';
 import { DESIGNS, ID_RE, isDesign, writeAtomically } from './routes/store';
 import { BACK_TEXT_KEY } from '../shared/backText';
 import { designKind } from '../shared/designKind';
-import { cleanPrintedMap, type PrintedMap, type PrintedMark } from '../shared/printed';
+import { cleanPrintedMap, PRINTED_FILE, type PrintedMap, type PrintedMark } from '../shared/printed';
 import type { Design, DesignVersion } from '../shared/types';
 
 /** JSON with object keys sorted at every depth, so equal content gives equal text. */
@@ -27,8 +28,98 @@ export const printedGuard = (design: Pick<Design, 'versions'>, marks: PrintedMar
   marks.find((m) => { const ver = design.versions[m.v]; return !ver || versionFingerprint(ver) !== m.fp; }) ?? null;
 
 export const PRINTED_JSON = path.join(DATA_DIR, 'printed.json');
-export const readPrinted = async (): Promise<PrintedMap> =>
-  cleanPrintedMap((JSON.parse(await readFile(PRINTED_JSON, 'utf8').catch(() => '{}')) as { printed?: unknown }).printed, (id) => ID_RE.test(id));
+const validId = (id: string) => ID_RE.test(id);
+
+/** The stored marks: none when there is no file; a damaged or unreadable file is recovered first (recoverPrinted). */
+export async function readPrinted(): Promise<PrintedMap> {
+  for (let tries = 0; tries < 3; tries++) {
+    const marks = await readMarks();
+    if (marks) return marks;
+    recovery ??= recoverPrinted().finally(() => { recovery = null; });
+    await recovery;
+  }
+  throw new Error('printed.json (the printed versions) could not be read or recovered');
+}
+
+/** The file's marks, {} when there is none, null when it is damaged or can't be read. */
+async function readMarks(): Promise<PrintedMap | null> {
+  let text: string;
+  try {
+    text = await readFile(PRINTED_JSON, 'utf8');
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT' ? {} : null;
+  }
+  try {
+    const o: unknown = JSON.parse(text);
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    return cleanPrintedMap((o as { printed?: unknown }).printed, validId);
+  } catch {
+    return null;
+  }
+}
+
+let recovery: Promise<void> | null = null;
+let problem: string | null = null;
+/** What went wrong with printed.json in this run (for the page), or null. */
+export const printedProblem = () => problem;
+
+/**
+ * printed.json is damaged or can't be read: it must neither stop every save nor be taken as "nothing
+ * printed". It is kept as it is under printed.json.damaged-<time>-<random> (linked, so the name never
+ * goes missing in between), and the marks are rebuilt from what can still be read: each whole mark in
+ * its text, and each stored print 3MF (designs/<id>/printed/vN.3mf) that has no mark from the text.
+ * When the file can't be kept aside, nothing changes and the read fails, as before.
+ */
+async function recoverPrinted(): Promise<void> {
+  if (await readMarks()) return; // another recovery (or a write) fixed it meanwhile
+  const aside = `${PRINTED_JSON}.damaged-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+  await link(PRINTED_JSON, aside).catch(() => copyFile(PRINTED_JSON, aside, constants.COPYFILE_EXCL));
+  const text = await readFile(aside, 'utf8').catch(() => '');
+  const marks = salvageMarks(text);
+  const fromText = Object.values(marks).reduce((n, l) => n + l.length, 0);
+  const from3mf = await marksFromPrintFiles(marks);
+  await writeAtomically(PRINTED_JSON, JSON.stringify({ printed: marks }));
+  problem = `The list of printed versions (printed.json) was damaged or could not be read. It is kept as ${path.basename(aside)} in the data folder; ${fromText} printed mark(s) were read back from it and ${from3mf} from the stored print files. A version marked printed without a print file whose mark could not be read is no longer marked: mark it again.`;
+  console.error(`[printed] ${problem}`);
+}
+
+/** Every whole mark in a damaged printed.json's text, by design (each checked like a sound file's). */
+function salvageMarks(text: string): PrintedMap {
+  const raw: Record<string, unknown[]> = {};
+  const entry = /"([a-zA-Z0-9-]{8,64})"\s*:\s*\[([^\]]*)/g;
+  for (const [, id, body] of text.matchAll(entry)) {
+    // A mark is a flat object but for its build ({ version, commit }).
+    for (const [obj] of body.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}/g)) {
+      try { (raw[id] ??= []).push(JSON.parse(obj)); } catch { /* not whole */ }
+    }
+  }
+  return cleanPrintedMap(raw, validId);
+}
+
+/** Adds a mark for each stored print 3MF that has none in `marks`; returns how many. */
+async function marksFromPrintFiles(marks: PrintedMap): Promise<number> {
+  let added = 0;
+  for (const id of await readdir(DESIGNS).catch(() => [] as string[])) {
+    if (!validId(id)) continue;
+    const dir = path.join(DESIGNS, id, 'printed');
+    const files = (await readdir(dir).catch(() => [] as string[])).filter((n) => PRINTED_FILE.test(n));
+    if (!files.length) continue;
+    const design = await readFile(path.join(DESIGNS, `${id}.json`), 'utf8').then((t) => JSON.parse(t) as Design, () => null);
+    for (const n of files) {
+      const v = Number(n.slice(1, -4)) - 1;
+      if (marks[id]?.some((m) => m.v === v)) continue;
+      const file = path.join(dir, n);
+      const [bytes, st] = await Promise.all([readFile(file), stat(file)]).catch(() => [null, null]);
+      if (!bytes || !st) continue;
+      const ver = Array.isArray(design?.versions) ? design.versions[v] : undefined;
+      // No version to fingerprint: an empty one, which locks the design's saves until the mark is removed.
+      const fp = ver ? versionFingerprint(ver) : '';
+      marks[id] = [...(marks[id] ?? []), { v, at: st.mtimeMs, fp, file: true, settings: bytes.includes('Metadata/project_settings.config') }].sort((x, y) => x.v - y.v);
+      added++;
+    }
+  }
+  return added;
+}
 
 const BACK_TEXT_OFF = JSON.stringify({ off: true });
 
