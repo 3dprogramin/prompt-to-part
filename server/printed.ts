@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_DIR } from './config';
 import { DESIGNS, ID_RE, isDesign, writeAtomically } from './routes/store';
@@ -84,5 +84,24 @@ export async function pinLegacyBackText(): Promise<number> {
     await mkdir(DATA_DIR, { recursive: true });
     await writeAtomically(PRINTED_JSON, JSON.stringify({ printed: all }));
   }
+  return pinned;
+}
+
+/** Which printed.json the legacy pin last finished on (its size and time), so a start with the same one skips the pin. */
+export const PRINTED_MARKER = path.join(DATA_DIR, 'printed-backtext-pinned');
+const printedSignature = () => stat(PRINTED_JSON).then((s) => `${s.size}:${s.mtimeMs}`, () => 'none');
+
+/**
+ * pinLegacyBackText at start, but only when printed.json is not the one the last run finished on:
+ * a start with nothing new to look at reads no design (it parsed every printed design before the
+ * server could listen). New marks always write the key first, so only a printed.json from older code
+ * (a restored backup) holds versions to pin, and that changes the file. Returns how many it pinned.
+ */
+export async function pinLegacyBackTextOnce(): Promise<number> {
+  if (await readFile(PRINTED_MARKER, 'utf8').catch(() => null) === await printedSignature()) return 0;
+  const pinned = await pinLegacyBackText();
+  // Taken after the run, which rewrites printed.json when it pinned something. Not written when the run threw: the next start tries again.
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeAtomically(PRINTED_MARKER, await printedSignature());
   return pinned;
 }

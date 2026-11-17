@@ -11,7 +11,7 @@ import type { Design } from '../shared/types';
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-printed-test-'));
 process.env.PTP_DATA = dataDir;
 after(() => rmSync(dataDir, { recursive: true, force: true }));
-const { printedGuard, versionFingerprint: fp, pinLegacyBackText, PRINTED_JSON, readPrinted } = await import('../server/printed');
+const { printedGuard, versionFingerprint: fp, pinLegacyBackText, pinLegacyBackTextOnce, PRINTED_JSON, PRINTED_MARKER, readPrinted } = await import('../server/printed');
 const { markProblem, pinForPrint, printedActions } = await import('../src/app/printed');
 
 test('fingerprint ignores key order and changes with code or any value', () => {
@@ -201,4 +201,28 @@ test('marking again an already printed version keeps it as it was printed', asyn
   }
   assert.equal(saved, d);
   assert.equal(setCalled, false);
+});
+
+test('the legacy pin runs once: a start with printed.json unchanged since the last run reads no design', async () => {
+  rmSync(PRINTED_MARKER, { force: true });
+  const mark = { v: 0, at: 5, fp: 'x', file: false, settings: false };
+  const first = ltDesign('design-once-1', [{ code: LT_CODE, values: { w: 7 } }]);
+  mark.fp = fp(first.versions[0]);
+  writeDesign(first);
+  writeFileSync(PRINTED_JSON, JSON.stringify({ printed: { 'design-once-1': [mark] } }));
+  assert.equal(await pinLegacyBackTextOnce(), 1, 'the first start pins');
+  assert.equal(readDesign('design-once-1').versions[0].values?.[BACK_TEXT_KEY], OFF);
+
+  // A legacy version that appears without printed.json changing is not looked for: nothing to read.
+  const second = ltDesign('design-once-1', [{ code: LT_CODE, values: { w: 8 } }]);
+  writeDesign(second);
+  assert.equal(await pinLegacyBackTextOnce(), 0, 'a later start skips');
+  assert.equal(readDesign('design-once-1').versions[0].values?.[BACK_TEXT_KEY], undefined, 'the design was not read');
+
+  // printed.json restored or changed (a backup of an older version, a new mark): it runs again.
+  const marks = await readPrinted();
+  marks['design-once-1'][0].fp = fp(second.versions[0]);
+  writeFileSync(PRINTED_JSON, JSON.stringify({ printed: marks }) + '\n');
+  assert.equal(await pinLegacyBackTextOnce(), 1, 'changed printed.json runs it again');
+  assert.equal(readDesign('design-once-1').versions[0].values?.[BACK_TEXT_KEY], OFF);
 });
