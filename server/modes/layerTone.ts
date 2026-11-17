@@ -1,23 +1,23 @@
 // LayerTone mode (H.layertone): its system prompt section, with the filament library to pick from,
 // and its notes on the user's setup and pictures (and on edit_picture, with the image model).
 import { loadsAtOnce, maxPiece, printer } from '../../shared/printer';
-import { FILAMENT_LIBRARY } from '../../shared/filaments';
+import { promptLibrary, type LibraryFilament } from '../../shared/filaments';
 import { LAYERTONE_KEY, parseLayerToneSetup, stackSwapsAt, type LayerToneFilament, type LayerToneImage } from '../../shared/layertone';
 import type { ParamValues } from '../../shared/types';
 import { photoFingerprint } from '../../shared/pictureEdit/photo';
 import { pictureEditNotes, type PictureWords } from './pictureEdits';
 import type { PromptMode } from './types';
 
-/** The filament library, one line per brand and line, for Claude to pick LayerTone filaments from. */
-const FILAMENT_LINES = (() => {
+/** Library filaments, one line per brand and line, for Claude to pick LayerTone filaments from. */
+function libraryLines(library: LibraryFilament[]): string {
   const groups = new Map<string, string[]>();
-  for (const f of FILAMENT_LIBRARY) {
+  for (const f of library) {
     const key = `${f.brand} ${f.line ?? ''}`.trim();
     const colour = f.line && f.name.startsWith(f.line) ? f.name.slice(f.line.length).trim() : f.name;
     groups.set(key, [...(groups.get(key) ?? []), `${colour} ${f.color} ${f.td}${f.unverified ? '*' : ''}`]);
   }
   return [...groups].map(([k, v]) => `  ${k}: ${v.join(', ')}`).join('\n');
-})();
+}
 
 /** The user's own filaments (saved in the LayerTone panel), one per line. */
 export const myFilamentLines = (mine: LayerToneFilament[]) => mine.map((f) => `  ${f.name}${f.brand ? ` (${f.brand})` : ''} ${f.color} ${f.td}`).join('\n');
@@ -62,7 +62,7 @@ ${loads > 1
   - A filament that is not one of the user's own comes from the library below (their TDs are known); colours marked * have an estimated TD: mention those. Use the library's exact name, brand, colour and TD.
   - First version: pass them to H.layertone({ …, filaments: [...] }). Later messages: change filaments, order or swaps ONLY with set_layertone, passing the full filament list (it applies at once and the user sees it in the panel). Don't edit the script's filaments then: script edits count only after submit_model, and the setup overrides them anyway.
 - The filament library (brand line: colour #hex TD; * = estimated TD):
-${FILAMENT_LINES}
+${libraryLines(promptLibrary(mine))}
 ${mine.length ? `- The user's own filaments, saved in the app (name (brand) #hex TD). The user has these: build the stack from these, and add a library filament only for a colour the picture needs and they don't own (say which); use their exact name, brand, colour and TD:
 ${myFilamentLines(mine)}
 ` : ''}- First filament: the user's First filament slider (LayerTone panel; set_layertone base_height) sets how thick the bottom filament is (the script's baseHeight until the user moves it; leave baseHeight out of the script, so it is 0.48 mm). It raises everything above it by the same amount, so the look stays the same: treat maxHeight as the height without that raise (the report gives the real total).

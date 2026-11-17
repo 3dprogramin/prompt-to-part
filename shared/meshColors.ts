@@ -6,7 +6,7 @@
 // the colour around them. The stored mesh keeps its triangles' colours (shared/meshes.ts); the
 // design's mesh entry keeps the palette and the filaments, which the user can change.
 import { printer } from './printer';
-import { FILAMENT_LIBRARY } from './filaments';
+import { BASE_FILAMENT_LIBRARY } from './filaments';
 import type { LayerToneFilament } from './layertone';
 
 /** Filaments a coloured figure prints with at most (one AMS or AMS lite), whatever the printer loads. */
@@ -316,8 +316,8 @@ export function meshSlots(mesh: { positions: Float32Array; indices: Uint32Array;
   return cleanSlots(mesh.positions, mesh.indices, colorSlots(mesh.colors, palette));
 }
 
-/** The PLA filaments a colour is matched to when the user has none close: Bambu Lab PLA Basic and Matte. */
-export const PAINT_LIBRARY = FILAMENT_LIBRARY.filter((f) => f.brand === 'Bambu Lab' && (f.line === 'PLA Basic' || f.line === 'PLA Matte'));
+/** The PLA filaments a colour is matched to when the user has none close: Bambu Lab PLA Basic and Matte, from the frozen base list (a palette never moves when more brands are added). */
+export const PAINT_LIBRARY = BASE_FILAMENT_LIBRARY.filter((f) => f.brand === 'Bambu Lab' && (f.line === 'PLA Basic' || f.line === 'PLA Matte'));
 /** How much closer one of the user's own filaments counts (they have it on the shelf). */
 const MINE_BONUS = 0.04;
 

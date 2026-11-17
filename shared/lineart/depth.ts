@@ -1,7 +1,7 @@
 // How deep line art's colours go: layers from a filament's TD, each colour's bands of layers and
 // what its filament swaps cost.
 import type { PartFilament } from '../params';
-import { colourFamilies, FILAMENT_LIBRARY, libraryFilament, matchFilament } from '../filaments';
+import { BASE_FILAMENT_LIBRARY, colourFamilies, libraryFilament, matchFilament } from '../filaments';
 
 export const LINEART_DEPTH_KEY = '$lineartColourDepth';
 export type ColourDepth = 'through' | 'auto' | number;
@@ -18,14 +18,15 @@ export const MIN_COLOUR_LAYERS = 2;
  * A filament's TD (transmission distance, mm: LayerTone's model, where t mm of it hides
  * 1 - e^(-30t/TD) of what is under it, 95 % at t = 0.1 TD): its own (the user's filaments), the library's,
  * or for one the app doesn't know the middle TD of the library's filaments of its colour (light colours
- * let more through); `known` says which.
+ * let more through); `known` says which. The library here is the frozen base list, so a design builds the
+ * same when more brands are added.
  */
 export function filamentTd(f: PartFilament): { td: number; known: boolean } {
   if (f.td) return { td: f.td, known: true };
-  const lib = f.name ? (f.brand ? libraryFilament({ brand: f.brand, name: f.name }) : matchFilament('', f.name)) : undefined;
+  const lib = f.name ? (f.brand ? libraryFilament({ brand: f.brand, name: f.name }, BASE_FILAMENT_LIBRARY) : matchFilament('', f.name, BASE_FILAMENT_LIBRARY)) : undefined;
   if (lib) return { td: lib.td, known: true };
   const family = colourFamilies(f.color)[0];
-  const tds = FILAMENT_LIBRARY.filter((l) => colourFamilies(l.color).includes(family)).map((l) => l.td).sort((a, b) => a - b);
+  const tds = BASE_FILAMENT_LIBRARY.filter((l) => colourFamilies(l.color).includes(family)).map((l) => l.td).sort((a, b) => a - b);
   return { td: tds.length ? tds[Math.floor(tds.length / 2)] : 1, known: false };
 }
 
