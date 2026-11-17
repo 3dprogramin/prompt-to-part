@@ -346,7 +346,7 @@ export async function generateMeshyModel(c: MeshyClient, input: MeshyInput, opts
   if (old) {
     try {
       const { task: t } = await getTask(c, old.kind, old.id, opts.signal);
-      if (t.status === 'SUCCEEDED') task = t;
+      if (t.status === 'SUCCEEDED') task = { ...t, id: t.id ?? old.id };
     } catch (e) {
       // Gone (a 4xx): make a new one. Meshy unreachable: the call fails and the task stays kept.
       if (opts.signal?.aborted || !(e instanceof MeshyError) || !e.status || e.status >= 500 || e.status === 429) throw e;

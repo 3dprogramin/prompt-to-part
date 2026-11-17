@@ -60,3 +60,29 @@ test('Stop during the import stops the import: nothing is stored and the tool en
   await assert.rejects(handlers(server).generate_3d.handler({ name: 'owl', prompt: 'an owl on a branch' }, {}), (e: Error) => e.name === 'AbortError');
   assert.equal(base[MESHES_KEY], undefined);
 });
+
+test('a kept model is fetched again once: when that fails too it is dropped, and the next call makes a new one', async (t) => {
+  const base: ParamValues = {};
+  const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { meshy: { client, designId: 'meshy-tool-3', references: [] } });
+  const make = () => handlers(server).generate_3d.handler({ name: 'bear', prompt: 'a bear holding a fish' }, {});
+  // This model never imports (a file the import can't take).
+  geometry.importMesh = (async () => { throw new Error('Not a mesh the import can read'); }) as typeof realImport;
+  t.after(() => { geometry.importMesh = realImport; });
+  const created = mock.created.length;
+  const first = await make();
+  assert.match(first.content[0].text!, /kept/);
+  assert.equal(mock.created.length, created + 1);
+  // The free try: the kept task, no new one; it fails again, so it is dropped and the agent is told.
+  const again = await make();
+  assert.ok(again.isError);
+  assert.equal(mock.created.length, created + 1);
+  assert.doesNotMatch(again.content[0].text!, /kept/);
+  assert.match(again.content[0].text!, /failed again.*new model/s);
+  // The next one is a new (paid) model, within the reply's allowance of 2; after that the allowance stops the loop.
+  const third = await make();
+  assert.match(third.content[0].text!, /kept/);
+  assert.equal(mock.created.length, created + 2);
+  const fourth = await make();
+  assert.match(fourth.content[0].text!, /^Refused/);
+  assert.equal(mock.created.length, created + 2);
+});

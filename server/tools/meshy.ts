@@ -156,7 +156,9 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
       const input: MeshyInput = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: views } : { prompt: a.prompt! };
       // A finished model is kept under this until it is stored: asking again for the same costs nothing.
       const keep = meshyRequestKey(meshy.client, meshy.designId, input, color);
-      emit({ type: 'step', step: { kind: 'status', text: keptMeshyTask(keep) ? `Meshy: fetching "${a.name}" again, made earlier (no new credits)…` : `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
+      // One free try at a kept model: if it fails again it is dropped, so a model that never imports can't loop for free.
+      const reusing = !!keptMeshyTask(keep);
+      emit({ type: 'step', step: { kind: 'status', text: reusing ? `Meshy: fetching "${a.name}" again, made earlier (no new credits)…` : `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
       let shown = -1;
       let status = '';
       try {
@@ -205,13 +207,17 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
       } catch (e) {
         if (meshy.signal?.aborted) throw e;
         emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: ${(e as Error).message}` } });
-        const paid = keptMeshyTask(keep) ? ' The model Meshy made is paid for and kept: generate_3d again with the same arguments fetches it, with no new credits and no new task.' : '';
+        // A new task started (the kept one was gone) is a model of its own, kept for its own free try.
+        const retried = reusing && !started;
+        if (retried) forgetMeshyTask(keep);
+        const paid = retried ? ` The model Meshy made earlier failed again, so it is dropped: generate_3d again makes a new model (${cost} credits).`
+          : keptMeshyTask(keep) ? ' The model Meshy made is paid for and kept: generate_3d again with the same arguments fetches it once more, with no new credits and no new task.' : '';
         return { content: [{ type: 'text', text: `${(e as Error).message}${paid}` }], isError: true };
       } finally {
         // No new task (it failed before one started, or a kept one was fetched): the slot is given back.
         if (!started) state.meshyCalls--;
         // The credits changed: the next balance asks Meshy.
-        else forgetBalance();
+        if (started) forgetBalance();
       }
     }),
   ];
