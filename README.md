@@ -69,6 +69,8 @@ Worth adding to `.env` too:
 - `PTP_WITH_BAMBU=1` to build Bambu Studio into the image, for slicing, cost and 3MF print settings.
 - `MESHY_API_KEY` for sculpted 3D figures.
 
+Your keys can also be added and changed in the app, in Settings (the gear in the top bar), without a restart: see [Settings in the app](docs/configuration.md#settings-in-the-app).
+
 prompt-to-part has no login: anyone who can reach it can use your keys, so Docker publishes it on this computer only. To open it from other devices, set a password first (see [Docker](docs/running.md#docker)).
 
 ## What it costs

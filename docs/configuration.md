@@ -4,7 +4,7 @@ The settings in `.env` and how to connect Claude (an Anthropic key, OpenRouter o
 
 ## Configuration
 
-Set these in the environment, or in a `.env` file next to `package.json` (copy `.env.sample`, where every setting is commented out; git ignores every `.env` file except the sample). Values already in the environment win. The API server reads `.env` only when it starts, so restart `pnpm dev` after changing it (Vite restarting itself on a `.env` change doesn't restart the API server).
+Set these in the environment, or in a `.env` file next to `package.json` (copy `.env.sample`, where every setting is commented out; git ignores every `.env` file except the sample). Values already in the environment win. The API server reads `.env` only when it starts, so restart `pnpm dev` after changing it (Vite restarting itself on a `.env` change doesn't restart the API server). The keys and defaults that [Settings](#settings-in-the-app) can change are the exception once they are set there: those apply at once, with no restart, and win over `.env`.
 
 | Variable | Default | |
 |---|---|---|
@@ -43,6 +43,16 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `BLENDER_PATH` | found on `PATH` or in the default install folder | Blender executable |
 | `NODE_ENV` | | `production` serves `dist/` too (as `pnpm start` does with `--production`) |
 | `DEBUG_AGENT` | off | Print the Claude Code process's stderr |
+
+## Settings in the app
+
+The gear in the top bar (and the connection chip, which opens it on *Keys and services*) opens Settings. The *Printer* tab is the printer, nozzle and filaments loaded at once, saved as you change them. *Keys and services* shows every key masked (the first and last characters only, nothing for a short one) and lets you change them, then *Save*. A saved value applies at once, with no restart, and **overrides `.env`**: each row says whether its value is *set here*, comes from *.env* or is *not set*. *Back to .env* on a row drops what was set here, and *Reset to defaults* does it for every row. A reply that is already running keeps the sign-in it started with.
+
+What it covers: how Claude runs (`PTP_CLAUDE`), the subscription token, the Anthropic, OpenRouter, Meshy and ElevenLabs keys, the other provider's token and address, the chat's starting model and effort, the picture models, currency, country and back text. Password, port, bind address, hosts and origins stay in `.env` and still need a restart.
+
+- **Where it is kept:** two files in the data folder (`PTP_DATA`). `settings.json` holds the plain settings; `secrets.json` holds the keys and the provider address and is readable by your user only. A key you saved never leaves the server: the page only ever gets the masked form. A backup (*Export all designs*) includes `settings.json` but **never `secrets.json`**, so after restoring on another computer, enter the keys again.
+- **The provider address** (`ANTHROPIC_BASE_URL`) can be changed in the dialog only when `PTP_PASSWORD` is set. Without a password it is read-only there, and you set it in `.env`: a change of address sends your prompts to another server, so it is not open to everyone who can reach the app.
+- **`PTP_CLAUDE`** (`subscription`, `anthropic`, `openrouter` or `custom`) is the *Claude runs on* choice. Left unset it says *Automatic*: the way is inferred from the keys that are set, as described in [Claude API key](#claude-api-key).
 
 ## Claude API key
 

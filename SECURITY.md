@@ -4,6 +4,10 @@
 
 prompt-to-part has no login. Anyone who can reach its port can use your API keys, read your designs and spend your credits. Docker Compose therefore publishes it on `127.0.0.1` only, and `pnpm start` listens there too. Keep it that way: don't expose it to the internet. To use it from a phone, only open it on a network you trust (`PTP_BIND` and `PTP_HOSTS` in `.env`). The one other way in is an HTTPS reverse proxy you control: set `PTP_PASSWORD` first and list the proxy's address in `PTP_ORIGINS` (see docs/running.md); a proxy that anyone on the internet can reach without that password is the same as exposing it.
 
+## Settings can replace your keys
+
+Settings in the app lets anyone who can open the app replace the API keys it uses (for example by putting in their own OpenRouter key). Keys that are saved are never sent back to the page, are kept in `secrets.json` in the data folder (never in a backup), and the address of another Claude provider can only be changed in the app when `PTP_PASSWORD` is set. Anyone who can open the app can still read your chats, so on a network shared with other people set `PTP_PASSWORD`.
+
 ## Run it in Docker
 
 Use Docker Compose for everyday use (the README's quick start). Without Docker, prompt-to-part and the programs it starts (Claude Code, Bambu Studio, Blender) run as your user, with access to all your files and keys; in Docker, a problem that got past the app's own walls stays inside a container with a read-only file system, no extra privileges and only the app's data. See *Why Docker* in the README.

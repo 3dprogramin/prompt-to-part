@@ -2,6 +2,13 @@
 
 Designs and versions, the chat, the viewer, print settings, cost and export. Back to the [README](../README.md).
 
+## Settings
+
+- **The gear** at the right end of the top bar opens Settings, on the tab you used last (*Printer* the first time). The connection chip on its left (*Claude subscription* and its siblings) opens it on *Keys and services*. Escape or *Close* closes it; clicking outside does not, so a half-typed key is not lost.
+- **Printer:** the printer, nozzle and filaments it loads at once, saved as you change them.
+- **Filaments:** your filaments will move here; for now they are in the LayerTone filament picker.
+- **Keys and services:** keys shown masked, changed and saved here without a restart, and the connection check; see [Settings in the app](configuration.md#settings-in-the-app).
+
 ## Designs and versions
 
 - **Designs menu:** your designs, most recent first (starred ones marked), 10 at a time with *Load more*. Type in its search box to list only the designs whose name contains the text – case and accents don't matter, Enter opens the first match.
