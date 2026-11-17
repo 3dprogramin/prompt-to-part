@@ -121,11 +121,23 @@ test('a version saved with a back text change says "back text"', () => {
 
 test('backTextStatus: printed only when the built part has the text; no room when it has none', () => {
   setBackTextDefault('shop.example');
-  const plan = planBackText({}, stack, R);
-  assert.equal(backTextStatus(plan, 2, true), 'printed');
+  const plan = planBackText({}, stack, R), P = { oneColour: false, project: true };
+  assert.equal(backTextStatus(plan, 2, true, P), 'printed');
   // Planned, but the part came out without it (a part too small for the corner).
-  assert.equal(backTextStatus(plan, 2, false), 'noRoom');
-  assert.equal(backTextStatus(plan, 0, false), 'tooThin', 'scaled onto the print\'s layers: none left');
-  assert.equal(backTextStatus(planBackText({}, [black(), white(1)], R), 0, false), 'tooThin');
-  assert.equal(backTextStatus(planBackText({ text: '  ' }, stack, R), 0, false), null);
+  assert.equal(backTextStatus(plan, 2, false, P), 'noRoom');
+  assert.equal(backTextStatus(plan, 0, false, P), 'tooThin', 'scaled onto the print\'s layers: none left');
+  assert.equal(backTextStatus(planBackText({}, [black(), white(1)], R), 0, false, P), 'tooThin');
+  assert.equal(backTextStatus(planBackText({ text: '  ' }, stack, R), 0, false, P), null);
+});
+
+test('backTextStatus: not printed in one colour or in a plain 3MF (the text is only in a Bambu project with colours)', () => {
+  setBackTextDefault('shop.example');
+  const plan = planBackText({}, stack, R);
+  const project = { oneColour: false, project: true };
+  assert.equal(backTextStatus(plan, 2, true, project), 'printed');
+  assert.equal(backTextStatus(plan, 2, true, { oneColour: true, project: true }), 'oneColour');
+  assert.equal(backTextStatus(plan, 2, true, { oneColour: false, project: false }), 'noProject');
+  // One colour says it first: raising the first filament would not bring the text back.
+  assert.equal(backTextStatus(planBackText({}, [black(), white(1)], R), 0, false, { oneColour: true, project: true }), 'oneColour');
+  assert.equal(backTextStatus(planBackText({ text: '  ' }, stack, R), 0, false, { oneColour: true, project: false }), null);
 });

@@ -34,13 +34,15 @@ interface Props {
   onBackText: (s: BackTextSetting | null) => void;
   /** The print's layer heights (Print tab): the 3MF prints the back text on these; default the part's own. */
   printLayers?: { layerHeight: number; firstLayerHeight: number };
+  /** The 3MF the export makes: "Print in one colour" on, a Bambu Studio project (else a plain 3MF). The back text is only in a project with colours. */
+  file: { oneColour: boolean; project: boolean };
 }
 
 /**
  * Print tab, LayerTone section: the picture and how it will print, the filament stack and where the
  * filaments change. Everything is saved under LAYERTONE_KEY, so the model rebuilds as it is edited.
  */
-export function LayerTonePanel({ result, part, values, onSetup, onImage, onBackText, printLayers }: Props) {
+export function LayerTonePanel({ result, part, values, onSetup, onImage, onBackText, printLayers, file }: Props) {
   const setup = useMemo(() => parseLayerToneSetup(values[LAYERTONE_KEY]), [values[LAYERTONE_KEY]]);
   // The whole design's scale: the part's heights are scaled, the setup's are the script's.
   const scale = Number(values[SCALE_KEY] ?? 1) || 1;
@@ -156,7 +158,7 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage, onBackT
         {picking === 'add' && filaments.length < maxLayerToneFilaments() && <FilamentPicker trigger={trigger} onPick={picked} onClose={() => setPicking(null)} />}
       </div>
 
-      <BackText raw={values[BACK_TEXT_KEY]} layers={previewLayers} grid={grid} part={part} printLayers={printLayers} onChange={onBackText} />
+      <BackText raw={values[BACK_TEXT_KEY]} layers={previewLayers} grid={grid} part={part} printLayers={printLayers} file={file} onChange={onBackText} />
     </div>
   );
 }
@@ -183,7 +185,7 @@ function backTextDiff(s: BackTextSetting): BackTextSetting | null {
  * The back text: a mirrored line (PTP_BACK_TEXT by default) in the first layers, in its own filament.
  * Read-only, and off, when the server has no PTP_BACK_TEXT.
  */
-function BackText({ raw, layers, grid, part, printLayers, onChange }: { raw: unknown; layers: LayerColor[]; grid: Grid; part: LayerTonePartMesh; printLayers?: Props['printLayers']; onChange: (s: BackTextSetting | null) => void }) {
+function BackText({ raw, layers, grid, part, printLayers, file, onChange }: { raw: unknown; layers: LayerColor[]; grid: Grid; part: LayerTonePartMesh; printLayers?: Props['printLayers']; file: Props['file']; onChange: (s: BackTextSetting | null) => void }) {
   const setting = useMemo(() => parseBackText(raw), [raw]);
   const def = backTextDefault();
   const disabled = !def;
@@ -210,7 +212,7 @@ function BackText({ raw, layers, grid, part, printLayers, onChange }: { raw: unk
   const place = (p: BackTextPosition) => { if (p !== position) save({ position: p, size: undefined }); };
   const size = useReleaseSlider(setting.size ?? backTextDefaultSize(position), (v) => save({ size: v }));
   const notes = plan.on ? plan.notes : [];
-  const status = on ? backTextStatus(plan, printed, !!part.backText) : null;
+  const status = on ? backTextStatus(plan, printed, !!part.backText, file) : null;
   return (
     <div className="layertone-backtext">
       <div className="layertone-head">
@@ -247,6 +249,8 @@ function BackText({ raw, layers, grid, part, printLayers, onChange }: { raw: unk
         ? <div className="dim small">Set PTP_BACK_TEXT to print your website on the back of every LayerTone print.</div>
         : status === 'printed' && <div className="dim small">Mirrored on the back{position === 'corner' ? ', bottom-right when turned over' : ''}, in the first {printed === 1 ? '1 layer' : `${printed} layers`}.</div>}
       {status === 'tooThin' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The first filament is one layer: no back text. Raise the First filament slider.</div>}
+      {status === 'oneColour' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> Print in one colour is on: no back text. It needs its own filament.</div>}
+      {status === 'noProject' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> No back text in a plain 3MF: it needs a Bambu Studio project (Bambu Studio installed, a one-nozzle printer).</div>}
       {status === 'noRoom' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> {position === 'corner' ? 'No room for the back text in the corner of a print this small. Try the centre.' : 'No back text on this print: it could not be built.'}</div>}
       {notes.includes('sameColour') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text is in the first filament's colour, so it won't show.</div>}
       {notes.includes('showsThrough') && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The text may show faintly from the front. Raise the First filament slider or use a darker first filament.</div>}

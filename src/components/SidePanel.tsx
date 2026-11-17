@@ -33,7 +33,7 @@ import type { ExportFormat } from '../lib/export';
 import { isFlat, type GlbOptions } from '../lib/glb';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
-import { printer, fitProblem, type PrinterSetup } from '../../shared/printer';
+import { bambuProjectSupported, printer, fitProblem, type PrinterSetup } from '../../shared/printer';
 import { modelWarnings } from '../../shared/modelWarnings';
 import { stabilityLines, type StabilityReport } from '../../shared/stability';
 import { siteName, SOURCE_KINDS, WEB_KINDS, type DimensionSource } from '../../shared/sources';
@@ -209,7 +209,8 @@ export function SidePanel(p: Props) {
         </>}
         {tab === 'print' && <>
           {shown && edits(<OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />)}
-          {shown && layerTonePart && section('layertone', 'LayerTone', () => edits(<LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onBackText={p.onBackText} onImage={p.onLayerToneImage} printLayers={printLayers} />))}
+          {shown && layerTonePart && section('layertone', 'LayerTone', () => edits(<LayerTonePanel result={shown} part={layerTonePart} values={p.values} onSetup={p.onLayerTone} onBackText={p.onBackText} onImage={p.onLayerToneImage} printLayers={printLayers}
+            file={{ oneColour: !!p.oneColour, project: !!p.bambu && bambuProjectSupported() }} />))}
           {shown && lithoPart && section('lithophane', 'Lithophane', () => edits(<LithophanePanel part={lithoPart} values={p.values} onImage={p.onLayerToneImage} />))}
           {shown && lineArt && section('lineart', 'Line art', () => edits(<LineArtPanel part={lineArt} result={shown} values={p.values} onEdits={p.onLineArtEdits} onValue={p.onValue} onShowJoins={p.onShowJoins} />))}
           {section('print', 'Print settings', () => (shown

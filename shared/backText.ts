@@ -100,11 +100,15 @@ export function planBackText(setting: BackTextSetting, layers: LayerColor[], r: 
 /**
  * What the LayerTone panel says about a back text that is on: printed (`printLayers` of the print's
  * layers, its mesh built with the part), or why not. `built`: the built part has the text (none when
- * a part is too small for the corner). Null: nothing to say (an empty text).
+ * a part is too small for the corner). `file`: the 3MF the export makes; the text is only in a Bambu
+ * Studio project with colours (toBambuProject), so in one colour or a plain 3MF it isn't printed,
+ * whatever the layers say. Null: nothing to say (an empty text).
  */
-export function backTextStatus(plan: BackTextPlan, printLayers: number, built: boolean): 'printed' | 'tooThin' | 'noRoom' | null {
-  if (!plan.on) return plan.reason === 'tooThin' ? 'tooThin' : null;
-  if (printLayers === 0) return 'tooThin';
+export function backTextStatus(plan: BackTextPlan, printLayers: number, built: boolean, file: { oneColour: boolean; project: boolean }): 'printed' | 'tooThin' | 'noRoom' | 'oneColour' | 'noProject' | null {
+  if (!plan.on && plan.reason !== 'tooThin') return null;
+  if (file.oneColour) return 'oneColour';
+  if (!file.project) return 'noProject';
+  if (!plan.on || printLayers === 0) return 'tooThin';
   return built ? 'printed' : 'noRoom';
 }
 
