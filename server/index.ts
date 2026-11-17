@@ -10,7 +10,12 @@ geometry.warmup();
 void sweepDataDir().then(({ removed }) => { if (removed.length) console.log(`[prompt-to-part] Removed ${removed.length} leftover file(s) from the data folder`); }, (e) => console.warn('[sweep]', (e as Error).message));
 // Versions marked printed by code from before the back text keep printing without it (once, before any request).
 await pinLegacyBackText().then((n) => { if (n) console.log(`[prompt-to-part] Turned the back text off in ${n} printed version(s) that had none`); }, (e) => console.warn('[printed]', (e as Error).message));
-createApp().listen(PORT, HOST, () => {
+createApp().listen(PORT, HOST, (error?: Error) => {
+  // Express 5 hands a failed listen (port taken) to this callback; the geometry process would keep the program alive.
+  if (error) {
+    console.error(`[prompt-to-part] Cannot listen on ${HOST}:${PORT}: ${error.message}. Is it already running, or is the port used by another program? The PORT variable changes it.`);
+    process.exit(1);
+  }
   console.log(`prompt-to-part server on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
   // In Docker the container listens on 0.0.0.0 and PTP_PUBLISHED (PTP_BIND, set by docker-compose.yml) says
   // where it is published: only that tells whether other computers can reach it.
