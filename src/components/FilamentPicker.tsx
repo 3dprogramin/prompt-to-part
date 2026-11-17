@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
-import { COMMON_FILAMENTS, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, type FilamentLookup, type LibraryFilament } from '../../shared/filaments';
+import { COMMON_FILAMENTS, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
 import { siteName } from '../../shared/sources';
 import { api, lookupFilament } from '../lib/api';
 import { Icon } from './Icon';
@@ -26,10 +26,10 @@ const describe = (f: Option) => `${f.name}${f.brand ? `, ${f.brand}` : ''}, TD $
 
 // The user's own filaments (GET/PUT /api/filaments/mine), shared by every open picker. Fetched each
 // time a picker opens, so a change made in another tab shows up.
-const mine = { list: [] as LayerToneFilament[], subs: new Set<(l: LayerToneFilament[]) => void>() };
-const setMine = (list: LayerToneFilament[]) => { mine.list = list; mine.subs.forEach((f) => f(list)); };
-const saveMine = async (list: LayerToneFilament[]) => setMine(await api.saveMyFilaments(list));
-function useMyFilaments(): LayerToneFilament[] {
+const mine = { list: [] as MyFilament[], subs: new Set<(l: MyFilament[]) => void>() };
+const setMine = (list: MyFilament[]) => { mine.list = list; mine.subs.forEach((f) => f(list)); };
+const saveMine = async (list: MyFilament[]) => setMine(await api.saveMyFilaments(list));
+function useMyFilaments(): MyFilament[] {
   const [list, setList] = useState(mine.list);
   useEffect(() => {
     mine.subs.add(setList);
@@ -214,7 +214,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
 function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
   value: LayerToneFilament & { original?: string }; onChange: (f: LayerToneFilament & { original?: string }) => void; adding: boolean; onDone: (f: LayerToneFilament) => void;
   /** The user's saved filaments, which "Save as mine" adds to (or, editing one, changes). */
-  mine: LayerToneFilament[];
+  mine: MyFilament[];
 }) {
   const [lookup, setLookup] = useState<{ busy: boolean; result?: FilamentLookup; error?: string } | null>(null);
   const [saved, setSaved] = useState<{ busy?: boolean; ok?: boolean; error?: string } | null>(null);
@@ -239,7 +239,10 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
       // In place when editing a saved one (or saving one again), else at the end.
       const at = list.findIndex((m) => myFilamentKey(m) === (value.original ?? key));
       const rest = list.filter((m, i) => i !== at && myFilamentKey(m) !== key);
-      await saveMine(at < 0 ? [...rest, f] : [...rest.slice(0, at), f, ...rest.slice(at)]);
+      // The roll count stays with the filament it belongs to (picker values never carry it).
+      const rolls = (list[at] ?? list.find((m) => myFilamentKey(m) === key))?.rolls;
+      const keep: MyFilament = rolls == null ? f : { ...f, rolls };
+      await saveMine(at < 0 ? [...rest, keep] : [...rest.slice(0, at), keep, ...rest.slice(at)]);
       onChange({ ...latest.current, original: key });
       setSaved({ ok: true });
     } catch (e) {
@@ -283,7 +286,7 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
 const stackFields = (f: LayerToneFilament): LayerToneFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
 
 /** The user's saved filaments while they are edited: change one, or remove it (a second click confirms). */
-function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: LayerToneFilament[]; editing: boolean; onEditing: (on: boolean) => void; onEdit: (f: LayerToneFilament) => void }) {
+function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: MyFilament[]; editing: boolean; onEditing: (on: boolean) => void; onEdit: (f: LayerToneFilament) => void }) {
   const [confirm, setConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const remove = async (key: string) => {

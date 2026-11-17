@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { FILAMENT_LIBRARY, matchFilament, normalizeFilamentText, searchFilaments } from '../shared/filaments';
+import { cleanMyFilaments, cleanRolls, FILAMENT_LIBRARY, matchFilament, myFilamentsProblem, normalizeFilamentText, rollsOf, searchFilaments, withoutRolls } from '../shared/filaments';
 
 // The server reads its data folder when loaded: a folder of its own, and a stand-in for Claude.
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-filaments-test-'));
@@ -206,4 +206,73 @@ test('my filaments go into the LayerTone prompt, marked as the user\'s own', asy
   const none = buildSystemPrompt({ workspaceFile: '/w/model.js', webSearch: false, layerTone: { pictures: false } });
   assert.doesNotMatch(none, /The user's own filaments/);
   assert.doesNotMatch(buildSystemPrompt({ workspaceFile: '/w/model.js', webSearch: false }), /The user's own filaments/);
+});
+
+test('a saved filament keeps a valid roll count and loads without one', () => {
+  const [a, b] = cleanMyFilaments([{ name: 'Black', brand: 'Bambu Lab', color: '#000000', td: 0.6, rolls: 3 }, { name: 'White', color: '#FFFFFF', td: 4.2 }]);
+  assert.equal(a.rolls, 3); assert.equal('rolls' in b, false);
+  assert.equal(rollsOf(a), 3); assert.equal(rollsOf(b), 1);
+  assert.equal(rollsOf({ ...b, rolls: 0 }), 0);
+});
+test('a roll count must be a whole number from 0 to 99', () => {
+  const f = (rolls: unknown) => myFilamentsProblem([{ name: 'Black', color: '#000000', td: 0.6, rolls }]);
+  for (const ok of [0, 1, 99]) assert.equal(f(ok), undefined);
+  for (const bad of [-1, 100, 1.5, '3', null, NaN]) assert.match(f(bad)!, /rolls must be a whole number from 0 to 99/);
+});
+test('cleanRolls turns what was typed into a valid count', () => {
+  assert.deepEqual(['', 'abc', '-4', '2.7', '250', '7', 12].map(cleanRolls), [0, 0, 0, 3, 99, 7, 12]);
+});
+test('withoutRolls gives the plain LayerTone filaments', () => {
+  assert.deepEqual(withoutRolls([{ name: 'Black', brand: 'Bambu Lab', color: '#000000', td: 0.6, rolls: 3 }, { name: 'White', color: '#ffffff', td: 4.2 }]),
+    [{ name: 'Black', brand: 'Bambu Lab', color: '#000000', td: 0.6 }, { name: 'White', color: '#ffffff', td: 4.2 }]);
+});
+test('PUT /api/filaments/mine stores the roll count and GET gives it back', async () => {
+  try {
+    const f = { name: 'Rolled Black', brand: 'Bambu Lab', color: '#000000', td: 0.6 };
+    const r = await putMine({ filaments: [{ ...f, rolls: 4 }, { ...f, name: 'No rolls' }] });
+    assert.equal(r.status, 200);
+    const want = [{ ...f, rolls: 4 }, { name: 'No rolls', brand: 'Bambu Lab', color: '#000000', td: 0.6 }];
+    assert.deepEqual((await r.json()).filaments, want);
+    assert.deepEqual((await (await fetch(mineUrl())).json()).filaments, want);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dataDir, 'filaments.json'), 'utf8')), { filaments: want });
+    for (const rolls of [100, -1, 1.5, '2']) {
+      const bad = await putMine({ filaments: [{ ...f, rolls }] });
+      assert.equal(bad.status, 400, String(rolls));
+      assert.match((await bad.json()).error, /rolls must be a whole number from 0 to 99/);
+    }
+    assert.deepEqual((await (await fetch(mineUrl())).json()).filaments, want); // a refused save changes nothing
+  } finally {
+    await putMine({ filaments: [] });
+  }
+});
+test('the roll count never reaches the agent', async () => {
+  const { buildSystemPrompt } = await import('../server/systemPrompt');
+  const { readMyFilaments } = await import('../server/myFilaments');
+  const { savedFilamentsForAgent } = await import('../server/myFilaments');
+  const SEVEN = 7777; // a count no other number in a prompt is likely to equal
+  try {
+    assert.equal((await putMine({ filaments: [{ name: 'PolyTerra Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5, rolls: SEVEN % 100 }, { name: 'Leftover grey', color: '#808080', td: 1, rolls: 0 }] })).status, 200);
+    const saved = await readMyFilaments();
+    assert.equal(saved[0].rolls, 77); // the list as stored does carry it
+    const mine = await savedFilamentsForAgent();
+    for (const f of mine) assert.equal('rolls' in f, false);
+    assert.deepEqual(mine, [{ name: 'PolyTerra Teal', brand: 'Polymaker', color: '#33aa77', td: 2.5 }, { name: 'Leftover grey', color: '#808080', td: 1 }]);
+    // Whatever the agent builds from that list, in every mode that names the user's filaments.
+    const base = { workspaceFile: '/w/model.js', webSearch: false, myFilaments: mine };
+    const withRolls = { ...base, myFilaments: saved }; // even the stored list: the prompt builders take name, brand, colour and TD only
+    for (const o of [{ layerTone: { pictures: true, mine } }, { layerTone: { pictures: false, mine: saved } }, { artwork: true }, { lineArt: { pictures: true } }]) {
+      for (const b of [base, withRolls]) {
+        const p = buildSystemPrompt({ ...b, ...o });
+        assert.match(p, /Polymaker/, JSON.stringify(Object.keys(o)));
+        assert.doesNotMatch(p, /rolls?\b/i, JSON.stringify(Object.keys(o)));
+        assert.doesNotMatch(p, /\b77\b/);
+      }
+    }
+    // The paint matcher the Meshy tools use returns name, brand and colour only.
+    const { matchFilaments } = await import('../shared/meshColors');
+    const matched = matchFilaments(['#33aa77'], saved);
+    assert.ok(matched.length > 0 && matched.every((m) => !('rolls' in m)));
+  } finally {
+    await putMine({ filaments: [] });
+  }
 });

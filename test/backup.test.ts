@@ -389,3 +389,17 @@ test('a damaged settings.json is left out; the designs in the same zip are still
     assert.ok(!existsSync(path.join(dataDir, 'settings.json')));
   } finally { await cleanSettings(); await fetch(`${A}/api/designs/${id}`, { method: 'DELETE', headers: W }); }
 });
+
+test('a backup restores roll counts where it has them, and none where it has not', async () => {
+  const file = path.join(dataDir, 'filaments.json');
+  const f = { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.5 };
+  rmSync(file, { force: true });
+  await importZip(zipSync({ 'filaments.json': strToU8(JSON.stringify({ filaments: [{ ...f, rolls: 4 }, { ...f, name: 'PLA Basic White', color: '#ffffff', rolls: 0 }] })) }));
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).filaments.map((x: { rolls?: number }) => x.rolls), [4, 0]);
+  rmSync(file, { force: true });
+  await importZip(zipSync({ 'filaments.json': strToU8(JSON.stringify({ filaments: [f] })) }));
+  const [kept] = JSON.parse(readFileSync(file, 'utf8')).filaments;
+  assert.equal(kept.name, 'PLA Basic Black');
+  assert.equal('rolls' in kept, false);
+  rmSync(file, { force: true });
+});

@@ -9,7 +9,7 @@ import { geometry } from '../geometry';
 import { ASPECTS, conceptPrompt, imageModel, paintPrompt } from '../artwork';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../../shared/meshes';
 import { forgetBalance, forgetMeshyTask, generateMeshyModel, isPassingMeshyError, keptFetchFailed, keptMeshyTask, MAX_FREE_FETCHES, MAX_MESHY_VIEWS, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, meshyRequestKey, type MeshyInput } from '../meshy';
-import { readMyFilaments } from '../myFilaments';
+import { savedFilamentsForAgent } from '../myFilaments';
 import { filamentLabel, matchFilaments, MAX_MESH_COLORS, meshColorBudget } from '../../shared/meshColors';
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from '../meshes';
 import { chatPhotos } from './designImage';
@@ -60,7 +60,7 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
           status(`Painting concept "${a.name}" in colour with ${imageModel()}…`);
           const paint = paintPrompt(a.subject, palette);
           // The filament each planned colour prints with, shown before any Meshy credits are spent.
-          if (palette) plan = matchFilaments(palette.map((c) => c.color), await readMyFilaments()).map((f, i) => `- ${palette[i].name} (${palette[i].parts}) → ${filamentLabel(f)}`).join('\n');
+          if (palette) plan = matchFilaments(palette.map((c) => c.color), await savedFilamentsForAgent()).map((f, i) => `- ${palette[i].name} (${palette[i].parts}) → ${filamentLabel(f)}`).join('\n');
           try {
             const p = await drawImage(paint, aspect, [greyUrl], meshy.signal, status);
             painted = { url: await storeConceptPicture(meshy.designId, toFile(p.image)), image: p.image };
@@ -184,7 +184,7 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         emit({ type: 'live', text: `Meshy: importing and repairing "${a.name}"…` });
         // With the stop signal: Stop kills the import instead of holding the geometry queue for minutes.
         const imported = color
-          ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? meshColorBudget(), mine: await readMyFilaments() }, meshy.signal)
+          ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? meshColorBudget(), mine: await savedFilamentsForAgent() }, meshy.signal)
           : await geometry.importMesh(r.model.bytes, r.model.filename, undefined, undefined, meshy.signal);
         const entry = await storeMesh(meshy.designId, imported, r.model, { source: 'meshy', prompt: r.prompt, picture: r.picture });
         if (!entry) throw new Error('The design was deleted');

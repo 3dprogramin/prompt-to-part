@@ -27,7 +27,7 @@ import { formatCost, formatDuration } from '../shared/duration';
 import { lineChanges } from '../shared/lineDiff';
 import { cachedPrintDefaults } from './bambu';
 import { printerLoaded } from './printerSetting';
-import { readMyFilaments } from './myFilaments';
+import { savedFilamentsForAgent } from './myFilaments';
 import { PRINT_KEY, printDefaultsFor } from '../shared/print';
 import { printer } from '../shared/printer';
 import type { ParamValues } from '../shared/types';
@@ -159,7 +159,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
     ...(typeof pictureValues[PART_COLORS_KEY] === 'string' ? { [PART_COLORS_KEY]: pictureValues[PART_COLORS_KEY] } : {}),
   };
   // The user's own filaments, for the LayerTone, artwork and line art sections of the prompt.
-  const myFilaments = layerTone || artwork || lineArt ? await readMyFilaments() : [];
+  const myFilaments = layerTone || artwork || lineArt ? await savedFilamentsForAgent() : [];
   // The print baseline Claude is told about: the chosen printer's Bambu Studio profile, as the 3MF export uses.
   await printerLoaded().catch(() => undefined);
   const printBase = (await cachedPrintDefaults()) ?? printDefaultsFor(printer());

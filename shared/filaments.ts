@@ -34,6 +34,20 @@ export const MAX_MY_FILAMENTS = 100;
 /** TD range a saved filament may have, mm. */
 export const MY_TD_RANGE: [number, number] = [0.05, 20];
 
+/** A filament the user saved: a LayerTone filament plus how many rolls of it they have (a note only). */
+export interface MyFilament extends LayerToneFilament { rolls?: number }
+/** Most rolls of one filament the note holds. */
+export const MAX_ROLLS = 99;
+/** The rolls of a saved filament: its count, or 1 when it has none. */
+export const rollsOf = (f: MyFilament): number => f.rolls ?? 1;
+/** A typed roll count as a valid one: whole, 0 to MAX_ROLLS; empty and not-a-number give 0. */
+export function cleanRolls(raw: unknown): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(MAX_ROLLS, Math.max(0, Math.round(n))) : 0;
+}
+/** The saved filaments as plain LayerTone filaments (name, brand, colour, TD): the roll count is a note for the user, never for a prompt, a tool or a design. */
+export const withoutRolls = (list: MyFilament[]): LayerToneFilament[] => list.map((f) => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td }));
+
 /** What is wrong with a list of the user's filaments for PUT /api/filaments/mine, if anything. */
 export function myFilamentsProblem(raw: unknown): string | undefined {
   if (!Array.isArray(raw)) return 'Send { filaments: [...] }';
@@ -41,13 +55,14 @@ export function myFilamentsProblem(raw: unknown): string | undefined {
   for (const [i, f] of raw.entries()) {
     const at = `Filament ${i + 1}`;
     if (!f || typeof f !== 'object') return `${at} is not a filament`;
-    const { name, brand, color, td } = f as Record<string, unknown>;
+    const { name, brand, color, td, rolls } = f as Record<string, unknown>;
     if (typeof name !== 'string' || !name.trim()) return `${at} needs a name`;
     if (name.length > MAX_FILAMENT_NAME_CHARS) return `${at}: the name is longer than ${MAX_FILAMENT_NAME_CHARS} characters`;
     if (brand != null && typeof brand !== 'string') return `${at}: the brand must be text`;
     if (typeof brand === 'string' && brand.length > MAX_BRAND_CHARS) return `${at}: the brand is longer than ${MAX_BRAND_CHARS} characters`;
     if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return `${at}: the colour must be #rrggbb`;
     if (typeof td !== 'number' || !(td >= MY_TD_RANGE[0] && td <= MY_TD_RANGE[1])) return `${at}: TD must be ${MY_TD_RANGE[0]}–${MY_TD_RANGE[1]} mm`;
+    if ('rolls' in (f as object) && (typeof rolls !== 'number' || !Number.isInteger(rolls) || rolls < 0 || rolls > MAX_ROLLS)) return `${at}: rolls must be a whole number from 0 to ${MAX_ROLLS}`;
   }
   return undefined;
 }
@@ -56,14 +71,14 @@ export function myFilamentsProblem(raw: unknown): string | undefined {
  * The user's filaments as stored: valid ones only (as myFilamentsProblem checks), trimmed, colour in
  * lower case, one per brand and name (the last wins), at most MAX_MY_FILAMENTS.
  */
-export function cleanMyFilaments(raw: unknown): LayerToneFilament[] {
+export function cleanMyFilaments(raw: unknown): MyFilament[] {
   if (!Array.isArray(raw)) return [];
-  const out = new Map<string, LayerToneFilament>();
+  const out = new Map<string, MyFilament>();
   for (const f of raw) {
     if (myFilamentsProblem([f])) continue;
     const name = f.name.trim(), brand = typeof f.brand === 'string' ? f.brand.trim() : '';
     out.delete(myFilamentKey({ name, brand }));
-    out.set(myFilamentKey({ name, brand }), { name, ...(brand ? { brand } : {}), color: f.color.toLowerCase(), td: f.td });
+    out.set(myFilamentKey({ name, brand }), { name, ...(brand ? { brand } : {}), color: f.color.toLowerCase(), td: f.td, ...('rolls' in f ? { rolls: f.rolls } : {}) });
   }
   return [...out.values()].slice(-MAX_MY_FILAMENTS);
 }
