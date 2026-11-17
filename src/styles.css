@@ -788,9 +788,15 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .keys-conn-result.ok { color: var(--good); }
 .keys-conn-result.bad { color: var(--bad); }
 .settings-panel .keys-tab .keys-note { display: block; padding: 10px 0 2px; border-bottom: 0; }
-.keys-actions { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; }
-.keys-saved:focus { outline: none; }
-.keys-buttons { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+/* The footer on Keys and services: notes on the left (a line of their own when long), then Reset, Save, Close. */
+.settings-actions { flex-shrink: 0; align-items: center; }
+.settings-footer-slot { display: contents; }
+.keys-footer-notes { flex: 1 1 auto; min-width: 0; margin-right: auto; display: flex; flex-direction: column; gap: 2px; }
+.modal .keys-footer-notes p { margin: 0; }
+.btn[aria-disabled='true'] { opacity: 0.45; cursor: default; }
+.btn.primary[aria-disabled='true']:hover { background: var(--accent); border-color: var(--accent); }
+.btn[aria-disabled='true']:hover { border-color: var(--line-2); }
+.keys-claude-hint { flex: 1 1 200px; min-width: 0; }
 .btn.small { padding: 3px 9px; font-size: 12px; }
 @media (max-width: 600px) {
   .keys-row { grid-template-columns: 1fr; }

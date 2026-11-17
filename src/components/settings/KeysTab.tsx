@@ -1,11 +1,12 @@
 // The Keys and services tab of Settings: every key masked, changed and saved together with Save, or
 // reset to .env. All its decisions are in keysDraft.ts; a typed key lives only in this tab's draft.
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Connection, SettingsView } from '../../../shared/api';
 import { CLAUDE_VIA, SETTINGS, type ClaudeVia, type SettingDef, type SettingRow } from '../../../shared/settings';
 import { api } from '../../lib/api';
 import { VIA_LABEL } from '../TopBar';
-import { checkScope, claudeHint, claudeShown, draftProblems, isDirty, KEY_ROWS, pendingLabel, resetList, resetQuestion, runningNote, sourceLabel, stage, toChange, unstage, VIA_NAMES, type Draft, type KeyRow } from './keysDraft';
+import { canSave, checkScope, claudeHint, claudeShown, draftProblems, isDirty, KEY_ROWS, pendingLabel, resetList, resetQuestion, runningNote, sourceBadge, stage, toChange, unstage, VIA_NAMES, type Draft, type KeyRow } from './keysDraft';
 
 interface Props {
   /** Set while the tab is open: whether it has changes not saved (the dialog asks before they are lost). */
@@ -14,11 +15,13 @@ interface Props {
   onSaved: () => void;
   /** A fresh connection check ran: the chip in the top bar shows it too. */
   onChecked: () => void;
+  /** The dialog's footer, next to Close: Save, Reset and their notes go there, so they never scroll out of view. */
+  footer: HTMLElement | null;
 }
 
 const defOf = (env: string) => SETTINGS.find((d) => d.env === env) as SettingDef;
 
-export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
+export function KeysTab({ dirtyRef, onSaved, onChecked, footer }: Props) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({});
@@ -29,8 +32,6 @@ export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
   const [conn, setConn] = useState<Connection | null>(null);
   const [checking, setChecking] = useState(false);
   const checks = useRef(0);
-  // Save and Reset are disabled while they run (and after, with nothing left to do): focus moves to their result.
-  const noteRef = useRef<HTMLParagraphElement>(null);
   dirtyRef.current = () => isDirty(draft);
   useEffect(() => () => { dirtyRef.current = null; }, [dirtyRef]);
 
@@ -51,15 +52,10 @@ export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!view) return loadError ? <p className="small warn-note" role="alert">{loadError}</p> : <p className="dim">Loading the settings…</p>;
-
-  const rows = view.rows;
+  const rows = view?.rows ?? [];
   const rowOf = (env: string) => rows.find((r) => r.env === env) ?? { env, source: 'unset', editable: true } as SettingRow;
   const problems = draftProblems(draft);
   const dirty = isDirty(draft);
-  const canSave = dirty && !Object.keys(problems).length && !busy;
-  const toReset = resetList(rows);
-  const running = runningNote(view.running);
 
   const set = (row: SettingRow, value: string) => setDraft((d) => stage(d, row, value));
   const undo = (env: string) => {
@@ -85,7 +81,7 @@ export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
     } catch (e) {
       setNote({ text: `Not saved: ${(e as Error).message}`, error: true });
       return;
-    } finally { setBusy(null); noteRef.current?.focus(); }
+    } finally { setBusy(null); }
     await check(true);
   };
   const reset = async () => {
@@ -97,16 +93,36 @@ export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
     } catch (e) {
       setNote({ text: `Not reset: ${(e as Error).message}`, error: true });
       return;
-    } finally { setBusy(null); noteRef.current?.focus(); }
+    } finally { setBusy(null); }
     await check(true);
   };
+
+  // Save and Reset are in the dialog's footer from the start, and only marked disabled (aria-disabled), so
+  // focus stays on them while they run and after (the result line is announced instead).
+  const saveOn = !!view && canSave(draft) && !busy;
+  const resetOn = !!view && resetList(rows).length > 0 && !busy;
+  const running = view ? runningNote(view.running) : undefined;
+  const actions = footer && createPortal(
+    <>
+      <div className="keys-footer-notes">
+        <p className="small dim keys-saved" role="status">{note && !note.error ? note.text : ''}</p>
+        {note?.error && <p className="small warn-note" role="alert">{note.text}</p>}
+        {running && <p className="small warn-note" id="keys-running">{running}</p>}
+      </div>
+      <button type="button" className="btn ghost" aria-disabled={!resetOn} onClick={() => { if (resetOn) void reset(); }}>{busy === 'reset' ? 'Resetting…' : 'Reset to defaults'}</button>
+      <button type="button" className="btn primary" aria-disabled={!saveOn} aria-describedby={running ? 'keys-running' : undefined} onClick={() => { if (saveOn) void save(); }}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
+    </>,
+    footer,
+  );
+
+  if (!view) return <>{loadError ? <p className="small warn-note" role="alert">{loadError}</p> : <p className="dim">Loading the settings…</p>}{actions}</>;
 
   /** The source, what is staged, and the row's buttons. */
   const status = (row: SettingRow, def: SettingDef, open: boolean) => {
     const staged = draft[row.env];
     return (
       <span className="keys-status">
-        <span className={`keys-src ${row.source === 'here' ? 'here' : ''}`}>{sourceLabel(row)}</span>
+        {sourceBadge(row, draft) && <span className={`keys-src ${row.source === 'here' ? 'here' : ''}`}>{sourceBadge(row, draft)}</span>}
         {pendingLabel(staged) && <span className="keys-pending">{pendingLabel(staged)}</span>}
         {open ? <button type="button" className="btn ghost small" aria-label={`Cancel the new ${def.label}`} onClick={() => undo(row.env)}>Cancel</button>
           : staged !== undefined ? <button type="button" className="btn ghost small" aria-label={`Undo the ${def.label} change`} onClick={() => undo(row.env)}>Undo</button>
@@ -179,8 +195,13 @@ export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
     return (
       <div key={env} className="keys-field">
         {ownLabel}
-        <div className="keys-control">{control}{status(row, def, open)}</div>
-        {env === 'PTP_CLAUDE' && <p className="dim small" id={`${id}-auto`}>{claudeHint(row, view.via, draft) ?? ''}</p>}
+        {env === 'PTP_CLAUDE' ? (
+          // The choice fills its line: its source and buttons go on the line under it, beside the hint.
+          <>
+            <div className="keys-control">{control}</div>
+            <div className="keys-control"><p className="dim small keys-claude-hint" id={`${id}-auto`}>{claudeHint(row, view.via, draft) ?? ''}</p>{status(row, def, open)}</div>
+          </>
+        ) : <div className="keys-control">{control}{status(row, def, open)}</div>}
         {def.hint && <p className="dim small" id={`${id}-hint`}>{def.hint}</p>}
         {!row.editable && row.lockedReason && <p className="dim small" id={`${id}-lock`}>{row.lockedReason}</p>}
         {problem && <p className="small warn-note" id={`${id}-err`} role="alert">{problem}</p>}
@@ -232,14 +253,7 @@ export function KeysTab({ dirtyRef, onSaved, onChecked }: Props) {
         ))}
         <p className="keys-row keys-note dim small">Password, port and network: set in .env; they need a restart.</p>
       </fieldset>
-      <div className="keys-actions">
-        <p ref={noteRef} tabIndex={-1} className={`small keys-saved ${note?.error ? 'warn-note' : 'dim'}`} role={note?.error ? 'alert' : 'status'}>{note?.text ?? ''}</p>
-        {running && <p className="small warn-note" id="keys-running">{running}</p>}
-        <div className="keys-buttons">
-          <button type="button" className="btn ghost" disabled={!toReset.length || !!busy} onClick={() => void reset()}>{busy === 'reset' ? 'Resetting…' : 'Reset to defaults'}</button>
-          <button type="button" className="btn primary" disabled={!canSave} aria-describedby={running ? 'keys-running' : undefined} onClick={() => void save()}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
-        </div>
-      </div>
+      {actions}
     </div>
   );
 }

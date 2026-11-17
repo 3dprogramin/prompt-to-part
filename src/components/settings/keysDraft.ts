@@ -69,6 +69,16 @@ export function sourceLabel(row: SettingRow): string {
   return row.source === 'here' ? 'set here' : row.source === 'env' ? '.env' : 'not set';
 }
 
+/** The badge a row shows: its source label, except the Claude choice while it is Automatic (its hint says that). */
+export function sourceBadge(row: SettingRow, draft: Draft): string | undefined {
+  return row.env === 'PTP_CLAUDE' && row.source === 'unset' && !(row.env in draft) ? undefined : sourceLabel(row);
+}
+
+/** Save is possible with a change that has no problem. */
+export function canSave(draft: Draft): boolean {
+  return isDirty(draft) && !Object.keys(draftProblems(draft)).length;
+}
+
 /**
  * The draft after typing `value` into a row. Typing back what the row shows stages nothing, and so does
  * emptying a new key (the row keeps its key); an emptied text row stages "not set here".

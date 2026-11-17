@@ -1964,6 +1964,20 @@ test('through OpenRouter the model menu lists its top models with prices, finds 
   }
 });
 
+/** Save and Reset sit in the Settings footer: inside the dialog's box and the window, never in the scrolling panel. */
+async function settingsFooterInView(page: Page, dialog: Locator, when: string) {
+  const box = (await dialog.boundingBox())!;
+  const view = page.viewportSize()!;
+  for (const name of ['Save', 'Reset to defaults']) {
+    const button = dialog.getByRole('button', { name, exact: true });
+    const b = (await button.boundingBox())!;
+    assert.ok(b.x >= box.x && b.y >= box.y && b.x + b.width <= box.x + box.width + 0.5 && b.y + b.height <= box.y + box.height + 0.5,
+      `${name} is inside the dialog ${when} (${JSON.stringify(b)} in ${JSON.stringify(box)})`);
+    assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.width <= view.width && b.y + b.height <= view.height, `${name} is on screen ${when}`);
+    assert.equal(await button.evaluate((el) => !!el.closest('[role=tabpanel]')), false, `${name} is not in the scrolling panel ${when}`);
+  }
+}
+
 test('Settings: the gear opens the dialog, the chip opens Keys and services, a key is saved masked and reset', TEST, async () => {
   const KEY = 'msy_0123456789abcdef';
   const json = { 'Content-Type': 'application/json', 'X-PTP': '1' };
@@ -2031,6 +2045,11 @@ test('Settings: the gear opens the dialog, the chip opens Keys and services, a k
     const panel = dialog.getByRole('tabpanel');
     await meshy().getByRole('button', { name: 'Add Meshy key' }).waitFor();
     await page.screenshot({ path: path.join(shots, 'settings-keys.png') });
+    // Save and Reset are in the footer from the start, disabled while there is nothing to save or reset.
+    await settingsFooterInView(page, dialog, 'on opening Keys and services');
+    assert.equal(await dialog.getByRole('button', { name: 'Save', exact: true }).getAttribute('aria-disabled'), 'true');
+    assert.equal(await dialog.getByRole('button', { name: 'Reset to defaults' }).getAttribute('aria-disabled'), 'true');
+    await page.screenshot({ path: path.join(shots, 'settings-keys-footer.png') });
     const before = (await meshy().innerText()).replace(/\s+/g, ' ');
     assert.match(before, /not set/);
     await page.keyboard.press('Escape');
@@ -2052,6 +2071,8 @@ test('Settings: the gear opens the dialog, the chip opens Keys and services, a k
     // Save: masked, "set here", the full key nowhere in the page, a connection result line, the chip still alive.
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.getByText('Saved.', { exact: true }).waitFor();
+    await settingsFooterInView(page, dialog, 'after a save');
+    assert.ok(await focusOn(/^Save$/), `focus stays on Save after the save (on: ${await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 120))})`);
     const row = (await meshy().innerText()).replace(/\s+/g, ' ');
     assert.match(row, /msy…def/, row);
     assert.ok(!row.includes('0123456789ab'), row);
@@ -2064,6 +2085,7 @@ test('Settings: the gear opens the dialog, the chip opens Keys and services, a k
     await chip.waitFor();
     assert.ok(!/Checking/.test(await page.locator('.conn-chip').innerText()), 'the chip is not stuck on Checking');
     await page.screenshot({ path: path.join(shots, 'settings-keys-saved.png') });
+    await page.screenshot({ path: path.join(shots, 'settings-keys-footer-saved.png') });
     // The server holds it in secrets.json and never hands it out.
     assert.ok(readFileSync(path.join(dataDir, 'secrets.json'), 'utf8').includes(KEY));
     assert.ok(!(await (await fetch(`${A}/api/settings`)).text()).includes(KEY));
@@ -2089,6 +2111,7 @@ test('Settings: the gear opens the dialog, the chip opens Keys and services, a k
 });
 
 test('Settings on a phone-width screen: nothing runs off the side, the tabs stay readable, Keys and services rows wrap', TEST, async () => {
+  const json = { 'Content-Type': 'application/json', 'X-PTP': '1' };
   const page = await newPage({ viewport: { width: 380, height: 800 }, isMobile: true, hasTouch: true });
   try {
     await page.goto(`${A}/`);
@@ -2114,7 +2137,19 @@ test('Settings on a phone-width screen: nothing runs off the side, the tabs stay
     assert.ok((await sideways()) <= 0, 'the page does not scroll sideways with the dialog open');
     await page.screenshot({ path: path.join(shots, 'settings-phone-keys.png') });
     console.log(`settings phone: tab row scrollWidth ${tabRow.scroll} / clientWidth ${tabRow.client}`);
+    // Save and Reset in view on a phone too, on opening and after a save.
+    await settingsFooterInView(page, dialog, 'on a phone, on opening Keys and services');
+    await page.screenshot({ path: path.join(shots, 'settings-phone-keys-footer.png') });
+    const meshy = dialog.locator('.keys-row', { hasText: 'Meshy key' });
+    await meshy.getByRole('button', { name: 'Add Meshy key' }).click();
+    await meshy.getByLabel('Meshy key', { exact: true }).fill('msy_phone0123456789');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await dialog.getByText('Saved.', { exact: true }).waitFor();
+    await settingsFooterInView(page, dialog, 'on a phone, after a save');
+    assert.ok((await sideways()) <= 0, 'the page does not scroll sideways after a save');
+    await page.screenshot({ path: path.join(shots, 'settings-phone-keys-footer-saved.png') });
   } finally {
     await page.close();
+    await fetch(`${A}/api/settings/reset`, { method: 'POST', headers: json }).catch(() => {});
   }
 });

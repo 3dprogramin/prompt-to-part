@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SETTINGS, type SettingRow } from '../shared/settings';
-import { checkScope, claudeHint, claudeShown, draftProblems, isDirty, KEY_ROWS, pendingLabel, resetList, resetQuestion, runningNote, sourceLabel, stage, toChange } from '../src/components/settings/keysDraft';
+import { canSave, checkScope, claudeHint, claudeShown, draftProblems, isDirty, KEY_ROWS, pendingLabel, resetList, resetQuestion, runningNote, sourceBadge, sourceLabel, stage, toChange } from '../src/components/settings/keysDraft';
 
 const rows: SettingRow[] = [
   { env: 'OPENROUTER_API_KEY', source: 'here', preview: 'sk-or-…77b2', editable: true },
@@ -78,4 +78,19 @@ test('the reset question names what goes back to .env, and warns about unsaved c
 test('no copy uses the en or em dash', () => {
   const texts = [claudeHint({ env: 'PTP_CLAUDE', source: 'unset', editable: true }, 'custom', {}), claudeHint({ env: 'PTP_CLAUDE', source: 'unset', editable: true }, null, {}), checkScope('subscription'), runningNote(2), resetQuestion(rows, true), ...KEY_ROWS.map((r) => `${r.label} ${r.hint ?? ''}`)];
   for (const t of texts) assert.doesNotMatch(t ?? '', /[\u2013\u2014]/);
+});
+
+test('the Claude row has no source badge while it is Automatic (its hint says so); every other row keeps its badge', () => {
+  const unset: SettingRow = { env: 'PTP_CLAUDE', source: 'unset', editable: true };
+  assert.equal(sourceBadge(unset, {}), undefined);
+  assert.equal(sourceBadge(unset, { PTP_CLAUDE: 'custom' }), 'not set');
+  assert.equal(sourceBadge({ env: 'PTP_CLAUDE', source: 'env', value: 'openrouter', editable: true }, {}), '.env');
+  assert.equal(sourceBadge(rows[3], {}), 'not set');
+});
+
+test('Save is possible only with a change that has no problem', () => {
+  assert.equal(canSave({}), false);
+  assert.equal(canSave({ PTP_COUNTRY: 'Italy' }), true);
+  assert.equal(canSave({ PTP_COUNTRY: null }), true);
+  assert.equal(canSave({ PTP_COUNTRY: 'Italy', PTP_EFFORT: 'huge' }), false);
 });

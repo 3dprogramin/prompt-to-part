@@ -31,6 +31,8 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsS
   const dialog = useRef<HTMLDivElement>(null);
   // Set by the Keys and services tab while it is open: whether it has changes not saved.
   const keysDirty = useRef<(() => boolean) | null>(null);
+  // Where the Keys and services tab puts Save and Reset: the footer, which never scrolls.
+  const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null);
   const mayLeave = () => !keysDirty.current?.() || window.confirm(DISCARD_QUESTION);
   const close = () => { if (mayLeave()) onClose(); };
   useEscape(true, close);
@@ -77,10 +79,11 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsS
         <div className="settings-panel" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
           {tab === 'printer' && <PrinterTab info={printerInfo} onPrinter={onPrinter} />}
           {tab === 'filaments' && <p>Your filaments move here in the next update. For now they are in the LayerTone filament picker.</p>}
-          {tab === 'keys' && <KeysTab dirtyRef={keysDirty} onSaved={onSettingsSaved} onChecked={onConnectionChecked} />}
+          {tab === 'keys' && <KeysTab dirtyRef={keysDirty} onSaved={onSettingsSaved} onChecked={onConnectionChecked} footer={footerSlot} />}
         </div>
-        <div className="modal-actions">
-          {/* On Keys and services, Save is the main button. */}
+        <div className="modal-actions settings-actions">
+          {/* On Keys and services: its notes, Reset and Save (the main button), before Close. */}
+          {tab === 'keys' && <div ref={setFooterSlot} className="settings-footer-slot" />}
           <button type="button" className={`btn ${tab === 'keys' ? 'ghost' : 'primary'}`} onClick={close}>Close</button>
         </div>
       </div>
