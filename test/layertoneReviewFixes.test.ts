@@ -7,7 +7,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerToneLayers, layerToneRgba, resolveLayerToneOptions, stripColors, stripSwaps, toLayerToneImage, toStripImage } from '../shared/layertone';
-import { evaluateScript } from '../shared/runtime';
+import { evaluateScript, SCALE_KEY } from '../shared/runtime';
 
 const FILAMENTS = [{ name: 'Black', color: '#000000', td: 0.6 }, { name: 'Yellow', color: '#f2c200', td: 2.5 }, { name: 'Blue', color: '#1a3fbf', td: 1 }, { name: 'White', color: '#ffffff', td: 1.6 }];
 const O = { width: 100, maxHeight: 1.6, baseHeight: 0.48 };
@@ -44,6 +44,15 @@ test('the model report warns when the part is built at another max height than i
   assert.match(off, /"portrait" was drawn for max height 1\.6 mm/);
   assert.match(off, /maxHeight: 1\.6/);
   assert.doesNotMatch(at(1.6).warnings.join('\n'), /was drawn for/);
+});
+
+test('a strip picture built at the height it was drawn for does not warn at another Scale', () => {
+  const values = { [LAYERTONE_IMAGES_KEY]: JSON.stringify({ portrait: pic }), [LAYERTONE_KEY]: JSON.stringify({ filaments: FILAMENTS, swaps: stack.swaps }) };
+  const script = `function build() { return { name: 'Picture', ...H.layertone('portrait', { width: 40, maxHeight: 1.6, filaments: ${JSON.stringify(FILAMENTS)} }) }; }`;
+  for (const s of [0.5, 2]) assert.doesNotMatch(evaluateScript(script, { ...values, [SCALE_KEY]: s }, 'draft').warnings.join('\n'), /was drawn for/, `Scale ${s * 100} %`);
+  // Still warns at another height, in the script's mm.
+  const off = evaluateScript(script.replace('maxHeight: 1.6', 'maxHeight: 2.4'), { ...values, [SCALE_KEY]: 2 }, 'draft').warnings.join('\n');
+  assert.match(off, /built at 2\.40 and 0\.48 mm/);
 });
 
 test('a strip picture shows in its strip colours; a plain one in grey', () => {

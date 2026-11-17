@@ -395,13 +395,15 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         const drawn = layerTone && layerTonePictures[layerTone.image];
         if (layerTone && drawn?.positions && drawn.stack) {
           // Its colours need the same relief depth (in layers); the base may differ when the First
-          // filament slider raised the whole relief, since the swaps move with it.
-          const want = resolveLayerToneOptions({ width: 1, maxHeight: drawn.stack.maxHeight, baseHeight: drawn.stack.baseHeight, layerHeight: layerTone.options.layerHeight, firstLayerHeight: layerTone.options.firstLayerHeight });
-          const lt = layerTone.options;
+          // filament slider raised the whole relief, since the swaps move with it. Compared in the
+          // script's mm: the part's heights are scaled with it, the drawn stack's are not.
+          const opt = layerTone.options;
+          const lt = { layerHeight: opt.layerHeight / scale, firstLayerHeight: opt.firstLayerHeight / scale, baseHeight: opt.baseHeight / scale, maxHeight: opt.maxHeight / scale };
+          const want = resolveLayerToneOptions({ width: 1, maxHeight: drawn.stack.maxHeight, baseHeight: drawn.stack.baseHeight, layerHeight: lt.layerHeight, firstLayerHeight: lt.firstLayerHeight });
           const built = { base: layerCount(lt.baseHeight, lt), max: layerCount(lt.maxHeight, lt) };
           const raised = layerTone.raised != null || layerTonePictureSetup.baseHeight != null;
           if (built.max - built.base !== want.nMax - want.nBase || (!raised && built.base !== want.nBase)) {
-            warnings.push(`Picture "${layerTone.image}" was drawn for max height ${drawn.stack.maxHeight} mm and base height ${drawn.stack.baseHeight} mm, but part "${name}" is built at ${layerTone.options.maxHeight.toFixed(2)} and ${layerTone.options.baseHeight.toFixed(2)} mm, so its colours don't match the picture: build H.layertone with maxHeight: ${drawn.stack.maxHeight}, baseHeight: ${drawn.stack.baseHeight}.`);
+            warnings.push(`Picture "${layerTone.image}" was drawn for max height ${drawn.stack.maxHeight} mm and base height ${drawn.stack.baseHeight} mm, but part "${name}" is built at ${lt.maxHeight.toFixed(2)} and ${lt.baseHeight.toFixed(2)} mm, so its colours don't match the picture: build H.layertone with maxHeight: ${drawn.stack.maxHeight}, baseHeight: ${drawn.stack.baseHeight}.`);
           }
         }
         // A lithophane part (H.lithophane): what it was made from, scaled with the part. A design is
