@@ -89,17 +89,19 @@ export function steerGeneration(designId: string, text: string, images: ImageDat
   const run = steering.get(designId);
   if (!run) return false;
   const pictures = images.filter((img) => IMAGE_TYPES.has(img.mediaType));
+  // New pictures are appended: generate_3d addresses photos by number, so the ones already attached keep theirs.
+  const urls = [...new Set(pictures.map((img) => `data:${img.mediaType};base64,${img.data}`))].filter((url) => !run.references.includes(url));
+  const first = run.references.length + 1;
+  const numbers = urls.length ? ` They are photo${urls.length > 1 ? `s ${first} to ${first + urls.length - 1}` : ` ${first}`} (photos are numbered in the order sent; earlier numbers stay the same).` : '';
   const ok = run.inbox.push({
     type: 'user', parent_tool_use_id: null, priority: 'next',
     message: { role: 'user', content: [
-      { type: 'text', text: `Message from the user while you work${pictures.length ? ' (with pictures)' : ''}:\n${text.trim() || '(see the pictures)'}${pictures.length ? ' The image tools can use these pictures now (use_attached_photos / from_photo).' : ''}` },
+      { type: 'text', text: `Message from the user while you work${pictures.length ? ' (with pictures)' : ''}:\n${text.trim() || '(see the pictures)'}${pictures.length ? ' The image tools can use these pictures now (use_attached_photos / from_photo).' + numbers : ''}` },
       ...pictures.map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mediaType as 'image/jpeg', data: img.data } })),
     ] },
   });
   if (!ok) return false;
-  // The image tools read the reply's references: these pictures go first, in the order sent.
-  const urls = [...new Set(pictures.map((img) => `data:${img.mediaType};base64,${img.data}`))].filter((url) => !run.references.includes(url));
-  run.references.unshift(...urls);
+  run.references.push(...urls);
   run.emit({ type: 'step', step: { kind: 'user', text: text.trim() || `${pictures.length} picture${pictures.length > 1 ? 's' : ''}`, ...(pictures[0] ? { image: `data:${pictures[0].mediaType};base64,${pictures[0].data}` } : {}) } });
   return true;
 }

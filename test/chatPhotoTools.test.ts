@@ -57,7 +57,8 @@ test('a picture sent mid-run joins the references the image tools read', async (
   const inbox = new Inbox();
   steering.set('d1', { inbox, emit: () => {}, references });
   steerGeneration('d1', 'use this face', [{ mediaType: 'image/jpeg', data: 'NEW' }, { mediaType: 'application/pdf', data: 'PDF' }]);
-  assert.deepEqual(references, ['data:image/jpeg;base64,NEW', 'data:image/png;base64,OLD']);
+  // Appended: photo numbers (generate_3d photos: [n]) already given to the agent never shift.
+  assert.deepEqual(references, ['data:image/png;base64,OLD', 'data:image/jpeg;base64,NEW']);
   steerGeneration('d1', 'again', [{ mediaType: 'image/jpeg', data: 'NEW' }]);
   assert.equal(references.length, 2);
   steerGeneration('d1', 'no picture this time');
@@ -68,7 +69,7 @@ test('a picture sent mid-run joins the references the image tools read', async (
     const first = (m.message.content as { type: string; text?: string }[])[0];
     texts.push(first.text!);
   }
-  assert.match(texts[0], /\(with pictures\):\nuse this face The image tools can use these pictures now \(use_attached_photos \/ from_photo\)\.$/);
+  assert.match(texts[0], /\(with pictures\):\nuse this face The image tools can use these pictures now \(use_attached_photos \/ from_photo\)\. They are photo 2 \(photos are numbered in the order sent; earlier numbers stay the same\)\.$/);
   assert.doesNotMatch(texts[2], /image tools/);
 });
 
@@ -120,4 +121,18 @@ test('generate_3d builds only from this message\'s photos when it has some (earl
   assert.ok(!out.isError, JSON.stringify(out));
   assert.equal(mock.created.at(-1)!.type, 'image-to-3d');
   assert.equal(mock.created.at(-1)!.body.image_url, current);
+});
+
+test('a picture sent mid-run is numbered after the ones already attached, so photos: [1] keeps meaning the first', async () => {
+  const references: string[] = ['data:image/png;base64,A', 'data:image/png;base64,B'];
+  const inbox = new Inbox();
+  steering.set('d2', { inbox, emit: () => {}, references });
+  steerGeneration('d2', 'and this one', [{ mediaType: 'image/jpeg', data: 'C' }]);
+  steering.delete('d2');
+  inbox.close();
+  assert.equal(references[0], 'data:image/png;base64,A');
+  assert.equal(references[2], 'data:image/jpeg;base64,C');
+  const texts: string[] = [];
+  for await (const m of inbox.drain()) texts.push((m.message.content as { text?: string }[])[0].text!);
+  assert.match(texts[0], /photo 3 /);
 });
