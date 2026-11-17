@@ -22,18 +22,28 @@ export function layerToneTools({ base, emit }: ToolContext) {
       reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
       back_text: z.union([z.string().max(40), z.literal(false)]).optional().describe('The mirrored line printed on the back (first layers): a string sets the text, "" returns to the app\'s default text, false turns it off'),
     }, async (a) => {
+      // The back text is worked out first but stored only once the setup part is known to be valid:
+      // a call that fails changes nothing.
+      let backText: { bt: BackTextSetting; text: string } | null = null;
       if (a.back_text !== undefined) {
         const bt: BackTextSetting = parseBackText(base[BACK_TEXT_KEY]);
         if (a.back_text === false) bt.off = true;
         else { delete bt.off; if (a.back_text.trim()) bt.text = a.back_text.trim(); else delete bt.text; }
+        const def = backTextDefault();
+        const now = bt.off ? 'off' : bt.text ? `"${bt.text}"` : def ? `"${def}" (the default)` : 'the default (none)';
+        backText = { bt, text: `Back text: ${now}.${def ? '' : ' PTP_BACK_TEXT is not set, so the app prints no back text at all.'}` };
+      }
+      const applyBackText = () => {
+        if (!backText) return;
+        const { bt, text } = backText;
         const empty = !Object.keys(bt).length;
         if (empty) delete base[BACK_TEXT_KEY]; else base[BACK_TEXT_KEY] = JSON.stringify(bt);
         emit({ type: 'backText', value: empty ? null : JSON.stringify(bt) });
-        const def = backTextDefault();
-        const now = bt.off ? 'off' : bt.text ? `"${bt.text}"` : def ? `"${def}" (the default)` : 'the default (none)';
-        const text = `Back text: ${now}.${def ? '' : ' PTP_BACK_TEXT is not set, so the app prints no back text at all.'}`;
         emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
-        if (a.filaments == null && a.swaps == null && a.base_height == null && !a.reset) return { content: [{ type: 'text', text }] };
+      };
+      if (backText && a.filaments == null && a.swaps == null && a.base_height == null && !a.reset) {
+        applyBackText();
+        return { content: [{ type: 'text', text: backText.text }] };
       }
       const now = parseLayerToneSetup(base[LAYERTONE_KEY]);
       let setup: LayerToneSetup = a.reset ? {} : { ...now };
@@ -59,6 +69,7 @@ export function layerToneTools({ base, emit }: ToolContext) {
       if (setup.swaps && count != null && !checkSwaps(setup.swaps, count)) {
         return { content: [{ type: 'text', text: `swaps must be ${count - 1} ascending whole layer numbers, each ≥ 1 (one per filament after the first).` }], isError: true };
       }
+      applyBackText();
       if (!setup.filaments) delete setup.filaments;
       if (!Object.keys(setup).length) setup = {};
       if (Object.keys(setup).length) base[LAYERTONE_KEY] = JSON.stringify(setup); else delete base[LAYERTONE_KEY];
@@ -66,7 +77,7 @@ export function layerToneTools({ base, emit }: ToolContext) {
       const text = !Object.keys(setup).length ? 'The LayerTone setup is cleared: the script\'s filaments and automatic swaps apply.'
         : `LayerTone setup: ${setup.filaments ? setup.filaments.map((f) => `${f.brand ? `${f.brand} ` : ''}${f.name} (${f.color}, TD ${f.td})`).join(' → ') : 'the script\'s filaments'}; swaps ${setup.swaps ? `at layers ${setup.swaps.join(', ')}` : 'automatic'}${setup.baseHeight != null ? `; first filament ${setup.baseHeight} mm thick` : ''}.`;
       emit({ type: 'step', step: { kind: 'tool', ok: true, text } });
-      return { content: [{ type: 'text', text: `${text} The user sees it in the LayerTone panel. Call render_model to check the print.` }] };
+      return { content: [{ type: 'text', text: `${backText ? `${backText.text} ` : ''}${text} The user sees it in the LayerTone panel. Call render_model to check the print.` }] };
     }),
   ];
 }

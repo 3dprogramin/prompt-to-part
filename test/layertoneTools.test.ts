@@ -222,3 +222,24 @@ test('set_layertone back_text: false stores off, a string sets the text, "" retu
   assert.match(dflt.content[0].text!, /Back text: "shop.example" \(the default\)/);
   delete process.env.PTP_BACK_TEXT;
 });
+
+test('set_layertone with back_text and a setup that fails changes nothing; one that works reports both', async () => {
+  const { BACK_TEXT_KEY } = await import('../shared/backText');
+  const events: AgentEvent[] = [];
+  const base: Record<string, string> = { [LAYERTONE_KEY]: JSON.stringify({ filaments: FILAMENTS, swaps: [5, 9] }) };
+  const before = { ...base };
+  const { server: cad } = cadTools(path.join(dataDir, 'model.js'), (e) => events.push(e), new Set(), base, { layerTone: true });
+  const run = (a: unknown) => handlers(cad).set_layertone.handler(a, {});
+
+  // Swaps that don't fit the filaments: an error, and the back text is left as it was.
+  const bad = await run({ back_text: 'Shop', swaps: [9, 5] });
+  assert.ok(bad.isError, JSON.stringify(bad));
+  assert.deepEqual(base, before);
+  assert.deepEqual(events, [], 'no backText event or ok step for a call that failed');
+
+  const ok = await run({ back_text: 'Shop', swaps: [4, 8] });
+  assert.ok(!ok.isError, JSON.stringify(ok));
+  assert.equal(base[BACK_TEXT_KEY], JSON.stringify({ text: 'Shop' }));
+  assert.match(ok.content[0].text!, /Back text: "Shop"/);
+  assert.match(ok.content[0].text!, /swaps at layers 4, 8/);
+});
