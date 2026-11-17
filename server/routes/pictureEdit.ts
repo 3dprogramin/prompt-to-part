@@ -2,43 +2,14 @@
 // at a time per design; while one runs a marker file in the temp folder says so, so the owner's
 // Docker rebuild (scripts/rebuild.sh) waits for it like for a reply.
 import express from 'express';
-import os from 'node:os';
-import path from 'node:path';
-import { readdirSync, readFileSync, rmSync } from 'node:fs';
-import { rm, writeFile } from 'node:fs/promises';
+import { busyFile, clearStaleBusyFiles, markBusy } from '../busy';
 import { artworkAvailable, requestImage } from '../artwork';
 import { editPicture, PictureEditError, pictureEditProblem } from '../pictureEdit/index';
 import type { PictureEditRequest, PictureEditResponse } from '../../shared/api';
 import { aiCalls, ID_RE, type RouteContext } from './store';
 
-const BUSY_PREFIX = 'ptp-busy-picture-edit-';
-/** The marker file of a running picture edit (scripts/rebuild.sh looks for /tmp/ptp-busy-*); it holds the server's process id. */
-export const pictureEditBusyFile = (id: string) => path.join(os.tmpdir(), `${BUSY_PREFIX}${id}`);
-
-/** Whether a process with this id is running (one of another user counts). */
-const processRuns = (pid: number) => {
-  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
-};
-
-/**
- * Removes the markers of picture edits that no longer run. Node dying mid-edit leaves its marker,
- * and a container restarted in place keeps /tmp, so the Docker rebuild would wait its whole 30
- * minutes for it. Stale: a marker of this process (it has run no edit yet; in the container the
- * restarted server often gets the same id), of a process that is gone, or unreadable. Another
- * running server's marker (a test run next to the app) stays.
- */
-export function clearStaleBusyFiles(dir = os.tmpdir()) {
-  let names: string[];
-  try { names = readdirSync(dir); } catch { return; }
-  for (const name of names) {
-    if (!name.startsWith(BUSY_PREFIX)) continue;
-    const file = path.join(dir, name);
-    let pid = NaN;
-    try { pid = Number.parseInt(readFileSync(file, 'utf8'), 10); } catch { /* unreadable: stale */ }
-    if (pid > 0 && pid !== process.pid && processRuns(pid)) continue;
-    try { rmSync(file, { force: true }); } catch { /* gone already, or not ours to remove */ }
-  }
-}
+/** The marker file of a running picture edit (scripts/rebuild.sh looks for /tmp/ptp-busy-*). */
+export const pictureEditBusyFile = (id: string) => busyFile('picture-edit', id);
 
 export function registerPictureEditRoutes(app: express.Express, { json, deleted, generatingDesigns }: RouteContext, { image }: { image: typeof requestImage }) {
   clearStaleBusyFiles();
@@ -61,10 +32,10 @@ export function registerPictureEditRoutes(app: express.Express, { json, deleted,
     generatingDesigns.add(id);
     const abort = new AbortController();
     res.on('close', () => { if (!res.writableFinished) abort.abort(); });
-    const busy = pictureEditBusyFile(id);
+    let release = async () => {};
     let result: PictureEditResponse | undefined, error: unknown;
     try {
-      await writeFile(busy, `${process.pid}\n`);
+      release = await markBusy('picture-edit', id);
       result = await editPicture(body, { image, signal: abort.signal, id });
     } catch (e) {
       error = e;
@@ -72,7 +43,7 @@ export function registerPictureEditRoutes(app: express.Express, { json, deleted,
       // Not busy any more before the answer goes out.
       running.delete(id);
       generatingDesigns.delete(id);
-      await rm(busy, { force: true }).catch(() => undefined);
+      await release();
     }
     if (abort.signal.aborted) return;
     if (result) return void res.json(result);

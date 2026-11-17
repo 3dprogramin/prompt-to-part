@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
+import { markBusy } from '../busy';
 import { claudeAuthProblem } from '../config';
 import { writeScene } from '../photoScene';
 import { artworkAvailable, requestImage } from '../artwork';
@@ -90,18 +91,25 @@ export function registerImageRoutes(app: express.Express, { json, imageDir, dele
     }
     const abort = new AbortController();
     res.on('close', () => { if (!res.writableFinished) abort.abort(); });
+    // A photo request runs no process of its own: the marker is what makes the Docker rebuild wait for it.
+    let release = async () => {};
     try {
+      release = await markBusy('photo');
       const out = await image(prompt, body.aspect, references, abort.signal, undefined, body.shop ? SHOP_IMAGE_SIZE : undefined);
       const ext = IMAGE_TYPES[out.image.mediaType];
       if (!ext) throw new Error(`The image model returned a picture format that can't be stored (${out.image.mediaType})`);
       const photo = await storeImage(id, Buffer.from(out.image.data, 'base64'), ext);
       if (render) renderUrl = photo && await storeImage(id, render, IMAGE_TYPES[body.render!.mediaType]);
+      await release();
       if (!photo || (render && !renderUrl)) return void res.status(410).json({ error: 'This design was deleted' });
       res.json({ photo, render: renderUrl ?? undefined, prompt, model: out.model, cost: out.cost } satisfies PhotoResponse);
     } catch (e) {
       if (abort.signal.aborted) return;
       console.error('[photos]', (e as Error).message);
+      await release();
       res.status(502).json({ error: (e as Error).message });
+    } finally {
+      await release();
     }
   });
 
