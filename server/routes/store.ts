@@ -47,9 +47,10 @@ export async function storeDesignPicture(designId: string, png: Uint8Array): Pro
 }
 
 /** Write through a temp file and rename it into place, so readers see the old or the new file. */
-export async function writeAtomically(file: string, data: string | Uint8Array) {
+export async function writeAtomically(file: string, data: string | Uint8Array, mode?: number) {
   const tmp = `${file}.${randomUUID()}.tmp`;
-  await writeFile(tmp, data);
+  // The temp file is always new, so a mode (0o600 for keys) holds from the first byte written.
+  await writeFile(tmp, data, { mode });
   await rename(tmp, file);
 }
 

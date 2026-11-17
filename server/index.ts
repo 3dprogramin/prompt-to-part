@@ -3,8 +3,11 @@ import { DATA_DIR, HOST, PASSWORD, PORT } from './config';
 import { isLoopback } from './auth';
 import { geometry } from './geometry';
 import { pinLegacyBackTextOnce } from './printed';
+import { initSettings } from './settings';
 import { sweepDataDir } from './sweep';
 
+// Before anything reads a key: the values set in the app are laid over the environment.
+initSettings();
 geometry.warmup();
 // Leftovers of a crash (a half-restored backup, temp files, workspaces of designs never saved) and
 // mesh uploads of chats never saved. Before listening: nothing may be using what it removes.

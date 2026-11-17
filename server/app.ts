@@ -12,6 +12,7 @@ import { lookupFilament } from './filaments';
 import { writeIdeas } from './ideas';
 import { requestImage } from './artwork';
 import { checkConnection } from './connection';
+import { initSettings } from './settings';
 import { DESIGNS, TAGS_FILE, readTags, writeAtomically, type RouteContext } from './routes/store';
 import { registerDesignRoutes } from './routes/designs';
 import { registerImageRoutes } from './routes/images';
@@ -62,6 +63,8 @@ export interface AppOptions {
 }
 
 export function createApp({ port = PORT, hosts = EXTRA_HOSTS, origins = EXTRA_ORIGINS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, models = openRouterModels, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
+  // Also here for whatever starts the app without server/index.ts (the tests); it only re-reads two small files.
+  initSettings();
   const app = express();
 
   // Nothing in the app frames itself, so no page may frame it (clickjacking), and the browser must
