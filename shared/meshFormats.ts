@@ -69,25 +69,27 @@ function text(bytes: Uint8Array): string {
 }
 
 // ---- growing typed buffers (files can hold millions of triangles)
-class Floats {
+/** (Exported for the limit test.) */
+export class Floats {
   a = new Float32Array(3 * 1024);
   n = 0;
   push3(x: number, y: number, z: number) {
     if (this.n + 3 > this.a.length) {
       if (this.n / 3 >= MAX_FILE_VERTICES) throw tooManyVertices();
-      const b = new Float32Array(this.a.length * 2); b.set(this.a); this.a = b;
+      // Never past the limit: a doubled buffer would let a file hold up to twice as much.
+      const b = new Float32Array(Math.min(this.a.length * 2, 3 * MAX_FILE_VERTICES)); b.set(this.a); this.a = b;
     }
     this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z;
   }
   done() { return this.a.slice(0, this.n); }
 }
-class Ints {
+export class Ints {
   a = new Uint32Array(3 * 1024);
   n = 0;
   push3(x: number, y: number, z: number) {
     if (this.n + 3 > this.a.length) {
       if (this.n / 3 >= MAX_FILE_TRIANGLES) throw tooManyTriangles();
-      const b = new Uint32Array(this.a.length * 2); b.set(this.a); this.a = b;
+      const b = new Uint32Array(Math.min(this.a.length * 2, 3 * MAX_FILE_TRIANGLES)); b.set(this.a); this.a = b;
     }
     this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z;
   }
