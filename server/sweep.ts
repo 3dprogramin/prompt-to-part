@@ -74,11 +74,13 @@ export async function sweepDataDir(dataDir = DATA_DIR, now = Date.now()): Promis
   return { removed };
 }
 
-/** The newest change time of `dir` and what is directly in it (null: it isn't there). */
+/** The newest change time of `dir` and what is directly in it (null: it isn't there; one that can't be listed counts as now). */
 async function lastChange(dir: string): Promise<number | null> {
   let last = await mtime(dir);
   if (last === null) return null;
-  for (const f of await list(dir)) last = Math.max(last, await mtime(path.join(dir, f.name)) ?? Infinity);
+  const files = await readdir(dir).catch(() => null);
+  if (!files) return Infinity;
+  for (const f of files) last = Math.max(last, await mtime(path.join(dir, f)) ?? Infinity);
   return last;
 }
 
@@ -100,7 +102,9 @@ async function sweepMeshUploads(dataDir: string, now: number, remove: (p: string
   // Every design file and printed record, as text: an id found anywhere in them keeps its files.
   const texts: string[] = [];
   try {
-    for (const e of await list(dataDir)) if (e.name.startsWith('printed.json')) texts.push(await readFile(path.join(dataDir, e.name), 'utf8'));
+    // printed.json read by name (only a missing one is none), the copies kept aside (H4) by listing.
+    texts.push(await readFile(path.join(dataDir, 'printed.json'), 'utf8').catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return ''; throw e; }));
+    for (const n of await readdir(dataDir)) if (n.startsWith('printed.json.')) texts.push(await readFile(path.join(dataDir, n), 'utf8'));
     for (const e of entries) if (e.name.endsWith('.json')) texts.push(await readFile(path.join(designs, e.name), 'utf8'));
   } catch (e) {
     console.warn('[sweep] Mesh uploads of unsaved chats kept: could not read', (e as Error).message);

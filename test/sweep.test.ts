@@ -94,7 +94,10 @@ test('mesh uploads of a chat never saved are swept after a grace period, unless 
   for (const p of [...fresh, image, notes, ...forked, ...printed, ...saving, ...working, ...saved]) assert.ok(existsSync(p), p);
 });
 
-test('no mesh upload is swept while a design file can\'t be read', async () => {
+// chmod stops no one running as root.
+const asRoot = process.getuid?.() === 0;
+
+test('no mesh upload is swept while a design file can\'t be read', { skip: asRoot }, async () => {
   const abandoned = meshFolder('design-00000020', weeksAgo(2));
   const unreadable = file('designs/design-00000021.json', weeksAgo(2));
   chmodSync(unreadable, 0);
@@ -104,4 +107,32 @@ test('no mesh upload is swept while a design file can\'t be read', async () => {
     chmodSync(unreadable, 0o644);
   }
   for (const p of abandoned) assert.ok(existsSync(p), p);
+});
+
+test('a data folder that can\'t be listed: its printed records still count', { skip: asRoot }, async () => {
+  const printed = meshFolder('design-00000030', weeksAgo(2));
+  writeFileSync(path.join(dataDir, 'printed.json'), JSON.stringify({ printed: { 'design-00000030': [{ v: 0, at: 1, fp: 'x', file: false, settings: false }] } }));
+  // Folders are passed through, never listed.
+  chmodSync(dataDir, 0o311);
+  try {
+    await sweepDataDir(dataDir, now);
+  } finally {
+    chmodSync(dataDir, 0o755);
+  }
+  for (const p of printed) assert.ok(existsSync(p), p);
+});
+
+test('a workspace that can\'t be listed counts as in use', { skip: asRoot }, async () => {
+  const working = meshFolder('design-00000031', weeksAgo(2));
+  // Its model.js was rewritten in place 2 hours ago (the folder's own time stays old), and the folder can't be listed.
+  const ws = path.join(dataDir, 'workspaces/design-00000031');
+  file('workspaces/design-00000031/model.js', hoursAgo(2));
+  utimesSync(ws, weeksAgo(2), weeksAgo(2));
+  chmodSync(ws, 0o311);
+  try {
+    await sweepDataDir(dataDir, now);
+  } finally {
+    chmodSync(ws, 0o755);
+  }
+  for (const p of working) assert.ok(existsSync(p), p);
 });
