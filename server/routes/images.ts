@@ -132,8 +132,9 @@ export function registerImageRoutes(app: express.Express, { json, imageDir, dele
   app.get('/api/designs/:id/images/:name', (req, res) => {
     const { id, name } = req.params;
     if (!ID_RE.test(id) || !IMAGE_NAME.test(name)) return void res.status(400).json({ error: 'bad image' });
+    // 'allow': a data folder under a dot-directory (~/.local/share) is not a hidden file; the name is checked above.
     // Named by content, so a stored image never changes; a missing one may still be uploaded.
-    res.sendFile(path.join(imageDir(id), name), { headers: { 'Cache-Control': 'max-age=31536000, immutable' } }, (e) => {
+    res.sendFile(path.join(imageDir(id), name), { dotfiles: 'allow', headers: { 'Cache-Control': 'max-age=31536000, immutable' } }, (e) => {
       if (e && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'not found' });
     });
   });

@@ -39,7 +39,7 @@ export function registerMeshRoutes(app: express.Express, { json, imageDir, delet
     const { id, name } = req.params;
     if (!ID_RE.test(id) || !MESH_FILE.test(name)) return void res.status(400).json({ error: 'bad mesh file' });
     // Named by content, like the images.
-    res.sendFile(path.join(meshDir(id), name), { headers: { 'Cache-Control': 'max-age=31536000, immutable', ...(name.endsWith('.bin') ? { 'Content-Type': 'application/octet-stream' } : {}) } }, (e) => {
+    res.sendFile(path.join(meshDir(id), name), { dotfiles: 'allow', headers: { 'Cache-Control': 'max-age=31536000, immutable', ...(name.endsWith('.bin') ? { 'Content-Type': 'application/octet-stream' } : {}) } }, (e) => {
       if (e && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'not found' });
     });
   });

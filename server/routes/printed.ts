@@ -68,7 +68,7 @@ export function registerPrintedRoutes(app: express.Express, { designFile, imageD
     const v = indexOf(req.params.v);
     if (!ID_RE.test(id) || v === null) return void res.status(400).json({ error: 'bad id or version' });
     const name = await readFile(designFile(id), 'utf8').then((t) => String((JSON.parse(t) as Design).name ?? ''), () => '');
-    res.download(fileOf(id, v), `${slug(name)}-v${v + 1}.3mf`, { headers: { 'Content-Type': 'model/3mf', 'Cache-Control': 'no-store' } }, (e) => {
+    res.download(fileOf(id, v), `${slug(name)}-v${v + 1}.3mf`, { dotfiles: 'allow', headers: { 'Content-Type': 'model/3mf', 'Cache-Control': 'no-store' } }, (e) => {
       if (e && !res.headersSent) res.status(404).json({ error: 'not found' });
     });
   });
