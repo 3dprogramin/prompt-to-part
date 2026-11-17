@@ -215,7 +215,7 @@ export async function waitForTask(c: MeshyClient, kind: MeshyKind, id: string, o
 
 /** Downloads one of a finished task's files (signed URLs that expire after a few days). */
 export async function download(c: MeshyClient, url: string, signal?: AbortSignal): Promise<{ bytes: Uint8Array; type: string }> {
-  if (!/^https?:\/\//i.test(url)) throw new MeshyError('Meshy returned an invalid download link');
+  if (!/^https?:\/\//i.test(url)) throw new MeshyError('Meshy returned an invalid download link', undefined, 'bad_link');
   let r: Response;
   try {
     r = await (c.fetch ?? fetch)(url, { signal: AbortSignal.any([AbortSignal.timeout(120000), ...(signal ? [signal] : [])]) });
@@ -265,14 +265,16 @@ export function meshyPrompt(subject: string): string {
 /** Tries at downloading a finished model, and the waits between them (seconds). */
 const DOWNLOAD_WAITS = [2, 5];
 
+/** A failure Meshy may get over: no answer, a 5xx or a 429 (not one it reported for the task itself). */
+export const isPassingMeshyError = (e: unknown) => e instanceof MeshyError && !e.code && (!e.status || e.status >= 500 || e.status === 429);
+
 /** The model's download, tried again after a network error, a 5xx or a 429: the task is paid for. */
 async function downloadModel(c: MeshyClient, url: string, signal?: AbortSignal) {
   for (let i = 0; ; i++) {
     try {
       return await download(c, url, signal);
     } catch (e) {
-      const transient = e instanceof MeshyError && !e.code && (!e.status || e.status >= 500 || e.status === 429);
-      if (signal?.aborted || !transient || i >= DOWNLOAD_WAITS.length) throw e;
+      if (signal?.aborted || !isPassingMeshyError(e) || i >= DOWNLOAD_WAITS.length) throw e;
       await (c.sleep ?? defaultSleep)(DOWNLOAD_WAITS[i] * 1000, signal);
     }
   }
@@ -283,9 +285,16 @@ async function downloadModel(c: MeshyClient, url: string, signal?: AbortSignal) 
  * generate_3d for the same request fetches the model again instead of paying for a new one. Kept in
  * memory for KEEP_MS (Meshy keeps the task and signs fresh links on each look), lost on a restart.
  */
-const kept = new Map<string, { kind: MeshyKind; id: string; at: number }>();
+const kept = new Map<string, { kind: MeshyKind; id: string; at: number; fails: number }>();
 const KEEP_MS = 24 * 3600_000;
 const MAX_KEPT = 100;
+/**
+ * A kept model is fetched again for free until it is stored, but not forever: a fetch that fails for
+ * a lasting reason (the import or the store fails again, the model is too big or has no file) drops
+ * it at once, and one that fails for a passing reason (isPassingMeshyError) drops it on the
+ * MAX_FREE_FETCHES-th such failure.
+ */
+export const MAX_FREE_FETCHES = 3;
 
 /** The key a request's finished task is kept under: the account, the design and exactly what Meshy is sent. */
 export function meshyRequestKey(c: MeshyClient, designId: string, input: MeshyInput, color: boolean): string {
@@ -303,10 +312,19 @@ export function keptMeshyTask(key: string) {
 /** The model was stored: a new request for the same thing makes a new model. */
 export function forgetMeshyTask(key: string) { kept.delete(key); }
 
+/** A free fetch of the model kept under `key` failed with `e`: whether it is still kept (MAX_FREE_FETCHES). */
+export function keptFetchFailed(key: string, e: unknown): boolean {
+  const k = keptMeshyTask(key);
+  if (!k) return false;
+  if (isPassingMeshyError(e) && ++k.fails < MAX_FREE_FETCHES) return true;
+  kept.delete(key);
+  return false;
+}
+
 function keepTask(key: string, kind: MeshyKind, id: string) {
   for (const [k, v] of kept) if (Date.now() - v.at > KEEP_MS) kept.delete(k);
   kept.delete(key);
-  kept.set(key, { kind, id, at: Date.now() });
+  kept.set(key, { kind, id, at: Date.now(), fails: 0 });
   // A Map iterates in insertion order: the first is the oldest.
   while (kept.size > MAX_KEPT) kept.delete(kept.keys().next().value!);
 }
@@ -372,7 +390,7 @@ export async function generateMeshyModel(c: MeshyClient, input: MeshyInput, opts
   const urls = task.model_urls ?? {};
   // Missing formats may come as "" as well as absent.
   const fmt = (['glb', 'stl', 'obj'] as const).find((f) => urls[f]);
-  if (!fmt) throw new MeshyError('Meshy finished but returned no GLB, STL or OBJ model');
+  if (!fmt) throw new MeshyError('Meshy finished but returned no GLB, STL or OBJ model', undefined, 'no_model');
   const model = await downloadModel(c, urls[fmt], opts.signal);
   let picture: MeshyResult['picture'];
   if (task.thumbnail_url) {

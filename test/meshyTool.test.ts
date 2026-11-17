@@ -86,3 +86,86 @@ test('a kept model is fetched again once: when that fails too it is dropped, and
   assert.match(fourth.content[0].text!, /^Refused/);
   assert.equal(mock.created.length, created + 2);
 });
+
+/** A client whose requests `fail` may answer instead of the mock (null: the mock answers). */
+function flakyClient(fail: (url: string, method: string) => Response | Error | null) {
+  return { ...client, fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+    const r = fail(String(input), init?.method ?? 'GET');
+    if (r instanceof Error) throw r;
+    return r ?? fetch(input, init);
+  }) as typeof fetch };
+}
+/** The kept task's own GET (not a list, not a download). */
+const taskGet = (url: string, method: string) => method === 'GET' && /\/v2\/text-to-3d\/[^/?]+$/.test(url);
+
+test('a free try that fails because Meshy can\'t be reached or is busy keeps the paid model', async (t) => {
+  let mode: 'ok' | 'unreachable' | 'download503' = 'ok';
+  const flaky = flakyClient((url, method) => (mode === 'unreachable' && taskGet(url, method) ? new TypeError('fetch failed')
+    : mode === 'download503' && url.includes('/mock-assets/') && url.includes('model.') ? new Response('busy', { status: 503 }) : null));
+  const base: ParamValues = {};
+  const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { meshy: { client: flaky, designId: 'meshy-tool-4', references: [] } });
+  const make = () => handlers(server).generate_3d.handler({ name: 'cat', prompt: 'a cat asleep on a cushion' }, {});
+  let importFails = 1;
+  geometry.importMesh = (async (...args: Parameters<typeof realImport>) => {
+    if (importFails-- > 0) throw new Error('Geometry worker exited (SIGKILL)');
+    return realImport(...args);
+  }) as typeof realImport;
+  t.after(() => { geometry.importMesh = realImport; });
+  const created = mock.created.length;
+  assert.match((await make()).content[0].text!, /kept/);
+  // The free try: Meshy can't be reached for the kept task, then every download try gets a 503.
+  for (const m of ['unreachable', 'download503'] as const) {
+    mode = m;
+    const r = await make();
+    assert.ok(r.isError, m);
+    assert.match(r.content[0].text!, /kept.*same arguments.*no new credits/s, m);
+  }
+  mode = 'ok';
+  const fetched = await make();
+  assert.ok(!fetched.isError, JSON.stringify(fetched));
+  assert.equal(mock.created.length, created + 1, 'no second paid task');
+  assert.ok(JSON.parse(String(base[MESHES_KEY])).cat);
+});
+
+test('free tries that keep failing because Meshy can\'t be reached end after MAX_FREE_FETCHES', async () => {
+  const { MAX_FREE_FETCHES } = await import('../server/meshy');
+  assert.ok(MAX_FREE_FETCHES > 1, 'more than one free try for a passing failure');
+  let down = false;
+  const flaky = flakyClient((url, method) => (down && taskGet(url, method) ? new Response('{"message":"bad gateway"}', { status: 502 }) : null));
+  const base: ParamValues = {};
+  const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { meshy: { client: flaky, designId: 'meshy-tool-5', references: [] } });
+  const make = () => handlers(server).generate_3d.handler({ name: 'dog', prompt: 'a dog with a ball' }, {});
+  geometry.importMesh = (async () => { throw new Error('Geometry worker exited (SIGKILL)'); }) as typeof realImport;
+  try {
+    assert.match((await make()).content[0].text!, /kept/);
+  } finally {
+    geometry.importMesh = realImport;
+  }
+  down = true;
+  for (let i = 1; i < MAX_FREE_FETCHES; i++) assert.match((await make()).content[0].text!, /kept/, `try ${i}`);
+  const last = await make();
+  assert.doesNotMatch(last.content[0].text!, /kept/);
+  assert.match(last.content[0].text!, /dropped/);
+});
+
+test('when the kept model is gone from Meshy and starting a new one fails, that is what the agent is told', async () => {
+  let gone = false;
+  const flaky = flakyClient((url, method) => (!gone ? null
+    : taskGet(url, method) ? new Response('{"message":"Task not found"}', { status: 404 })
+    : method === 'POST' ? new Response('{"message":"Insufficient credits"}', { status: 402 }) : null));
+  const base: ParamValues = {};
+  const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), base, { meshy: { client: flaky, designId: 'meshy-tool-6', references: [] } });
+  const make = () => handlers(server).generate_3d.handler({ name: 'hen', prompt: 'a hen on a nest' }, {});
+  geometry.importMesh = (async () => { throw new Error('Geometry worker exited (SIGKILL)'); }) as typeof realImport;
+  try {
+    assert.match((await make()).content[0].text!, /kept/);
+  } finally {
+    geometry.importMesh = realImport;
+  }
+  gone = true;
+  const r = await make();
+  assert.ok(r.isError);
+  assert.match(r.content[0].text!, /Not enough Meshy credits/);
+  assert.doesNotMatch(r.content[0].text!, /failed again/);
+  assert.match(r.content[0].text!, /no longer on Meshy/);
+});

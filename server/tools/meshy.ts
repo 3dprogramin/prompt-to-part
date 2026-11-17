@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { geometry } from '../geometry';
 import { ASPECTS, conceptPrompt, imageModel, paintPrompt } from '../artwork';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../../shared/meshes';
-import { forgetBalance, forgetMeshyTask, generateMeshyModel, keptMeshyTask, MAX_MESHY_VIEWS, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, meshyRequestKey, type MeshyInput } from '../meshy';
+import { forgetBalance, forgetMeshyTask, generateMeshyModel, isPassingMeshyError, keptFetchFailed, keptMeshyTask, MAX_FREE_FETCHES, MAX_MESHY_VIEWS, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, meshyRequestKey, type MeshyInput } from '../meshy';
 import { readMyFilaments } from '../myFilaments';
 import { filamentLabel, matchFilaments, MAX_MESH_COLORS, meshColorBudget } from '../../shared/meshColors';
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from '../meshes';
@@ -156,7 +156,7 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
       const input: MeshyInput = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: views } : { prompt: a.prompt! };
       // A finished model is kept under this until it is stored: asking again for the same costs nothing.
       const keep = meshyRequestKey(meshy.client, meshy.designId, input, color);
-      // One free try at a kept model: if it fails again it is dropped, so a model that never imports can't loop for free.
+      // Free tries at a kept model, bounded (keptFetchFailed), so a model that never imports can't loop for free.
       const reusing = !!keptMeshyTask(keep);
       emit({ type: 'step', step: { kind: 'status', text: reusing ? `Meshy: fetching "${a.name}" again, made earlier (no new credits)…` : `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
       let shown = -1;
@@ -208,10 +208,15 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         if (meshy.signal?.aborted) throw e;
         emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: ${(e as Error).message}` } });
         // A new task started (the kept one was gone) is a model of its own, kept for its own free try.
-        const retried = reusing && !started;
-        if (retried) forgetMeshyTask(keep);
-        const paid = retried ? ` The model Meshy made earlier failed again, so it is dropped: generate_3d again makes a new model (${cost} credits).`
-          : keptMeshyTask(keep) ? ' The model Meshy made is paid for and kept: generate_3d again with the same arguments fetches it once more, with no new credits and no new task.' : '';
+        const keptNote = ' The model Meshy made is paid for and kept: generate_3d again with the same arguments fetches it once more, with no new credits and no new task.';
+        let paid = keptMeshyTask(keep) ? keptNote : '';
+        if (reusing && !started) {
+          // No longer kept here: generateMeshyModel found it gone from Meshy, and starting a new one is what failed.
+          paid = !keptMeshyTask(keep) ? ` The model Meshy made earlier is no longer on Meshy, so a new one was asked for, and that failed: generate_3d again makes a new model (${cost} credits).`
+            : keptFetchFailed(keep, e) ? keptNote
+            : isPassingMeshyError(e) ? ` Meshy could not be reached on ${MAX_FREE_FETCHES} tries to fetch the model it made earlier, so it is dropped: generate_3d again makes a new model (${cost} credits).`
+            : ` The model Meshy made earlier failed again, so it is dropped: generate_3d again makes a new model (${cost} credits).`;
+        }
         return { content: [{ type: 'text', text: `${(e as Error).message}${paid}` }], isError: true };
       } finally {
         // No new task (it failed before one started, or a kept one was fetched): the slot is given back.
