@@ -2,7 +2,8 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefO
 import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
 import { COMMON_FILAMENTS, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
 import { siteName } from '../../shared/sources';
-import { api, lookupFilament } from '../lib/api';
+import { lookupFilament } from '../lib/api';
+import { saveMine, useMyFilaments } from '../lib/myFilaments';
 import { Icon } from './Icon';
 import { NumBox } from './NumBox';
 import { usePopover } from './usePopover';
@@ -23,21 +24,6 @@ type Option = LayerToneFilament & { unverified?: boolean };
 const sameFilament = (a: { brand?: string; name: string }, b: { brand?: string; name: string }) => (a.brand ?? '') === (b.brand ?? '') && a.name === b.name;
 const optionKey = (group: string, f: Option) => `${group}:${f.brand ?? ''} ${f.name}`;
 const describe = (f: Option) => `${f.name}${f.brand ? `, ${f.brand}` : ''}, TD ${f.td} mm${f.unverified ? ' (estimated)' : ''}`;
-
-// The user's own filaments (GET/PUT /api/filaments/mine), shared by every open picker. Fetched each
-// time a picker opens, so a change made in another tab shows up.
-const mine = { list: [] as MyFilament[], subs: new Set<(l: MyFilament[]) => void>() };
-const setMine = (list: MyFilament[]) => { mine.list = list; mine.subs.forEach((f) => f(list)); };
-const saveMine = async (list: MyFilament[]) => setMine(await api.saveMyFilaments(list));
-function useMyFilaments(): MyFilament[] {
-  const [list, setList] = useState(mine.list);
-  useEffect(() => {
-    mine.subs.add(setList);
-    api.myFilaments().then(setMine, () => {});
-    return () => { mine.subs.delete(setList); };
-  }, []);
-  return list;
-}
 
 interface Props {
   /** The filament being changed; none when adding one. */
