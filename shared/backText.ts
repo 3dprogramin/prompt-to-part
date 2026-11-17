@@ -56,10 +56,19 @@ export function parseBackText(raw: unknown): BackTextSetting {
 export type BackTextNote = 'sameColour' | 'showsThrough';
 export type BackTextPlan =
   | { on: true; text: string; filament: LayerToneFilament; auto: boolean; position: BackTextPosition; size: number; layers: number; topZ: number; notes: BackTextNote[] }
-  | { on: false; reason: 'disabled' | 'off' | 'empty' | 'tooThin' };
+  | { on: false; reason: 'disabled' | 'off' | 'empty' | 'tooThin' | 'noGlyph' };
 
 const WHITE: LayerToneFilament = { name: 'PLA Basic Jade White', brand: 'Bambu Lab', color: '#ffffff', td: 5.9 };
 const BLACK: LayerToneFilament = { name: 'PLA Basic Black', brand: 'Bambu Lab', color: '#000000', td: 0.2 };
+
+/**
+ * Whether the text has anything to print: a character that is not a space, a control or an invisible
+ * format mark (zero-width space, soft hyphen). A letter the font lacks still prints, as the font's
+ * blank box. planBackText decides by this, so the build and the panel never disagree on it.
+ */
+export function hasBackTextGlyph(text: string): boolean {
+  return !/^[\p{Z}\p{Cc}\p{Cf}]*$/u.test(text);
+}
 
 const lightness = (hex: string) => toLab(hexToRgb(hex).map((v) => v * 255))[0];
 
@@ -80,6 +89,7 @@ export function planBackText(setting: BackTextSetting, layers: LayerColor[], r: 
   if (setting.off) return { on: false, reason: 'off' };
   const text = (setting.text ?? defaultText).trim().slice(0, BACK_TEXT_MAX_LENGTH);
   if (!text) return { on: false, reason: 'empty' };
+  if (!hasBackTextGlyph(text)) return { on: false, reason: 'noGlyph' };
   const n = Math.min(BACK_TEXT_LAYERS, (layers[1]?.layer ?? Infinity) - 1);
   if (n < 1) return { on: false, reason: 'tooThin' };
   const position = setting.position ?? DEFAULT_BACK_TEXT_POSITION;
@@ -106,10 +116,11 @@ export function planBackText(setting: BackTextSetting, layers: LayerColor[], r: 
  * (toBambuProject), so in one colour or a plain 3MF it isn't printed, whatever the layers say.
  * Null: nothing to say (an empty text).
  */
-export function backTextStatus(plan: BackTextPlan, printLayers: number, box: Box3, file: { oneColour: boolean; project: boolean }): 'printed' | 'tooThin' | 'noRoom' | 'oneColour' | 'noProject' | null {
-  if (!plan.on && plan.reason !== 'tooThin') return null;
+export function backTextStatus(plan: BackTextPlan, printLayers: number, box: Box3, file: { oneColour: boolean; project: boolean }): 'printed' | 'tooThin' | 'noRoom' | 'noGlyph' | 'oneColour' | 'noProject' | null {
+  if (!plan.on && plan.reason !== 'tooThin' && plan.reason !== 'noGlyph') return null;
   if (file.oneColour) return 'oneColour';
   if (!file.project) return 'noProject';
+  if (!plan.on && plan.reason === 'noGlyph') return 'noGlyph';
   if (!plan.on || printLayers === 0) return 'tooThin';
   return plan.position === 'corner' && !cornerFits(box) ? 'noRoom' : 'printed';
 }

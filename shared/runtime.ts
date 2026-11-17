@@ -476,7 +476,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         try {
           const { name: fname, brand, color: fcolor, td } = plan.filament;
           const m = backTextMesh(plan, box, rt.CrossSection);
-          // No glyph the font can draw: nothing to print.
+          // Nothing drawable is decided in planBackText (hasBackTextGlyph); an empty mesh here is a degenerate outline.
           if (m.indices.length) backText = { ...m, text: plan.text, color: fcolor, name: fname, ...(brand ? { brand } : {}), td, layers: plan.layers, topZ: plan.topZ };
         } catch (e) {
           if (e instanceof FontMissingError) throw e;

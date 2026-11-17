@@ -147,3 +147,10 @@ test('a part too small for the corner (16 mm or less on either side) gets no bac
   const centre = await run(CENTRE, "function build() { return { name: 'Picture', ...H.layertone('pic.png', { width: 14 }) }; }");
   assert.ok(centre.parts[0].backText);
 });
+
+test('a text of invisible characters has no back text in the build, as the plan (and so the panel) says', async () => {
+  setBackTextDefault('shop.example');
+  const r = await run({ [BACK_TEXT_KEY]: JSON.stringify({ text: '​​', position: 'centre' }) });
+  assert.equal(r.parts[0].backText, undefined);
+  assert.deepEqual(r.warnings ?? [], []);
+});

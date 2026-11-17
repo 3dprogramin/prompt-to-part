@@ -5,7 +5,7 @@ import { layerTop, type LayerColor, type LayerToneFilament } from '../shared/lay
 import type { Box3 } from '../shared/types';
 import { pictureValues } from '../src/app/designValues';
 import { describeSettings } from '../src/lib/settings';
-import { autoBackTextFilament, backTextDefault, backTextStatus, cornerFits, parseBackText, pinBackText, planBackText, setBackTextDefault } from '../shared/backText';
+import { autoBackTextFilament, backTextDefault, backTextStatus, cornerFits, hasBackTextGlyph, parseBackText, pinBackText, planBackText, setBackTextDefault } from '../shared/backText';
 
 const R = { layerHeight: 0.08, firstLayerHeight: 0.16 };
 const at = (layer: number, color: string, td: number, name: string): LayerColor => ({ z: layerTop(layer, R), layer, color, td, name });
@@ -151,4 +151,20 @@ test('backTextStatus: not printed in one colour or in a plain 3MF (the text is o
   // One colour says it first: raising the first filament would not bring the text back.
   assert.equal(backTextStatus(planBackText({}, [black(), white(1)], R), 0, BIG, { oneColour: true, project: true }), 'oneColour');
   assert.equal(backTextStatus(planBackText({ text: '  ' }, stack, R), 0, BIG, { oneColour: true, project: false }), null);
+});
+
+test('a text with nothing the font can draw is decided off by one rule, and the panel says so', () => {
+  setBackTextDefault('shop.example');
+  const BIG: Box3 = { min: [0, 0, 0], max: [100, 80, 5] };
+  const P = { oneColour: false, project: true };
+  for (const t of ['​', ' ​⁠ ', '­‍']) {
+    assert.equal(hasBackTextGlyph(t), false, JSON.stringify(t));
+    const plan = planBackText({ text: t }, stack, R);
+    assert.deepEqual(plan, { on: false, reason: 'noGlyph' }, JSON.stringify(t));
+    assert.equal(backTextStatus(plan, 2, BIG, P), 'noGlyph', 'the panel does not say "Mirrored on the back"');
+  }
+  for (const t of ['shop.example', 'a b', '日本']) {
+    assert.equal(hasBackTextGlyph(t), true, t);
+    assert.equal(planBackText({ text: t }, stack, R).on, true, t);
+  }
 });

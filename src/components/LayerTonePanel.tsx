@@ -247,6 +247,7 @@ function BackText({ raw, layers, grid, part, printLayers, file, onChange }: { ra
         ? <div className="dim small">Set PTP_BACK_TEXT to print your website on the back of every LayerTone print.</div>
         : status === 'printed' && <div className="dim small">Mirrored on the back{position === 'corner' ? ', bottom-right when turned over' : ''}, in the first {printed === 1 ? '1 layer' : `${printed} layers`}.</div>}
       {status === 'tooThin' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> The first filament is one layer: no back text. Raise the First filament slider.</div>}
+      {status === 'noGlyph' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> Nothing in this text can be drawn (only spaces or invisible characters): no back text.</div>}
       {status === 'oneColour' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> Print in one colour is on: no back text. It needs its own filament.</div>}
       {status === 'noProject' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> No back text in a plain 3MF: it needs a Bambu Studio project (Bambu Studio installed, a one-nozzle printer).</div>}
       {status === 'noRoom' && <div className="layertone-warn small" role="status"><Icon name="alert" size={13} /> No room for the back text in the corner of a print this small. Try the centre.</div>}
