@@ -35,6 +35,7 @@ const FILAMENT_TD_BEFORE: Record<string, { td: number; known: boolean }> = {
   '{"color":"#000000"}': { td: 0.2, known: false },
   '{"color":"#eccab0"}': { td: 3, known: false },
   '{"name":"Panchroma Matte Charcoal Black","color":"#1a1a1a"}': { td: 0.2, known: false },
+  '{"name":"Matte Black","brand":"eSUN","color":"#000000"}': { td: 0.2, known: false },
 };
 
 test('the base list is today\'s 92 entries, unchanged', () => {
@@ -63,7 +64,11 @@ test('line art resolves a filament against the base list only', () => {
   // filamentTd must not see `extra`: same answers as with the base alone, for named, unnamed and unknown
   // filaments, also while the full library holds the extras (as it will once brands are added).
   for (const key of Object.keys(FILAMENT_TD_BEFORE)) assert.deepEqual(filamentTd(JSON.parse(key)), FILAMENT_TD_BEFORE[key], key);
-  const extras = [extra, charcoal, { ...extra, name: 'PLA Black 2', color: '#101010', td: 19 }, { ...extra, name: 'PLA Gray', color: '#808080', td: 19 }];
+  // An added colour of a base brand: eSUN "Matte Black" is unknown on the base, so it would move with it.
+  const esunMatte: LibraryFilament = { brand: 'eSUN', line: 'PLA Matte', name: 'PLA Matte Black', color: '#111111', td: 15, source: 'test' };
+  assert.equal(matchFilament('eSUN', 'Matte Black', BASE_FILAMENT_LIBRARY), undefined);
+  assert.equal(matchFilament('eSUN', 'Matte Black', [...BASE_FILAMENT_LIBRARY, esunMatte]), esunMatte);
+  const extras = [extra, charcoal, esunMatte, { ...extra, name: 'PLA Black 2', color: '#101010', td: 19 }, { ...extra, name: 'PLA Gray', color: '#808080', td: 19 }];
   FILAMENT_LIBRARY.push(...extras);
   try {
     for (const key of Object.keys(FILAMENT_TD_BEFORE)) assert.deepEqual(filamentTd(JSON.parse(key)), FILAMENT_TD_BEFORE[key], key);
@@ -95,4 +100,19 @@ test('the LayerTone prompt lists the library lines of the brands the user owns',
   // Only custom filaments: the base list, as with none.
   assert.deepEqual(library(prompt([{ name: 'Galaxy Sparkle', brand: 'My own', color: '#223344', td: 1 }])), ['Bambu Lab PLA Basic', 'Bambu Lab PLA Matte', 'Bambu Lab PLA Silk+', 'eSUN PLA+']);
   assert.deepEqual(library(prompt([{ name: 'PLA+ Black', brand: 'eSUN', color: '#000000', td: 0.2 }])), ['eSUN PLA+']);
+  // With a brand added to the library: no filaments or custom ones only still give exactly the base text,
+  // and an owner of the added brand is shown its line.
+  const custom = [{ name: 'Galaxy Sparkle', brand: 'My own', color: '#223344', td: 1 }];
+  const before = { none: prompt([]), custom: prompt(custom) };
+  const added: LibraryFilament = { brand: 'Polymaker', line: 'Panchroma Matte', name: 'Panchroma Matte Charcoal Black', color: '#1a1a1a', td: 0.1, source: 'test' };
+  FILAMENT_LIBRARY.push(added);
+  try {
+    assert.equal(prompt([]), before.none);
+    assert.equal(prompt(custom), before.custom);
+    const owner = prompt([{ name: 'Charcoal Black', brand: 'Polymaker', color: '#1a1a1a', td: 0.1 }]);
+    assert.ok(owner.includes('\n  Polymaker Panchroma Matte: Charcoal Black #1a1a1a 0.1\n'), 'the added brand\'s line');
+    assert.deepEqual(library(owner), []);
+  } finally {
+    FILAMENT_LIBRARY.splice(-1);
+  }
 });
