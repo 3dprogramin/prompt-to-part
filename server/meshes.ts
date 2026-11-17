@@ -3,7 +3,7 @@
 // change. The design's values only index them (MESHES_KEY in shared/meshes.ts).
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_DIR } from './config';
 import { MESH_URL, type MeshEntry } from '../shared/meshes';
@@ -78,12 +78,32 @@ export async function storeConceptPicture(designId: string, picture: { bytes: Ui
   return `/api/designs/${designId}/meshes/${name}`;
 }
 
-/** Copies every mesh file of one design to another (a design started from a version of it). */
+/** Whether a stored mesh folder file is whole: every one is named by its content's hash. */
+const isWhole = async (file: string) => hash(await readFile(file)) === path.basename(file).split('.')[0];
+
+/**
+ * Copies every mesh file of one design to another (a design started from a version of it): all of
+ * them or none. Each is copied to a temp name first and renamed into place only when every copy has
+ * worked; a file already there is kept only when it is whole (a copy cut short left it).
+ */
 export async function copyMeshes(from: string, to: string): Promise<number> {
   const names = (await readdir(meshDir(from)).catch(() => [] as string[])).filter((n) => MESH_FILE.test(n));
   if (!names.length) return 0;
   await mkdir(meshDir(to), { recursive: true });
-  for (const n of names) if (!existsSync(path.join(meshDir(to), n))) await copyFile(path.join(meshDir(from), n), path.join(meshDir(to), n));
+  const staged: [tmp: string, file: string][] = [];
+  try {
+    for (const n of names) {
+      const file = path.join(meshDir(to), n);
+      if (existsSync(file) && await isWhole(file).catch(() => false)) continue;
+      const tmp = `${file}.${randomUUID()}.tmp`;
+      staged.push([tmp, file]);
+      await copyFile(path.join(meshDir(from), n), tmp);
+    }
+  } catch (e) {
+    await Promise.all(staged.map(([tmp]) => rm(tmp, { force: true })));
+    throw e;
+  }
+  for (const [tmp, file] of staged) await rename(tmp, file);
   return names.length;
 }
 
