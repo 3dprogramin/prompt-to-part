@@ -16,9 +16,10 @@ export type BackTextPosition = 'corner' | 'centre';
 export const DEFAULT_BACK_TEXT_POSITION: BackTextPosition = 'corner';
 /** The default size for a position. */
 export const backTextDefaultSize = (p: BackTextPosition) => (p === 'centre' ? DEFAULT_BACK_TEXT_SIZE : DEFAULT_CORNER_SIZE);
-const MAX_TEXT = 40;
-const MIN_SIZE = 20;
-const MAX_SIZE = 95;
+/** The longest text and the size range (% of the picture's width); the panel, PTP_BACK_TEXT and the agent tool use these too. */
+export const BACK_TEXT_MAX_LENGTH = 40;
+export const BACK_TEXT_MIN_SIZE = 20;
+export const BACK_TEXT_MAX_SIZE = 95;
 
 export interface BackTextSetting { off?: true; text?: string; filament?: LayerToneFilament; size?: number; position?: BackTextPosition }
 
@@ -26,7 +27,7 @@ let defaultText = '';
 
 /** The text printed on every LayerTone design unless it says otherwise; '' turns the feature off. */
 export function setBackTextDefault(text: string): void {
-  defaultText = text.trim().slice(0, MAX_TEXT);
+  defaultText = text.trim().slice(0, BACK_TEXT_MAX_LENGTH);
 }
 export function backTextDefault(): string {
   return defaultText;
@@ -77,12 +78,12 @@ export function autoBackTextFilament(layers: LayerColor[]): LayerToneFilament {
 export function planBackText(setting: BackTextSetting, layers: LayerColor[], r: { layerHeight: number; firstLayerHeight: number }): BackTextPlan {
   if (!defaultText) return { on: false, reason: 'disabled' };
   if (setting.off) return { on: false, reason: 'off' };
-  const text = (setting.text ?? defaultText).trim().slice(0, MAX_TEXT);
+  const text = (setting.text ?? defaultText).trim().slice(0, BACK_TEXT_MAX_LENGTH);
   if (!text) return { on: false, reason: 'empty' };
   const n = Math.min(BACK_TEXT_LAYERS, (layers[1]?.layer ?? Infinity) - 1);
   if (n < 1) return { on: false, reason: 'tooThin' };
   const position = setting.position ?? DEFAULT_BACK_TEXT_POSITION;
-  const size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, setting.size ?? backTextDefaultSize(position)));
+  const size = Math.max(BACK_TEXT_MIN_SIZE, Math.min(BACK_TEXT_MAX_SIZE, setting.size ?? backTextDefaultSize(position)));
   const topZ = Math.round((r.firstLayerHeight + (n - 1) * r.layerHeight) * 1e6) / 1e6;
   const auto = !setting.filament;
   const filament = setting.filament ?? autoBackTextFilament(layers);
@@ -123,7 +124,7 @@ export function backTextStatus(plan: BackTextPlan, printLayers: number, box: Box
 export function pinBackText(values: ParamValues, layerTone: boolean): ParamValues {
   if (!layerTone) return values;
   const s = parseBackText(values[BACK_TEXT_KEY]);
-  const text = defaultText && !s.off ? (s.text ?? defaultText).trim().slice(0, MAX_TEXT) : '';
+  const text = defaultText && !s.off ? (s.text ?? defaultText).trim().slice(0, BACK_TEXT_MAX_LENGTH) : '';
   const position = s.position ?? DEFAULT_BACK_TEXT_POSITION;
   const pinned: BackTextSetting = text ? { text, size: s.size ?? backTextDefaultSize(position), position, ...(s.filament ? { filament: s.filament } : {}) } : { off: true };
   // parseBackText's key order is the same (off, text, size, position, filament): equal settings compare equal.

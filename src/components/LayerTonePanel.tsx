@@ -4,7 +4,7 @@ import type { EvalResult, ParamValues, PartMesh } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { checkSwaps, firstFilamentBase, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerCount, layerTop, maxLayerToneFilaments, rebaseSetup, parseLayerToneImages, parseLayerToneSetup, replaceFilament, simulateImage, stackFilament, type LayerToneFilament, type LayerToneImage, type LayerToneOptions, type LayerToneSetup, type LayerColor } from '../../shared/layertone';
 import { estimatedTd } from '../../shared/filaments';
-import { autoBackTextFilament, BACK_TEXT_KEY, backTextDefault, backTextDefaultSize, backTextStatus, DEFAULT_BACK_TEXT_POSITION, parseBackText, planBackText, type BackTextPosition, type BackTextSetting } from '../../shared/backText';
+import { autoBackTextFilament, BACK_TEXT_KEY, backTextDefault, backTextDefaultSize, backTextStatus, BACK_TEXT_MAX_LENGTH, BACK_TEXT_MAX_SIZE, BACK_TEXT_MIN_SIZE, DEFAULT_BACK_TEXT_POSITION, parseBackText, planBackText, type BackTextPosition, type BackTextSetting } from '../../shared/backText';
 import { backTextPrintLayers } from '../lib/bambu3mf';
 import { layerToneImageToDataUrl, loadLayerToneImage, rgbaToDataUrl } from '../lib/layerToneImage';
 import { FilamentPicker } from './FilamentPicker';
@@ -165,8 +165,6 @@ export function LayerTonePanel({ result, part, values, onSetup, onImage, onBackT
 
 // ---------------------------------------------------------------- back text
 
-const BACK_TEXT_MAX = 40;
-
 /** Only what differs from the defaults; null when nothing does (the key is removed). */
 function backTextDiff(s: BackTextSetting): BackTextSetting | null {
   const text = s.text?.trim();
@@ -223,7 +221,7 @@ function BackText({ raw, layers, grid, part, printLayers, file, onChange }: { ra
         </label>
       </div>
       <div className="layertone-backtext-row">
-        <input className="text-param" value={draft ?? saved} placeholder={def} maxLength={BACK_TEXT_MAX} disabled={!on} aria-label="Back text"
+        <input className="text-param" value={draft ?? saved} placeholder={def} maxLength={BACK_TEXT_MAX_LENGTH} disabled={!on} aria-label="Back text"
           onChange={(e) => setDraft(e.target.value)} onBlur={commitText}
           onKeyDown={(e) => { if (e.key === 'Enter') commitText(); if (e.key === 'Escape' && draft != null) { e.stopPropagation(); setDraft(null); } }} />
         <button ref={trigger} className="layertone-pick" disabled={!on} onClick={() => setPicking(!picking)} aria-haspopup="dialog" aria-expanded={picking}
@@ -242,7 +240,7 @@ function BackText({ raw, layers, grid, part, printLayers, file, onChange }: { ra
       </div>
       <div className="layertone-slider layertone-base-slider">
         <span className="dim small">Size</span>
-        <input type="range" min={20} max={95} step={1} disabled={!on} aria-label="Back text size, % of the print's width" aria-valuetext={`${size.shown} %`} {...size.inputProps} />
+        <input type="range" min={BACK_TEXT_MIN_SIZE} max={BACK_TEXT_MAX_SIZE} step={1} disabled={!on} aria-label="Back text size, % of the print's width" aria-valuetext={`${size.shown} %`} {...size.inputProps} />
         <span className="mono small">{size.shown} %</span>
       </div>
       {disabled

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CURRENCY, parseCurrency } from '../shared/cost';
+import { BACK_TEXT_MAX_LENGTH } from '../shared/backText';
 import { cleanAppBuild, type AppBuild } from '../shared/appBuild';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -101,4 +102,4 @@ function positiveInt(v: string | undefined): number | null {
 }
 
 /** The text printed mirrored on the back of every LayerTone print (PTP_BACK_TEXT); empty turns it off. */
-export const backText = () => (process.env.PTP_BACK_TEXT ?? '').trim().slice(0, 40);
+export const backText = () => (process.env.PTP_BACK_TEXT ?? '').trim().slice(0, BACK_TEXT_MAX_LENGTH);

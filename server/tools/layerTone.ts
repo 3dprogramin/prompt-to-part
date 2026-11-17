@@ -2,7 +2,7 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { checkSwaps, cleanFilaments, LAYERTONE_KEY, layerCount, maxLayerToneFilaments, parseLayerToneSetup, shiftSwaps, type LayerToneSetup } from '../../shared/layertone';
-import { BACK_TEXT_KEY, parseBackText, type BackTextSetting } from '../../shared/backText';
+import { BACK_TEXT_KEY, BACK_TEXT_MAX_LENGTH, parseBackText, type BackTextSetting } from '../../shared/backText';
 import { backText as backTextDefault } from '../config';
 import type { ToolContext } from './context';
 
@@ -20,7 +20,7 @@ export function layerToneTools({ base, emit }: ToolContext) {
         .describe('The layer (0-based from the bed: layer 0 is the first layer, layer n starts at firstLayerHeight + (n − 1) × layerHeight) where each filament after the first starts: one ascending number per filament after the first; "auto" lets the app choose'),
       base_height: z.number().min(0.04).max(4).optional().describe('Thickness of the first filament, mm (the First filament slider; default the script\'s baseHeight): raises everything above it by the same amount, so the print gets thicker and looks the same. Setup swaps move with it.'),
       reset: z.boolean().optional().describe('Clear the setup (the script\'s filaments and automatic swaps apply)'),
-      back_text: z.union([z.string().max(40), z.literal(false)]).optional().describe('The mirrored line printed on the back (first layers): a string sets the text, "" returns to the app\'s default text, false turns it off'),
+      back_text: z.union([z.string().max(BACK_TEXT_MAX_LENGTH), z.literal(false)]).optional().describe('The mirrored line printed on the back (first layers): a string sets the text, "" returns to the app\'s default text, false turns it off'),
     }, async (a) => {
       // The back text is worked out first but stored only once the setup part is known to be valid:
       // a call that fails changes nothing.
