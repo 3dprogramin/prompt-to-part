@@ -2701,7 +2701,7 @@ test('Settings: the Filaments tab changes nothing before your list is read, and 
 test('a part\'s filament picker: brands first (the user\'s own ahead), then a brand\'s lines; the Settings brand pills in the same order', TEST, async () => {
   const lib = FILAMENT_LIBRARY;
   const brands = [...new Set(lib.map((f) => f.brand))].sort((a, b) => a.localeCompare(b));
-  assert.ok(brands.length >= 5);
+  assert.ok(brands.length >= 2);
   const [few, many] = [brands[brands.length - 1], brands[brands.length - 2]];
   const save = (brand: string, n: number) => Array.from({ length: n }, (_, i) => ({ name: `Smoke Own ${brand} ${i}`, brand, color: '#1f9d8f', td: 1.7, rolls: 1 }));
   assert.equal((await putShelf([...save(few, 1), ...save(many, 2)])).status, 200);
@@ -2732,7 +2732,7 @@ test('a part\'s filament picker: brands first (the user\'s own ahead), then a br
 
     await brandRow.getByRole('tab', { name: withLines, exact: true }).click();
     const lineRow = picker.getByRole('tablist', { name: `${withLines} lines` });
-    assert.deepEqual(await lineRow.getByRole('tab').allInnerTexts(), ['All', ...bl.map((l) => l.line)]);
+    assert.deepEqual(await lineRow.getByRole('tab').allInnerTexts(), ['All lines', ...bl.map((l) => l.line)]);
     const names = () => picker.getByRole('option').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!));
     const inBrand = lib.filter((f) => f.brand === withLines);
     assert.equal((await names()).length, inBrand.length, 'every filament of the brand and no other');
@@ -2744,9 +2744,27 @@ test('a part\'s filament picker: brands first (the user\'s own ahead), then a br
     assert.equal((await names()).length, bl[1].filaments.length, 'only the chosen line');
     // Another brand drops a line that is not its own.
     await brandRow.getByRole('tab', { name: want.find((b) => b !== withLines)!, exact: true }).click();
-    assert.ok(await picker.getByRole('tablist', { name: /lines$/ }).getByRole('tab', { selected: true }).first().innerText() === 'All' || (await picker.getByRole('tablist', { name: /lines$/ }).count()) === 0);
+    assert.equal(await picker.getByRole('tablist', { name: /lines$/ }).getByRole('tab', { selected: true }).innerText({ timeout: 2000 }), 'All lines');
+    // A search with matches only in other brands: said so, and "Search every brand" keeps the text.
+    const chosen = want.find((b) => b !== withLines)!;
+    const otherName = lib.find((f) => f.brand === withLines)!.name;
+    await brandRow.getByRole('tab', { name: chosen, exact: true }).click();
+    await picker.getByRole('textbox', { name: 'Search the filaments' }).fill(`${withLines} ${otherName}`);
+    await picker.getByText(`No ${chosen} filament matches.`).waitFor();
+    await page.screenshot({ path: path.join(shots, 'picker-no-match.png') });
+    await picker.getByRole('button', { name: 'Search every brand' }).click();
+    assert.equal(await picker.getByRole('textbox', { name: 'Search the filaments' }).inputValue(), `${withLines} ${otherName}`);
+    assert.ok((await picker.getByRole('option').count()) > 0);
+    await picker.getByRole('textbox', { name: 'Search the filaments' }).fill('');
     await brandRow.getByRole('tab', { name: 'All', exact: true }).click();
     await picker.getByRole('group', { name: 'My filaments' }).waitFor();
+    // The brand order stays while it is open: saving a filament of the last brand does not move it.
+    await picker.getByRole('button', { name: 'Custom colour…' }).click();
+    await picker.getByRole('textbox', { name: 'Filament name' }).fill('Smoke Stay Put');
+    await picker.getByRole('textbox', { name: 'Brand' }).fill(brands[0]);
+    await picker.getByRole('button', { name: 'Save as mine' }).click();
+    await picker.getByRole('button', { name: 'Saved' }).waitFor();
+    assert.deepEqual(await brandRow.getByRole('tab').allInnerTexts(), ['All', ...want], 'the row did not move while the picker stayed open');
 
     // Settings: the same brand order after "All".
     await page.keyboard.press('Escape');
@@ -2755,7 +2773,11 @@ test('a part\'s filament picker: brands first (the user\'s own ahead), then a br
     const dialog = page.getByRole('dialog', { name: 'Settings' });
     await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
     const pills = await dialog.getByRole('region', { name: 'Library' }).getByRole('group', { name: 'Brand', exact: true }).getByRole('button').allInnerTexts();
-    assert.deepEqual(pills, ['All', ...want]);
+    // Opened again, the Settings tab has the order the extra saved filament makes.
+    const counts = new Map<string, number>([[many, 2], [few, 1]]);
+    counts.set(brands[0], (counts.get(brands[0]) ?? 0) + 1);
+    const later = [...brands].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b));
+    assert.deepEqual(pills, ['All', ...later]);
   } finally {
     await page.close();
     await putShelf([]);

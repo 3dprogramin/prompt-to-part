@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cleanRolls, FILAMENT_LIBRARY, MAX_ROLLS, myFilamentKey, rollsOf, type LibraryFilament, type MyFilament } from '../../../shared/filaments';
 import type { LayerToneFilament } from '../../../shared/layertone';
+import { useFrozenWhenReady } from '../../lib/frozen';
 import { refreshMine, useMyFilamentsState } from '../../lib/myFilaments';
 import { CustomFilament, stackFields } from '../FilamentPicker';
 import { Icon } from '../Icon';
@@ -106,7 +107,9 @@ export function FilamentsTab({ saver, footer }: Props) {
   const [libQuery, setLibQuery] = useState('');
   const [brand, setBrand] = useState<string | null>(null);
   const [line, setLine] = useState<string | null>(null);
-  const brands = useMemo(() => libraryBrands(FILAMENT_LIBRARY, list), [list]);
+  // Ordered by the list as it was when the tab first had it, so adding a card does not move the pills.
+  const orderBy = useFrozenWhenReady(list, status !== 'loading');
+  const brands = useMemo(() => (orderBy ? libraryBrands(FILAMENT_LIBRARY, orderBy) : []), [orderBy]);
   const lines = useMemo(() => linePills(brand), [brand]);
   const cards = useMemo(() => libraryView({ query: libQuery, brand, line }, list), [libQuery, brand, line, list]);
   const chooseBrand = (b: string | null) => {

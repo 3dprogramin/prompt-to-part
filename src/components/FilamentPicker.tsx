@@ -3,13 +3,14 @@ import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
 import { DUPLICATE_FILAMENT, libraryFilament, MY_TD_RANGE, myFilamentKey, withMyFilament, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
 import { siteName } from '../../shared/sources';
 import { lookupFilament } from '../lib/api';
-import { changeMine, useMyFilaments } from '../lib/myFilaments';
+import { changeMine, useMyFilamentsState } from '../lib/myFilaments';
 import { Icon } from './Icon';
 import { NumBox } from './NumBox';
 import { usePopover } from './usePopover';
 import { openSettings } from './settings/openSettings';
 import { libraryBrands } from './settings/filamentsTab';
-import { pickerGroups, pickerLines, validLine } from './filamentPickerView';
+import { useFrozenWhenReady } from '../lib/frozen';
+import { noMatch, pickerGroups, pickerLines, validLine } from './filamentPickerView';
 
 const CONFIDENCE: Record<FilamentLookup['confidence'], [string, 'high' | 'medium' | 'low']> = {
   listed: ['Published TD', 'high'],
@@ -38,7 +39,7 @@ interface Props {
 
 /**
  * The filament picker, a popover under (or over) its anchor, the nearest positioned ancestor: search,
- * the library's lines, a swatch grid with the common colours first, and a custom colour.
+ * the library's brands, then a brand's lines, a swatch grid with the common colours first, and a custom colour.
  */
 export function FilamentPicker({ current, trigger, onPick, onClose, automatic }: Props) {
   const pop = useRef<HTMLDivElement>(null);
@@ -49,12 +50,15 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
   const [query, setQuery] = useState('');
   const [brand, setBrand] = useState('');
   const [line, setLine] = useState('');
-  const myFilaments = useMyFilaments();
+  const { list: myFilaments, status } = useMyFilamentsState();
   const selected: Option | undefined = useMemo(() => (current ? myFilaments.find((f) => myFilamentKey(f) === myFilamentKey(current)) ?? libraryFilament(current) : undefined), [current, myFilaments]);
 
   // The grid: the search results, or the user's own and the common colours and every line; with a
   // brand chosen, its lines (or the chosen one). The brands list the user's own first.
-  const brands = useMemo(() => libraryBrands(undefined, myFilaments), [myFilaments]);
+  // The brand row is ordered by the list as it was when it was first read (or failed to be), and stays so
+  // while the picker is open: saving a filament must not move the buttons under the pointer.
+  const orderBy = useFrozenWhenReady(myFilaments, status !== 'loading');
+  const brands = useMemo(() => (orderBy ? libraryBrands(undefined, orderBy) : []), [orderBy]);
   const brandLines = useMemo(() => pickerLines(brand), [brand]);
   const groups = useMemo(() => pickerGroups({ query, brand, line }, myFilaments) as { key: string; label: string | undefined; filaments: Option[] }[], [query, brand, line, myFilaments]);
   const options = groups.flatMap((g) => g.filaments.map((f: Option) => ({ key: optionKey(g.key, f), f })));
@@ -81,7 +85,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
     const below = s.bottom - a.bottom, above = a.top - s.top;
     setUp(h > below && h <= above + scroller.scrollTop && above > below);
   }, [myFilaments.length > 0, !!custom]);
-  useEffect(() => { pop.current?.scrollIntoView({ block: 'nearest' }); }, [up, !!custom, myFilaments.length > 0]);
+  useEffect(() => { pop.current?.scrollIntoView({ block: 'nearest' }); }, [up, !!custom, myFilaments.length > 0, brand !== '']);
   // The current filament in view in the grid.
   useEffect(() => { grid.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, []);
 
@@ -150,15 +154,15 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
           if (e.key === 'ArrowDown') { e.preventDefault(); focusOption(grid.current?.querySelector<HTMLElement>('[tabindex="0"]') ?? undefined); }
           if (e.key === 'Enter' && query.trim() && options[0]) { e.preventDefault(); pick(options[0].f); }
         }} />
-      <div className="seg layertone-lines" role="tablist" aria-label="Filament brands" onKeyDown={onTabsKey(['', ...brands], brand, chooseBrand)}>
+      {orderBy && <div className="seg layertone-lines" role="tablist" aria-label="Filament brands" onKeyDown={onTabsKey(['', ...brands], brand, chooseBrand)}>
         {['', ...brands].map((b) => (
           <button key={b} role="tab" className={brand === b ? 'on' : ''} aria-selected={brand === b} tabIndex={brand === b ? 0 : -1} aria-controls={`${id}-grid`} title={b || 'Every filament'}
             onClick={() => chooseBrand(b)}>{b || 'All'}</button>
         ))}
-      </div>
+      </div>}
       {brandLines.length > 0 && (
         <div className="seg layertone-lines layertone-line-row" role="tablist" aria-label={`${brand} lines`} onKeyDown={onTabsKey(['', ...brandLines.map((l) => l.key)], line, chooseLine)}>
-          {[{ key: '', label: 'All', title: `Every ${brand} filament` }, ...brandLines.map((l) => ({ key: l.key, label: l.line || l.brand, title: l.key }))].map((t) => (
+          {[{ key: '', label: 'All lines', title: `Every ${brand} filament` }, ...brandLines.map((l) => ({ key: l.key, label: l.line || l.brand, title: l.key }))].map((t) => (
             <button key={t.key} role="tab" className={line === t.key ? 'on' : ''} aria-selected={line === t.key} tabIndex={line === t.key ? 0 : -1} aria-controls={`${id}-grid`} title={t.title}
               onClick={() => chooseLine(t.key)}>{t.label}</button>
           ))}
@@ -184,7 +188,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
             </div>
           </div>
         ))}
-        {!options.length && <div className="layertone-grid-empty dim small">No filament in the library matches: use a custom colour.</div>}
+        {!options.length && <NoMatch {...noMatch({ query, brand, line })} onEvery={() => chooseBrand('')} />}
       </div>
       {!query.trim() && !brand && (
         // Settings has room to browse, search and count rolls; the popover closes as it opens, and the
@@ -202,6 +206,15 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
       {!custom
         ? <button className="link layertone-custom-open" onClick={openCustom}><Icon name="pen" size={12} /> Custom colour…</button>
         : <CustomFilament value={custom} onChange={setCustom} adding={!current} onDone={pick} />}
+    </div>
+  );
+}
+
+function NoMatch({ text, everyBrand, onEvery }: { text: string; everyBrand: boolean; onEvery: () => void }) {
+  return (
+    <div className="layertone-grid-empty dim small">
+      {text}
+      {everyBrand && <> <button className="link" onClick={onEvery}>Search every brand</button></>}
     </div>
   );
 }

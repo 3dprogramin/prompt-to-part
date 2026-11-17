@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { COMMON_FILAMENTS, FILAMENT_LIBRARY, filamentLines, pickerFilaments, type LibraryFilament, type MyFilament } from '../shared/filaments';
-import { pickerGroups, pickerLines, validLine } from '../src/components/filamentPickerView';
+import { noMatch, pickerGroups, pickerLines, validLine } from '../src/components/filamentPickerView';
 
 const lines = filamentLines();
 const brands = [...new Set(lines.map((l) => l.brand))];
@@ -55,4 +55,24 @@ test('search within a brand and a line stays inside them and leaves mine out', (
 test('every library filament is reachable through its brand', () => {
   const n = brands.reduce((sum, b) => sum + all(pickerGroups({ ...none, brand: b }, [])).length, 0);
   assert.equal(n, FILAMENT_LIBRARY.length);
+});
+
+test('an empty search inside a brand names the brand and offers every brand when others match', () => {
+  const other = brands.find((b) => b !== multi)!;
+  const query = `${other} ${lines.find((l) => l.brand === other)!.filaments[0].name}`;
+  const q = { query, brand: multi, line: '' };
+  assert.equal(all(pickerGroups(q, mine)).length, 0, 'precondition: nothing in the chosen brand');
+  const r = noMatch(q);
+  assert.equal(r.text, `No ${multi} filament matches.`);
+  assert.equal(r.everyBrand, true);
+});
+test('an empty search no brand has either says the library, and offers nothing', () => {
+  const r = noMatch({ query: 'zzzz-no-such-colour', brand: multi, line: '' });
+  assert.equal(r.text, `No ${multi} filament matches.`);
+  assert.equal(r.everyBrand, false);
+  assert.deepEqual(noMatch({ query: 'zzzz-no-such-colour', brand: '', line: '' }), { text: 'No filament in the library matches: use a custom colour.', everyBrand: false });
+});
+test('a chosen line is named too', () => {
+  const l = brandLines[0];
+  assert.equal(noMatch({ query: 'zzzz-no-such-colour', brand: multi, line: l.key }).text, `No ${l.key} filament matches.`);
 });

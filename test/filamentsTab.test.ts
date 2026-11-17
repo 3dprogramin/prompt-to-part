@@ -388,7 +388,7 @@ test('brand order: saved brands first, most filaments first, then the rest alpha
   assert.deepEqual(got.slice(2), alpha.filter((b) => b !== few && b !== many));
 });
 test('brand order: equal counts are alphabetical', () => {
-  const [a, b] = [alpha[1], alpha[3]];
+  const [a, b] = [alpha[0], alpha[1]];
   assert.deepEqual(brandOrder([...own(b, 2), ...own(a, 2)], lib).slice(0, 2), [a, b]);
 });
 test('brand order: a brand spelled in another case counts for the library brand', () => {

@@ -28,3 +28,10 @@ export function pickerGroups(q: { query: string; brand: string; line: string }, 
   if (!q.brand) return [...(mine.length ? [{ key: 'mine', label: 'My filaments', filaments: mine }] : []), { key: 'common', label: 'Common', filaments: COMMON_FILAMENTS }, ...all.map((l) => ({ key: l.key, label: l.key, filaments: l.filaments }))];
   return pickerLines(q.brand, all).filter((l) => !line || l.key === line).map((l) => ({ key: l.key, label: l.key, filaments: l.filaments }));
 }
+
+/** What the grid says when a search finds nothing, and whether the same search has matches in other brands (then "Search every brand" is offered). */
+export function noMatch(q: { query: string; brand: string; line: string }, all: FilamentLine[] = filamentLines()): { text: string; everyBrand: boolean } {
+  if (!q.brand) return { text: 'No filament in the library matches: use a custom colour.', everyBrand: false };
+  const line = validLine(q.brand, q.line, all);
+  return { text: `No ${line || q.brand} filament matches.`, everyBrand: !!q.query.trim() && pickerFilaments(q.query).length > 0 };
+}
