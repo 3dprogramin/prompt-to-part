@@ -296,3 +296,77 @@ test('import: entries that each fit but add up to far more than the zip is refus
   assert.match((await r.json()).error, /would unpack to 1\.2 GB/);
   assert.equal(existsSync(path.join(dataDir, 'designs', id)), false);
 });
+
+// ---- settings in a backup: the plain ones go, a key never does ----
+const { saveSettings, resetSettings } = await import('../server/settings');
+const SETTINGS_KEY = 'sk-or-v1-0123456789abcdef0123456789abcdef';
+const settingsEnv = ['OPENROUTER_API_KEY', 'ANTHROPIC_BASE_URL', 'PTP_COUNTRY'];
+const shellSettingsEnv = Object.fromEntries(settingsEnv.map((k) => [k, process.env[k]]));
+const settingsFiles = () => ['settings.json', 'secrets.json'].map((f) => path.join(dataDir, f));
+const cleanSettings = async () => {
+  await resetSettings();
+  for (const f of settingsFiles()) rmSync(f, { force: true });
+  for (const [k, v] of Object.entries(shellSettingsEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+};
+const settingsZip = (files: Record<string, string>) => zipSync(Object.fromEntries(Object.entries(files).map(([n, t]) => [n, strToU8(t)])) as Zippable);
+const applied = async (env: string) => ((await (await fetch(`${A}/api/settings`)).json()) as { rows: { env: string; source: string; value?: string }[] }).rows.find((r) => r.env === env)!;
+
+test('a backup holds settings.json and no key', async () => {
+  await cleanSettings();
+  await saveSettings({ PTP_COUNTRY: 'Romania', OPENROUTER_API_KEY: SETTINGS_KEY }, { allowRestricted: false });
+  try {
+    const zip = await exportZip();
+    const names = Object.keys(unzipSync(zip));
+    assert.ok(names.includes('settings.json'));
+    assert.ok(!names.some((n) => n.includes('secrets')));
+    assert.ok(!Buffer.from(zip).includes(Buffer.from(SETTINGS_KEY)));
+    assert.deepEqual(JSON.parse(Buffer.from(unzipSync(zip)['settings.json']).toString()), { PTP_COUNTRY: 'Romania' });
+  } finally { await cleanSettings(); }
+});
+
+test('a hand-edited settings.json with a key in it is still exported without it', async () => {
+  await cleanSettings();
+  writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({ PTP_COUNTRY: 'Romania', OPENROUTER_API_KEY: SETTINGS_KEY, NOPE: 'x' }));
+  try {
+    const zip = await exportZip();
+    assert.ok(!Buffer.from(zip).includes(Buffer.from(SETTINGS_KEY)));
+    assert.deepEqual(JSON.parse(Buffer.from(unzipSync(zip)['settings.json']).toString()), { PTP_COUNTRY: 'Romania' });
+    // The server removes its temporary copy just after the last byte is sent.
+    const left = () => readdirSync(dataDir).filter((n) => n.startsWith('.backup-settings'));
+    for (let i = 0; i < 50 && left().length; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(left(), []);
+  } finally { await cleanSettings(); }
+});
+
+test('restoring never sets a key or the provider address, even from a crafted zip', async () => {
+  await cleanSettings();
+  try {
+    const zip = settingsZip({ 'secrets.json': JSON.stringify({ OPENROUTER_API_KEY: 'evil' }), 'settings.json': JSON.stringify({ ANTHROPIC_BASE_URL: 'https://evil.example', OPENROUTER_API_KEY: 'evil', PTP_COUNTRY: 'Romania' }) });
+    const r = await importZip(zip);
+    assert.equal(r.status, 200);
+    assert.notEqual(process.env.OPENROUTER_API_KEY, 'evil');
+    assert.notEqual(process.env.ANTHROPIC_BASE_URL, 'https://evil.example');
+    assert.ok(!existsSync(path.join(dataDir, 'secrets.json')));
+    // The whole file is refused, not just the bad rows.
+    assert.ok(!existsSync(path.join(dataDir, 'settings.json')));
+    assert.deepEqual((await r.json()).settings, []);
+    // Unknown keys and values that fail validation refuse it too.
+    for (const bad of [{ NOPE: 'x' }, { PTP_CURRENCY: 'dollars' }, { PTP_COUNTRY: 5 }, ['PTP_COUNTRY']]) {
+      assert.equal((await importZip(settingsZip({ 'settings.json': JSON.stringify(bad) }))).status, 200);
+      assert.ok(!existsSync(path.join(dataDir, 'settings.json')));
+    }
+  } finally { await cleanSettings(); }
+});
+
+test('a restored settings.json on a fresh data folder is applied; an existing one is kept', async () => {
+  await cleanSettings();
+  try {
+    const r = await importZip(settingsZip({ 'settings.json': JSON.stringify({ PTP_COUNTRY: 'Romania' }) }));
+    assert.deepEqual((await r.json()).settings, ['settings']);
+    const row = await applied('PTP_COUNTRY');
+    assert.equal(row.source, 'here');
+    assert.equal(row.value, 'Romania');
+    assert.equal((await importZip(settingsZip({ 'settings.json': JSON.stringify({ PTP_COUNTRY: 'France' }) }))).status, 200);
+    assert.equal((await applied('PTP_COUNTRY')).value, 'Romania');
+  } finally { await cleanSettings(); }
+});

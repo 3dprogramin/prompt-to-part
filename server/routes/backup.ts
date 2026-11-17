@@ -1,11 +1,13 @@
 // Backups: every design and the user's settings as one zip, and restoring one (or a zipped project).
+import { SETTINGS, cleanSettingValue, settingProblem } from '../../shared/settings';
+import { initSettings } from '../settings';
 import { clampFilaments } from '../../shared/printer';
 import { loadPrinterSetting } from '../printerSetting';
 import express from 'express';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rm, statfs } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, statfs, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import type { BackupImport } from '../../shared/api';
 import type { DesignVersion } from '../../shared/types';
@@ -20,7 +22,30 @@ import { MAX_ZIP_BYTES, MAX_ZIP_ENTRIES, openZip, unpackProblem, writeZip, ZipEr
 import { contentHash, DESIGNS, ID_RE, cleanStarred, isDesign, IMAGE_NAME, writeAtomically, type RouteContext } from './store';
 
 // What a backup zip may hold (see /api/backup), and how large each kind of file in it may be.
-const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'printer.json': 'printer', 'starred.json': 'starred designs', 'tags.json': 'design tags', 'printed.json': 'printed versions' };
+const BACKUP_SETTINGS: Record<string, string> = { 'cost.json': 'cost settings', 'filaments.json': 'My filaments', 'printer.json': 'printer', 'starred.json': 'starred designs', 'tags.json': 'design tags', 'printed.json': 'printed versions', 'settings.json': 'settings' };
+/** Never written to a backup and never read from one: it holds the keys and the provider address (server/settings.ts). */
+const SECRETS_FILE = 'secrets.json';
+
+/**
+ * The plain rows of a settings.json (not a key, not the provider address, a valid value), or null
+ * when it is damaged. With `strict`, null also when it holds anything else, so a restore leaves such
+ * a file out whole; without, the other rows are dropped (a backup never carries them).
+ */
+function plainSettings(raw: string | null, strict: boolean): Record<string, string> | null {
+  let v: unknown;
+  try { v = JSON.parse(raw ?? ''); } catch { return null; }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out: Record<string, string> = {};
+  for (const [env, value] of Object.entries(v)) {
+    const def = SETTINGS.find((d) => d.env === env);
+    if (!def || def.kind === 'secret' || def.restricted || typeof value !== 'string' || !value || cleanSettingValue(value) !== value || settingProblem(def, value)) {
+      if (strict) return null;
+      continue;
+    }
+    out[env] = value;
+  }
+  return out;
+}
 const MAX_BACKUP_ENTRIES = 100_000;
 const BACKUP_LIMITS = { settings: 1024 * 1024, design: 80 * 1024 * 1024, image: 25 * 1024 * 1024, mesh: 2 * MAX_MESH_BYTES, printed: MAX_PRINTED_BYTES };
 
@@ -35,6 +60,8 @@ type BackupPath =
  */
 function backupPath(name: string): BackupPath | null {
   const p = name.split('/');
+  // A key file in a zip is ignored, not an error: an older or hand-made zip may carry one.
+  if (p.length === 1 && name === SECRETS_FILE) return { kind: 'folder' };
   if (p.length === 1) return Object.hasOwn(BACKUP_SETTINGS, name) ? { kind: 'settings' } : null;
   if (p[0] !== 'designs') return null;
   if (p.length === 2) {
@@ -89,7 +116,17 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
     // <img>, say), though never read it. Only the app's own page, the address bar or a non-browser may.
     const site = req.headers['sec-fetch-site'];
     if (site && site !== 'same-origin' && site !== 'none') return void res.status(403).json({ error: 'Cross-site request refused' });
+    // settings.json is rewritten from its plain rows only, so a key someone put in it by hand stays out.
     const files: ZipSource[] = Object.keys(BACKUP_SETTINGS).map((name) => ({ name, file: path.join(DATA_DIR, name), compress: true }));
+    let settingsCopy: string | undefined;
+    const plain = plainSettings(await readFile(path.join(DATA_DIR, 'settings.json'), 'utf8').catch(() => null), false);
+    const own = files.find((f) => f.name === 'settings.json')!;
+    if (plain && Object.keys(plain).length) {
+      settingsCopy = path.join(DATA_DIR, `.backup-settings-${randomUUID()}.json`);
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeFile(settingsCopy, JSON.stringify(plain));
+      own.file = settingsCopy;
+    } else files.splice(files.indexOf(own), 1);
     for (const f of (await readdir(DESIGNS).catch(() => [] as string[])).sort()) {
       const id = f.slice(0, -'.json'.length);
       if (!f.endsWith('.json') || !ID_RE.test(id)) continue;
@@ -98,20 +135,24 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
       for (const n of await readdir(meshDir(id)).catch(() => [] as string[])) if (MESH_FILE.test(n)) files.push({ name: `designs/${id}/meshes/${n}`, file: path.join(meshDir(id), n), compress: false });
       for (const n of await readdir(path.join(imageDir(id), 'printed')).catch(() => [] as string[])) if (PRINTED_FILE.test(n)) files.push({ name: `designs/${id}/printed/${n}`, file: path.join(imageDir(id), 'printed', n), compress: false });
     }
-    if (files.length > MAX_ZIP_ENTRIES) {
-      return void res.status(500).json({ error: `Your designs hold too many files for one zip (over ${MAX_ZIP_ENTRIES.toLocaleString('en')}): back up the data folder instead (see "Docker" in docs/running.md).` });
-    }
-    if (await zipSizeBound(files) > MAX_ZIP_BYTES) {
-      return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in docs/running.md).' });
-    }
-    const d = new Date();
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="prompt-to-part-designs-${day}.zip"`, 'Cache-Control': 'no-store' });
     try {
-      await writeZip(files, res);
-    } catch (e) {
-      if (!res.destroyed) console.error('[backup]', (e as Error).message);
-      res.destroy();
+      if (files.length > MAX_ZIP_ENTRIES) {
+        return void res.status(500).json({ error: `Your designs hold too many files for one zip (over ${MAX_ZIP_ENTRIES.toLocaleString('en')}): back up the data folder instead (see "Docker" in docs/running.md).` });
+      }
+      if (await zipSizeBound(files) > MAX_ZIP_BYTES) {
+        return void res.status(500).json({ error: 'Your designs are too large for one zip (over 4 GB): back up the data folder instead (see "Docker" in docs/running.md).' });
+      }
+      const d = new Date();
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="prompt-to-part-designs-${day}.zip"`, 'Cache-Control': 'no-store' });
+      try {
+        await writeZip(files, res);
+      } catch (e) {
+        if (!res.destroyed) console.error('[backup]', (e as Error).message);
+        res.destroy();
+      }
+    } finally {
+      if (settingsCopy) await rm(settingsCopy, { force: true });
     }
   });
 
@@ -245,6 +286,15 @@ export function registerBackupRoutes(app: express.Express, { designFile, imageDi
           continue;
         }
         if (existsSync(file)) continue;
+        if (entry.name === 'settings.json') {
+          const rows = plainSettings(Buffer.from(await entry.read()).toString('utf8'), true);
+          if (!rows || !Object.keys(rows).length) continue;
+          await writeAtomically(file, `${JSON.stringify(rows, null, 2)}\n`, 0o600);
+          // The restored values take effect now, as a save in the dialog would.
+          initSettings(DATA_DIR);
+          out.settings.push(BACKUP_SETTINGS[entry.name]);
+          continue;
+        }
         try {
           const v = JSON.parse(Buffer.from(await entry.read()).toString('utf8')) as { filaments?: unknown };
           if (entry.name === 'filaments.json' && myFilamentsProblem(v?.filaments)) continue;
