@@ -11,13 +11,18 @@ export function addSteeredPhotos(references: string[], urls: string[]): void {
   references.push(...urls);
 }
 
-/** At most `max` of `list` (taken from `references`, in order): the mid-reply pictures first kept, the rest filled from the start. */
+/**
+ * At most `max` of `list` (the reply's photos in order, maybe filtered, with earlier chat photos after them), as a new array:
+ * the mid-reply pictures are kept first, the rest filled from the start. Chosen by position, so a repeated photo counts once each.
+ */
 export function cutPhotos(references: string[], list: string[], max: number): string[] {
-  if (list.length <= max) return list;
+  if (list.length <= max) return list.slice();
   const start = startCount.get(references);
   if (start === undefined) return list.slice(0, max); // nothing was sent mid-reply
-  const steered = new Set(references.slice(start));
-  const mid = list.filter((p) => steered.has(p)).slice(-max);
-  const rest = list.filter((p) => !steered.has(p)).slice(0, max - mid.length);
-  return list.filter((p) => rest.includes(p) || mid.includes(p));
+  let at = 0;
+  const mid = list.map((p) => { while (at < references.length && references[at] !== p) at++; return at < references.length && at++ >= start; });
+  const kept = new Set<number>();
+  for (let i = list.length - 1; i >= 0 && kept.size < max; i--) if (mid[i]) kept.add(i);
+  for (let i = 0; i < list.length && kept.size < max; i++) if (!mid[i]) kept.add(i);
+  return list.filter((_, i) => kept.has(i));
 }

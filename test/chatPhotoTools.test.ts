@@ -163,3 +163,19 @@ test('a picture sent mid-run is still seen by the image tools when the reply alr
   assert.ok(!out.isError, JSON.stringify(out));
   assert.deepEqual(asked.at(-1)!.references, [...references.slice(0, 3), 'data:image/jpeg;base64,FIVE']);
 });
+
+test('an image tool call in a reply without photos leaves the reply\'s references empty (earlier photos stay "earlier")', async () => {
+  designWithPhoto('chat-photo-empty-7');
+  const references: string[] = [];
+  const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), {}, { artwork: { references, designId: 'chat-photo-empty-7' }, image });
+  const out = await handlers(server).generate_artwork.handler({ name: 'dog', subject: 'the dog in the photo, sitting', use_attached_photos: true }, {});
+  assert.ok(!out.isError, JSON.stringify(out));
+  assert.deepEqual(references, []);
+});
+
+test('the photo cut works by position: repeated photos do not push it over the limit', async () => {
+  const { cutPhotos, addSteeredPhotos } = await import('../server/tools/photoRefs');
+  const refs = ['A', 'A', 'A', 'A'];
+  addSteeredPhotos(refs, ['B']);
+  assert.deepEqual(cutPhotos(refs, refs, 4), ['A', 'A', 'A', 'B']);
+});
