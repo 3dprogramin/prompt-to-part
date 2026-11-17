@@ -5,7 +5,7 @@ import os from 'node:os';
 import { query, type SDKControlGetUsageResponse, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Connection } from '../shared/api';
 import { claudeEnv } from './agent';
-import { authMode, claudeAuthProblem, claudeViaOpenRouter } from './config';
+import { claudeAuthProblem, claudeBaseUrl, claudeVia } from './config';
 import { recordUsage, usageWindows } from './usage';
 
 const TIMEOUT_MS = 8000;
@@ -75,22 +75,30 @@ async function askUsage(): Promise<SDKControlGetUsageResponse> {
 
 async function check(): Promise<Connection> {
   const problem = claudeAuthProblem();
-  if (authMode() === 'subscription') {
-    const login = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'the token in CLAUDE_CODE_OAUTH_TOKEN' : "the `claude` CLI's login";
-    if (problem) return { via: 'subscription', ok: false, detail: problem };
-    // The subscription's token can't be checked without spending usage: only that Anthropic answers.
-    const reach = await reachable('https://api.anthropic.com/v1/models');
-    return { via: 'subscription', ok: reach === true, detail: reach === true ? `Signed in with ${login}; Anthropic's servers answer.` : `Signed in with ${login}, but Anthropic's servers don't answer: ${reach}` };
+  const via = claudeVia();
+  switch (via) {
+    case 'subscription': {
+      const login = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'the token in CLAUDE_CODE_OAUTH_TOKEN' : "the `claude` CLI's login";
+      if (problem) return { via, ok: false, detail: problem };
+      // The subscription's token can't be checked without spending usage: only that Anthropic answers.
+      const reach = await reachable('https://api.anthropic.com/v1/models');
+      return { via, ok: reach === true, detail: reach === true ? `Signed in with ${login}; Anthropic's servers answer.` : `Signed in with ${login}, but Anthropic's servers don't answer: ${reach}` };
+    }
+    case null: return { via: 'none', ok: false, detail: problem ?? 'Nothing to run Claude on.' };
+    default:
+      // A choice made in PTP_CLAUDE that lacks its key is shown under that choice.
+      if (problem) return { via, ok: false, detail: problem };
   }
-  if (problem) return { via: 'none', ok: false, detail: problem };
-  if (claudeViaOpenRouter()) return openRouter(process.env.OPENROUTER_API_KEY!);
-  const base = process.env.ANTHROPIC_BASE_URL?.trim().replace(/\/+$/, '');
-  if (base && !/^https:\/\/api\.anthropic\.com$/.test(base)) {
+  if (via === 'openrouter') return openRouter(process.env.OPENROUTER_API_KEY!);
+  if (via === 'custom') {
+    // Only whether the address answers: no key or token is sent to another provider by the check.
+    const base = claudeBaseUrl();
     const reach = await reachable(`${base}/v1/models`);
-    return { via: 'custom', ok: reach === true, detail: reach === true ? `${base} answers.` : `${base} doesn't answer: ${reach}` };
+    return { via, ok: reach === true, detail: reach === true ? `${base} answers.` : `${base} doesn't answer: ${reach}` };
   }
   const headers: Record<string, string> = { 'anthropic-version': '2023-06-01' };
   if (process.env.ANTHROPIC_API_KEY) headers['x-api-key'] = process.env.ANTHROPIC_API_KEY;
+  // Inferred from a token alone (no address, or Anthropic's), as before PTP_CLAUDE.
   else headers.authorization = `Bearer ${process.env.ANTHROPIC_AUTH_TOKEN}`;
   try {
     const res = await fetch('https://api.anthropic.com/v1/models', { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });

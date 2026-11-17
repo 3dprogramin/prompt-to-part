@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_CURRENCY, parseCurrency } from '../shared/cost';
 import { BACK_TEXT_MAX_LENGTH } from '../shared/backText';
 import { cleanAppBuild, type AppBuild } from '../shared/appBuild';
+import { CLAUDE_VIA, type ClaudeVia } from '../shared/settings';
+
+export type { ClaudeVia };
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Secrets such as ELEVENLABS_API_KEY can live in .env next to package.json (git ignores it);
@@ -37,46 +40,80 @@ export const DATA_DIR = process.env.PTP_DATA ? path.resolve(process.env.PTP_DATA
 /** Serve the built app from dist/ as well as the API (`pnpm start`). */
 export const PRODUCTION = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
 /**
- * How the app signs in to Claude (read when it is needed, so a changed environment counts):
- * - 'api-key' (the default): ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN with an Anthropic-compatible
- *   ANTHROPIC_BASE_URL;
- * - 'subscription' (PTP_AUTH=subscription): the Claude account the `claude` CLI is logged in with, or
- *   the long-lived token in CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, how the Docker image signs
- *   in), only for your own use on your own computer (see the README).
+ * How the app runs Claude (read when it is needed, so a changed environment counts):
+ * - 'subscription': the Claude account the `claude` CLI is logged in with, or the long-lived token in
+ *   CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, how the Docker image signs in), only for your own
+ *   use on your own computer (see the README);
+ * - 'anthropic': ANTHROPIC_API_KEY (or, inferred, ANTHROPIC_AUTH_TOKEN) at Anthropic;
+ * - 'openrouter': OPENROUTER_API_KEY through OpenRouter's Anthropic-compatible endpoint;
+ * - 'custom': ANTHROPIC_AUTH_TOKEN at another Anthropic-compatible provider, ANTHROPIC_BASE_URL.
+ * PTP_CLAUDE names one outright (the Settings dialog sets it). Without it the mode is inferred from what
+ * is set: PTP_AUTH=subscription; else OpenRouter when its key is the only one (an Anthropic key or token
+ * wins, and OpenRouter is then used for artwork only); else another provider when ANTHROPIC_BASE_URL is
+ * set to an address other than Anthropic's; else Anthropic. null: nothing to run Claude on.
  */
-export function authMode(): 'api-key' | 'subscription' {
-  return process.env.PTP_AUTH === 'subscription' ? 'subscription' : 'api-key';
+export function claudeVia(): ClaudeVia | null {
+  if (claudeViaChosen()) return process.env.PTP_CLAUDE!.trim() as ClaudeVia;
+  if (process.env.PTP_AUTH === 'subscription') return 'subscription';
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) return process.env.OPENROUTER_API_KEY ? 'openrouter' : null;
+  const base = claudeBaseUrl();
+  return base && !/^https:\/\/api\.anthropic\.com$/.test(base) ? 'custom' : 'anthropic';
 }
 
-/**
- * Claude through OpenRouter: in API-key mode, when OPENROUTER_API_KEY is set and no Anthropic key
- * or token is (an Anthropic key wins, and OpenRouter is then used for artwork only).
- */
-export function claudeViaOpenRouter(): boolean {
-  return authMode() === 'api-key' && !!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN;
+/** True when PTP_CLAUDE names the mode (rather than it being inferred). */
+export const claudeViaChosen = () => CLAUDE_VIA.includes(process.env.PTP_CLAUDE?.trim() as ClaudeVia);
+
+/** ANTHROPIC_BASE_URL without surrounding spaces or a trailing slash, or '' when unset. */
+export const claudeBaseUrl = () => process.env.ANTHROPIC_BASE_URL?.trim().replace(/\/+$/, '') ?? '';
+
+/** 'subscription', or 'api-key' for every way that runs on a key or token (and for none). */
+export function authMode(): 'api-key' | 'subscription' {
+  return claudeVia() === 'subscription' ? 'subscription' : 'api-key';
 }
+
+/** Claude through OpenRouter (and the model menu offers OpenRouter's models). */
+export function claudeViaOpenRouter(): boolean {
+  return claudeVia() === 'openrouter';
+}
+
+const FIX_IN_SETTINGS = 'Open Settings (the gear) to fix it.';
 
 /** Why the app can't run Claude as configured, or null. Without a key it never falls back to the CLI's login. */
 export function claudeAuthProblem(): string | null {
-  if (authMode() === 'subscription') {
+  const via = claudeVia();
+  if (via === 'subscription') {
     // A container has no `claude` login of its own: it needs the long-lived token from `claude setup-token`
     // (or a login made inside it, kept in the CLAUDE_CONFIG_DIR volume).
     const credentials = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
     if (process.env.PTP_DOCKER && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !existsSync(credentials)) {
-      return 'prompt-to-part runs in Docker on your Claude subscription (PTP_AUTH=subscription) but has no login: run `claude setup-token` on your computer, put the token in .env as CLAUDE_CODE_OAUTH_TOKEN and restart prompt-to-part (docker compose up -d). See docs/running.md.';
+      return claudeViaChosen()
+        ? `prompt-to-part runs in Docker on your Claude subscription but has no login: run \`claude setup-token\` on your computer and save the token as the subscription token (CLAUDE_CODE_OAUTH_TOKEN). ${FIX_IN_SETTINGS} See docs/running.md.`
+        : 'prompt-to-part runs in Docker on your Claude subscription (PTP_AUTH=subscription) but has no login: run `claude setup-token` on your computer, put the token in .env as CLAUDE_CODE_OAUTH_TOKEN and restart prompt-to-part (docker compose up -d), or open Settings (the gear) and save it there. See docs/running.md.';
     }
     return null;
   }
-  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.OPENROUTER_API_KEY) return null;
-  return 'No Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart prompt-to-part. See "Claude API key" in docs/configuration.md.';
+  if (claudeViaChosen()) {
+    if (via === 'anthropic' && !process.env.ANTHROPIC_API_KEY) return `prompt-to-part is set to run Claude on an Anthropic API key, but ANTHROPIC_API_KEY is not set. ${FIX_IN_SETTINGS}`;
+    if (via === 'openrouter' && !process.env.OPENROUTER_API_KEY) return `prompt-to-part is set to run Claude through OpenRouter, but OPENROUTER_API_KEY is not set. ${FIX_IN_SETTINGS}`;
+    if (via === 'custom') {
+      const missing = [!process.env.ANTHROPIC_AUTH_TOKEN && 'no token (ANTHROPIC_AUTH_TOKEN)', !claudeBaseUrl() && 'no address (ANTHROPIC_BASE_URL)'].filter(Boolean);
+      if (missing.length) return `prompt-to-part is set to run Claude on another provider, but it has ${missing.join(' and ')}. ${FIX_IN_SETTINGS}`;
+    }
+    return null;
+  }
+  if (via) return null;
+  return 'No Claude API key: set OPENROUTER_API_KEY or ANTHROPIC_API_KEY (in .env or the environment) and restart prompt-to-part, or open Settings (the gear). See "Claude API key" in docs/configuration.md.';
 }
 
 /** What to tell the user when the Claude API refuses the app's API key or token (HTTP 401 or 403). */
 export function claudeKeyRefused(status?: number): string {
   const code = status ? ` (HTTP ${status})` : '';
-  if (claudeViaOpenRouter()) return `OpenRouter refused the key in OPENROUTER_API_KEY${code}: it may be wrong, revoked or out of credit. Check it, then restart prompt-to-part.`;
-  if (process.env.ANTHROPIC_AUTH_TOKEN) return `${process.env.ANTHROPIC_BASE_URL || 'The API'} refused the token in ANTHROPIC_AUTH_TOKEN${code}. Check it, then restart prompt-to-part.`;
-  return `Anthropic refused the key in ANTHROPIC_API_KEY${code}: it may be wrong or revoked. Check it at platform.claude.com, then restart prompt-to-part.`;
+  const via = claudeVia();
+  if (via === 'openrouter') return `OpenRouter refused the key in OPENROUTER_API_KEY${code}: it may be wrong, revoked or out of credit. Check it in Settings.`;
+  // Inferred, a token wins the message whenever one is set, as it did before PTP_CLAUDE.
+  const token = claudeViaChosen() ? via === 'custom' : !!process.env.ANTHROPIC_AUTH_TOKEN;
+  if (token) return `${process.env.ANTHROPIC_BASE_URL || 'The API'} refused the token in ANTHROPIC_AUTH_TOKEN${code}. Check it in Settings.`;
+  return `Anthropic refused the key in ANTHROPIC_API_KEY${code}: it may be wrong or revoked (see platform.claude.com). Check it in Settings.`;
 }
 
 /** The currency costs and price suggestions are in (PTP_CURRENCY, e.g. USD, EUR, RON; US dollars by default). */

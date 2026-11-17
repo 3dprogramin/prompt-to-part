@@ -8,7 +8,7 @@ export interface SettingDef { env: string; kind: SettingKind; label: string; hin
 
 /** How Claude runs: on a subscription, an Anthropic key, OpenRouter or another Anthropic-compatible provider. */
 export type ClaudeVia = 'subscription' | 'anthropic' | 'openrouter' | 'custom';
-const CLAUDE_VIA: ClaudeVia[] = ['subscription', 'anthropic', 'openrouter', 'custom'];
+export const CLAUDE_VIA: ClaudeVia[] = ['subscription', 'anthropic', 'openrouter', 'custom'];
 
 /** In the dialog's row order. */
 export const SETTINGS: SettingDef[] = [

@@ -10,7 +10,7 @@ import { detectModes } from './modes/detect';
 import { MODES, type TurnContext } from './modes';
 import { buildSystemPrompt } from './systemPrompt';
 import { fieldsDelay, partialFields } from './partialJson';
-import { authMode, claudeAuthProblem, claudeKeyRefused, claudeModel, claudeViaOpenRouter, DATA_DIR } from './config';
+import { authMode, claudeAuthProblem, claudeKeyRefused, claudeModel, claudeVia, claudeViaChosen, claudeViaOpenRouter, DATA_DIR } from './config';
 import { modelIsTextOnly, openRouterModels, priceUsage, withoutPictures, type UsageEntry } from './openRouterModels';
 import { pageKey } from '../shared/sources';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits } from '../shared/artworkEdits';
@@ -48,11 +48,22 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch'];
 /** The environment for the Claude Code process the Agent SDK starts. */
 export function claudeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'prompt-to-part/1.0' };
-  // Subscription mode uses the `claude` CLI's login or the CLAUDE_CODE_OAUTH_TOKEN from `claude
-  // setup-token`, so no key may override it; in the default API-key mode the key (or token and base
-  // URL) is passed on, and without one nothing runs at all (claudeAuthProblem), so the subscription
-  // is never used silently.
-  if (authMode() === 'subscription') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_BASE_URL; }
+  if (claudeViaChosen()) {
+    // Chosen outright (PTP_CLAUDE): only that choice's own key or token goes on, so nothing set for
+    // another way (a key, a token, an address) can steer where Claude Code sends its requests.
+    const via = claudeVia();
+    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN']) delete env[k];
+    const only = (vars: Record<string, string | undefined>) => { for (const [k, v] of Object.entries(vars)) if (v !== undefined) env[k] = v; };
+    if (via === 'subscription') only({ CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN });
+    else if (via === 'anthropic') only({ ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY });
+    else if (via === 'openrouter') only({ ANTHROPIC_BASE_URL: 'https://openrouter.ai/api', ANTHROPIC_AUTH_TOKEN: process.env.OPENROUTER_API_KEY, ANTHROPIC_API_KEY: '' });
+    else only({ ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL?.trim(), ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY: '' });
+  }
+  // Inferred, as before PTP_CLAUDE: subscription mode uses the `claude` CLI's login or the
+  // CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, so no key may override it; in API-key mode the
+  // key (or token and base URL) is passed on, and without one nothing runs at all (claudeAuthProblem),
+  // so the subscription is never used silently.
+  else if (authMode() === 'subscription') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_BASE_URL; }
   else {
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
     // OpenRouter's Anthropic-compatible endpoint: its key is the token, and the API key must be empty.
