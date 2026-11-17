@@ -13,6 +13,7 @@ import { AppMark } from './AppMark';
 import { DesignsMenu, KindIcon } from './DesignsMenu';
 import { DesignTagsButton } from './Tags';
 import { DesignTabs, type DesignTab } from './DesignTabs';
+import type { SettingsTab } from './settings/settingsTabs';
 import { VersionMenu } from './VersionMenu';
 import { usePopover } from './usePopover';
 
@@ -62,6 +63,8 @@ interface Props {
   tags: string[];
   /** A phone's narrow bar: icons for the buttons, no design tabs (Designs lists them), New in the Designs menu. */
   compact?: boolean;
+  /** Open Settings, on this tab or the one used last. */
+  onSettings: (tab?: SettingsTab) => void;
 }
 
 /** Logo, design name, versions, open designs and the Designs menu. */
@@ -134,7 +137,7 @@ export function TopBar(p: Props) {
           <Icon name="x" size={13} /> Close all
         </button>
       )}
-      <ConnectionChip generating={p.generating} />
+      <ConnectionChip generating={p.generating} onOpen={() => p.onSettings('keys')} />
       {!p.compact && <a className={`btn ghost ${newTags ? 'new-temp' : ''}`} href="/" title={newTitle} onClick={newHere}><Icon name="plus" size={14} /> New</a>}
       <div className="menu-wrap" ref={listWrap}>
         <button className="btn ghost" aria-haspopup="menu" aria-expanded={showList} aria-label="Designs"
@@ -160,6 +163,7 @@ export function TopBar(p: Props) {
           </DesignsMenu>
         )}
       </div>
+      <button className="btn ghost settings-btn" title="Settings" aria-label="Settings" onClick={() => p.onSettings()}><Icon name="gear" size={15} /></button>
     </header>
   );
 }
@@ -174,9 +178,9 @@ const VIA_LABEL: Record<Connection['via'], string> = {
 
 /**
  * What the app runs Claude on and whether it answers, with the subscription's usage: checked on load,
- * every 5 minutes, on click and when a generation ends.
+ * every 5 minutes and when a generation ends; a click opens Settings on the keys tab.
  */
-function ConnectionChip({ generating }: { generating: number }) {
+function ConnectionChip({ generating, onOpen }: { generating: number; onOpen: () => void }) {
   const [conn, setConn] = useState<Connection | null>(null);
   const [checking, setChecking] = useState(true);
   const check = (fresh: boolean) => {
@@ -203,8 +207,8 @@ function ConnectionChip({ generating }: { generating: number }) {
   const windows = (conn?.usage ?? []).map((u) => currentWindow(u)).map((w) => `\n${w.label} limit: ${Math.round(w.percent)}% used${w.limited ? ' (reached)' : ''}${w.resetsAt ? `, resets ${formatReset(w.resetsAt)}` : ''}`).join('');
   const asOf = conn?.usage?.length ? `\nUsage as of ${formatReset(Math.max(...conn.usage.map((w) => w.at)))}.` : '';
   return (
-    <button className={`conn-chip ${state}`} onClick={() => check(true)} disabled={checking}
-      title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'}${windows || asOf ? `${windows}${asOf}\n` : ' '}Click to check again.`}>
+    <button className={`conn-chip ${state}`} onClick={onOpen}
+      title={`${conn ? `${VIA_LABEL[conn.via]}: ${conn.detail}` : 'Checking the connection…'}${windows || asOf ? `${windows}${asOf}\n` : ' '}Click for Settings.`}>
       {/* A phone shows the dot, the percentage and its limit (the rest is in the tooltip). */}
       <span className="conn-dot" /> <span className="conn-via">{conn ? VIA_LABEL[conn.via] : 'Checking…'}{extra && ' · '}</span>{extra && <span className="conn-extra">{extra}</span>}{which}
     </button>

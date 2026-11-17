@@ -28,15 +28,83 @@ interface Props {
   onCancel?: () => void;
 }
 
-/** The printer and filament choice as a dialog. */
-export function PrinterDialog({ info, onSave, onCancel }: Props) {
-  const first = !onCancel;
+interface FormProps {
+  info: PrinterInfo;
+  /** Called with the choice after every change by the user (null while no printer fits the choice). */
+  onChange: (s: PrinterSetup | null) => void;
+  autoFocus?: boolean;
+}
+
+/** The printer, nozzle and filament choice with what it means: used by the dialog and the Settings tab. */
+export function PrinterForm({ info, onChange, autoFocus }: FormProps) {
   const { models, mine } = useMemo(() => groupPrinters(info.printers), [info.printers]);
   const current = info.printers.find((p) => p.id === info.printer.id) ?? info.printers[0];
   // The model choice is a model name, or "mine:<id>" for one of the user's presets.
   const [model, setModel] = useState(current?.custom ? `mine:${current.id}` : current?.model ?? '');
   const [nozzle, setNozzle] = useState(current?.nozzle ?? 0.4);
   const [filaments, setFilaments] = useState(info.printer.filaments);
+
+  // A model without the nozzle picked before gets its 0.4 (or its first).
+  const pick = (m: string, n: number): Printer | undefined => {
+    if (m.startsWith('mine:')) return mine.find((p) => `mine:${p.id}` === m);
+    const list = models.find((x) => x.model === m)?.list ?? [];
+    return list.find((p) => p.nozzle === n) ?? list.find((p) => p.nozzle === 0.4) ?? list[0];
+  };
+  const chosen = pick(model, nozzle);
+  const nozzles = models.find((m) => m.model === model)?.list ?? [];
+  const report = (m: string, n: number, f: number) => { const c = pick(m, n); onChange(c ? { printerId: c.id, filaments: f } : null); };
+
+  return (
+    <>
+      <div className="printer-fields">
+        <label>
+          <span>Printer</span>
+          <select aria-label="Printer" value={model} onChange={(e) => { setModel(e.target.value); report(e.target.value, nozzle, filaments); }} autoFocus={autoFocus}>
+            <optgroup label="Bambu Lab">
+              {models.map((m) => <option key={m.model} value={m.model}>{m.model}</option>)}
+            </optgroup>
+            {mine.length > 0 && (
+              <optgroup label="Your Bambu Studio presets">
+                {mine.map((p) => <option key={p.id} value={`mine:${p.id}`}>{p.name}</option>)}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        {!model.startsWith('mine:') && (
+          <label>
+            <span>Nozzle</span>
+            <select aria-label="Nozzle" value={chosen?.nozzle ?? 0.4} onChange={(e) => { setNozzle(Number(e.target.value)); report(model, Number(e.target.value), filaments); }} disabled={nozzles.length < 2}>
+              {nozzles.map((p) => <option key={p.id} value={p.nozzle}>{p.nozzle} mm</option>)}
+            </select>
+          </label>
+        )}
+        <label>
+          <span>Filaments it loads at once</span>
+          <select aria-label="Filaments it loads at once" value={filaments} onChange={(e) => { setFilaments(Number(e.target.value)); report(model, nozzle, Number(e.target.value)); }}>
+            {Array.from({ length: MAX_FILAMENTS }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{filamentsLabel(n)}</option>)}
+          </select>
+        </label>
+      </div>
+      {chosen && (
+        <p className="dim small printer-summary">
+          {chosen.bed[0]} × {chosen.bed[1]} × {chosen.height} mm, {chosen.nozzle} mm nozzle, {chosen.structure === 'bedslinger' ? 'bed-slinger' : 'CoreXY'}
+          {chosen.extruders > 1 && <><br />Two nozzles: no Bambu Studio project for it yet, so it exports a plain 3MF (no print settings or cost).</>}
+          {!chosen.presets && <><br />Bambu Studio isn't installed here, so there is no Bambu Studio project or cost.</>}
+        </p>
+      )}
+      {mine.length === 0 && (
+        <p className="dim small">Your own printer presets from Bambu Studio show up here too. In Docker, mount Bambu Studio's user folder first (see docker-compose.yml).</p>
+      )}
+    </>
+  );
+}
+
+/** The printer and filament choice as a dialog. */
+export function PrinterDialog({ info, onSave, onCancel }: Props) {
+  const first = !onCancel;
+  const current = info.printers.find((p) => p.id === info.printer.id) ?? info.printers[0];
+  // What the form last reported; until the user changes something it is what is already chosen.
+  const [setup, setSetup] = useState<PrinterSetup | null>(current ? { printerId: current.id, filaments: info.printer.filaments } : null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEscape(!first, () => onCancel?.());
@@ -45,18 +113,12 @@ export function PrinterDialog({ info, onSave, onCancel }: Props) {
     return () => before?.focus();
   }, []);
 
-  const nozzles = models.find((m) => m.model === model)?.list ?? [];
-  // A model without the nozzle picked before gets its 0.4 (or its first).
-  const chosen: Printer | undefined = model.startsWith('mine:')
-    ? mine.find((p) => `mine:${p.id}` === model)
-    : nozzles.find((p) => p.nozzle === nozzle) ?? nozzles.find((p) => p.nozzle === 0.4) ?? nozzles[0];
-
   const save = async () => {
-    if (!chosen) return;
+    if (!setup) return;
     setSaving(true);
     setError(null);
     try {
-      await onSave({ printerId: chosen.id, filaments });
+      await onSave(setup);
     } catch (e) {
       setError((e as Error).message);
       setSaving(false);
@@ -70,49 +132,11 @@ export function PrinterDialog({ info, onSave, onCancel }: Props) {
         <p>{first
           ? 'Designs are made for it: what fits its bed, which details its nozzle can print, and the Bambu Studio project it exports. You can change it later in the Print tab.'
           : 'Every design follows it: the plate, the checks, the AI\'s instructions and the Bambu Studio project.'}</p>
-        <div className="printer-fields">
-          <label>
-            <span>Printer</span>
-            <select aria-label="Printer" value={model} onChange={(e) => setModel(e.target.value)} autoFocus>
-              <optgroup label="Bambu Lab">
-                {models.map((m) => <option key={m.model} value={m.model}>{m.model}</option>)}
-              </optgroup>
-              {mine.length > 0 && (
-                <optgroup label="Your Bambu Studio presets">
-                  {mine.map((p) => <option key={p.id} value={`mine:${p.id}`}>{p.name}</option>)}
-                </optgroup>
-              )}
-            </select>
-          </label>
-          {!model.startsWith('mine:') && (
-            <label>
-              <span>Nozzle</span>
-              <select aria-label="Nozzle" value={chosen?.nozzle ?? 0.4} onChange={(e) => setNozzle(Number(e.target.value))} disabled={nozzles.length < 2}>
-                {nozzles.map((p) => <option key={p.id} value={p.nozzle}>{p.nozzle} mm</option>)}
-              </select>
-            </label>
-          )}
-          <label>
-            <span>Filaments it loads at once</span>
-            <select aria-label="Filaments it loads at once" value={filaments} onChange={(e) => setFilaments(Number(e.target.value))}>
-              {Array.from({ length: MAX_FILAMENTS }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{filamentsLabel(n)}</option>)}
-            </select>
-          </label>
-        </div>
-        {chosen && (
-          <p className="dim small printer-summary">
-            {chosen.bed[0]} × {chosen.bed[1]} × {chosen.height} mm, {chosen.nozzle} mm nozzle, {chosen.structure === 'bedslinger' ? 'bed-slinger' : 'CoreXY'}
-            {chosen.extruders > 1 && <><br />Two nozzles: no Bambu Studio project for it yet, so it exports a plain 3MF (no print settings or cost).</>}
-            {!chosen.presets && <><br />Bambu Studio isn't installed here, so there is no Bambu Studio project or cost.</>}
-          </p>
-        )}
-        {mine.length === 0 && (
-          <p className="dim small">Your own printer presets from Bambu Studio show up here too. In Docker, mount Bambu Studio's user folder first (see docker-compose.yml).</p>
-        )}
+        <PrinterForm info={info} onChange={setSetup} autoFocus />
         {error && <p className="small warn-note" role="alert">{error}</p>}
         <div className="modal-actions">
           {onCancel && <button className="btn ghost" onClick={onCancel}>Cancel</button>}
-          <button className="btn primary" disabled={!chosen || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</button>
+          <button className="btn primary" disabled={!setup || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
     </div>

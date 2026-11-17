@@ -751,6 +751,18 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .modal h3 { margin: 0 0 8px; font-size: 15px; }
 .modal p { margin: 0 0 16px; color: var(--text-2); }
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+/* Settings: a wider dialog with a tab row that scrolls sideways when it doesn't fit. */
+.settings-dialog { width: min(640px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+.settings-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; flex-shrink: 0; }
+.settings-tabs button { flex: 0 0 auto; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--text-3); font-weight: 500; white-space: nowrap; }
+.settings-tabs button:hover { color: var(--text-2); }
+.settings-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.settings-tabs button:focus-visible { outline-offset: -2px; }
+.settings-panel { min-height: 240px; overflow-y: auto; flex: 1 1 auto; margin-bottom: 14px; }
+.settings-panel p { margin: 0 0 12px; }
+.settings-panel .printer-summary { margin: -2px 0 12px; }
+.settings-panel p.settings-saved { min-height: 1.4em; margin: 0; }
+.settings-panel p.settings-saved.warn-note { color: #f2c66d; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 

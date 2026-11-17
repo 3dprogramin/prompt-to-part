@@ -25,6 +25,8 @@ import { TopBar } from './components/TopBar';
 import { LayoutTabs } from './components/LayoutTabs';
 import { RestoreDialog } from './components/RestoreDialog';
 import { PrinterDialog } from './components/PrinterPicker';
+import { SettingsDialog } from './components/settings/SettingsDialog';
+import type { SettingsTab } from './components/settings/settingsTabs';
 import { LineArtEditor } from './components/LineArtEditor';
 import { ArtworkEditor } from './components/ArtworkEditor';
 import { PictureEditor } from './components/picture/PictureEditor';
@@ -185,6 +187,8 @@ export default function App() {
       setPrintBase((b: Required<PrintSettings>) => (b === A1_DEFAULTS ? printDefaultsFor(info.printer) : b));
     }).catch(() => {});
   }, []);
+  // The Settings dialog: open or not, and the tab it was asked to open on (none: the one used last).
+  const [settings, setSettings] = useState<{ tab?: SettingsTab } | null>(null);
   const onPrinter = async (s: PrinterSetup) => {
     const info = await api.setPrinter(s);
     applyPrinter(info);
@@ -764,6 +768,7 @@ export default function App() {
     <div className={`app layout-${layout}`}>
       <TopBar
         compact={layout === 'phone'}
+        onSettings={(tab) => setSettings({ tab })}
         design={design}
         kind={kind}
         onRename={(name) => setDesign((d) => ({ ...d, name }))}
@@ -1060,6 +1065,7 @@ export default function App() {
         />
       )}
       {printerInfo?.firstStart && <PrinterDialog info={printerInfo} onSave={onPrinter} />}
+      {settings && !printerInfo?.firstStart && <SettingsDialog tab={settings.tab} printerInfo={printerInfo} onPrinter={onPrinter} onClose={() => setSettings(null)} />}
       {pendingRestore != null && (
         <RestoreDialog
           target={pendingRestore}
