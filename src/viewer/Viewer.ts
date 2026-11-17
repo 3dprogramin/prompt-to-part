@@ -4,6 +4,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, MeshBVH, type SerializedBVH } from 'three-mesh-bvh';
+import { pickHits } from './pickHits';
 import type { DimTarget, DimensionAnnotation, EvalResult, PaintSource, PartMesh, Vec3 } from '../../shared/types';
 import { scaleRefLayout, type TrueScale } from '../../shared/photos';
 import { buildGrid, buildPlate, updatePlate } from './stage';
@@ -708,11 +709,7 @@ export class Viewer {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    (this.raycaster as THREE.Raycaster & { firstHitOnly?: boolean }).firstHitOnly = true;
-    const visible = this.meshes.filter((m) => m.parent?.visible);
-    let hits = this.raycaster.intersectObjects(visible, false);
-    if (this.opts.section.enabled) hits = hits.filter((h) => this.clipPlane.distanceToPoint(h.point) >= 0);
-    const hit = hits[0];
+    const hit = pickHits(this.raycaster, this.meshes.filter((m) => m.parent?.visible), this.opts.section.enabled ? this.clipPlane : null)[0];
     if (!hit || !hit.face) return null;
     // Snap to the nearest triangle vertex within 12 px.
     const pos = (hit.object as THREE.Mesh).geometry.getAttribute('position');
@@ -809,10 +806,7 @@ export class Viewer {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    (this.raycaster as THREE.Raycaster & { firstHitOnly?: boolean }).firstHitOnly = true;
-    let hits = this.raycaster.intersectObjects(this.meshes.filter((m) => m.parent?.visible), false);
-    if (this.opts.section.enabled) hits = hits.filter((h) => this.clipPlane.distanceToPoint(h.point) >= 0);
-    const hit = hits[0];
+    const hit = pickHits(this.raycaster, this.meshes.filter((m) => m.parent?.visible), this.opts.section.enabled ? this.clipPlane : null)[0];
     if (!hit?.face) return null;
     const src = this.result.parts[hit.object.userData.index as number]?.paint?.source;
     const idx = src && hit.object.userData.painted ? src.meshes.indexOf(this.repaint.mesh) : -1;
