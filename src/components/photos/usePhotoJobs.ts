@@ -6,7 +6,7 @@ import type { PhotoRequest, ShopShot } from '../../../shared/photos';
 import { api } from '../../lib/api';
 import { uid } from '../../lib/files';
 import { lookOf } from './photoHelpers';
-import { fromFirstPhoto, lacksFirstPhoto } from './sizeJobs';
+import { fromFirstPhoto, lacksFirstPhoto, planSizes } from './sizeJobs';
 
 /** A photo being made (or waiting its turn, or that failed), per design. */
 export interface PhotoJob {
@@ -86,7 +86,7 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
   // its scene, a few at a time; a size whose first photo failed waits for that one to be tried again.
   const startSizes = (designId: string, groups: SizeGroup[], more: Partial<PhotoJob> = {}) => {
     const set = { id: uid(), size: groups.reduce((n, g) => n + g.variants.length + ('request' in g.base ? 1 : 0), 0) };
-    const all: PhotoJob[] = [], ready: PhotoJob[] = [];
+    const { all, ready, later } = planSizes(groups, (r, camera) => ({ ...newJob(designId, r, set, { ...more, camera, sizes: true }), waiting: true }));
     const then = new Map<string, (url: string | null) => void>();
     let active = 0;
     const pump = () => {
@@ -98,22 +98,15 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
         void run({ ...job, startedAt }).then((url) => { active--; then.get(job.id)?.(url); pump(); });
       }
     };
-    for (const g of groups) {
-      const variants = g.variants.map((r) => ({ ...newJob(designId, r, set, { ...more, camera: g.camera, sizes: true }), waiting: true }));
-      const release = (url: string | null, baseId?: string) => {
+    for (const { first, variants } of later) {
+      then.set(first.id, (url) => {
         for (const v of variants) {
-          if (!url) { patch(v.id, { waiting: false, error: 'Its first photo failed: try that one again', after: baseId }); continue; }
+          if (!url) { patch(v.id, { waiting: false, error: 'Its first photo failed: try that one again', after: first.id }); continue; }
           const job = fromFirstPhoto(v, url);
           patch(v.id, { request: job.request });
           ready.push(job);
         }
-      };
-      // Already made: the sizes start with its photo (they are not in the list yet for a patch to reach).
-      if ('url' in g.base) { const made = variants.map((v) => fromFirstPhoto(v, (g.base as { url: string }).url)); all.push(...made); ready.push(...made); continue; }
-      const first = { ...newJob(designId, g.base.request, set, { ...more, camera: g.camera, sizes: true }), waiting: true };
-      all.push(first, ...variants);
-      ready.push(first);
-      then.set(first.id, (url) => release(url, first.id));
+      });
     }
     setJobs((j) => [...j, ...all]);
     pump();
