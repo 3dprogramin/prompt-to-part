@@ -32,8 +32,9 @@ process.env.PTP_AUTH = 'subscription';
 process.env.PTP_CLAUDE = ''; // the mode set here, whatever PTP_CLAUDE the shell or .env names
 delete process.env.PTP_DOCKER;
 // The Settings test types its own Meshy key and expects the provider address locked: nothing of this
-// computer's environment may decide that.
-for (const name of ['PTP_PASSWORD', 'MESHY_API_KEY', 'ANTHROPIC_BASE_URL']) delete process.env[name];
+// computer's environment may decide that. Set but empty, so the .env next to package.json (which only
+// fills variables that are not set) cannot bring them back.
+for (const name of ['PTP_PASSWORD', 'MESHY_API_KEY', 'ANTHROPIC_BASE_URL']) process.env[name] = '';
 // No presets of this computer's Bambu Studio user in the printer list.
 process.env.BAMBU_STUDIO_USER_DIR = path.join(dataDir, 'no-bambu-user');
 const shots = process.env.PTP_UI_SHOTS ?? path.join(os.tmpdir(), 'ptp-ui-shots');
@@ -44,7 +45,8 @@ const port = (server.address() as { port: number }).port;
 const { createApp } = await import('../../server/app');
 // Stand-ins for Claude and for the connection check (the real one would start Claude Code with this
 // computer's login to read the subscription's usage).
-const connection = async () => ({ via: 'subscription' as const, ok: true, detail: 'Stand-in for the smoke test.',
+const connectionAsks: boolean[] = []; // every connection check the page asked for: true when it asked for a fresh one
+const connection = async (fresh = false) => (connectionAsks.push(fresh), { via: 'subscription' as const, ok: true, detail: 'Stand-in for the smoke test.',
   usage: [{ kind: 'five_hour', label: '5-hour', percent: 62, resetsAt: Date.now() + 3600_000, limited: false, at: Date.now() }] });
 // The browser's connections, to drop them as a phone locking its screen would.
 const sockets = new Set<Socket>();
@@ -95,7 +97,7 @@ const image = async (prompt: string, aspect: string, references: string[] | unde
   const [, mediaType, data] = /^data:([^;]+);base64,(.+)$/s.exec(references![0])!;
   return { image: { data, mediaType }, model: 'test/image', cost: 0.1 };
 };
-server.on('request', createApp({ port, connection, image, ideas: async () => '[{"text":"A test idea for the smoke test","mode":"lithophane"}]', generate: async (req, send, abort) => {
+server.on('request', createApp({ port, password: '', connection, image, ideas: async () => '[{"text":"A test idea for the smoke test","mode":"lithophane"}]', generate: async (req, send, abort) => {
   if (req.prompt === chatEdit.prompt) return chatEdit.reply(req, send);
   if (req.prompt !== 'a slow cube') throw new Error('the smoke test never generates');
   send({ type: 'step', step: { kind: 'status', text: 'Measuring the slow cube' } });
@@ -2069,6 +2071,7 @@ test('Settings: the gear opens the dialog, the chip opens Keys and services, a k
     assert.equal(await meshy().getByLabel('Meshy key', { exact: true }).inputValue(), KEY);
 
     // Save: masked, "set here", the full key nowhere in the page, a connection result line, the chip still alive.
+    const asksBeforeSave = connectionAsks.length;
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.getByText('Saved.', { exact: true }).waitFor();
     await settingsFooterInView(page, dialog, 'after a save');
@@ -2079,6 +2082,8 @@ test('Settings: the gear opens the dialog, the chip opens Keys and services, a k
     assert.match(row, /set here/);
     assert.ok(!(await page.content()).includes(KEY), 'the page does not hold the full key');
     assert.ok(!(await page.evaluate(() => document.body.innerText)).includes('0123456789ab'));
+    // Saving checks the connection afresh (the Keys tab) and the chip reads the answer again.
+    await until(async () => connectionAsks.slice(asksBeforeSave).includes(true) && connectionAsks.length >= asksBeforeSave + 2, 'a fresh connection check and the chip reading it again followed the save');
     const result = panel.locator('.keys-conn-result');
     await until(async () => /Claude subscription: /.test(await result.innerText()), 'the Keys tab shows a connection result');
     assert.match(await result.innerText(), /Stand-in for the smoke test\./);
