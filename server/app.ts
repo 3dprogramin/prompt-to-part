@@ -4,7 +4,7 @@ import path from 'node:path';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { runGeneration } from './agent';
-import { DATA_DIR, EXTRA_HOSTS, MAX_GENERATIONS, PASSWORD, PORT, PRODUCTION, ROOT } from './config';
+import { DATA_DIR, EXTRA_HOSTS, EXTRA_ORIGINS, MAX_GENERATIONS, PASSWORD, PORT, PRODUCTION, ROOT } from './config';
 import { HEALTH_PATH, requirePassword } from './auth';
 import { suggestPrice } from './pricing';
 import { writeScene } from './photoScene';
@@ -37,6 +37,8 @@ export interface AppOptions {
   port?: number;
   /** Names it answers to besides localhost and 127.0.0.1 (PTP_HOSTS). */
   hosts?: string[];
+  /** Public addresses behind an HTTPS reverse proxy, as origins (PTP_ORIGINS). */
+  origins?: string[];
   /** Runs a generation (tests pass a stand-in instead of Claude). */
   generate?: typeof runGeneration;
   /** Suggests a selling price (tests pass a stand-in instead of Claude). */
@@ -59,7 +61,7 @@ export interface AppOptions {
   maxGenerations?: number;
 }
 
-export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, models = openRouterModels, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
+export function createApp({ port = PORT, hosts = EXTRA_HOSTS, origins = EXTRA_ORIGINS, generate = runGeneration, suggest = suggestPrice, sceneWriter = writeScene, lookup = lookupFilament, ideas = writeIdeas, image = requestImage, connection = checkConnection, models = openRouterModels, password = PASSWORD, maxGenerations = MAX_GENERATIONS }: AppOptions = {}): express.Express {
   const app = express();
 
   // Nothing in the app frames itself, so no page may frame it (clickjacking), and the browser must
@@ -80,6 +82,15 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, generate = runGene
   // from the app's own page on with the API's origin and leaves every other origin as it is.
   const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', ...hosts].map((h) => `${h}:${port}`));
   const LOCAL_ORIGINS = new Set([...LOCAL_HOSTS].map((h) => `http://${h}`));
+  // Behind a reverse proxy the browser's Host and Origin are the public ones (https, no port): only
+  // the origins the operator lists are added, never anything read from a request.
+  for (const o of origins) {
+    let u: URL;
+    try { u = new URL(o); } catch { console.warn(`[prompt-to-part] PTP_ORIGINS: ignoring "${o}" (not an address)`); continue; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') { console.warn(`[prompt-to-part] PTP_ORIGINS: ignoring "${o}" (http or https only)`); continue; }
+    LOCAL_HOSTS.add(u.host);
+    LOCAL_ORIGINS.add(u.origin);
+  }
   app.use('/api', (req, res, next) => {
     if (!LOCAL_HOSTS.has(req.headers.host ?? '')) return void res.status(421).json({ error: 'Unexpected Host header' });
     const origin = req.headers.origin;

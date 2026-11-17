@@ -36,6 +36,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `PTP_BIND` | `127.0.0.1` | Docker Compose only: the address prompt-to-part is published on. `0.0.0.0` makes it reachable from your network (e.g. a phone): set `PTP_PASSWORD` too, and only on a network you trust |
 | `PTP_MEM_LIMIT` | `8g` | Docker Compose only: the container's memory limit |
 | `PTP_HOSTS` | none | More names prompt-to-part answers to besides `localhost` and `127.0.0.1`, comma-separated: this computer's address when it is reached from the network (with `PTP_BIND`). Requests naming any other host are refused |
+| `PTP_ORIGINS` | none | Public addresses prompt-to-part is reached on through an HTTPS reverse proxy, comma-separated, e.g. `https://ptp.example.com` (the proxy must pass the browser's `Host` header on unchanged). Without it a proxied page gets "Unexpected Host header" and refused writes. Set `PTP_PASSWORD` too. `X-Forwarded-*` headers are never trusted |
 | `CLAUDE_PATH` | bundled | Claude Code executable for the Agent SDK |
 | `BAMBU_STUDIO_PATH` | found on `PATH` or in the default install folder | Bambu Studio executable |
 | `BLENDER_PATH` | found on `PATH` or in the default install folder | Blender executable |

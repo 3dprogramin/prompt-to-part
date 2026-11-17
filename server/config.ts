@@ -19,6 +19,12 @@ export const HOST = process.env.PTP_HOST?.trim() || '127.0.0.1';
 /** More names the app answers to besides localhost (PTP_HOSTS, comma-separated), e.g. this computer's address on the network for a phone. */
 export const EXTRA_HOSTS = (process.env.PTP_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
 /**
+ * Public addresses the app is reached on through an HTTPS reverse proxy (PTP_ORIGINS, comma-separated,
+ * e.g. https://ptp.example.com). Only what the operator lists is trusted: the Host and Origin checks
+ * never read X-Forwarded-* headers, which any client can send.
+ */
+export const EXTRA_ORIGINS = (process.env.PTP_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+/**
  * The password the app asks for (HTTP Basic auth, any user name) on every page and API call, or '' for
  * none. Off by default (the app on this computer only); set PTP_PASSWORD when it is reachable from a network.
  */
