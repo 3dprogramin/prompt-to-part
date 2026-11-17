@@ -14,7 +14,9 @@ export function addSteeredPhotos(references: string[], urls: string[]): void {
 /** At most `max` of `list` (taken from `references`, in order): the mid-reply pictures first kept, the rest filled from the start. */
 export function cutPhotos(references: string[], list: string[], max: number): string[] {
   if (list.length <= max) return list;
-  const steered = new Set(references.slice(startCount.get(references) ?? references.length));
+  const start = startCount.get(references);
+  if (start === undefined) return list.slice(0, max); // nothing was sent mid-reply
+  const steered = new Set(references.slice(start));
   const mid = list.filter((p) => steered.has(p)).slice(-max);
   const rest = list.filter((p) => !steered.has(p)).slice(0, max - mid.length);
   return list.filter((p) => rest.includes(p) || mid.includes(p));
