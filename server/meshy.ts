@@ -6,6 +6,7 @@
 // texture gives the colours. The preview picture is only for the chat. The key
 // stays on the server. MESHY_BASE_URL points it at the mock (`pnpm mock:meshy`, server/meshyMock.ts).
 
+import { createHash } from 'node:crypto';
 import type { MeshyBalance } from '../shared/api';
 
 export const MESHY_DEFAULT_BASE = 'https://api.meshy.ai/openapi';
@@ -223,7 +224,7 @@ export async function download(c: MeshyClient, url: string, signal?: AbortSignal
     throw new MeshyError(`Couldn't download from Meshy: ${(e as Error).message}`);
   }
   if (!r.ok) throw new MeshyError(`Downloading from Meshy failed (HTTP ${r.status})`, r.status);
-  const tooBig = () => new MeshyError('The model Meshy made is too big to download');
+  const tooBig = () => new MeshyError('The model Meshy made is too big to download', undefined, 'too_big');
   if (Number(r.headers.get('content-length')) > MAX_DOWNLOAD) {
     void r.body?.cancel().catch(() => undefined);
     throw tooBig();
@@ -261,6 +262,57 @@ export function meshyPrompt(subject: string): string {
   return subject.trim().slice(0, MAX_MESHY_PROMPT - extra.length) + extra;
 }
 
+/** Tries at downloading a finished model, and the waits between them (seconds). */
+const DOWNLOAD_WAITS = [2, 5];
+
+/** The model's download, tried again after a network error, a 5xx or a 429: the task is paid for. */
+async function downloadModel(c: MeshyClient, url: string, signal?: AbortSignal) {
+  for (let i = 0; ; i++) {
+    try {
+      return await download(c, url, signal);
+    } catch (e) {
+      const transient = e instanceof MeshyError && !e.code && (!e.status || e.status >= 500 || e.status === 429);
+      if (signal?.aborted || !transient || i >= DOWNLOAD_WAITS.length) throw e;
+      await (c.sleep ?? defaultSleep)(DOWNLOAD_WAITS[i] * 1000, signal);
+    }
+  }
+}
+
+/**
+ * Finished (paid) tasks whose model hasn't been stored yet, by request (meshyRequestKey): a later
+ * generate_3d for the same request fetches the model again instead of paying for a new one. Kept in
+ * memory for KEEP_MS (Meshy keeps the task and signs fresh links on each look), lost on a restart.
+ */
+const kept = new Map<string, { kind: MeshyKind; id: string; at: number }>();
+const KEEP_MS = 24 * 3600_000;
+const MAX_KEPT = 100;
+
+/** The key a request's finished task is kept under: the account, the design and exactly what Meshy is sent. */
+export function meshyRequestKey(c: MeshyClient, designId: string, input: MeshyInput, color: boolean): string {
+  const sent = 'prompt' in input ? { prompt: meshyPrompt(input.prompt) } : { image: input.image, texture: input.texture ?? null };
+  return createHash('sha256').update(JSON.stringify([c.baseUrl, c.key, designId, sent, color])).digest('hex');
+}
+
+/** The task kept under `key`, while it is fresh. */
+export function keptMeshyTask(key: string) {
+  const k = kept.get(key);
+  if (k && Date.now() - k.at > KEEP_MS) kept.delete(key);
+  return kept.get(key);
+}
+
+/** The model was stored: a new request for the same thing makes a new model. */
+export function forgetMeshyTask(key: string) { kept.delete(key); }
+
+function keepTask(key: string, kind: MeshyKind, id: string) {
+  for (const [k, v] of kept) if (Date.now() - v.at > KEEP_MS) kept.delete(k);
+  kept.delete(key);
+  kept.set(key, { kind, id, at: Date.now() });
+  // A Map iterates in insertion order: the first is the oldest.
+  while (kept.size > MAX_KEPT) kept.delete(kept.keys().next().value!);
+}
+
+export type MeshyInput = { prompt: string } | { image: string | string[]; label?: string; texture?: string };
+
 export interface MeshyResult {
   /** The task the model came from (a coloured Text to 3D model's refine task). */
   task: MeshyTask;
@@ -271,35 +323,57 @@ export interface MeshyResult {
   picture?: { bytes: Uint8Array; ext: 'png' | 'jpg' | 'webp' };
   /** What was sent: the description, or which picture it was. */
   prompt: string;
+  /** The model came from a task kept from an earlier call (no new credits). */
+  reused?: boolean;
 }
 
 /**
  * A whole Meshy model: start the task, wait for it, download the model and its preview picture. In
  * colour, a model from a description is painted by a refine task after its preview, and one from a
  * picture is painted from `texture` when given (texture_image_url); `onProgress` says which stage it is in.
+ * With `keep` (meshyRequestKey), the finished task is kept under it until forgetMeshyTask, and a call
+ * that finds one kept fetches its model again instead of making a new one.
  */
-export async function generateMeshyModel(c: MeshyClient, input: { prompt: string } | { image: string | string[]; label?: string; texture?: string }, opts: {
-  signal?: AbortSignal; onProgress?: (t: MeshyTask, stage: 'model' | 'texture') => void; onStarted?: (id: string) => void; timeoutMs?: number; color?: boolean;
+export async function generateMeshyModel(c: MeshyClient, input: MeshyInput, opts: {
+  signal?: AbortSignal; onProgress?: (t: MeshyTask, stage: 'model' | 'texture') => void; onStarted?: (id: string) => void; timeoutMs?: number; color?: boolean; keep?: string;
 } = {}): Promise<MeshyResult> {
   const kind: MeshyKind = 'prompt' in input ? 'text-to-3d' : imageKind(input.image);
   const views = 'image' in input && Array.isArray(input.image) ? Math.min(input.image.length, MAX_MESHY_VIEWS) : 1;
   const prompt = 'prompt' in input ? meshyPrompt(input.prompt) : input.label ?? (views > 1 ? `From the ${views} attached photos (views of one subject)` : 'From the attached photo');
-  const id = 'prompt' in input ? await createTextTo3d(c, prompt, opts.signal) : await createImageTo3d(c, input.image, opts.signal, !!opts.color, input.texture);
-  opts.onStarted?.(id);
-  const stage = (s: 'model' | 'texture') => ({ ...opts, onProgress: opts.onProgress && ((t: MeshyTask) => opts.onProgress!(t, s)) });
-  let task = await waitForTask(c, kind, id, stage('model'));
-  let credits = task.consumed_credits ?? 0;
-  if (opts.color && kind === 'text-to-3d') {
-    const refine = await createTextRefine(c, id, opts.signal);
-    opts.onStarted?.(refine);
-    task = await waitForTask(c, kind, refine, stage('texture'));
-    credits += task.consumed_credits ?? 0;
+  let task: MeshyTask | undefined;
+  let credits = 0;
+  const old = opts.keep ? keptMeshyTask(opts.keep) : undefined;
+  if (old) {
+    try {
+      const { task: t } = await getTask(c, old.kind, old.id, opts.signal);
+      if (t.status === 'SUCCEEDED') task = t;
+    } catch (e) {
+      // Gone (a 4xx): make a new one. Meshy unreachable: the call fails and the task stays kept.
+      if (opts.signal?.aborted || !(e instanceof MeshyError) || !e.status || e.status >= 500 || e.status === 429) throw e;
+    }
+    if (!task) forgetMeshyTask(opts.keep!);
+  }
+  const reused = !!task;
+  if (!task) {
+    const id = 'prompt' in input ? await createTextTo3d(c, prompt, opts.signal) : await createImageTo3d(c, input.image, opts.signal, !!opts.color, input.texture);
+    opts.onStarted?.(id);
+    const stage = (s: 'model' | 'texture') => ({ ...opts, onProgress: opts.onProgress && ((t: MeshyTask) => opts.onProgress!(t, s)) });
+    task = await waitForTask(c, kind, id, stage('model'));
+    credits = task.consumed_credits ?? 0;
+    if (opts.color && kind === 'text-to-3d') {
+      const refine = await createTextRefine(c, id, opts.signal);
+      opts.onStarted?.(refine);
+      task = await waitForTask(c, kind, refine, stage('texture'));
+      credits += task.consumed_credits ?? 0;
+    }
+    task.id ??= id;
+    if (opts.keep) keepTask(opts.keep, kind, task.id);
   }
   const urls = task.model_urls ?? {};
   // Missing formats may come as "" as well as absent.
   const fmt = (['glb', 'stl', 'obj'] as const).find((f) => urls[f]);
   if (!fmt) throw new MeshyError('Meshy finished but returned no GLB, STL or OBJ model');
-  const model = await download(c, urls[fmt], opts.signal);
+  const model = await downloadModel(c, urls[fmt], opts.signal);
   let picture: MeshyResult['picture'];
   if (task.thumbnail_url) {
     try {
@@ -311,5 +385,5 @@ export async function generateMeshyModel(c: MeshyClient, input: { prompt: string
       if (opts.signal?.aborted) throw e; // the picture is optional
     }
   }
-  return { task, credits, model: { bytes: model.bytes, filename: `meshy-${task.id ?? id}.${fmt}` }, picture, prompt };
+  return { task, credits, model: { bytes: model.bytes, filename: `meshy-${task.id}.${fmt}` }, picture, prompt, ...(reused ? { reused } : {}) };
 }

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { geometry } from '../geometry';
 import { ASPECTS, conceptPrompt, imageModel, paintPrompt } from '../artwork';
 import { CONCEPT_URL, CONCEPTS_KEY, MESHES_KEY, parseConcepts, parseMeshes, withConcept } from '../../shared/meshes';
-import { forgetBalance, generateMeshyModel, MAX_MESHY_VIEWS, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply } from '../meshy';
+import { forgetBalance, forgetMeshyTask, generateMeshyModel, keptMeshyTask, MAX_MESHY_VIEWS, MESHY_CREDITS_PER_COLOR_MODEL, MESHY_CREDITS_PER_MODEL, meshyCredits, meshyMaxPerReply, meshyRequestKey, type MeshyInput } from '../meshy';
 import { readMyFilaments } from '../myFilaments';
 import { filamentLabel, matchFilaments, MAX_MESH_COLORS, meshColorBudget } from '../../shared/meshColors';
 import { describeImport, meshDir, storeConceptPicture, storeMesh } from '../meshes';
@@ -153,14 +153,17 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
         }
       }
       const how = concept ? `from concept "${a.from_concept}"` : a.from_photo ? (views.length > 1 ? `from ${views.length} photos` : 'from the photo') : 'from the description';
-      emit({ type: 'step', step: { kind: 'status', text: `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
+      const input: MeshyInput = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: views } : { prompt: a.prompt! };
+      // A finished model is kept under this until it is stored: asking again for the same costs nothing.
+      const keep = meshyRequestKey(meshy.client, meshy.designId, input, color);
+      emit({ type: 'step', step: { kind: 'status', text: keptMeshyTask(keep) ? `Meshy: fetching "${a.name}" again, made earlier (no new credits)…` : `Meshy: making "${a.name}" ${how}${color ? ' in colour' : ''} (${cost} credits)…` } });
       let shown = -1;
       let status = '';
-      const input = concept ? { image: image!, texture, label: `From concept picture "${a.from_concept}": ${concept.subject}` } : a.from_photo ? { image: views } : { prompt: a.prompt! };
       try {
         const r = await generateMeshyModel(meshy.client, input, {
           signal: meshy.signal,
           color,
+          keep,
           onStarted: (id) => { started = true; emit({ type: 'step', step: { kind: 'status', verbose: true, text: `Meshy task ${id}` } }); },
           onProgress: (t, stage) => {
             const p = Math.round(t.progress ?? 0);
@@ -182,13 +185,14 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
           : await geometry.importMesh(r.model.bytes, r.model.filename);
         const entry = await storeMesh(meshy.designId, imported, r.model, { source: 'meshy', prompt: r.prompt, picture: r.picture });
         if (!entry) throw new Error('The design was deleted');
+        forgetMeshyTask(keep);
         base[MESHES_KEY] = JSON.stringify({ ...parseMeshes(base[MESHES_KEY]), [a.name]: entry });
         emit({ type: 'mesh', name: a.name, entry });
         const report = describeImport(a.name, entry, imported.report) + (color && !entry.palette ? '\nMeshy sent it without colours: it prints in one colour (the part\'s).' : '');
         const picture = r.picture ? `data:image/${r.picture.ext === 'jpg' ? 'jpeg' : r.picture.ext};base64,${Buffer.from(r.picture.bytes).toString('base64')}` : `data:image/png;base64,${imported.png}`;
         emit({ type: 'step', step: {
           kind: 'render', ok: true, image: picture, detailOpen: true,
-          text: `${color ? 'Coloured 3D model' : '3D model'} "${a.name}" from Meshy${r.credits ? ` · ${r.credits} credits` : ''}`,
+          text: `${color ? 'Coloured 3D model' : '3D model'} "${a.name}" from Meshy${r.reused ? ' · made earlier, no new credits' : r.credits ? ` · ${r.credits} credits` : ''}`,
           detail: `${'prompt' in input ? 'Prompt sent to Meshy (text to 3D)' : `Sent to Meshy (${views.length > 1 ? `multi-image to 3D, ${views.length} views` : 'image to 3D'}${texture ? ': the shape picture, painted from the colours picture' : ''})`}:\n\n${r.prompt}\n\n${report}`,
         } });
         return {
@@ -198,13 +202,15 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
           ],
         };
       } catch (e) {
-        if (!started) state.meshyCalls--;
         if (meshy.signal?.aborted) throw e;
         emit({ type: 'step', step: { kind: 'tool', ok: false, text: `Meshy: ${(e as Error).message}` } });
-        return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+        const paid = keptMeshyTask(keep) ? ' The model Meshy made is paid for and kept: generate_3d again with the same arguments fetches it, with no new credits and no new task.' : '';
+        return { content: [{ type: 'text', text: `${(e as Error).message}${paid}` }], isError: true };
       } finally {
+        // No new task (it failed before one started, or a kept one was fetched): the slot is given back.
+        if (!started) state.meshyCalls--;
         // The credits changed: the next balance asks Meshy.
-        if (started) forgetBalance();
+        else forgetBalance();
       }
     }),
   ];

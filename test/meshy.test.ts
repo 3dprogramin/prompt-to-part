@@ -161,6 +161,41 @@ test('in colour: image to 3D textured, text to 3D refined after its preview, 35 
   assert.equal(grey.credits, MESHY_CREDITS_PER_MODEL);
 });
 
+test('a paid model is not lost to a failed download: it is tried again, then kept for a later call', async () => {
+  const mock = createMeshyMock({ pendingMs: 200, runMs: 600, now });
+  await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
+  after(() => mock.close());
+  const url = `http://127.0.0.1:${(mock.address() as AddressInfo).port}/openapi`;
+  // Model downloads fail while `failing` is above 0 (a 503, then a dropped connection); everything else goes through.
+  let failing = 0;
+  const flaky: MeshyClient = { ...client, baseUrl: url, fetch: async (u, init) => {
+    if (/\/model\.(glb|stl|obj)\b/.test(String(u)) && failing > 0) {
+      failing--;
+      if (failing % 2) return new Response('busy', { status: 503 });
+      throw new TypeError('fetch failed');
+    }
+    return fetch(u, init);
+  } };
+  // Two failed tries, the third comes: one task, one charge.
+  failing = 2;
+  const r = await generateMeshyModel(flaky, { prompt: 'a red fox sitting' }, { keep: 'design-1 fox' });
+  assert.match(r.model.filename, /\.glb$/);
+  assert.equal(mock.created.length, 1);
+  // Every try fails: the call fails, but the finished task is kept under its key...
+  failing = 100;
+  await assert.rejects(generateMeshyModel(flaky, { prompt: 'a grey wolf' }, { keep: 'design-1 wolf' }), (e) => e instanceof MeshyError);
+  assert.equal(mock.created.length, 2);
+  const paid = await balance(url);
+  // ...so the next call with the same key fetches it again instead of paying for a new one.
+  failing = 0;
+  const again = await generateMeshyModel(flaky, { prompt: 'a grey wolf' }, { keep: 'design-1 wolf' });
+  assert.equal(mock.created.length, 2);
+  assert.equal(await balance(url), paid);
+  assert.equal(again.reused, true);
+  assert.equal(again.credits, 0);
+  assert.match(again.model.filename, /\.glb$/);
+});
+
 test('a download is read as it comes and refused once it is larger than the limit', async () => {
   const MB = new Uint8Array(1024 * 1024);
   let pulled = 0;
