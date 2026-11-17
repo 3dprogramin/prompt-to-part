@@ -222,10 +222,14 @@ export class MeshMissingError extends Error {
   }
 }
 
-/** Loaded meshes by URL (content-addressed, so they never change). Kept small: meshes are big. */
+/**
+ * Loaded meshes by URL (content-addressed, so they never change). Kept small: meshes are big, but
+ * every mesh a design may hold (MAX_MESHES) has to fit: painting reads them all in one evaluation,
+ * and with fewer the loads would evict each other until the retries ran out.
+ */
 const loaded = new Map<string, MeshData>();
 const failed = new Map<string, string>();
-const MAX_LOADED = 8;
+const MAX_LOADED = MAX_MESHES;
 
 export function registerMesh(url: string, data: MeshData) {
   loaded.delete(url);

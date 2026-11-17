@@ -106,3 +106,11 @@ test('the concept picture index: checked, newest last, at most MAX_CONCEPTS, for
   assert.match(forked.painted!, /^\/api\/designs\/new-design-00000002\/meshes\/0{31}7\.webp$/);
   assert.equal(forked.color, true);
 });
+
+test('every mesh a design may hold stays loaded at once (a coloured design reads them all to paint)', async () => {
+  const { MAX_MESHES, registerMesh, getMeshData } = await import('../shared/meshes');
+  const data = { positions: new Float32Array(9), indices: new Uint32Array(3) };
+  const urls = Array.from({ length: MAX_MESHES }, (_, i) => `/api/designs/test-keep-0000/meshes/${i.toString(16).padStart(32, '0')}.bin`);
+  for (const u of urls) registerMesh(u, data);
+  for (const u of urls) assert.doesNotThrow(() => getMeshData(u), u);
+});
