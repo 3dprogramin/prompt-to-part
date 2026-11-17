@@ -678,7 +678,8 @@ export function LineArtEditor({ part, values, busy, error, onEdits, onClose, ori
   // Space pans, Shift draws straight. The editor is on top: the app's own keys wait (Escape closes it).
   // (Not in the filament picker, which has keys of its own.)
   useEffect(() => {
-    const typing = (t: EventTarget | null) => t instanceof Element && !!t.closest('textarea, [contenteditable], input:not([type="range"]), .layertone-picker');
+    // (Settings, opened over the editor from a filament picker, keeps its keys too.)
+    const typing = (t: EventTarget | null) => t instanceof Element && !!t.closest('textarea, [contenteditable], input:not([type="range"]), .layertone-picker, .settings-dialog');
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || typing(e.target)) return;
       e.stopPropagation();

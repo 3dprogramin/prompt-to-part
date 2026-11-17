@@ -7,6 +7,7 @@ import { saveMine, useMyFilaments } from '../lib/myFilaments';
 import { Icon } from './Icon';
 import { NumBox } from './NumBox';
 import { usePopover } from './usePopover';
+import { openSettings } from './settings/openSettings';
 
 const LINES = filamentLines();
 /** Tab labels: Bambu Lab's lines by their own name ("Matte"), other brands with theirs ("eSUN PLA+"). */
@@ -50,17 +51,16 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
   const [query, setQuery] = useState('');
   const [line, setLine] = useState('');
   const myFilaments = useMyFilaments();
-  const [editing, setEditing] = useState(false);
   const selected: Option | undefined = useMemo(() => (current ? myFilaments.find((f) => myFilamentKey(f) === myFilamentKey(current)) ?? libraryFilament(current) : undefined), [current, myFilaments]);
 
   // The grid: the search results, or the user's own and the common colours and every line (or the
-  // chosen one). The user's own are a list of their own while they are edited.
+  // chosen one).
   const groups = useMemo(() => {
-    const own = editing ? [] : myFilaments;
+    const own = myFilaments;
     if (query.trim()) return [{ key: 'found', label: undefined, filaments: [...(line ? [] : searchMyFilaments(own, query)), ...pickerFilaments(query, line || undefined)] as Option[] }];
     const lines = LINES.filter((l) => !line || l.key === line).map((l) => ({ key: l.key, label: l.key, filaments: l.filaments as Option[] }));
     return line ? lines : [...(own.length ? [{ key: 'mine', label: 'My filaments', filaments: own as Option[] }] : []), { key: 'common', label: 'Common', filaments: COMMON_FILAMENTS as Option[] }, ...lines];
-  }, [query, line, myFilaments, editing]);
+  }, [query, line, myFilaments]);
   const options = groups.flatMap((g) => g.filaments.map((f: Option) => ({ key: optionKey(g.key, f), f })));
   // The option the grid's one tab stop is on: the current filament, else the first.
   const [active, setActive] = useState<string | null>(null);
@@ -84,8 +84,8 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
     const a = anchor.getBoundingClientRect(), s = scroller.getBoundingClientRect(), h = el.offsetHeight + 4;
     const below = s.bottom - a.bottom, above = a.top - s.top;
     setUp(h > below && h <= above + scroller.scrollTop && above > below);
-  }, [myFilaments.length > 0, !!custom, editing]);
-  useEffect(() => { pop.current?.scrollIntoView({ block: 'nearest' }); }, [up, !!custom, editing, myFilaments.length > 0]);
+  }, [myFilaments.length > 0, !!custom]);
+  useEffect(() => { pop.current?.scrollIntoView({ block: 'nearest' }); }, [up, !!custom, myFilaments.length > 0]);
   // The current filament in view in the grid.
   useEffect(() => { grid.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, []);
 
@@ -180,8 +180,12 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
         ))}
         {!options.length && <div className="layertone-grid-empty dim small">No filament in the library matches: use a custom colour.</div>}
       </div>
-      {myFilaments.length > 0 && !query.trim() && !line && (
-        <MyFilamentsEdit list={myFilaments} editing={editing} onEditing={setEditing} onEdit={(f) => setCustom({ ...f, brand: f.brand ?? '', original: myFilamentKey(f) })} />
+      {!query.trim() && !line && (
+        // Settings has room to browse, search and count rolls; the popover closes as it opens, and the
+        // focus goes back to the control that opened the picker (where Settings returns it on close).
+        <button className="link layertone-mine-edit" onClick={() => { trigger.current?.focus(); onClose(); openSettings('filaments'); }}>
+          <Icon name="sliders" size={12} /> Edit my filaments in Settings
+        </button>
       )}
       <div className="layertone-pick-detail small" aria-hidden>
         {shown
@@ -196,11 +200,18 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
   );
 }
 
-/** A colour and name of the user's own, with a TD to type or look up (library, then the web). */
-function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
-  value: LayerToneFilament & { original?: string }; onChange: (f: LayerToneFilament & { original?: string }) => void; adding: boolean; onDone: (f: LayerToneFilament) => void;
+/**
+ * A colour and name of the user's own, with a TD to type or look up (library, then the web). In the
+ * picker it is used in a design ("Add" or "Use", `onDone`); Settings' Filaments tab only saves it.
+ */
+export function CustomFilament({ value, onChange, adding, onDone, mine: list, save: saveList = saveMine }: {
+  value: LayerToneFilament & { original?: string }; onChange: (f: LayerToneFilament & { original?: string }) => void; adding: boolean;
+  /** "Add" or "Use" it; without it the form has no such button. */
+  onDone?: (f: LayerToneFilament) => void;
   /** The user's saved filaments, which "Save as mine" adds to (or, editing one, changes). */
   mine: MyFilament[];
+  /** Saves the changed list (default saveMine). */
+  save?: (list: MyFilament[]) => Promise<void>;
 }) {
   const [lookup, setLookup] = useState<{ busy: boolean; result?: FilamentLookup; error?: string } | null>(null);
   const [saved, setSaved] = useState<{ busy?: boolean; ok?: boolean; error?: string } | null>(null);
@@ -228,7 +239,7 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
       // The roll count stays with the filament it belongs to (picker values never carry it).
       const rolls = (list[at] ?? list.find((m) => myFilamentKey(m) === key))?.rolls;
       const keep: MyFilament = rolls == null ? f : { ...f, rolls };
-      await saveMine(at < 0 ? [...rest, keep] : [...rest.slice(0, at), keep, ...rest.slice(at)]);
+      await saveList(at < 0 ? [...rest, keep] : [...rest.slice(0, at), keep, ...rest.slice(at)]);
       onChange({ ...latest.current, original: key });
       setSaved({ ok: true });
     } catch (e) {
@@ -259,56 +270,19 @@ function CustomFilament({ value, onChange, adding, onDone, mine: list }: {
         <button className="btn ghost" disabled={!name || saved?.busy} onClick={() => void save()} title="Keep it in My filaments, to pick in any design (suggestions prefer them too)">
           {saved?.ok ? <><Icon name="check" size={13} /> Saved</> : value.original ? 'Save changes' : 'Save as mine'}
         </button>
-        <span className="spacer" />
-        <button className="btn primary" disabled={!name} onClick={() => onDone({ ...latest.current, name, brand: latest.current.brand?.trim() || undefined })}>
-          {adding ? <><Icon name="plus" size={14} /> Add</> : 'Use'}
-        </button>
+        {onDone && <>
+          <span className="spacer" />
+          <button className="btn primary" disabled={!name} onClick={() => onDone({ ...latest.current, name, brand: latest.current.brand?.trim() || undefined })}>
+            {adding ? <><Icon name="plus" size={14} /> Add</> : 'Use'}
+          </button>
+        </>}
       </div>
     </div>
   );
 }
 
 /** Name, brand, colour and TD only. */
-const stackFields = (f: LayerToneFilament): LayerToneFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
-
-/** The user's saved filaments while they are edited: change one, or remove it (a second click confirms). */
-function MyFilamentsEdit({ list, editing, onEditing, onEdit }: { list: MyFilament[]; editing: boolean; onEditing: (on: boolean) => void; onEdit: (f: LayerToneFilament) => void }) {
-  const [confirm, setConfirm] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const remove = async (key: string) => {
-    setError(null);
-    try {
-      await saveMine(list.filter((f) => myFilamentKey(f) !== key));
-    } catch (e) {
-      setError((e as Error).message);
-    }
-    setConfirm(null);
-  };
-  if (!editing) return <button className="link layertone-mine-edit" onClick={() => onEditing(true)}><Icon name="sliders" size={12} /> Edit my filaments…</button>;
-  return (
-    <div className="layertone-mine">
-      <div className="layertone-grid-head">My filaments <button className="link" onClick={() => onEditing(false)}>Done</button></div>
-      <ul>
-        {list.map((f) => {
-          const key = myFilamentKey(f);
-          return (
-            <li key={key}>
-              <span className="swatch" style={{ background: f.color }} />
-              <span className="layertone-title" title={f.name}>{f.name}</span>
-              <span className="mono small dim">TD {f.td}</span>
-              <button className="icon-btn" onClick={() => onEdit(f)} aria-label={`Edit ${f.name}`} title="Edit"><Icon name="pen" size={12} /></button>
-              <button className={`icon-btn ${confirm === key ? 'confirm' : ''}`} onClick={() => (confirm === key ? void remove(key) : setConfirm(key))} onBlur={() => setConfirm((c) => (c === key ? null : c))}
-                aria-label={confirm === key ? `Remove ${f.name}: click again to confirm` : `Remove ${f.name}`} title={confirm === key ? 'Click again to remove' : 'Remove'}>
-                {confirm === key ? 'Remove?' : <Icon name="x" size={12} />}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      {error && <div className="bad-note small" role="alert">{error}</div>}
-    </div>
-  );
-}
+export const stackFields = (f: LayerToneFilament): LayerToneFilament => ({ name: f.name, ...(f.brand ? { brand: f.brand } : {}), color: f.color, td: f.td });
 
 function LookupNote({ r }: { r: FilamentLookup }) {
   const [label, trust] = CONFIDENCE[r.confidence] ?? CONFIDENCE.estimate;

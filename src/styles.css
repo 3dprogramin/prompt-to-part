@@ -803,6 +803,51 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
   .keys-label { padding-top: 0; }
 }
 
+/* Settings, Filaments: two panes (my filaments, the library), each scrolling on its own; stacked under 760px. */
+.settings-backdrop { z-index: 96; } /* over the line art editor, whose filament picker can open it */
+.settings-dialog.wide { width: min(1000px, 100%); height: min(760px, calc(100dvh - 32px)); }
+.settings-panel-filaments { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.fil-tab { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); grid-template-rows: minmax(0, 1fr); gap: 18px; }
+.fil-pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.fil-pane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fil-pane-head h4 { margin: 0; }
+.fil-tools { display: flex; align-items: center; gap: 8px; }
+.fil-tools .text-input { flex: 1 1 auto; width: auto; min-width: 0; padding: 5px 8px; font-size: 13px; resize: none; }
+.fil-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); padding: 4px 0 0; }
+.settings-panel p.fil-empty { margin: 14px 2px; }
+.fil-rows { list-style: none; margin: 0; padding: 0 4px 0 2px; }
+.fil-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 4px 8px; padding: 6px 4px; border-bottom: 1px solid var(--line); border-radius: 6px; transition: background-color 0.3s ease; }
+.fil-row.added { background: #e0a43c1a; }
+.fil-swatch { width: 18px; height: 18px; border-radius: 4px; box-shadow: inset 0 0 0 1px #ffffff2e; }
+.fil-name { display: flex; flex-direction: column; min-width: 0; }
+.fil-name > .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fil-rolls { display: inline-flex; align-items: center; gap: 4px; }
+.fil-rolls .text-input { width: 52px; padding: 3px 6px; font-size: 13px; text-align: right; resize: none; }
+.fil-rolls > span { min-width: 2.4em; }
+.fil-row .icon-btn { width: 26px; height: 26px; }
+.fil-row .icon-btn.confirm { width: auto; padding: 0 6px; color: var(--bad); font-size: 11.5px; background: #e5675f14; }
+.fil-custom { margin: 4px 4px 8px 2px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); }
+.fil-custom-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-weight: 500; }
+.fil-custom .layertone-custom-box { border-top: 0; padding-top: 6px; }
+.fil-custom .text-param { font-size: 13px; padding: 5px 8px; resize: none; }
+.fil-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.fil-cards { list-style: none; margin: 0; padding: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.fil-card { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 3px; padding: 6px; text-align: left; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); }
+.fil-card:hover:not([aria-disabled='true']) { border-color: var(--accent); }
+.fil-card.owned { background: transparent; border-style: dashed; cursor: default; }
+.fil-card-colour { height: 26px; border-radius: 5px; box-shadow: inset 0 0 0 1px #ffffff2e; }
+.fil-card-name { font-size: 12.5px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.fil-card-meta { font-size: 11.5px; color: var(--text-3); }
+.fil-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; padding-top: 2px; }
+.fil-tag { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; font-size: 10.5px; color: var(--text-2); }
+.fil-tag.owned { color: var(--good); border-color: #6cc48a55; background: #6cc48a14; }
+.modal .fil-note { flex: 1 1 auto; min-width: 0; margin: 0 auto 0 0; min-height: 1.4em; }
+@media (max-width: 760px) {
+  .settings-panel-filaments { display: block; overflow-y: auto; }
+  .fil-tab { display: flex; flex-direction: column; gap: 20px; }
+  .fil-scroll { flex: none; overflow: visible; }
+}
+
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ---------- dimension sources ---------- */
@@ -1394,14 +1439,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .layertone-pick-detail .swatch { width: 12px; height: 12px; box-shadow: inset 0 0 0 1px #ffffff2e; }
 .layertone-pick-detail .dim:not(:first-child) { flex-shrink: 0; }
 .layertone-custom-open, .layertone-mine-edit { align-self: flex-start; }
-.layertone-mine .layertone-grid-head { display: flex; justify-content: space-between; align-items: baseline; padding-top: 0; }
-.layertone-mine .layertone-grid-head .link { text-transform: none; letter-spacing: 0; }
-.layertone-mine ul { list-style: none; margin: 0; padding: 0; max-height: 150px; overflow-y: auto; }
-.layertone-mine li { display: flex; align-items: center; gap: 6px; min-height: 26px; }
-.layertone-mine .swatch { width: 14px; height: 14px; box-shadow: inset 0 0 0 1px #ffffff2e; }
-.layertone-mine .layertone-title { flex: 1; min-width: 0; }
-.layertone-mine .icon-btn { width: 24px; height: 24px; }
-.layertone-mine .icon-btn.confirm { width: auto; padding: 0 6px; color: var(--bad); font-size: 11.5px; background: #e5675f14; }
 .layertone-custom-box { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
 .layertone-custom-box .layertone-add-actions { flex-wrap: wrap; }
 .layertone-custom-box .btn { padding: 5px 9px; font-size: 12px; }

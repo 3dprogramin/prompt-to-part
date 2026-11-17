@@ -27,6 +27,7 @@ import { RestoreDialog } from './components/RestoreDialog';
 import { PrinterDialog } from './components/PrinterPicker';
 import { SettingsDialog } from './components/settings/SettingsDialog';
 import type { SettingsTab } from './components/settings/settingsTabs';
+import { setSettingsOpener } from './components/settings/openSettings';
 import { LineArtEditor } from './components/LineArtEditor';
 import { ArtworkEditor } from './components/ArtworkEditor';
 import { PictureEditor } from './components/picture/PictureEditor';
@@ -189,6 +190,8 @@ export default function App() {
   }, []);
   // The Settings dialog: open or not, and the tab it was asked to open on (none: the one used last).
   const [settings, setSettings] = useState<{ tab?: SettingsTab } | null>(null);
+  // A filament picker's "Edit my filaments in Settings" opens it too.
+  useEffect(() => setSettingsOpener((tab) => setSettings({ tab })), []);
   const onPrinter = async (s: PrinterSetup) => {
     const info = await api.setPrinter(s);
     applyPrinter(info);

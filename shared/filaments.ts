@@ -235,12 +235,13 @@ function score(f: LibraryFilament, query: string[], families: boolean): number {
 /**
  * Library filaments matching a free-text query ("bambu black", "esun pla+ red"), best first. With
  * `families`, a colour word also finds the filaments of that colour whatever their name, after the
- * ones it names ("matte black" finds PLA Matte Charcoal).
+ * ones it names ("matte black" finds PLA Matte Charcoal). `library` is what it searches (default the whole
+ * library).
  */
-export function searchFilaments(query: string, limit = 20, { families = false } = {}): LibraryFilament[] {
+export function searchFilaments(query: string, limit = 20, { families = false, library = FILAMENT_LIBRARY } = {}): LibraryFilament[] {
   const q = words(query);
-  if (!q.length) return FILAMENT_LIBRARY.slice(0, limit);
-  return FILAMENT_LIBRARY
+  if (!q.length) return library.slice(0, limit);
+  return library
     .map((f, i) => ({ f, i, s: score(f, q, families), finish: finishWords(f).length, extra: colourWords(f).length }))
     .filter((m) => m.s > 0)
     // Equal scores: plain filaments before special finishes ("white" finds Jade White before Silk+
@@ -352,7 +353,7 @@ export function pickerFilaments(query: string, line?: string): LibraryFilament[]
 }
 
 /** The user's filaments matching a query: every word in the brand, the name or the colour's family. */
-export function searchMyFilaments(list: LayerToneFilament[], query: string): LayerToneFilament[] {
+export function searchMyFilaments<T extends LayerToneFilament>(list: T[], query: string): T[] {
   const q = words(query);
   return list.filter((f) => {
     const ws = [...words(`${f.brand ?? ''} ${f.name}`), ...colourFamilies(f.color)];

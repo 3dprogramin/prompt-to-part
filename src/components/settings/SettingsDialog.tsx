@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PrinterInfo } from '../../../shared/api';
 import type { PrinterSetup } from '../../../shared/printer';
+import { refreshMine, saveMine } from '../../lib/myFilaments';
 import { useEscape } from '../useEscape';
+import { shelfSaver } from './filamentsTab';
+import { FilamentsTab } from './FilamentsTab';
 import { DISCARD_QUESTION } from './keysDraft';
 import { KeysTab } from './KeysTab';
 import { PrinterTab } from './PrinterTab';
@@ -33,6 +36,8 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsS
   const keysDirty = useRef<(() => boolean) | null>(null);
   // Where the Keys and services tab puts Save and Reset: the footer, which never scrolls.
   const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null);
+  // The Filaments tab's saves, one at a time for as long as the dialog is open (not per visit to the tab).
+  const [filamentSaver] = useState(() => shelfSaver(saveMine, refreshMine));
   const mayLeave = () => !keysDirty.current?.() || window.confirm(DISCARD_QUESTION);
   const close = () => { if (mayLeave()) onClose(); };
   useEscape(true, close);
@@ -64,8 +69,8 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsS
 
   return (
     // The backdrop does not close it: a half-typed key is not lost to a stray click.
-    <div className="modal-backdrop">
-      <div ref={dialog} className="modal settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={trapFocus}>
+    <div className="modal-backdrop settings-backdrop">
+      <div ref={dialog} className={`modal settings-dialog${tab === 'filaments' ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={trapFocus}>
         <h3 id="settings-title">Settings</h3>
         <div className="settings-tabs" role="tablist" aria-label="Settings" onKeyDown={onTabKey}>
           {SETTINGS_TABS.map((t) => (
@@ -76,14 +81,14 @@ export function SettingsDialog({ tab: asked, printerInfo, onPrinter, onSettingsS
             </button>
           ))}
         </div>
-        <div className="settings-panel" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
+        <div className={`settings-panel settings-panel-${tab}`} role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
           {tab === 'printer' && <PrinterTab info={printerInfo} onPrinter={onPrinter} />}
-          {tab === 'filaments' && <p>Your filaments move here in the next update. For now they are in the LayerTone filament picker.</p>}
+          {tab === 'filaments' && <FilamentsTab saver={filamentSaver} footer={footerSlot} />}
           {tab === 'keys' && <KeysTab dirtyRef={keysDirty} onSaved={onSettingsSaved} onChecked={onConnectionChecked} footer={footerSlot} />}
         </div>
         <div className="modal-actions settings-actions">
-          {/* On Keys and services: its notes, Reset and Save (the main button), before Close. */}
-          {tab === 'keys' && <div ref={setFooterSlot} className="settings-footer-slot" />}
+          {/* On Keys and services: its notes, Reset and Save (the main button), before Close. On Filaments: "Saved" or the error. */}
+          {(tab === 'keys' || tab === 'filaments') && <div key={tab} ref={setFooterSlot} className="settings-footer-slot" />}
           <button type="button" className={`btn ${tab === 'keys' ? 'ghost' : 'primary'}`} onClick={close}>Close</button>
         </div>
       </div>
