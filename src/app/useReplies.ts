@@ -29,6 +29,7 @@ import { pictureValues, withDrawings, withLayerToneImage, withMesh } from './des
 import { editorEditsSince } from '../lib/pictureEdit';
 import { addReplyEdit, replyModel, withPictureEdited, type PendingEdit } from './replyVersion';
 import { useLinesUp } from './useLinesUp';
+import { queueReady } from './sendQueue';
 import type { ChatOptions } from './useChatOptions';
 
 /** A message written while Claude was working, sent after its reply. */
@@ -307,10 +308,14 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
   // Opening another design, or turning "Wait for my OK" back on, ends the countdown.
   useEffect(() => { setAutoBuild((a) => (a && a.designId !== design.id ? null : a)); }, [design.id]);
   useEffect(() => { if (waitForOk) setAutoBuild(null); }, [waitForOk]);
+  // The design whose model is on screen: set in the same commit as the live model's own reset for a
+  // newly opened design, so until then it is the last one's.
+  const [shownFor, setShownFor] = useState(design.id);
+  useEffect(() => setShownFor(design.id), [design.id]);
   // When the open design's reply is done (and its new model is on screen), the queue goes out.
   useEffect(() => {
-    if (queue?.items.length && !queue.paused && !running[design.id] && remoteRunning[design.id] == null && !busy) sendQueued();
-  }, [queue, running, remoteRunning, busy, design.id]);
+    if (queueReady({ queued: queue?.items.length ?? 0, paused: !!queue?.paused, running: !!running[design.id], remoteRunning: remoteRunning[design.id] != null, busy, designId: design.id, shownFor })) sendQueued();
+  }, [queue, running, remoteRunning, busy, design.id, shownFor]);
 
   // A reply the server is still working on when its design is opened (the page was reloaded, or
   // another device started it): catch up with it, unless another tab here follows it already.
