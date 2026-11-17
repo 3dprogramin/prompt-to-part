@@ -3,10 +3,16 @@
 // - `.backup-import-<uuid>.zip`, a backup being restored (up to 4 GB), older than an hour;
 // - `<file>.<uuid>.tmp`, a file being written (writeAtomically, the mesh store), older than an hour,
 //   in the data folder, designs/, designs/<id>/ and designs/<id>/meshes/;
-// - workspaces/<id> of a design that was never saved (or is gone), untouched for a day.
+// - workspaces/<id> of a design that was never saved (or is gone), untouched for a day;
+// - the mesh files (MESH_FILE) in designs/<id>/meshes/ of a chat never saved: no designs/<id>.json
+//   and no save of it under way, nothing in its folders or its workspace changed for MESH_GRACE, and
+//   its id in no design file (any version or message) and no printed record. When one of those files
+//   can't be read, none are removed. The folders go only when that leaves them empty.
+// It runs before the server listens, so no reply, upload or restore can be using them.
 import path from 'node:path';
-import { readdir, rm, stat } from 'node:fs/promises';
+import { readdir, readFile, rm, rmdir, stat } from 'node:fs/promises';
 import { DATA_DIR } from './config';
+import { MESH_FILE } from './meshes';
 import { ID_RE } from './routes/store';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -14,6 +20,8 @@ const BACKUP_UPLOAD = new RegExp(`^\\.backup-import-${UUID}\\.zip$`);
 const TEMP_FILE = new RegExp(`^.+\\.${UUID}\\.tmp$`);
 const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
+/** How long a never-saved chat's mesh uploads are kept: its tab may still be open, about to send. */
+export const MESH_GRACE = 7 * DAY;
 
 export interface SweepResult { removed: string[] }
 
@@ -61,5 +69,48 @@ export async function sweepDataDir(dataDir = DATA_DIR, now = Date.now()): Promis
     for (const f of await list(ws)) last = Math.max(last, await mtime(path.join(ws, f.name)) ?? now);
     if (now - last > DAY) await remove(ws, true);
   }
+
+  await sweepMeshUploads(dataDir, now, remove);
   return { removed };
+}
+
+/** The newest change time of `dir` and what is directly in it (null: it isn't there). */
+async function lastChange(dir: string): Promise<number | null> {
+  let last = await mtime(dir);
+  if (last === null) return null;
+  for (const f of await list(dir)) last = Math.max(last, await mtime(path.join(dir, f.name)) ?? Infinity);
+  return last;
+}
+
+/** The mesh uploads of never-saved chats (see the top of this file). */
+async function sweepMeshUploads(dataDir: string, now: number, remove: (p: string) => Promise<void>) {
+  const designs = path.join(dataDir, 'designs');
+  const entries = await list(designs);
+  const names = new Set(entries.map((e) => e.name));
+  const saving = (id: string) => entries.some((e) => e.name.startsWith(`${id}.json.`));
+  const candidates: string[] = [];
+  for (const e of entries) {
+    if (!e.isDirectory() || !ID_RE.test(e.name) || names.has(`${e.name}.json`) || saving(e.name)) continue;
+    const times = await Promise.all([path.join(designs, e.name), path.join(designs, e.name, 'meshes'), path.join(dataDir, 'workspaces', e.name)].map(lastChange));
+    if (times[1] === null) continue;
+    if (times.every((t) => t === null || now - t > MESH_GRACE)) candidates.push(e.name);
+  }
+  if (!candidates.length) return;
+
+  // Every design file and printed record, as text: an id found anywhere in them keeps its files.
+  const texts: string[] = [];
+  try {
+    for (const e of await list(dataDir)) if (e.name.startsWith('printed.json')) texts.push(await readFile(path.join(dataDir, e.name), 'utf8'));
+    for (const e of entries) if (e.name.endsWith('.json')) texts.push(await readFile(path.join(designs, e.name), 'utf8'));
+  } catch (e) {
+    console.warn('[sweep] Mesh uploads of unsaved chats kept: could not read', (e as Error).message);
+    return;
+  }
+  for (const id of candidates) {
+    if (texts.some((t) => t.includes(id))) continue;
+    const meshes = path.join(designs, id, 'meshes');
+    for (const f of await list(meshes)) if (f.isFile() && MESH_FILE.test(f.name)) await remove(path.join(meshes, f.name));
+    // Only when empty: anything else in them (chat images) stays.
+    for (const dir of [meshes, path.join(designs, id)]) await rmdir(dir).catch(() => undefined);
+  }
 }
