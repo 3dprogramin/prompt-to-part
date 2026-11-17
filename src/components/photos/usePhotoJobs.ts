@@ -6,6 +6,7 @@ import type { PhotoRequest, ShopShot } from '../../../shared/photos';
 import { api } from '../../lib/api';
 import { uid } from '../../lib/files';
 import { lookOf } from './photoHelpers';
+import { fromFirstPhoto, lacksFirstPhoto } from './sizeJobs';
 
 /** A photo being made (or waiting its turn, or that failed), per design. */
 export interface PhotoJob {
@@ -102,12 +103,13 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
       const release = (url: string | null, baseId?: string) => {
         for (const v of variants) {
           if (!url) { patch(v.id, { waiting: false, error: 'Its first photo failed: try that one again', after: baseId }); continue; }
-          const job = { ...v, request: { ...v.request, from: { ...v.request.from, photo: url } } };
+          const job = fromFirstPhoto(v, url);
           patch(v.id, { request: job.request });
           ready.push(job);
         }
       };
-      if ('url' in g.base) { all.push(...variants); release(g.base.url); continue; }
+      // Already made: the sizes start with its photo (they are not in the list yet for a patch to reach).
+      if ('url' in g.base) { const made = variants.map((v) => fromFirstPhoto(v, (g.base as { url: string }).url)); all.push(...made); ready.push(...made); continue; }
       const first = { ...newJob(designId, g.base.request, set, { ...more, camera: g.camera, sizes: true }), waiting: true };
       all.push(first, ...variants);
       ready.push(first);
@@ -121,7 +123,7 @@ export function usePhotoJobs(onDone: (designId: string, photo: ProductPhoto) => 
   const retry = (id: string) => {
     const job = jobs.find((x) => x.id === id);
     if (!job?.error) return;
-    if (job.request.resize && !job.request.from?.photo) { if (job.after && jobs.some((x) => x.id === job.after)) retry(job.after); return; }
+    if (lacksFirstPhoto(job)) { if (job.after && jobs.some((x) => x.id === job.after)) retry(job.after); return; }
     const again = { ...job, error: undefined, waiting: false, startedAt: Date.now() };
     patch(id, { error: undefined, startedAt: again.startedAt });
     void run(again).then((url) => {
