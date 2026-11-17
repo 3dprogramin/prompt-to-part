@@ -1,5 +1,6 @@
 // Polymaker's own hex codes and transmission distances (wiki.polymaker.com, 'Hex codes and transmission distances'), read on 2026-11-17.
 // Left out: the PolyTerra PLA and PolyTerra PLA+ lines, which repeat the Panchroma values under the old product name.
+// Also left out: Panchroma PLA Cold White, a near-white with TD 0.3 where the same hex under another line has TD 1.5 (likely an error in the sheet).
 // The trailing comment on each entry is the maker's product code.
 import type { LibraryFilament } from '../filaments';
 
@@ -69,7 +70,6 @@ export const POLYMAKER_FILAMENTS: LibraryFilament[] = [
   { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Black', color: '#080a0d', td: 0.1, source: SOURCE }, // SKU CA19006
   { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Blue', color: '#003776', td: 0.3, source: SOURCE }, // SKU CA19005
   { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Brown', color: '#55331a', td: 0.1, source: SOURCE }, // SKU CA19018
-  { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Cold White', color: '#d9dfe5', td: 0.3, source: SOURCE }, // SKU CA19027
   { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Cream', color: '#eed1a8', td: 1.5, source: SOURCE }, // SKU CA19021, PC1001031
   { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Dark Grey', color: '#485259', td: 0.2, source: SOURCE }, // SKU CA19028, PC1001037
   { brand: 'Polymaker', line: 'Panchroma PLA', name: 'Panchroma PLA Dark Olive Drab', color: '#575b54', td: 0.1, source: SOURCE }, // SKU CA19026, PC1001036
