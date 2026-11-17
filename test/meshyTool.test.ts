@@ -50,3 +50,13 @@ test('a model whose import failed is fetched again by the next generate_3d, with
   assert.ok(!third.isError, JSON.stringify(third));
   assert.equal(mock.created.length, created + 2);
 });
+
+test('Stop during the import stops the import: nothing is stored and the tool ends at once', async () => {
+  const base: ParamValues = {};
+  const stop = new AbortController();
+  // Stop pressed as the import starts.
+  const emit = (e: { type: string; text?: string }) => { if (e.type === 'live' && /importing/.test(e.text ?? '')) stop.abort(); };
+  const { server } = cadTools(path.join(dataDir, 'model.js'), emit as never, new Set(), base, { meshy: { client, designId: 'meshy-tool-2', references: [], signal: stop.signal } });
+  await assert.rejects(handlers(server).generate_3d.handler({ name: 'owl', prompt: 'an owl on a branch' }, {}), (e: Error) => e.name === 'AbortError');
+  assert.equal(base[MESHES_KEY], undefined);
+});

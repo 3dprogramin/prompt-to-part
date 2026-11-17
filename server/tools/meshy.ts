@@ -180,9 +180,10 @@ export function meshyTools({ base, emit, state, drawImage }: ToolContext, meshy:
           },
         });
         emit({ type: 'live', text: `Meshy: importing and repairing "${a.name}"…` });
+        // With the stop signal: Stop kills the import instead of holding the geometry queue for minutes.
         const imported = color
-          ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? meshColorBudget(), mine: await readMyFilaments() })
-          : await geometry.importMesh(r.model.bytes, r.model.filename);
+          ? await geometry.importMesh(r.model.bytes, r.model.filename, { colors: true }, { colors: a.colors ?? meshColorBudget(), mine: await readMyFilaments() }, meshy.signal)
+          : await geometry.importMesh(r.model.bytes, r.model.filename, undefined, undefined, meshy.signal);
         const entry = await storeMesh(meshy.designId, imported, r.model, { source: 'meshy', prompt: r.prompt, picture: r.picture });
         if (!entry) throw new Error('The design was deleted');
         forgetMeshyTask(keep);
