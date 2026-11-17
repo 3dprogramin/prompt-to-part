@@ -128,7 +128,7 @@ function friendlyError(msg: string, limited: boolean) {
   return msg;
 }
 
-export function registerGenerateRoutes(app: express.Express, { json, generatingDesigns }: RouteContext, { generate, maxGenerations }: { generate: typeof runGeneration; maxGenerations: number }) {
+export function registerGenerateRoutes(app: express.Express, { json, generatingDesigns, deleted }: RouteContext, { generate, maxGenerations }: { generate: typeof runGeneration; maxGenerations: number }) {
   // A message for the reply Claude is working on (it reads it at its next step); 409 when none is
   // running, so the page queues it for after the reply instead.
   app.post('/api/generate/:id/message', json('40mb'), (req, res) => {
@@ -149,6 +149,7 @@ export function registerGenerateRoutes(app: express.Express, { json, generatingD
     if (!body.prompt?.trim() && !body.images?.length && !body.scad?.length && !body.meshes?.length) return void res.status(400).json({ error: 'prompt, images or files required' });
     const authProblem = claudeAuthProblem();
     if (authProblem) return void res.status(503).json({ error: authProblem });
+    if (deleted.has(body.designId)) return void res.status(410).json({ error: 'This design was deleted' });
     if (generatingDesigns.has(body.designId)) {
       return void res.status(409).json({ error: 'This design is already being worked on (maybe in another tab). Wait for it to finish or stop it there, or start a New design.' });
     }

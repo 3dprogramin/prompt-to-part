@@ -163,11 +163,22 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
         kept = true;
         return void res.status(409).json({ error: `Kept: it has printed versions (${marks.map((m) => `v${m.v + 1}`).join(', ')}). Unmark them first.` });
       }
-      deleted.add(id);
-      await rm(designFile(id), { force: true });
-      summaries.delete(path.basename(designFile(id)));
-      await rm(imageDir(id), { recursive: true, force: true });
-      await rm(workspaceDir(id), { recursive: true, force: true });
+      // A reply may have started while this waited: checked again after the last await, and the id
+      // is held while the files go, so one can't start in the middle (it gets the usual 409).
+      if (generatingDesigns.has(id)) {
+        kept = true;
+        return void res.status(409).json({ error: 'This design is being worked on: stop it first.' });
+      }
+      generatingDesigns.add(id);
+      try {
+        deleted.add(id);
+        await rm(designFile(id), { force: true });
+        summaries.delete(path.basename(designFile(id)));
+        await rm(imageDir(id), { recursive: true, force: true });
+        await rm(workspaceDir(id), { recursive: true, force: true });
+      } finally {
+        generatingDesigns.delete(id);
+      }
     });
     if (kept) return;
     // Its tags go with it (its star stays, as before: harmless).
