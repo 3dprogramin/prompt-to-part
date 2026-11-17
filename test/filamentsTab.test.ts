@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { colourFamilies, DUPLICATE_FILAMENT, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, myFilamentKey, rollsOf, withMyFilament, type MyFilament } from '../shared/filaments';
 import { mineStore, NOT_LOADED } from '../src/lib/mineStore';
-import { addFromLibrary, cardLabel, libraryBrands, libraryCount, libraryLines, libraryView, shelfSaver, shelfSummary, shelfView, summaryText, withRolls, without } from '../src/components/settings/filamentsTab';
+import { addFromLibrary, cardLabel, libraryBrands, libraryCount, libraryLines, libraryView, linePills, shelfSaver, shelfSummary, shelfView, summaryText, withRolls, without } from '../src/components/settings/filamentsTab';
 import { openSettings, setSettingsOpener } from '../src/components/settings/openSettings';
 
 const mine: MyFilament[] = [
@@ -34,6 +34,11 @@ test('the lines of all brands, each once and in order', () => {
   const all = libraryLines(null, lib);
   assert.deepEqual(all, [...new Set(lib.flatMap((f) => (f.line ? [f.line] : [])))].sort((a, b) => a.localeCompare(b)));
   assert.ok(!libraryLines('eSUN', lib).includes('PLA Matte'));
+});
+test('line pills: a chosen brand\'s lines only, none while every brand is shown', () => {
+  assert.deepEqual(linePills(null, lib), []);
+  for (const b of libraryBrands(lib)) assert.deepEqual(linePills(b, lib), libraryLines(b, lib));
+  assert.ok(linePills('eSUN', lib).every((l) => lib.some((f) => f.brand === 'eSUN' && f.line === l)));
 });
 test('the library view filters by brand, line and text, and marks what is owned', () => {
   const all = libraryView({ query: '', brand: null, line: null }, mine, lib);
@@ -82,8 +87,9 @@ test('a card is named in full: what a click does, brand, TD, estimated, owned', 
   assert.equal(cardLabel({ filament: est, key: myFilamentKey(est), owned: false }), `Add ${est.name}, ${est.brand}, TD ${est.td}, estimated`);
 });
 test('the library count says how many are shown of all', () => {
-  assert.equal(libraryCount(92, 92), '92 colours');
-  assert.equal(libraryCount(12, 92), '12 of 92 colours');
+  const n = lib.length;
+  assert.equal(libraryCount(n, n), `${n} colours`);
+  assert.equal(libraryCount(12, n), `12 of ${n} colours`);
   assert.equal(libraryCount(1, 1), '1 colour');
 });
 test('adding from the library saves the plain filament with one roll, once', () => {

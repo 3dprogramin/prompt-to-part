@@ -22,6 +22,8 @@ import path from 'node:path';
 import { chromium, type Browser, type BrowserContextOptions, type Locator, type Page } from 'playwright-core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { encode as encodePng } from 'fast-png';
+import { FILAMENT_LIBRARY } from '../../shared/filaments';
+import { libraryBrands, libraryLines } from '../../src/components/settings/filamentsTab';
 import type { AgentEvent, GenerateRequest } from '../../shared/api';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'ptp-ui-test-'));
@@ -2165,6 +2167,8 @@ type Shelf = { name: string; brand?: string; color: string; td: number; rolls?: 
 const putShelf = (list: Shelf[]) => fetch(`${A}/api/filaments/mine`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ filaments: list }) });
 /** A known printer, so the first-start question does not cover the page. */
 const knownPrinter = () => fetch(`${A}/api/printer`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ printerId: 'Bambu Lab A1 0.4 nozzle', filaments: 4 }) });
+const TOTAL = FILAMENT_LIBRARY.length;
+const inBrand = (b: string) => FILAMENT_LIBRARY.filter((f) => f.brand === b).length;
 const getShelf = async (): Promise<Shelf[]> => (await (await fetch(`${A}/api/filaments/mine`)).json()).filaments;
 /** Five filaments of different brands, one custom, for the screenshots and the phone test. */
 const SHELF: Shelf[] = [
@@ -2221,7 +2225,7 @@ test('Settings: the Filaments tab adds a library colour, counts its rolls and ke
     await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
     await mine.getByText('No filaments yet. Add one from the library, or a custom one.').waitFor();
     assert.equal(await shelfSummary(), '0 colours · 0 rolls');
-    assert.equal(await libCount(), '92 colours');
+    assert.equal(await libCount(), `${TOTAL} colours`);
     assert.equal(await dialog.getByRole('button', { name: 'Save', exact: true }).count(), 0, 'no Save on the Filaments tab');
     assert.equal(await dialog.getByRole('button', { name: 'Reset to defaults' }).count(), 0, 'no Reset on the Filaments tab');
 
@@ -2239,9 +2243,9 @@ test('Settings: the Filaments tab adds a library colour, counts its rolls and ke
     await dialog.getByRole('button', { name: 'Reset to defaults' }).waitFor();
     await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
 
-    // The library: 92 cards that scroll inside their pane, not the dialog.
+    // The library: every card, scrolling inside their pane, not the dialog.
     const libScroll = library.locator('.fil-scroll');
-    assert.equal(await cards.count(), 92);
+    assert.equal(await cards.count(), TOTAL);
     const lib0 = await libScroll.evaluate((el) => ({ over: el.scrollHeight > el.clientHeight + 20 }));
     assert.ok(lib0.over, 'the library grid overflows its pane');
     const cols = await cards.evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().x))).size);
@@ -2257,33 +2261,33 @@ test('Settings: the Filaments tab adds a library colour, counts its rolls and ke
     const search = library.getByRole('searchbox', { name: 'Search the library' });
     await search.fill('white');
     const white = await cardNames();
-    assert.ok(white.length > 0 && white.length < 20, `${white.length} cards for "white"`);
+    assert.ok(white.length > 0 && white.length < TOTAL / 2, `${white.length} cards for "white"`);
     assert.ok(white.slice(0, 7).every((n) => /white/i.test(n)), `the first cards are the white ones: ${white.join(' | ')}`);
-    assert.equal(await libCount(), `${white.length} of 92 colours`);
+    assert.equal(await libCount(), `${white.length} of ${TOTAL} colours`);
     await search.fill('zzqqxx');
     await library.getByText('Nothing matches. Try another colour or brand.').waitFor();
     assert.equal(await cards.count(), 0);
     await search.fill('');
-    assert.equal(await cards.count(), 92);
+    assert.equal(await cards.count(), TOTAL);
 
     // Brand and line pills narrow the grid and combine; changing the brand drops a line it does not have.
     await pill('Brand', 'eSUN').click();
-    assert.equal(await libCount(), '24 of 92 colours');
-    assert.ok((await cardNames()).length === 24 && (await cards.evaluateAll((els) => els.every((e) => /eSUN/.test(e.querySelector('.fil-card-meta')!.textContent!)))));
+    assert.equal(await libCount(), `${inBrand('eSUN')} of ${TOTAL} colours`);
+    assert.ok((await cardNames()).length === inBrand('eSUN') && (await cards.evaluateAll((els) => els.every((e) => /eSUN/.test(e.querySelector('.fil-card-meta')!.textContent!)))));
     await page.screenshot({ path: path.join(shots, 'filaments-library-esun-empty-shelf.png') });
     await pill('Brand', 'Bambu Lab').click();
-    assert.equal(await libCount(), '68 of 92 colours');
+    assert.equal(await libCount(), `${inBrand('Bambu Lab')} of ${TOTAL} colours`);
     await pill('Line', 'PLA Matte').click();
-    assert.equal(await libCount(), '25 of 92 colours');
+    assert.equal(await libCount(), `${FILAMENT_LIBRARY.filter((f) => f.brand === 'Bambu Lab' && f.line === 'PLA Matte').length} of ${TOTAL} colours`);
     assert.equal(await pill('Line', 'PLA Matte').getAttribute('aria-pressed'), 'true');
     await search.fill('white');
     const combined = await cardNames();
     assert.ok(combined.length > 0 && combined.length < white.length && combined.every((n) => n.startsWith('PLA Matte')), `brand, line and search together: ${combined.join(' | ')}`);
     await search.fill('');
     await pill('Brand', 'eSUN').click();
-    assert.equal(await library.getByRole('group', { name: 'Line', exact: true }).getByRole('button').count(), 2, 'eSUN has one line: the pills are "All lines" and "PLA+"');
+    assert.equal(await library.getByRole('group', { name: 'Line', exact: true }).getByRole('button').count(), 1 + libraryLines('eSUN').length, 'the pills are "All lines" and eSUN\'s own lines');
     assert.equal(await pill('Line', 'All lines').getAttribute('aria-pressed'), 'true', 'a line the brand does not have is dropped');
-    assert.equal(await libCount(), '24 of 92 colours');
+    assert.equal(await libCount(), `${inBrand('eSUN')} of ${TOTAL} colours`);
 
     // Add one: the card is clicked, the row is on the shelf and in view, 1 roll, the card marked owned; a second click adds nothing.
     await pill('Brand', 'Bambu Lab').click();
@@ -2338,10 +2342,12 @@ test('Settings: the Filaments tab adds a library colour, counts its rolls and ke
 
     // Keyboard: Tab from the shelf's search reaches the pills, the cards and the roll inputs; Enter on a card adds it, Enter in a roll input saves.
     await pill('Brand', 'All').click();
+    assert.equal(await library.getByRole('group', { name: 'Line', exact: true }).count(), 0, 'no line pills while every brand is shown');
+    await pill('Brand', 'Bambu Lab').click();
     await pill('Line', 'All lines').click();
     await mine.getByRole('searchbox', { name: 'Search my filaments' }).focus();
     const seen: string[] = [];
-    for (let i = 0; i < 25; i++) { seen.push(await active()); await page.keyboard.press('Tab'); }
+    for (let i = 0; i < 30; i++) { seen.push(await active()); await page.keyboard.press('Tab'); }
     assert.ok(seen.some((s) => s === 'input:Search my filaments'), seen.join(' > '));
     assert.ok(seen.some((s) => s === `input:Rolls of ${name}`), `a roll input: ${seen.join(' > ')}`);
     assert.ok(seen.some((s) => s === 'input:Search the library'), `the library search: ${seen.join(' > ')}`);
@@ -2386,7 +2392,7 @@ test('Settings: the Filaments tab adds a library colour, counts its rolls and ke
     await edit.getByRole('button', { name: 'Done' }).click();
 
     // The shelf's own search, then the two-click Remove down to the empty state.
-    await mine.getByRole('searchbox', { name: 'Search my filaments' }).fill('orange');
+    await mine.getByRole('searchbox', { name: 'Search my filaments' }).fill('smoke test');
     assert.equal(await rows.count(), 1);
     await mine.getByRole('searchbox', { name: 'Search my filaments' }).fill('');
     for (const f of await getShelf()) {
@@ -2461,6 +2467,134 @@ test('Settings: the Filaments tab on a phone-width screen stacks its panes and n
     const after = await settingsLayout(page);
     assert.ok(after.panelScroll.w <= after.panelScroll.cw && after.pageSideways <= 0, 'no sideways scroll after scrolling to the library');
     await dialog.getByRole('button', { name: 'Close' }).tap();
+  } finally {
+    await page.close();
+    await putShelf([]);
+  }
+});
+
+test('Settings: the Filaments tab with the whole library: every brand has a pill, the pills wrap, brand and search narrow the cards', TEST, async () => {
+  await knownPrinter();
+  assert.equal((await putShelf([])).status, 200);
+  const brands = libraryBrands();
+  assert.ok(brands.length >= 5, `${brands.length} brands in the library`);
+  const added = brands.find((b) => b === 'Polymaker') ?? brands[brands.length - 1];
+  const addedCards = FILAMENT_LIBRARY.filter((f) => f.brand === added);
+  const addedLines = libraryLines(added);
+  const shot = (name: string) => path.join(process.env.PTP_LIBRARY_SHOTS ?? shots, `library-${name}.png`);
+  const page = await newPage();
+  const gear = () => page.getByRole('button', { name: 'Settings', exact: true });
+  const dialog = () => page.getByRole('dialog', { name: 'Settings' });
+  const library = () => dialog().getByRole('region', { name: 'Library' });
+  const cards = () => library().getByRole('list', { name: 'Library filaments' }).getByRole('button');
+  const pill = (group: string, name: string) => library().getByRole('group', { name: group, exact: true }).getByRole('button', { name, exact: true });
+  const libCount = () => library().locator('.fil-pane-head .small').innerText();
+  const pillNames = (group: string) => library().getByRole('group', { name: group, exact: true }).getByRole('button').allInnerTexts();
+  const rowsOf = (group: string) => library().getByRole('group', { name: group, exact: true }).evaluate((el) => new Set([...el.children].map((c) => Math.round(c.getBoundingClientRect().y))).size);
+  /** The pill rows wrap: no pill leaves the library pane on the side, and the pane does not scroll sideways. */
+  const noSideways = async (what: string) => {
+    const r = await library().evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const out = [...el.querySelectorAll('.fil-pills > *')].filter((c) => c.getBoundingClientRect().right > box.right + 1 || c.getBoundingClientRect().left < box.left - 1).length;
+      const wide = [...el.querySelectorAll('.fil-pills')].filter((g) => g.scrollWidth > g.clientWidth + 1).length;
+      return { out, wide, own: el.scrollWidth - el.clientWidth };
+    });
+    assert.deepEqual(r, { out: 0, wide: 0, own: 0 }, `${what}: pills stay inside the library pane (${JSON.stringify(r)})`);
+    assert.ok((await settingsLayout(page)).pageSideways <= 0, `${what}: the page does not scroll sideways`);
+  };
+  /** How long an action takes until the grid has settled (two animation frames after it). */
+  const timed = async (f: () => Promise<unknown>) => {
+    const t0 = Date.now();
+    await f();
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    return Date.now() - t0;
+  };
+  try {
+    await page.goto(`${A}/`);
+    await gear().waitFor();
+    const opened = await timed(async () => {
+      await gear().click();
+      await dialog().waitFor();
+      await dialog().getByRole('tab', { name: 'Filaments', exact: true }).click();
+      await cards().first().waitFor();
+    });
+    console.log(`library timing: open the tab with ${await cards().count()} cards ${opened} ms`);
+    const view = page.viewportSize()!;
+
+    // Count line, every brand's pill, in alphabetical order after "All".
+    assert.equal(await libCount(), `${TOTAL} colours`);
+    assert.equal(await cards().count(), TOTAL);
+    assert.deepEqual(await pillNames('Brand'), ['All', ...brands]);
+    assert.equal(await library().getByRole('group', { name: 'Line', exact: true }).count(), 0, 'no line pills while every brand is shown');
+    console.log(`library pills: ${brands.length} brands; unfiltered brand pill rows: ${await rowsOf('Brand')}`);
+    await noSideways('desktop, unfiltered');
+    await page.screenshot({ path: shot('unfiltered') });
+
+    // One brand: only its cards, its own lines, the count says so.
+    await pill('Brand', added).click();
+    assert.equal(await cards().count(), addedCards.length);
+    assert.equal(await libCount(), `${addedCards.length} of ${TOTAL} colours`);
+    assert.deepEqual((await pillNames('Line')).slice(1), addedLines);
+    assert.ok(await cards().evaluateAll((els, b) => els.every((e) => e.querySelector('.fil-card-meta')!.textContent!.startsWith(`${b} ·`)), added), 'only that brand\'s cards');
+    await noSideways('desktop, one brand');
+    await page.screenshot({ path: shot(`${added.toLowerCase()}`) });
+    if (addedLines.length > 1) {
+      await pill('Line', addedLines[1]).click();
+      assert.equal(await libCount(), `${FILAMENT_LIBRARY.filter((f) => f.brand === added && f.line === addedLines[1]).length} of ${TOTAL} colours`);
+      await page.screenshot({ path: shot(`${added.toLowerCase()}-line`) });
+      await pill('Line', 'All lines').click();
+    }
+
+    // Add its first card: on the shelf with the brand, the card marked owned.
+    const first = cards().first();
+    const label = (await first.getAttribute('aria-label'))!;
+    const fname = label.split(',')[0].replace(/^Add /, '');
+    assert.ok(label.includes(`, ${added}, TD `), label);
+    await first.click();
+    const mineRegion = dialog().getByRole('region', { name: 'My filaments' });
+    await mineRegion.getByRole('listitem').first().waitFor();
+    assert.match(await mineRegion.getByRole('listitem').first().innerText(), new RegExp(`${added}\\s*·\\s*TD`));
+    assert.match((await first.getAttribute('aria-label'))!, /, owned$/);
+    assert.ok(await first.locator('.fil-tag.owned').isVisible());
+    await until(async () => (await getShelf()).some((f) => f.name === fname && f.brand === added), 'the card is on the server shelf');
+
+    // An estimated entry shows its mark (the first one of any brand).
+    const est = FILAMENT_LIBRARY.find((f) => f.unverified);
+    if (est) {
+      await pill('Brand', est.brand).click();
+      const c = library().getByRole('button', { name: new RegExp(`^(Add )?${est.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}, ${est.brand}, TD ${est.td}, estimated`) });
+      assert.equal(await c.count(), 1);
+      assert.equal(await c.locator('.fil-tag', { hasText: 'estimated' }).count(), 1, 'the card shows "estimated"');
+    }
+
+    // Search "black" with All: cards of at least three brands, every card's accessible name has its brand; and a keystroke's cost.
+    await pill('Brand', 'All').click();
+    const search = library().getByRole('searchbox', { name: 'Search the library' });
+    const typed = await timed(() => search.pressSequentially('b'));
+    const typed2 = await timed(() => search.pressSequentially('l'));
+    console.log(`library timing: type one search character ${typed} ms (b), ${typed2} ms (l)`);
+    await search.fill('black');
+    const names = await cards().evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!));
+    assert.ok(names.length > 0);
+    const seen = new Set(FILAMENT_LIBRARY.filter((f) => /black/i.test(f.name)).map((f) => f.brand));
+    const found = new Set(names.map((n) => brands.find((b) => n.includes(`, ${b}, TD `))));
+    assert.ok(!found.has(undefined), 'every card names its brand');
+    assert.ok(found.size >= Math.min(3, seen.size), `"black" shows ${found.size} brands: ${[...found].join(', ')}`);
+    assert.ok(seen.size >= 3, 'the data has "black" in at least three brands');
+    await page.screenshot({ path: shot('search-black') });
+    await search.fill('');
+
+    // The phone width: the same checks.
+    await page.setViewportSize({ width: 380, height: 800 });
+    await noSideways('380 px, unfiltered');
+    await library().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: shot('phone-unfiltered') });
+    await pill('Brand', added).click();
+    await noSideways('380 px, one brand');
+    await library().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: shot(`phone-${added.toLowerCase()}`) });
+    assert.equal(await libCount(), `${addedCards.length} of ${TOTAL} colours`);
+    await page.setViewportSize(view);
   } finally {
     await page.close();
     await putShelf([]);

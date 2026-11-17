@@ -33,6 +33,11 @@ export function libraryLines(brand: string | null, library: LibraryFilament[] = 
   return [...new Set(library.filter((f) => brand == null || f.brand === brand).flatMap((f) => (f.line ? [f.line] : [])))].sort((a, b) => a.localeCompare(b));
 }
 
+/** The line pills: one brand's lines. With every brand shown there are none (the lines of five brands fill the pane and repeat names such as "PLA"). */
+export function linePills(brand: string | null, library: LibraryFilament[] = FILAMENT_LIBRARY): string[] {
+  return brand == null ? [] : libraryLines(brand, library);
+}
+
 /**
  * The library cards for a search text (name, brand, line or a colour word such as "blue"), a brand and a
  * line; owned by myFilamentKey. With no search text they are sorted by brand, line, name; with one, best

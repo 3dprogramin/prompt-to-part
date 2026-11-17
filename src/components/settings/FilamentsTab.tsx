@@ -7,7 +7,7 @@ import type { LayerToneFilament } from '../../../shared/layertone';
 import { refreshMine, useMyFilamentsState } from '../../lib/myFilaments';
 import { CustomFilament, stackFields } from '../FilamentPicker';
 import { Icon } from '../Icon';
-import { addFromLibrary, cardLabel, libraryBrands, libraryCount, libraryLines, libraryView, shelfSummary, shelfView, summaryText, withRolls, without, type ShelfChange, type ShelfSaver } from './filamentsTab';
+import { addFromLibrary, cardLabel, libraryBrands, libraryCount, libraryView, linePills, shelfSummary, shelfView, summaryText, withRolls, without, type ShelfChange, type ShelfSaver } from './filamentsTab';
 
 interface Props {
   /** The saves, one for the dialog's lifetime: every change of the tab (the custom form's too) goes through it. */
@@ -107,11 +107,11 @@ export function FilamentsTab({ saver, footer }: Props) {
   const [libQuery, setLibQuery] = useState('');
   const [brand, setBrand] = useState<string | null>(null);
   const [line, setLine] = useState<string | null>(null);
-  const lines = useMemo(() => libraryLines(brand), [brand]);
+  const lines = useMemo(() => linePills(brand), [brand]);
   const cards = useMemo(() => libraryView({ query: libQuery, brand, line }, list), [libQuery, brand, line, list]);
   const chooseBrand = (b: string | null) => {
     setBrand(b);
-    if (line && !libraryLines(b).includes(line)) setLine(null);
+    if (line && !linePills(b).includes(line)) setLine(null);
   };
   const add = (f: LibraryFilament) => {
     if (!ready) return;
@@ -203,11 +203,13 @@ export function FilamentsTab({ saver, footer }: Props) {
             <button key={b ?? ''} type="button" className={`filter-chip${brand === b ? ' on' : ''}`} aria-pressed={brand === b} onClick={() => chooseBrand(b)}>{b ?? 'All'}</button>
           ))}
         </div>
-        <div className="fil-pills" role="group" aria-label="Line">
-          {[null, ...lines].map((l) => (
-            <button key={l ?? ''} type="button" className={`filter-chip${line === l ? ' on' : ''}`} aria-pressed={line === l} onClick={() => setLine(l)}>{l ?? 'All lines'}</button>
-          ))}
-        </div>
+        {lines.length > 0 && (
+          <div className="fil-pills" role="group" aria-label="Line">
+            {[null, ...lines].map((l) => (
+              <button key={l ?? ''} type="button" className={`filter-chip${line === l ? ' on' : ''}`} aria-pressed={line === l} onClick={() => setLine(l)}>{l ?? 'All lines'}</button>
+            ))}
+          </div>
+        )}
         <div className="fil-scroll">
           {cards.length
             ? (
