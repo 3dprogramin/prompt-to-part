@@ -21,7 +21,7 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
       subject: z.string().min(10).max(2000).describe('What to show: subject, pose, expression, lighting, composition – be specific'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when not a realistic photo-like picture (e.g. "oil painting", "charcoal drawing")'),
-      use_attached_photos: z.boolean().optional().describe(lithophane ? 'Work from the photos the user attached in this chat (this message\'s first, then earlier ones)' : 'Repaint the photos the user attached in this chat (this message\'s first, then earlier ones) for the filament stack, likeness kept'),
+      use_attached_photos: z.boolean().optional().describe(lithophane ? 'Work from the photos the user attached in this chat (this message\'s, or the earlier ones when it has none)' : 'Repaint the photos the user attached in this chat (this message\'s, or the earlier ones when it has none) for the filament stack, likeness kept'),
       ...(lithophane ? {} : {
         filaments: z.array(z.object({
           name: z.string().min(1).max(80), brand: z.string().max(60).optional(),
@@ -31,7 +31,7 @@ export function pictureTools({ base, emit, drawImage }: ToolContext, pictures: A
         base_height: z.number().min(0.16).max(5).optional().describe('The base height (mm) you will build H.layertone with, only if not the default 0.48'),
       }),
     }, async (a) => {
-      // This message's photos first, then those of earlier messages in the chat (e.g. sent before an answer to a question).
+      // This message's photos, or those of earlier messages in the chat when it has none (e.g. sent before an answer to a question).
       const photos = a.use_attached_photos ? await chatPhotos(pictures.designId ?? '', pictures.references) : [];
       if (a.use_attached_photos && !photos.length) return { content: [{ type: 'text', text: 'The user attached no photos in this chat.' }], isError: true };
       const lt = a as { filaments?: unknown; max_height?: number; base_height?: number };
@@ -98,7 +98,7 @@ export function artworkTools({ base, emit, drawImage }: ToolContext, artwork: Ai
       tones: z.number().int().min(2).max(6).optional().describe('Without colors: how many shades of grey (default 4)'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when it should not be the default realistic posterized print (e.g. "bold cartoon", "minimal line art")'),
-      use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached in this chat (this message\'s first, then earlier ones): a person, a pet, a place'),
+      use_attached_photos: z.boolean().optional().describe('Draw from the photos the user attached in this chat (this message\'s, or the earlier ones when it has none): a person, a pet, a place'),
     }, async (a) => {
       const photos = a.use_attached_photos ? await chatPhotos(artwork.designId ?? '', artwork.references) : [];
       if (a.use_attached_photos && !photos.length) return { content: [{ type: 'text', text: 'The user attached no photos in this chat.' }], isError: true };

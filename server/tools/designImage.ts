@@ -14,11 +14,12 @@ const MAX_PHOTOS = 4;
 
 /**
  * The photos the user attached in this design's chat, newest first, as data URLs (at most `max`):
- * the ones sent with this message, then those stored with earlier messages.
+ * the ones sent with this message, or, when it has none, those stored with earlier messages (a
+ * message with its own photos is about them: earlier ones may be another subject).
  */
 export async function chatPhotos(designId: string, current: string[], max = MAX_PHOTOS, dir = DESIGNS): Promise<string[]> {
   const photos = current.slice(0, max);
-  if (photos.length >= max || !ID_RE.test(designId)) return photos;
+  if (photos.length || !ID_RE.test(designId)) return photos;
   let messages: { role?: string; images?: unknown }[] = [];
   try { messages = (JSON.parse(await readFile(path.join(dir, `${designId}.json`), 'utf8')) as { messages?: typeof messages }).messages ?? []; } catch { return photos; }
   const prefix = `/api/designs/${designId}/images/`;
@@ -47,7 +48,7 @@ export function designImageTools({ emit, drawImage, readModel, v }: ToolContext,
       subject: z.string().min(10).max(2000).describe('The object to show: what it is, its shape, parts, details, colours and what to improve – be specific'),
       aspect: z.enum(ASPECTS).optional().describe('Picture shape, width:height (default 1:1)'),
       style: z.string().max(400).optional().describe('The look, when not a realistic product photo of the printed object (e.g. "clay sculpture", "concept sketch")'),
-      use_photos: z.boolean().optional().describe('Work from the photos the user attached in this chat (this message\'s first, then earlier ones)'),
+      use_photos: z.boolean().optional().describe('Work from the photos the user attached in this chat (this message\'s, or the earlier ones when it has none)'),
       use_model: z.boolean().optional().describe('Work from a render of the current model.js (the design so far)'),
       views: z.boolean().optional().describe('Draw a views sheet instead of one picture: the same object from the front, the side (as render_model\'s RIGHT, facing left), the back and the top (front at the bottom) at one scale, in a 2x2 grid (default aspect 1:1)'),
     }, async (a) => {

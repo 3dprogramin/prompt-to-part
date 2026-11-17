@@ -136,3 +136,16 @@ test('a picture sent mid-run is numbered after the ones already attached, so pho
   for await (const m of inbox.drain()) texts.push((m.message.content as { text?: string }[])[0].text!);
   assert.match(texts[0], /photo 3 /);
 });
+
+test('picture tools draw only from this message\'s photos when it has some (earlier ones are another subject)', async () => {
+  designWithPhoto('chat-photo-mix-5');
+  const current = 'data:image/png;base64,CURRENT';
+  const ask = async (tool: string, ctx: Record<string, unknown>, args: Record<string, unknown>) => {
+    const { server } = cadTools(path.join(dataDir, 'model.js'), () => undefined, new Set(), {}, { ...ctx, image });
+    await handlers(server)[tool].handler({ name: 'x', subject: 'the subject in the photo, side view', ...args }, {});
+  };
+  await ask('generate_artwork', { artwork: { references: [current], designId: 'chat-photo-mix-5' } }, { use_attached_photos: true });
+  assert.deepEqual(asked.at(-1)!.references, [current]);
+  await ask('generate_line_art', { lineArt: { references: [current], designId: 'chat-photo-mix-5', style: 'outline', pictures: true } }, { use_attached_photos: true });
+  assert.deepEqual(asked.at(-1)!.references, [current]);
+});

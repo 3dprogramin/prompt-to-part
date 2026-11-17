@@ -174,7 +174,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       change: z.string().min(3).max(2000).describe('What to change, in plain words: who or what goes there, how it looks (e.g. "replace the man on the left with the woman in the attached photo, smiling")'),
       region: z.union([z.literal('mark'), z.tuple([z.number(), z.number(), z.number(), z.number()])]).optional()
         .describe('"mark" = the area the user selected in the brush editor; or [x0, y0, x1, y1], fractions 0..1 of the picture\'s width and height from its top-left corner (see show_picture); omit to change the whole picture'),
-      use_attached_photos: z.boolean().optional().describe('Show the image model the photos the user attached in this chat, this message\'s first, then earlier ones (the real person or thing for the part that changes)'),
+      use_attached_photos: z.boolean().optional().describe('Show the image model the photos the user attached in this chat, this message\'s, or the earlier ones when it has none (the real person or thing for the part that changes)'),
     }, async (a) => {
       // A line-art drawing's hand edits are drawn in at the size the piece is built (the model run only for a drawing there is).
       const frame = kind.mode === 'lineart' && drawingOf(base, a.picture) ? await kind.frame(a.picture) : null;
@@ -192,7 +192,7 @@ export function editPictureTools({ base, emit, drawImage }: ToolContext, images:
       }
       let photos: string[] = [];
       if (a.use_attached_photos) {
-        // This message's photos first, then those of earlier messages in the chat (e.g. a face sent before).
+        // This message's photos, or those of earlier messages in the chat when it has none (e.g. a face sent before).
         const all = await chatPhotos(images.designId ?? '', images.references, MAX_PHOTOS * 2);
         photos = all.filter((p) => PHOTO.test(p)).slice(0, MAX_PHOTOS);
         if (!photos.length) return fail(all.length ? 'The photos attached in this chat are not PNG, JPEG or WebP pictures.' : 'The user attached no photos in this chat.');
