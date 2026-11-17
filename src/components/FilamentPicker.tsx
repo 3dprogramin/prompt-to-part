@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { hexToRgb, luma, type LayerToneFilament } from '../../shared/layertone';
-import { COMMON_FILAMENTS, DUPLICATE_FILAMENT, filamentLines, libraryFilament, MY_TD_RANGE, myFilamentKey, pickerFilaments, searchMyFilaments, withMyFilament, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
+import { DUPLICATE_FILAMENT, libraryFilament, MY_TD_RANGE, myFilamentKey, withMyFilament, type FilamentLookup, type LibraryFilament, type MyFilament } from '../../shared/filaments';
 import { siteName } from '../../shared/sources';
 import { lookupFilament } from '../lib/api';
 import { changeMine, useMyFilaments } from '../lib/myFilaments';
@@ -8,10 +8,8 @@ import { Icon } from './Icon';
 import { NumBox } from './NumBox';
 import { usePopover } from './usePopover';
 import { openSettings } from './settings/openSettings';
-
-const LINES = filamentLines();
-/** Tab labels: Bambu Lab's lines by their own name ("Matte"), other brands with theirs ("eSUN PLA+"). */
-const short = (l: { brand: string; line: string }) => (l.brand === 'Bambu Lab' ? l.line.replace(/^PLA /, '') : `${l.brand} ${l.line}`);
+import { libraryBrands } from './settings/filamentsTab';
+import { pickerGroups, pickerLines, validLine } from './filamentPickerView';
 
 const CONFIDENCE: Record<FilamentLookup['confidence'], [string, 'high' | 'medium' | 'low']> = {
   listed: ['Published TD', 'high'],
@@ -49,18 +47,16 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
   usePopover(true, onClose, pop, trigger);
   const id = useId();
   const [query, setQuery] = useState('');
+  const [brand, setBrand] = useState('');
   const [line, setLine] = useState('');
   const myFilaments = useMyFilaments();
   const selected: Option | undefined = useMemo(() => (current ? myFilaments.find((f) => myFilamentKey(f) === myFilamentKey(current)) ?? libraryFilament(current) : undefined), [current, myFilaments]);
 
-  // The grid: the search results, or the user's own and the common colours and every line (or the
-  // chosen one).
-  const groups = useMemo(() => {
-    const own = myFilaments;
-    if (query.trim()) return [{ key: 'found', label: undefined, filaments: [...(line ? [] : searchMyFilaments(own, query)), ...pickerFilaments(query, line || undefined)] as Option[] }];
-    const lines = LINES.filter((l) => !line || l.key === line).map((l) => ({ key: l.key, label: l.key, filaments: l.filaments as Option[] }));
-    return line ? lines : [...(own.length ? [{ key: 'mine', label: 'My filaments', filaments: own as Option[] }] : []), { key: 'common', label: 'Common', filaments: COMMON_FILAMENTS as Option[] }, ...lines];
-  }, [query, line, myFilaments]);
+  // The grid: the search results, or the user's own and the common colours and every line; with a
+  // brand chosen, its lines (or the chosen one). The brands list the user's own first.
+  const brands = useMemo(() => libraryBrands(undefined, myFilaments), [myFilaments]);
+  const brandLines = useMemo(() => pickerLines(brand), [brand]);
+  const groups = useMemo(() => pickerGroups({ query, brand, line }, myFilaments) as { key: string; label: string | undefined; filaments: Option[] }[], [query, brand, line, myFilaments]);
   const options = groups.flatMap((g) => g.filaments.map((f: Option) => ({ key: optionKey(g.key, f), f })));
   // The option the grid's one tab stop is on: the current filament, else the first.
   const [active, setActive] = useState<string | null>(null);
@@ -122,15 +118,17 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
     e.preventDefault();
     focusOption(to);
   };
-  const onTabsKey = (e: React.KeyboardEvent) => {
-    const keys = ['', ...LINES.map((l) => l.key)];
-    const i = keys.indexOf(line);
+  // Arrows move along a row of tabs (a brand row, a line row) and choose the one they land on.
+  const onTabsKey = (keys: string[], value: string, choose: (k: string) => void) => (e: React.KeyboardEvent) => {
+    const i = keys.indexOf(value);
     const to = e.key === 'ArrowRight' ? (i + 1) % keys.length : e.key === 'ArrowLeft' ? (i - 1 + keys.length) % keys.length : -1;
     if (to < 0) return;
     e.preventDefault();
-    setLine(keys[to]);
-    pop.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus();
+    choose(keys[to]);
+    (e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus();
   };
+  const chooseBrand = (b: string) => { setBrand(b); setLine(validLine(b, line)); setActive(null); };
+  const chooseLine = (l: string) => { setLine(l); setActive(null); };
   // Tab and Shift+Tab go round the picker's controls.
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab' || !pop.current) return;
@@ -152,12 +150,20 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
           if (e.key === 'ArrowDown') { e.preventDefault(); focusOption(grid.current?.querySelector<HTMLElement>('[tabindex="0"]') ?? undefined); }
           if (e.key === 'Enter' && query.trim() && options[0]) { e.preventDefault(); pick(options[0].f); }
         }} />
-      <div className="seg layertone-lines" role="tablist" aria-label="Filament lines" onKeyDown={onTabsKey}>
-        {[{ key: '', label: 'All', title: 'Every filament' }, ...LINES.map((l) => ({ key: l.key, label: short(l), title: l.key }))].map((t) => (
-          <button key={t.key} role="tab" className={line === t.key ? 'on' : ''} aria-selected={line === t.key} tabIndex={line === t.key ? 0 : -1} aria-controls={`${id}-grid`} title={t.title}
-            onClick={() => { setLine(t.key); setActive(null); }}>{t.label}</button>
+      <div className="seg layertone-lines" role="tablist" aria-label="Filament brands" onKeyDown={onTabsKey(['', ...brands], brand, chooseBrand)}>
+        {['', ...brands].map((b) => (
+          <button key={b} role="tab" className={brand === b ? 'on' : ''} aria-selected={brand === b} tabIndex={brand === b ? 0 : -1} aria-controls={`${id}-grid`} title={b || 'Every filament'}
+            onClick={() => chooseBrand(b)}>{b || 'All'}</button>
         ))}
       </div>
+      {brandLines.length > 0 && (
+        <div className="seg layertone-lines layertone-line-row" role="tablist" aria-label={`${brand} lines`} onKeyDown={onTabsKey(['', ...brandLines.map((l) => l.key)], line, chooseLine)}>
+          {[{ key: '', label: 'All', title: `Every ${brand} filament` }, ...brandLines.map((l) => ({ key: l.key, label: l.line || l.brand, title: l.key }))].map((t) => (
+            <button key={t.key} role="tab" className={line === t.key ? 'on' : ''} aria-selected={line === t.key} tabIndex={line === t.key ? 0 : -1} aria-controls={`${id}-grid`} title={t.title}
+              onClick={() => chooseLine(t.key)}>{t.label}</button>
+          ))}
+        </div>
+      )}
       <div ref={grid} id={`${id}-grid`} className="layertone-grid" role="listbox" aria-label={query.trim() ? `Filaments matching "${query.trim()}"` : 'Filaments'} onKeyDown={onGridKey} onMouseLeave={() => setHover(null)}>
         {groups.map((g) => (
           <div key={g.key} role="group" aria-labelledby={g.label ? `${id}-${g.key}` : undefined}>
@@ -180,7 +186,7 @@ export function FilamentPicker({ current, trigger, onPick, onClose, automatic }:
         ))}
         {!options.length && <div className="layertone-grid-empty dim small">No filament in the library matches: use a custom colour.</div>}
       </div>
-      {!query.trim() && !line && (
+      {!query.trim() && !brand && (
         // Settings has room to browse, search and count rolls; the popover closes as it opens, and the
         // focus goes back to the control that opened the picker (where Settings returns it on close).
         <button className="link layertone-mine-edit" onClick={() => { trigger.current?.focus(); onClose(); openSettings('filaments'); }}>

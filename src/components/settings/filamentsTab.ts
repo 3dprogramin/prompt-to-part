@@ -1,7 +1,7 @@
 // The Filaments tab of Settings, its decisions: the user's filaments (the shelf) with their roll counts,
 // the library to add from, and the saves. FilamentsTab.tsx only renders these.
 import { NOT_LOADED } from '../../lib/mineStore';
-import { cleanRolls, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, MY_FILAMENTS_FULL, myFilamentKey, rollsOf, searchFilaments, searchMyFilaments, type LibraryFilament, type MyFilament } from '../../../shared/filaments';
+import { cleanRolls, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, MY_FILAMENTS_FULL, myFilamentKey, normalizeFilamentText, rollsOf, searchFilaments, searchMyFilaments, type LibraryFilament, type MyFilament } from '../../../shared/filaments';
 import { latestWins } from './latestWins';
 
 const byText = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
@@ -25,9 +25,21 @@ export function shelfView(mine: MyFilament[], query: string): MyFilament[] {
 
 export interface LibraryCard { filament: LibraryFilament; key: string; owned: boolean }
 
-/** Brands of the library in alphabetical order, and the lines of one brand (or of all) in alphabetical order. */
-export function libraryBrands(library: LibraryFilament[] = FILAMENT_LIBRARY): string[] {
-  return [...new Set(library.map((f) => f.brand))].sort((a, b) => a.localeCompare(b));
+/**
+ * The library's brands, the user's own first: those they saved filaments from, most saved first and
+ * alphabetical among equals (brands compared by normalizeFilamentText), then the rest alphabetically.
+ * Custom filaments and brands outside the library count for nothing.
+ */
+export function brandOrder(mine: MyFilament[], library: LibraryFilament[] = FILAMENT_LIBRARY): string[] {
+  const saved = new Map<string, number>();
+  for (const f of mine) { const b = normalizeFilamentText(f.brand ?? ''); if (b) saved.set(b, (saved.get(b) ?? 0) + 1); }
+  const count = (b: string) => saved.get(normalizeFilamentText(b)) ?? 0;
+  return [...new Set(library.map((f) => f.brand))].sort((a, b) => count(b) - count(a) || a.localeCompare(b));
+}
+
+/** Brands of the library, alphabetical, or the user's own first when `mine` is given (brandOrder); and the lines of one brand (or of all) in alphabetical order. */
+export function libraryBrands(library: LibraryFilament[] = FILAMENT_LIBRARY, mine: MyFilament[] = []): string[] {
+  return brandOrder(mine, library);
 }
 export function libraryLines(brand: string | null, library: LibraryFilament[] = FILAMENT_LIBRARY): string[] {
   return [...new Set(library.filter((f) => brand == null || f.brand === brand).flatMap((f) => (f.line ? [f.line] : [])))].sort((a, b) => a.localeCompare(b));

@@ -22,7 +22,7 @@ import path from 'node:path';
 import { chromium, type Browser, type BrowserContextOptions, type Locator, type Page } from 'playwright-core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { encode as encodePng } from 'fast-png';
-import { FILAMENT_LIBRARY } from '../../shared/filaments';
+import { FILAMENT_LIBRARY, filamentLines } from '../../shared/filaments';
 import { libraryBrands, libraryLines } from '../../src/components/settings/filamentsTab';
 import type { AgentEvent, GenerateRequest } from '../../shared/api';
 
@@ -2693,6 +2693,70 @@ test('Settings: the Filaments tab changes nothing before your list is read, and 
     await dialog.getByRole('button', { name: 'Close' }).click();
   } finally {
     release();
+    await page.close();
+    await putShelf([]);
+  }
+});
+
+test('a part\'s filament picker: brands first (the user\'s own ahead), then a brand\'s lines; the Settings brand pills in the same order', TEST, async () => {
+  const lib = FILAMENT_LIBRARY;
+  const brands = [...new Set(lib.map((f) => f.brand))].sort((a, b) => a.localeCompare(b));
+  assert.ok(brands.length >= 5);
+  const [few, many] = [brands[brands.length - 1], brands[brands.length - 2]];
+  const save = (brand: string, n: number) => Array.from({ length: n }, (_, i) => ({ name: `Smoke Own ${brand} ${i}`, brand, color: '#1f9d8f', td: 1.7, rolls: 1 }));
+  assert.equal((await putShelf([...save(few, 1), ...save(many, 2)])).status, 200);
+  const want = [many, few, ...brands.filter((b) => b !== few && b !== many)];
+  const withLines = brands.find((b) => filamentLines().filter((l) => l.brand === b).length > 1)!;
+  const bl = filamentLines().filter((l) => l.brand === withLines);
+  const pid = 'ui-smoke-000000f3';
+  const parts = 'function build() { return [{ name: \'Base\', color: \'#d0d0d0\', shape: Manifold.cube([30, 30, 6]) }, { name: \'Lid\', color: \'#d0d0d0\', shape: Manifold.cube([20, 20, 4]).translate([5, 5, 10]) }]; }';
+  assert.equal((await putDesign({ id: pid, name: 'Two parts for brands', createdAt: 1, updatedAt: 1, code: parts, values: {}, messages: [], currentVersion: 0,
+    versions: [{ code: parts, summary: 'A base and a lid', createdAt: 1, source: 'manual' }] })).status, 200);
+  const page = await newPage();
+  try {
+    await page.goto(`${A}/?design=${pid}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Two parts for brands');
+    await built(page);
+    await page.getByRole('button', { name: 'Filament of Lid', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Add a filament' });
+    await picker.waitFor();
+    const brandRow = picker.getByRole('tablist', { name: 'Filament brands' });
+    await picker.getByRole('group', { name: 'My filaments' }).waitFor();
+    assert.deepEqual(await brandRow.getByRole('tab').allInnerTexts(), ['All', ...want]);
+    assert.equal(await picker.getByRole('tablist', { name: /lines$/ }).count(), 0, 'no line row before a brand is chosen');
+    assert.deepEqual(await picker.getByRole('group').evaluateAll((els) => els.map((e) => e.getAttribute('aria-labelledby') ? document.getElementById(e.getAttribute('aria-labelledby')!)!.textContent : '')).then((l) => l.slice(0, 2)), ['My filaments', 'Common']);
+    const sideways = () => picker.evaluate((el) => ({ pop: el.scrollWidth - el.clientWidth, rows: [...el.querySelectorAll('.layertone-lines')].map((r) => r.scrollWidth - r.clientWidth), h: el.getBoundingClientRect().height, win: innerHeight }));
+    let m = await sideways();
+    assert.ok(m.pop <= 0 && m.rows.every((x) => x <= 0) && m.h <= m.win, `no sideways scroll, fits the window: ${JSON.stringify(m)}`);
+    await page.screenshot({ path: path.join(shots, 'picker-brands.png') });
+
+    await brandRow.getByRole('tab', { name: withLines, exact: true }).click();
+    const lineRow = picker.getByRole('tablist', { name: `${withLines} lines` });
+    assert.deepEqual(await lineRow.getByRole('tab').allInnerTexts(), ['All', ...bl.map((l) => l.line)]);
+    const names = () => picker.getByRole('option').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!));
+    const inBrand = lib.filter((f) => f.brand === withLines);
+    assert.equal((await names()).length, inBrand.length, 'every filament of the brand and no other');
+    assert.equal(await picker.getByRole('group', { name: 'Common' }).count(), 0);
+    m = await sideways();
+    assert.ok(m.pop <= 0 && m.rows.every((x) => x <= 0) && m.h <= m.win, `brand view: ${JSON.stringify(m)}`);
+    await page.screenshot({ path: path.join(shots, 'picker-brand-lines.png') });
+    await lineRow.getByRole('tab', { name: bl[1].line, exact: true }).click();
+    assert.equal((await names()).length, bl[1].filaments.length, 'only the chosen line');
+    // Another brand drops a line that is not its own.
+    await brandRow.getByRole('tab', { name: want.find((b) => b !== withLines)!, exact: true }).click();
+    assert.ok(await picker.getByRole('tablist', { name: /lines$/ }).getByRole('tab', { selected: true }).first().innerText() === 'All' || (await picker.getByRole('tablist', { name: /lines$/ }).count()) === 0);
+    await brandRow.getByRole('tab', { name: 'All', exact: true }).click();
+    await picker.getByRole('group', { name: 'My filaments' }).waitFor();
+
+    // Settings: the same brand order after "All".
+    await page.keyboard.press('Escape');
+    await picker.waitFor({ state: 'detached' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await dialog.getByRole('tab', { name: 'Filaments', exact: true }).click();
+    const pills = await dialog.getByRole('region', { name: 'Library' }).getByRole('group', { name: 'Brand', exact: true }).getByRole('button').allInnerTexts();
+    assert.deepEqual(pills, ['All', ...want]);
+  } finally {
     await page.close();
     await putShelf([]);
   }

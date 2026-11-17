@@ -18,7 +18,6 @@ interface Props {
 
 type Custom = LayerToneFilament & { original?: string };
 
-const BRANDS = libraryBrands();
 
 export function FilamentsTab({ saver, footer }: Props) {
   const id = useId();
@@ -107,6 +106,7 @@ export function FilamentsTab({ saver, footer }: Props) {
   const [libQuery, setLibQuery] = useState('');
   const [brand, setBrand] = useState<string | null>(null);
   const [line, setLine] = useState<string | null>(null);
+  const brands = useMemo(() => libraryBrands(FILAMENT_LIBRARY, list), [list]);
   const lines = useMemo(() => linePills(brand), [brand]);
   const cards = useMemo(() => libraryView({ query: libQuery, brand, line }, list), [libQuery, brand, line, list]);
   const chooseBrand = (b: string | null) => {
@@ -199,7 +199,7 @@ export function FilamentsTab({ saver, footer }: Props) {
           <input type="search" className="text-input" value={libQuery} placeholder="Colour or name" aria-label="Search the library" onChange={(e) => setLibQuery(e.target.value)} />
         </div>
         <div className="fil-pills" role="group" aria-label="Brand">
-          {[null, ...BRANDS].map((b) => (
+          {[null, ...brands].map((b) => (
             <button key={b ?? ''} type="button" className={`filter-chip${brand === b ? ' on' : ''}`} aria-pressed={brand === b} onClick={() => chooseBrand(b)}>{b ?? 'All'}</button>
           ))}
         </div>

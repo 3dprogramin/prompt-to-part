@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { colourFamilies, DUPLICATE_FILAMENT, FILAMENT_LIBRARY, MAX_MY_FILAMENTS, myFilamentKey, rollsOf, withMyFilament, type MyFilament } from '../shared/filaments';
 import { mineStore, NOT_LOADED } from '../src/lib/mineStore';
-import { addFromLibrary, cardLabel, libraryBrands, libraryCount, libraryLines, libraryView, linePills, shelfSaver, shelfSummary, shelfView, summaryText, withRolls, without } from '../src/components/settings/filamentsTab';
+import { addFromLibrary, brandOrder, cardLabel, libraryBrands, libraryCount, libraryLines, libraryView, linePills, shelfSaver, shelfSummary, shelfView, summaryText, withRolls, without } from '../src/components/settings/filamentsTab';
 import { openSettings, setSettingsOpener } from '../src/components/settings/openSettings';
 
 const mine: MyFilament[] = [
@@ -369,4 +369,35 @@ test('the picker opens Settings on a tab through the opener the app registers', 
   assert.deepEqual(asked, ['filaments']);
   stop();
   assert.equal(openSettings('filaments'), false);
+});
+
+// ---- the brand order: the user's own brands first
+const alpha = [...new Set(lib.map((f) => f.brand))].sort((a, b) => a.localeCompare(b));
+const own = (brand: string | undefined, n = 1): MyFilament[] => Array.from({ length: n }, (_, i) => ({ name: `Own ${brand ?? 'none'} ${i}`, ...(brand ? { brand } : {}), color: '#123456', td: 1 }));
+test('brand order: no saved filaments is plain alphabetical', () => {
+  assert.deepEqual(brandOrder([], lib), alpha);
+  assert.deepEqual(libraryBrands(lib), alpha);
+});
+test('brand order: only custom filaments, or brands outside the library, change nothing', () => {
+  assert.deepEqual(brandOrder([...own(undefined, 3), ...own('Acme No Such Brand', 2)], lib), alpha);
+});
+test('brand order: saved brands first, most filaments first, then the rest alphabetically', () => {
+  const [few, many] = [alpha[alpha.length - 1], alpha[alpha.length - 2]];
+  const got = brandOrder([...own(few, 1), ...own(many, 3)], lib);
+  assert.deepEqual(got.slice(0, 2), [many, few]);
+  assert.deepEqual(got.slice(2), alpha.filter((b) => b !== few && b !== many));
+});
+test('brand order: equal counts are alphabetical', () => {
+  const [a, b] = [alpha[1], alpha[3]];
+  assert.deepEqual(brandOrder([...own(b, 2), ...own(a, 2)], lib).slice(0, 2), [a, b]);
+});
+test('brand order: a brand spelled in another case counts for the library brand', () => {
+  const last = alpha[alpha.length - 1], other = alpha[0];
+  const got = brandOrder([...own(last.toUpperCase(), 1), ...own(` ${last.toLowerCase()}`, 1), ...own(other, 1)], lib);
+  assert.deepEqual(got.slice(0, 2), [last, other]);
+  assert.equal(new Set(got).size, alpha.length);
+});
+test('libraryBrands takes the user\'s filaments to order by', () => {
+  const last = alpha[alpha.length - 1];
+  assert.equal(libraryBrands(lib, own(last, 1))[0], last);
 });
