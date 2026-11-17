@@ -177,7 +177,7 @@ export function createApp({ port = PORT, hosts = EXTRA_HOSTS, origins = EXTRA_OR
     // Built files under assets/ have a content hash in their name: a new build gets new names.
     app.use('/assets', express.static(path.join(dist, 'assets'), { immutable: true, maxAge: '1y' }));
     app.use(express.static(dist));
-    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html'), { dotfiles: 'allow' }));
   }
 
   return app;
