@@ -50,3 +50,11 @@ test('with no reply running a click switches, or asks first when the settings ar
   assert.equal(d.currentVersion, 0);
   assert.deepEqual(d.values, { width: 10, $editHistory: '[]' });
 });
+
+test('App.tsx restore refuses through restoreChoice, not a second hand-written replying guard', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const restore = app.slice(app.indexOf('const restore = (vi: number)'), app.indexOf('const [pendingRestore'));
+  assert.doesNotMatch(restore, /if \(replying\)/);
+  assert.match(restore, /restoreChoice\(/);
+});

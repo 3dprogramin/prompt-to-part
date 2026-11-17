@@ -433,7 +433,8 @@ export default function App() {
   // A reply running on the design (here or in another tab) keeps it on its version until it ends.
   const replying = generating || busyElsewhere;
   const restore = (vi: number) => {
-    if (replying) return void setNotice({ text: 'Wait for the reply to finish before switching versions: its pictures and meshes go into the version it makes.', level: 'info', details: false });
+    // The same decision onRestore asks: nothing unsaved or locked here, so it is only wait or switch.
+    if (restoreChoice({ to: vi, current: design.currentVersion, unsavedSettings: false, locked: true, replying }) === 'wait') return void setNotice({ text: 'Wait for the reply to finish before switching versions: its pictures and meshes go into the version it makes.', level: 'info', details: false });
     if (design.versions[vi]) setDesign((d) => withVersion(d, vi));
   };
   // Switching versions replaces the sliders with that version's settings: ask first if yours aren't saved.
