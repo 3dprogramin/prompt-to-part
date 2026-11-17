@@ -6,7 +6,7 @@ Designs and versions, the chat, the viewer, print settings, cost and export. Bac
 
 - **The gear** at the right end of the top bar opens Settings, on the tab you used last (*Printer* the first time). The connection chip on its left (*Claude subscription* and its siblings) opens it on *Keys and services*. Escape or *Close* closes it; clicking outside does not, so a half-typed key is not lost.
 - **Printer:** the printer, nozzle and filaments it loads at once, saved as you change them.
-- **Filaments:** your filaments will move here; for now they are in the LayerTone filament picker.
+- **Filaments:** *My filaments* on the left, the built-in library on the right. Click a library colour to add it; search it by colour or name ("blue") and narrow it by brand and line. Each filament of yours has a roll count (1 when added, up to 99): a note for you that changes nothing else, so a filament with 0 rolls is still offered. *Custom filament* makes one of your own; the pen edits a row and the cross removes it (click twice). Every change is saved at once. The filament picker in a design has a link to this tab.
 - **Keys and services:** keys shown masked, changed and saved here without a restart, and the connection check; see [Settings in the app](configuration.md#settings-in-the-app).
 
 ## Designs and versions
