@@ -33,6 +33,13 @@ test('a picture mark is not a setting, and builds the same as without it', () =>
   assert.equal(sameBuild({ w: 31, $drawings: '{}' }, { w: 31, $text: '{}' }), false);
 });
 
+test('the edit history builds nothing either (the list shared with the menu pictures\' key)', () => {
+  const history = '{"lineart":[]}';
+  assert.equal(sameBuild({ w: 31 }, { w: 31, $editHistory: history }), true);
+  assert.equal(sameBuild({ w: 31, $editHistory: history }, { w: 31, $editHistory: '{}' }), true);
+  assert.equal(sameBuild({ w: 31, $editHistory: history }, { w: 32, $editHistory: history }), false);
+});
+
 test('without marks, values build again whenever they are a new object (as before marks existed)', () => {
   const a = { w: 31, $drawings: '{}' };
   assert.equal(sameBuild(a, a), true);

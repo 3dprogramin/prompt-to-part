@@ -9,6 +9,7 @@ import { EDIT_HISTORY_KEY } from '../../shared/editHistory';
 import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 import { ONE_COLOUR_KEY, PRINT_KEY } from '../../shared/print';
 import { BACK_TEXT_KEY } from '../../shared/backText';
+import { NON_BUILD_KEYS } from '../../shared/buildKeys';
 
 /** Hidden parts, saved with the design (like FreeCAD's visibility), not a setting. */
 export const HIDDEN_KEY = '$hidden';
@@ -40,11 +41,11 @@ function changedKeys(from: ParamValues, to: ParamValues, params: Params): string
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 }
 
-/** The same values for the build: alike but for the picture marks (they build nothing). */
+/** The same values for the build: alike but for the values that build nothing (NON_BUILD_KEYS: the picture marks, the edit history). */
 export function sameBuild(a: ParamValues, b: ParamValues): boolean {
-  // Without marks on either side, only the same object (as before marks existed: any new values build again).
-  if (a === b || (!(PICTURE_MARKS_KEY in a) && !(PICTURE_MARKS_KEY in b))) return a === b;
-  const keys = (v: ParamValues) => Object.keys(v).filter((k) => k !== PICTURE_MARKS_KEY);
+  // Without such values on either side, only the same object (as before marks existed: any new values build again).
+  if (a === b || !NON_BUILD_KEYS.some((k) => k in a || k in b)) return a === b;
+  const keys = (v: ParamValues) => Object.keys(v).filter((k) => !NON_BUILD_KEYS.includes(k));
   const ka = keys(a), kb = keys(b);
   return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && a[k] === b[k]);
 }
