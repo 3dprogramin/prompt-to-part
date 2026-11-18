@@ -50,6 +50,10 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
   // Keys whose render crashed: not the design's fault, so nothing on disk, but not retried until a restart.
   const crashed = new Set<string>();
   const pending = new Map<string, Promise<Thumb | null | Stopped>>();
+  // Keys found not to be the design's current one (or its design gone), with the design file's time
+  // and size then: answered "not there" at once while the file stays as it was.
+  const notCurrent = new Map<string, DesignStat | 'missing'>();
+  const forget = (id: string) => { for (const n of notCurrent.keys()) if (n.startsWith(`${id}-`) && THUMB_KEY_RE.test(n.slice(id.length + 1))) notCurrent.delete(n); };
   // The pictures queued, in order: the first is being drawn (or is the next to start).
   const line: string[] = [];
   let queue: Promise<unknown> = Promise.resolve();
@@ -78,9 +82,9 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
     while (busy()) await new Promise((r) => setTimeout(r, POLL_MS));
     // The time and size before the read: a save after it shows when they are compared again.
     const before = await statDesign(id);
-    if (!before) return null;
+    if (!before) { notCurrent.set(name, 'missing'); return null; }
     const design = await readDesign(id);
-    if (!design || thumbKey(design.code, design.values) !== key) return null;
+    if (!design || thumbKey(design.code, design.values) !== key) { notCurrent.set(name, before); return null; }
     // A generation may have started while the design was read.
     if (busy()) return 'stopped';
     const ac = new AbortController();
@@ -105,6 +109,7 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
         await writeAtomically(`${base(id, key)}.json`, JSON.stringify({ size }));
         await removeFiles(id, key);
       }
+      forget(id);
     } catch {
       // The disk refused (full, not writable): not the design's fault, not tried again until a restart.
       crashed.add(name);
@@ -133,12 +138,23 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
     return p;
   }
 
+  /** True for a key known not to be current while the design file is as it was then (no queueing, no read). */
+  async function knownStale(id: string, name: string): Promise<boolean> {
+    const was = notCurrent.get(name);
+    if (was === undefined) return false;
+    const now = await statDesign(id);
+    if (was === 'missing' ? !now : same(was, now)) return true;
+    // Saved again or back: that key may be the current one now.
+    notCurrent.delete(name);
+    return false;
+  }
+
   return {
     async get(id: string, key: string): Promise<Thumb | null> {
       if (!SAFE_ID_RE.test(id) || !THUMB_KEY_RE.test(key)) return null;
       const known = await fromDisk(id, key);
       if (known !== undefined) return known;
-      if (crashed.has(`${id}-${key}`)) return null;
+      if (crashed.has(`${id}-${key}`) || (await knownStale(id, `${id}-${key}`))) return null;
       const r = await ensure(id, key);
       return r === 'stopped' ? null : r;
     },
@@ -152,7 +168,7 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
       const known = await fromDisk(id, key);
       if (known !== undefined) return known;
       const name = `${id}-${key}`;
-      if (crashed.has(name)) return null;
+      if (crashed.has(name) || (await knownStale(id, name))) return null;
       const p = ensure(id, key);
       if (waitMs <= 0 || busy() || line[0] !== name) return 'pending';
       let timer: NodeJS.Timeout | undefined;
@@ -164,6 +180,7 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
     },
     async drop(id: string): Promise<void> {
       if (!SAFE_ID_RE.test(id)) return;
+      forget(id);
       await removeFiles(id);
     },
   };

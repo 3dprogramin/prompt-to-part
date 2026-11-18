@@ -136,6 +136,41 @@ test('a key that is not the current one draws nothing and writes nothing', async
   assert.deepEqual(readdirSync(dir), []);
 });
 
+test('a stale key: after its first answer it is "not there" at once, with no read and no render', async () => {
+  const { dir, state, store, add } = setup();
+  const stale = add('design-0001', 'return box(1)');
+  add('design-0001', 'return box(2)');
+  assert.equal(await store.get('design-0001', stale), null);
+  assert.equal(state.reads, 1);
+  for (let i = 0; i < 5; i++) {
+    assert.equal(await store.peek('design-0001', stale, 0), null);
+    assert.equal(await store.peek('design-0001', stale, 1500), null);
+    assert.equal(await store.get('design-0001', stale), null);
+  }
+  assert.equal(state.reads, 1);
+  assert.equal(state.calls, 0);
+  assert.deepEqual(readdirSync(dir), []);
+  // Saved so that the once-stale key is the current one again: its time changed, so it is drawn.
+  assert.equal(add('design-0001', 'return box(1)'), stale);
+  assert.deepEqual((await store.peek('design-0001', stale, 1500) as { size: number[] }).size, [40, 30, 20]);
+  assert.equal(state.reads, 2);
+  assert.equal(state.calls, 1);
+});
+
+test('a deleted design\'s key: "not there" without reads after its first answer, drawn again if the design comes back', async () => {
+  const { state, store, add, designs } = setup();
+  const key = add('design-0001', 'return box()');
+  designs.delete('design-0001');
+  assert.equal(await store.peek('design-0001', key, 1500), null);
+  const reads = state.reads;
+  for (let i = 0; i < 5; i++) { assert.equal(await store.peek('design-0001', key, 0), null); assert.equal(await store.get('design-0001', key), null); }
+  assert.equal(state.reads, reads);
+  assert.equal(state.calls, 0);
+  add('design-0001', 'return box()');
+  assert.deepEqual((await store.get('design-0001', key))?.size, [40, 30, 20]);
+  assert.equal(state.calls, 1);
+});
+
 test('a new picture replaces the old key\'s files; drop removes them all', async () => {
   const { dir, store, add, designs } = setup();
   const k1 = add('design-0001', 'return box(1)');
@@ -384,6 +419,12 @@ test('routes: the list has the key, the picture and its size are served (from a 
   const wrong = await fetch(`${A}/api/designs/${ID}/thumb?k=deadbeefdeadbeef`);
   assert.equal(wrong.status, 404);
   assert.equal(wrong.headers.get('cache-control'), 'no-store');
+  // The info of a key that is not current says "not there" too (not "not yet"), also when asked again.
+  for (let i = 0; i < 2; i++) {
+    const info = await fetch(`${A}/api/designs/${ID}/thumb.json?k=deadbeefdeadbeef`);
+    assert.equal(info.status, 404);
+    assert.equal(info.headers.get('cache-control'), 'no-store');
+  }
   assert.equal((await fetch(`${A}/api/designs/${ID}/thumb?k=XYZ`)).status, 400);
   assert.equal((await fetch(`${A}/api/designs/${ID}/thumb.json?k=${key}0`)).status, 400);
   assert.equal((await fetch(`${A}/api/designs/bad%20id/thumb?k=${key}`)).status, 400);
