@@ -251,6 +251,40 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await cost.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(shots, '2-print.png') });
 
+  // More print settings, in folded groups below the main rows: closed, and a change shows a mark.
+  const groups = page.locator('details.pp-group');
+  assert.deepEqual(await groups.locator('> summary').allInnerTexts(), ['Supports', 'Top surface', 'Seam', 'Ironing', 'Fit', 'Advanced']);
+  for (const g of await groups.all()) assert.equal(await g.evaluate((d) => (d as HTMLDetailsElement).open), false, 'groups start closed');
+  const advanced = groups.filter({ has: page.locator('> summary', { hasText: 'Advanced' }) });
+  await advanced.locator('> summary').click();
+  const vase = advanced.getByRole('button', { name: 'On', exact: true });
+  await vase.click();
+  await advanced.getByText('Prints as one continuous wall: 1 wall, no top layers, no infill, no supports.').waitFor();
+  assert.equal(await vase.getAttribute('aria-pressed'), 'true');
+  await advanced.locator('> summary .sr-only', { hasText: '(changed)' }).waitFor();
+  await page.locator('details.pp-fold > summary', { hasText: 'Written to the 3MF' }).click();
+  await page.locator('.pp-summary li', { hasText: 'spiral mode 1' }).waitFor();
+  // Every group open (turn supports and ironing on to see their rows): nothing wider than the panel, on desktop and phone.
+  await page.locator('.print-panel .pp-row', { hasText: 'Supports' }).first().getByRole('button', { name: 'Normal' }).click();
+  await page.locator('.print-panel .pp-row', { hasText: 'Ironing' }).first().locator('select').selectOption('top');
+  for (const g of await groups.all()) if (!(await g.evaluate((d) => (d as HTMLDetailsElement).open))) await g.locator('> summary').click();
+  const overflow = () => page.evaluate(() => [...document.querySelectorAll('.print-panel *')].filter((e) => e.getBoundingClientRect().right > (e.closest('.print-panel') as HTMLElement).getBoundingClientRect().right + 1).map((e) => e.className || e.tagName));
+  assert.deepEqual(await overflow(), [], 'nothing overflows the Print tab');
+  await groups.first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(shots, '2-print-groups.png') });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.getByRole('tab', { name: 'Panel', exact: true }).click();
+  await groups.first().scrollIntoViewIfNeeded();
+  assert.deepEqual(await overflow(), [], 'nothing overflows the Print tab at phone width');
+  await page.screenshot({ path: path.join(shots, '2-print-groups-phone.png') });
+  await page.setViewportSize({ width: 1400, height: 850 });
+  await advanced.getByRole('button', { name: 'Off', exact: true }).click();
+  await page.locator('.pp-summary li', { hasText: 'spiral mode' }).waitFor({ state: 'detached' });
+  // Off is still the user's own choice (a "You" row) until it is reset; then nothing in the group is changed.
+  await advanced.getByRole('button', { name: 'Reset Spiral vase' }).click();
+  await advanced.locator('> summary .sr-only').waitFor({ state: 'detached' });
+  assert.deepEqual(slices, [], 'the new settings must not slice');
+
   // Product photos: the suggested scene, one more and Your idea…; the other 22 after "More scenes", searchable.
   await page.getByRole('button', { name: 'Product photos' }).click();
   const scenes = page.locator('.ph-scenes [role=radio]');

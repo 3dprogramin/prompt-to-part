@@ -633,6 +633,13 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .pp-src.you { color: #a3c4ff; background: #6a9ae422; }
 .pp-reset { width: 20px; height: 20px; margin-left: auto; }
 .pp-row select { width: 100%; }
+.pp-group > summary { cursor: pointer; display: flex; align-items: center; color: var(--text-2); font-size: 12.5px; list-style: none; padding: 2px 0; }
+.pp-group > summary::-webkit-details-marker { display: none; }
+.pp-group > summary::before { content: '▸'; color: var(--text-3); margin-right: 6px; transition: transform 0.15s; display: inline-block; }
+.pp-group[open] > summary::before { transform: rotate(90deg); }
+.pp-group-rows { display: flex; flex-direction: column; gap: 10px; padding: 8px 0 4px 14px; }
+.pp-num { display: flex; align-items: center; gap: 6px; }
+.pp-num input { width: 84px; background: var(--bg); border: 1px solid var(--input-line); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
 .pp-stepper { display: inline-flex; align-items: center; border: 1px solid var(--input-line); border-radius: 7px; background: var(--bg); width: fit-content; }
 .pp-stepper button { width: 28px; height: 26px; border: 0; background: transparent; color: var(--text-2); font-size: 15px; }
 .pp-stepper button:hover:not(:disabled) { color: var(--text); background: #ffffff0d; }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { load, store } from '../lib/storage';
 import {
-  bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SEAMS, SETTING_LABELS, TOP_PATTERNS, WALL_ORDERS,
+  bambuOverrides, cleanSettings, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SCARF_SEAMS, SEAMS, SETTING_GROUPS, SETTING_LABELS, supportStylesFor, TOP_ONE_WALL, TOP_PATTERNS, WALL_GENERATORS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
 import { layerHeights, printer, profileName, shortName, type PrinterSetup } from '../../shared/printer';
@@ -107,20 +107,22 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
         );
       })()}
 
-      {KEYS.filter((k) => !(part && (k === 'layerHeight' || k === 'firstLayerHeight')) && !(k === 'supportsOnPlate' && eff.supports === 'off')).map((key) => {
-        const src = source(ai, user, key, part);
-        const ownUser = (own(user) as PrintSettings)[key] !== undefined;
+      {KEYS.filter((k) => !(part && (k === 'layerHeight' || k === 'firstLayerHeight')) && !(k === 'supportsOnPlate' && eff.supports === 'off')).map((key) => (
+        <Row key={key} k={key} eff={eff} base={base} src={source(ai, user, key, part)} ownUser={(own(user) as PrintSettings)[key] !== undefined} onChange={setValue} />
+      ))}
+
+      {SETTING_GROUPS.map((g) => {
+        const keys = g.keys.filter((k) => !(part && k === 'spiralVase'));
+        const changed = keys.some((k) => source(ai, user, k, part) !== 'default');
+        // Supports and ironing only matter when they are on: until then a line says so.
+        const off = g.id === 'supports' ? eff.supports === 'off' : g.id === 'ironing' ? eff.ironing === 'off' : false;
         return (
-          <div className="pp-row" key={key}>
-            <div className="pp-label">
-              <span>{SETTING_LABELS[key]}</span>
-              <span className={`pp-src ${src}`} title={src === 'default' ? `Profile default: ${describeSetting(key, base[key])}` : undefined}>
-                {src === 'you' ? 'You' : src === 'ai' ? 'AI' : 'Default'}
-              </span>
-              {ownUser && <button className="icon-btn pp-reset" title="Reset" aria-label={`Reset ${SETTING_LABELS[key]}`} onClick={() => setValue(key, undefined)}><Icon name="restore" size={12} /></button>}
-            </div>
-            <Control k={key} label={SETTING_LABELS[key]} value={eff[key]} onChange={(v) => setValue(key, v)} />
-          </div>
+          <PrintGroup key={g.id} id={g.id} label={g.label} changed={changed}>
+            {off
+              ? <div className="dim small">Turn {g.id === 'supports' ? 'supports' : 'ironing'} on to tune them.</div>
+              : keys.map((key) => <Row key={key} k={key} eff={eff} base={base} src={source(ai, user, key, part)} ownUser={(own(user) as PrintSettings)[key] !== undefined} onChange={setValue} />)}
+            {g.id === 'advanced' && !part && eff.spiralVase && <div className="dim small">Prints as one continuous wall: 1 wall, no top layers, no infill, no supports.</div>}
+          </PrintGroup>
         );
       })}
 
@@ -144,7 +146,53 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
   );
 }
 
-function Control({ k, label, value, onChange }: { k: Key; label: string; value: PrintSettings[Key]; onChange: (v: PrintSettings[Key]) => void }) {
+/** One setting: its label, who decided it, a reset when it is yours, and the control. */
+function Row({ k, eff, base, src, ownUser, onChange }: { k: Key; eff: Required<PrintSettings>; base: Required<PrintSettings>; src: 'you' | 'ai' | 'default'; ownUser: boolean; onChange: (key: Key, value: PrintSettings[Key] | undefined) => void }) {
+  return (
+    <div className="pp-row">
+      <div className="pp-label">
+        <span>{SETTING_LABELS[k]}</span>
+        <span className={`pp-src ${src}`} title={src === 'default' ? `Profile default: ${describeSetting(k, base[k])}` : undefined}>
+          {src === 'you' ? 'You' : src === 'ai' ? 'AI' : 'Default'}
+        </span>
+        {ownUser && <button className="icon-btn pp-reset" title="Reset" aria-label={`Reset ${SETTING_LABELS[k]}`} onClick={() => onChange(k, undefined)}><Icon name="restore" size={12} /></button>}
+      </div>
+      <Control k={k} label={SETTING_LABELS[k]} value={eff[k]} supports={eff.supports} onChange={(v) => onChange(k, v)} />
+    </div>
+  );
+}
+
+/** A folded group of rows, closed by default (remembered per group); a dot marks a change in it. */
+function PrintGroup({ id, label, changed, children }: { id: string; label: string; changed: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState<boolean>(() => load(`printGroup-${id}`, false));
+  useEffect(() => store(`printGroup-${id}`, open), [id, open]);
+  return (
+    <details className="pp-group" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>{label}{changed && <><i className="pp-dot" aria-hidden /><span className="sr-only"> (changed)</span></>}</summary>
+      <div className="pp-group-rows">{children}</div>
+    </details>
+  );
+}
+
+/** A number in millimetres (or other unit) typed in: kept as typed until it is a valid value in range. */
+function NumberField({ k, label, value, min, max, step, unit, onChange }: { k: Key; label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: PrintSettings[Key]) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <div className="pp-num">
+      <input type="number" aria-label={label} min={min} max={max} step={step} value={draft ?? String(value)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const n = e.target.value.trim() === '' ? NaN : Number(e.target.value);
+          const clean = Number.isFinite(n) ? (cleanSettings({ [k]: n }) as Record<string, unknown>)[k] : undefined;
+          if (clean !== undefined) onChange(clean as PrintSettings[Key]);
+        }}
+        onBlur={() => setDraft(null)} />
+      <span className="dim small">{unit}</span>
+    </div>
+  );
+}
+
+function Control({ k, label, value, supports, onChange }: { k: Key; label: string; value: PrintSettings[Key]; supports: Supports; onChange: (v: PrintSettings[Key]) => void }) {
   switch (k) {
     case 'layerHeight': case 'firstLayerHeight':
       return <select aria-label={label} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{layerHeights(printer().nozzle).map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{Math.abs(h - printer().nozzle / 2) < 1e-6 ? ' (standard)' : ''}</option>)}</select>;
@@ -172,6 +220,26 @@ function Control({ k, label, value, onChange }: { k: Key; label: string; value: 
       const options: readonly string[] = k === 'ironing' ? IRONING_TYPES : k === 'seam' ? SEAMS : k === 'wallOrder' ? WALL_ORDERS : FUZZY_SKIN;
       return <select aria-label={label} value={String(value)} onChange={(e) => onChange(e.target.value as PrintSettings[Key])}>{options.map((o) => <option key={o} value={o}>{describeSetting(k, o as PrintSettings[Key])}</option>)}</select>;
     }
+    case 'supportAngle': return <Stepper label={label} value={Number(value)} min={0} max={90} unit="°" onChange={onChange} />;
+    case 'supportInterfaceLayers': return <Stepper label={label} value={Number(value)} min={0} max={5} onChange={onChange} />;
+    case 'infillDirection': return <Stepper label={label} value={Number(value)} min={0} max={180} unit="°" onChange={onChange} />;
+    case 'ironingSpeed': return <Stepper label={label} value={Number(value)} min={10} max={100} unit="mm/s" onChange={onChange} />;
+    case 'ironingFlow': return <Stepper label={label} value={Number(value)} min={5} max={30} unit="%" onChange={onChange} />;
+    case 'supportGap': return <NumberField k={k} label={label} value={Number(value)} min={0} max={1} step={0.01} unit="mm" onChange={onChange} />;
+    case 'ironingSpacing': return <NumberField k={k} label={label} value={Number(value)} min={0.05} max={0.3} step={0.01} unit="mm" onChange={onChange} />;
+    case 'holeCompensation': case 'contourCompensation': return <NumberField k={k} label={label} value={Number(value)} min={-0.5} max={0.5} step={0.01} unit="mm" onChange={onChange} />;
+    case 'elephantFoot': return <NumberField k={k} label={label} value={Number(value)} min={0} max={1} step={0.005} unit="mm" onChange={onChange} />;
+    case 'supportStyle': case 'topOneWall': case 'wallGenerator': case 'scarfSeam': {
+      const options: readonly string[] = k === 'supportStyle' ? supportStylesFor(supports) : k === 'topOneWall' ? TOP_ONE_WALL : k === 'wallGenerator' ? WALL_GENERATORS : SCARF_SEAMS;
+      const shown = options.includes(String(value)) ? String(value) : options[0];
+      return <select aria-label={label} value={shown} onChange={(e) => onChange(e.target.value as PrintSettings[Key])}>{options.map((o) => <option key={o} value={o}>{describeSetting(k, o as PrintSettings[Key])}</option>)}</select>;
+    }
+    case 'spiralVase':
+      return (
+        <div className="seg">{[false, true].map((on) => (
+          <button key={String(on)} className={value === on ? 'on' : ''} aria-pressed={value === on} onClick={() => onChange(on)}>{on ? 'On' : 'Off'}</button>))}
+        </div>
+      );
     case 'brim': {
       const b = value as Brim;
       const width = typeof b === 'number';
