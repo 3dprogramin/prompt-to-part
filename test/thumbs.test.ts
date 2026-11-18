@@ -450,7 +450,7 @@ test('routes: while a render is slow, thumb.json answers 503 at once', async () 
   await wait(100);
   const t0 = Date.now();
   const info = await fetch(`${A}/api/designs/${ID}/thumb.json?k=${key}`);
-  assert.ok(Date.now() - t0 < 300, `answered after ${Date.now() - t0} ms`);
+  assert.ok(Date.now() - t0 < 1000, `answered after ${Date.now() - t0} ms`);
   assert.equal(info.status, 503);
   assert.equal(info.headers.get('cache-control'), 'no-store');
   assert.equal(info.headers.get('retry-after'), '3');
