@@ -12,7 +12,7 @@ The [Quick start](../README.md#quick-start) gets it running; this is everything 
 
 | Volume | In the container | |
 |---|---|---|
-| `prompt-to-part_data` | `/data` (`PTP_DATA`) | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings |
+| `prompt-to-part_data` | `/data` (`PTP_DATA`) | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings, and `thumbs/` (pictures for the Designs menu: derived, safe to delete, not in backups) |
 | `prompt-to-part_claude` | `/home/node/.claude` | Claude Code's sessions (follow-up messages continue the conversation) and settings |
 | `prompt-to-part_cache` | `/app/node_modules/.cache` | The OpenSCAD engine (downloaded and hash-checked the first time a `.scad` file is used) and the app's bundled workers |
 

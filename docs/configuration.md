@@ -17,7 +17,7 @@ Set these in the environment, or in a `.env` file next to `package.json` (copy `
 | `ELEVENLABS_LANGUAGE` | detected | Main dictation language (ISO 639 code, e.g. `en`) |
 | `ELEVENLABS_SECONDARY_LANGUAGES` | | Other languages you may speak, comma-separated (e.g. `ro`) |
 | `API_PORT` | `8787` | Where the Vite dev server proxies `/api` (set it with `PORT`) |
-| `PTP_DATA` | `data/` in the app folder | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings |
+| `PTP_DATA` | `data/` in the app folder | Designs, chat images, workspaces, the Bambu template and slicer data, cost settings, and `thumbs/` (pictures for the Designs menu: derived, safe to delete, not in backups) |
 | `OPENROUTER_API_KEY` | | Your OpenRouter key: Claude through OpenRouter (unless an Anthropic key is set), AI artwork and product photos |
 | `ANTHROPIC_API_KEY` | | Your Anthropic API key: Claude straight from Anthropic (generations, price suggestions) |
 | `PTP_MODEL` | `fable` | The model the chat starts with: `fable`, `opus`, `sonnet`, `haiku` or a full ID such as `claude-opus-5-5` (the chat's model menu still switches) |
