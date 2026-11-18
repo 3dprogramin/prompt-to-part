@@ -143,6 +143,23 @@ test('a render that throws does not stop the queue', async () => {
   assert.deepEqual(b?.size, [4, 5, 6]);
 });
 
+test('a render that crashed leaves nothing on disk, is not retried in this store, and is tried again by a new one', async () => {
+  let crash = true;
+  const { dir, state, store, add, designs } = setup({ render: async () => { if (crash) throw new Error('worker died'); return { png: PNG, size: [7, 8, 9] }; } });
+  const key = add('design-0001', 'return box()');
+  assert.equal(await store.get('design-0001', key), null);
+  assert.deepEqual(readdirSync(dir), []);
+  assert.equal(await store.get('design-0001', key), null);
+  assert.equal(state.calls, 1);
+  crash = false;
+  let calls = 0;
+  const again = thumbStore({ dir, busy: () => false, readDesign: async (id) => designs.get(id) ?? null, render: async () => { calls++; return { png: PNG, size: [7, 8, 9] }; } });
+  const r = await again.get('design-0001', key);
+  assert.equal(calls, 1);
+  assert.deepEqual(r?.size, [7, 8, 9]);
+  assert.ok(existsSync(r!.file));
+});
+
 test('a design changed while it was drawn writes nothing for the old key', async () => {
   const gate: { open: () => void } = { open: () => {} };
   const { dir, store, add, designs } = setup({ render: () => new Promise((r) => { gate.open = () => r({ png: PNG, size: [1, 1, 1] }); }) });

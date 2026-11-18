@@ -29,6 +29,8 @@ export interface ThumbStoreOptions {
 }
 
 export function thumbStore({ dir, render, readDesign, busy }: ThumbStoreOptions) {
+  // Keys whose render crashed: not the design's fault, so nothing on disk, but not retried until a restart.
+  const crashed = new Set<string>();
   const pending = new Map<string, Promise<{ file: string; size: Vec3 } | null>>();
   let queue: Promise<unknown> = Promise.resolve();
   const base = (id: string, key: string) => path.join(dir, `${id}-${key}`);
@@ -52,7 +54,10 @@ export function thumbStore({ dir, render, readDesign, busy }: ThumbStoreOptions)
     const design = await readDesign(id);
     if (!design || thumbKey(design.code, design.values) !== key) return null;
     let out: { png?: string; size?: Vec3 } = {};
-    try { out = await render(design.code, design.values, new AbortController().signal); } catch { /* remembered as failed below */ }
+    try { out = await render(design.code, design.values, new AbortController().signal); } catch {
+      crashed.add(`${id}-${key}`);
+      return null;
+    }
     // The design may have changed or gone while it was drawn: then this picture is not wanted.
     const now = await readDesign(id);
     if (!now || thumbKey(now.code, now.values) !== key) return null;
@@ -74,6 +79,7 @@ export function thumbStore({ dir, render, readDesign, busy }: ThumbStoreOptions)
       const known = await fromDisk(id, key);
       if (known !== undefined) return known;
       const name = `${id}-${key}`;
+      if (crashed.has(name)) return null;
       let p = pending.get(name);
       if (!p) {
         // One at a time; a failed job must not stop the ones behind it.
