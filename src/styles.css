@@ -80,6 +80,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .design-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .12s; }
 .design-thumb img.loaded { opacity: 1; }
 .menu-item > .design-thumb { margin-left: 8px; }
+.design-thumb.opens { cursor: pointer; }
 .menu-item .design-thumb + .menu-open { padding-left: 8px; }
 .design-preview { position: fixed; z-index: 51; width: 268px; box-sizing: border-box; padding: 4px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 12px 40px #0008; pointer-events: none; text-align: left; animation: preview-in .12s; }
 .design-preview > .dim { padding: 2px 4px 4px; }

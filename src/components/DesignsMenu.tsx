@@ -21,7 +21,7 @@ export function KindIcon({ kind, size }: { kind: DesignKind | undefined; size: n
 /** Recent designs the Designs menu lists before "Load more". */
 const PAGE = 10;
 
-/** The design pointed at or focused (the pane beside the menu shows it), with a short delay before the first one. */
+/** The design pointed at or focused from the keyboard (the pane beside the menu shows it), with a short delay before the first one. */
 function usePointed() {
   const [hover, setHover] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
@@ -35,7 +35,8 @@ function usePointed() {
     // Moving from row to row swaps at once (the leave waits a moment for the next enter).
     enter: (id: string) => { clearTimeout(timer.current); if (shownRef.current) setHover(id); else timer.current = setTimeout(() => setHover(id), 120); },
     leave: () => { clearTimeout(timer.current); timer.current = setTimeout(() => setHover(null), 30); },
-    focus: (id: string) => setFocus(id),
+    // Only keyboard focus (:focus-visible) shows it: a click on a box or a star leaves no pane once the pointer is gone.
+    focus: (id: string, e: React.FocusEvent) => setFocus((e.target as Element).matches(':focus-visible') ? id : null),
     blur: (id: string, e: React.FocusEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus((c) => (c === id ? null : c)); },
   };
 }
@@ -97,7 +98,7 @@ export function DesignsMenu(p: Props) {
   const pointed = usePointed();
   const [menuEl, setMenuEl] = useState<HTMLDivElement | null>(null);
   const pointedDesign = pictures && pointed.shown ? p.designs.find((d) => d.id === pointed.shown) : undefined;
-  const aim = (id: string) => pictures ? { onPointerEnter: () => pointed.enter(id), onPointerLeave: pointed.leave, onFocus: () => pointed.focus(id), onBlur: (e: React.FocusEvent) => pointed.blur(id, e) } : {};
+  const aim = (id: string) => pictures ? { onPointerEnter: () => pointed.enter(id), onPointerLeave: pointed.leave, onFocus: (e: React.FocusEvent) => pointed.focus(id, e), onBlur: (e: React.FocusEvent) => pointed.blur(id, e) } : {};
   const [shown, setShown] = useState(PAGE);
   // Search by name: case and accents don't matter (ș finds s), the matches page like the list.
   const [query, setQuery] = useState('');
@@ -145,7 +146,7 @@ export function DesignsMenu(p: Props) {
         <input type="checkbox" className="menu-pick" checked={picked.has(d.id)} readOnly aria-label={`Pick ${d.name}`}
           title="Pick it for starring, tagging or deleting several at once (shift-click: every design from the last one picked)"
           onClick={(e) => pick(d.id, e.shiftKey)} />
-        {pictures && <DesignThumb design={d} size={48} />}
+        {pictures && <DesignThumb design={d} size={48} onClick={() => p.onOpen(d.id)} />}
         <button className="menu-open" onClick={() => p.onOpen(d.id)}>
           <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} />{d.printed?.length ? <span className="kind-icon printed-icon" title={`Printed: ${d.printed.map((m) => `v${m.v + 1}`).join(', ')}`} aria-label="Has printed versions" role="img"><Icon name="printer" size={12} /></span> : null}</span>
           <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} /><time title={`${sort === 'created' ? 'Created' : 'Last changed'} ${whenFull(sort === 'created' ? d.createdAt : d.updatedAt)}`}>{whenShort(sort === 'created' ? d.createdAt : d.updatedAt)}</time> · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
@@ -167,7 +168,7 @@ export function DesignsMenu(p: Props) {
   const markRow = (m: (typeof marks)[number]) => (
     <div key={`${m.design.id}:${m.v}`} className="menu-row">
       <div className={`menu-item ${m.design.id === p.currentId ? 'on' : ''}`} {...aim(m.design.id)}>
-        {pictures && <DesignThumb design={m.design} size={48} />}
+        {pictures && <DesignThumb design={m.design} size={48} onClick={() => p.onOpenAt(m.design.id, m.v)} />}
         <button className="menu-open" onClick={() => p.onOpenAt(m.design.id, m.v)} title={`Open ${m.design.name} on v${m.v + 1}`}>
           <span>{m.design.name} · v{m.v + 1} · <time title={`Marked printed ${whenFull(m.at)}`}>{whenShort(m.at)}</time></span>
         </button>

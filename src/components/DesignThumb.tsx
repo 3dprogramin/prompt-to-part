@@ -4,20 +4,20 @@ import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
 import { designThumbInfo, designThumbUrl } from '../lib/api';
 import { whenShort } from '../lib/when';
 import { Icon } from './Icon';
+import { nextTry, type ThumbInfo } from './designThumbRetry';
 
 /** Each kind's icon, as in the chat's picture menu; a plain parametric model has none. */
 export const KIND_ICON: Partial<Record<DesignKind, string>> = { lineart: 'lineart', layertone: 'layers', lithophane: 'lamp', figure: 'figure', artwork: 'palette' };
 
-/** Seconds between asking again for a picture the server has not drawn yet, and how often to ask. */
-const RETRY_MS = 5000;
-const MAX_TRIES = 12;
-
-/** The picture itself, over the tile's icon: shown once loaded; asks again while the server is "not yet". */
+/** The picture itself, over the tile's icon: shown once loaded; asks again (nextTry) while the server says "not yet". */
 function ThumbImage({ id, thumb }: { id: string; thumb: string }) {
   const [loaded, setLoaded] = useState(false);
-  const [tries, setTries] = useState(0);
+  // Loads asked again so far (the first load is not one).
+  const [reloads, setReloads] = useState(0);
   const [dead, setDead] = useState(false);
   const alive = useRef(true);
+  // An ask under way (the info, then the wait): a second error event starts no second one.
+  const asking = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     alive.current = true;
@@ -25,24 +25,31 @@ function ThumbImage({ id, thumb }: { id: string; thumb: string }) {
   }, []);
   // An image can't tell a 404 (no picture, for good) from a 503 (not drawn yet): the info route can.
   const failed = () => {
-    if (dead || tries >= MAX_TRIES) return;
-    const again = (ms: number) => { timer.current = setTimeout(() => { if (alive.current) setTries((t) => t + 1); }, ms); };
-    designThumbInfo(id, thumb).then((info) => {
+    if (dead || asking.current) return;
+    asking.current = true;
+    const tries = reloads + 1;
+    const next = (info: ThumbInfo | 'error') => {
       if (!alive.current) return;
-      if (info === null) setDead(true);
-      else again(info === 'pending' ? RETRY_MS : 0);
-    }, () => { if (alive.current) again(RETRY_MS); });
+      const ms = nextTry(tries, info);
+      if (ms === null) return void setDead(true);
+      timer.current = setTimeout(() => { asking.current = false; if (alive.current) setReloads(tries); }, ms);
+    };
+    designThumbInfo(id, thumb).then(next, () => next('error'));
   };
   if (dead) return null;
   const url = designThumbUrl(id, thumb);
-  return <img className={loaded ? 'loaded' : ''} loading="lazy" decoding="async" alt="" src={tries ? `${url}&r=${tries}` : url} onLoad={() => setLoaded(true)} onError={failed} />;
+  return <img className={loaded ? 'loaded' : ''} loading="lazy" decoding="async" alt="" src={reloads ? `${url}&r=${reloads}` : url} onLoad={() => setLoaded(true)} onError={failed} />;
 }
 
-/** A square picture of the design's latest version on a dark tile; its kind's icon until the picture is there. */
-export function DesignThumb({ design, size }: { design: DesignSummary; size: number }) {
+/**
+ * A square picture of the design's latest version on a dark tile; its kind's icon until the picture is
+ * there. Decorative (hidden from screen readers, never focused): `onClick` only repeats what the row's
+ * open button does, for the pointer.
+ */
+export function DesignThumb({ design, size, onClick }: { design: DesignSummary; size: number; onClick?: () => void }) {
   const icon = (design.kind && KIND_ICON[design.kind]) || 'cube';
   return (
-    <span className="design-thumb" style={{ width: size, height: size }} aria-hidden="true">
+    <span className={`design-thumb ${onClick ? 'opens' : ''}`} style={{ width: size, height: size }} aria-hidden="true" onClick={onClick}>
       <Icon name={icon} size={Math.round(size / 3)} />
       {design.thumb && <ThumbImage key={`${design.id}:${design.thumb}`} id={design.id} thumb={design.thumb} />}
     </span>
@@ -59,11 +66,13 @@ function useThumbSize(design: DesignSummary): [number, number, number] | null {
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ask = (n: number) => {
-      designThumbInfo(design.id, key).then((info) => {
+      const next = (info: ThumbInfo | 'error') => {
         if (!live) return;
-        if (info && info !== 'pending') setSize(info.size);
-        else if (info === 'pending' && n < MAX_TRIES) timer = setTimeout(() => ask(n + 1), RETRY_MS);
-      }, () => { /* the line just has no size */ });
+        if (info && info !== 'pending' && info !== 'error') return void setSize(info.size);
+        const ms = nextTry(n, info);
+        if (ms !== null) timer = setTimeout(() => ask(n + 1), ms);
+      };
+      designThumbInfo(design.id, key).then(next, () => next('error'));
     };
     ask(1);
     return () => { live = false; clearTimeout(timer); };

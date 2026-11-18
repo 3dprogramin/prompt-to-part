@@ -384,6 +384,11 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
   // A design without code has no picture: its row keeps the icon tile.
   const empty = 'ui-smoke-20000001';
   assert.equal((await putDesign({ id: empty, name: 'Empty idea', createdAt: 1, updatedAt: 1, messages: [], code: '', values: {}, currentVersion: -1, versions: [] })).status, 200);
+  // A name of 120 characters: the pane shows two lines of it at most.
+  const long = 'ui-smoke-20000002';
+  const longName = Array.from({ length: 40 }, (_, i) => `longword${i}`).join(' ').slice(0, 120);
+  assert.equal(longName.length, 120);
+  assert.equal((await putDesign({ id: long, name: longName, createdAt: 1, updatedAt: 2, messages: [], code: '', values: {}, currentVersion: -1, versions: [] })).status, 200);
   const page = await newPage();
   const phone = await newPage(PHONE);
   try {
@@ -398,6 +403,7 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     const search = menu.getByRole('searchbox', { name: 'Search designs' });
     await search.fill('Empty idea');
     const emptyRow = rows.filter({ hasText: 'Empty idea' });
+    await emptyRow.first().waitFor();
     assert.equal(await emptyRow.locator('.design-thumb').count(), 1);
     assert.equal(await emptyRow.locator('.design-thumb img').count(), 0, 'no picture, no img');
 
@@ -423,14 +429,48 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     await page.mouse.move(5, 600);
     await pane.waitFor({ state: 'detached' });
 
-    // The keyboard shows it too.
-    await menu.getByRole('button', { name: 'Star Smoke cube' }).focus();
+    // The keyboard shows it too (Tab: keyboard focus, which is all that counts).
+    const focused = (l: typeof cube) => l.evaluate((el) => el === document.activeElement);
+    await cube.locator('.menu-open').focus();
+    await page.keyboard.press('Tab');
+    assert.ok(await focused(menu.getByRole('button', { name: 'Star Smoke cube' })));
     await pane.waitFor();
     await search.focus();
     await pane.waitFor({ state: 'detached' });
-    await cube.locator('.menu-open').focus();
+    await cube.locator('.menu-pick').focus();
+    await page.keyboard.press('Tab');
+    assert.ok(await focused(cube.locator('.menu-open')), 'the picture takes no place in the Tab order');
     await pane.waitFor();
     assert.match(await pane.innerText(), /Smoke cube/);
+
+    // A mouse click (here on a row's box) is not keyboard focus: the pane goes with the pointer.
+    const pick = cube.locator('.menu-pick');
+    await pick.click();
+    assert.equal(await pick.isChecked(), true);
+    await page.mouse.move(5, 600);
+    await pane.waitFor({ state: 'detached' });
+    await pick.click();
+    await page.mouse.move(5, 600);
+    await pane.waitFor({ state: 'detached' });
+
+    // A long name: two lines at most, the pane keeps its width.
+    await search.fill('longword0 longword1');
+    const longRow = rows.filter({ hasText: 'longword0 longword1' }).first();
+    await longRow.waitFor();
+    await longRow.hover();
+    await pane.waitFor();
+    await page.waitForFunction(() => document.querySelector('.design-preview-name')?.textContent?.startsWith('longword0'));
+    const lines = await pane.locator('.design-preview-name').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return (el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / parseFloat(cs.lineHeight);
+    });
+    assert.ok(lines > 1.5 && lines <= 2.05, `the name takes ${lines} lines`);
+    assert.ok((await pane.boundingBox())!.width <= 276);
+    await page.screenshot({ path: path.join(shots, '6-thumbs-long-name.png') });
+    await page.mouse.move(5, 600);
+    await pane.waitFor({ state: 'detached' });
+    await search.fill('Smoke cube');
+    await cube.waitFor();
 
     // A window 900 px wide: the pane is still inside it.
     await page.setViewportSize({ width: 900, height: 850 });
@@ -438,6 +478,14 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     await pane.waitFor();
     assert.ok((await pane.boundingBox())!.x >= 0);
     await page.screenshot({ path: path.join(shots, '6-thumbs-900.png') });
+
+    // Clicking a row's picture opens the design, as its name does.
+    await page.goto(`${A}/?design=${empty}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Empty idea');
+    await page.getByRole('button', { name: 'Designs' }).click();
+    await search.fill('Smoke cube');
+    await cube.locator('.design-thumb').click();
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
 
     // A phone: today's menu, no picture, no request for one.
     const thumbRequests: string[] = [];
@@ -454,7 +502,7 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
   } finally {
     await page.close().catch(() => {});
     await phone.close().catch(() => {});
-    for (const gone of madeCube ? [empty, id] : [empty]) await fetch(`${A}/api/designs/${gone}`, { method: 'DELETE', headers: { 'X-PTP': '1' } });
+    for (const gone of madeCube ? [empty, long, id] : [empty, long]) await fetch(`${A}/api/designs/${gone}`, { method: 'DELETE', headers: { 'X-PTP': '1' } });
   }
 });
 
