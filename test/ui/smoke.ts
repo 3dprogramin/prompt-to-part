@@ -375,6 +375,86 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', TEST,
   await page.close();
 });
 
+test('the Designs menu shows a picture of each design on a computer (a larger one when pointed at) and none on a phone', TEST, async () => {
+  // The smoke cube (made by an earlier test of the file) when this test runs alone.
+  if ((await fetch(`${A}/api/designs/${id}`)).status === 404) {
+    assert.equal((await putDesign({ id, name: 'Smoke cube', createdAt: 1, updatedAt: 1000, messages: [], code, values: {}, currentVersion: -1, versions: [] })).status, 200);
+  }
+  // A design without code has no picture: its row keeps the icon tile.
+  const empty = 'ui-smoke-20000001';
+  assert.equal((await putDesign({ id: empty, name: 'Empty idea', createdAt: 1, updatedAt: 1, messages: [], code: '', values: {}, currentVersion: -1, versions: [] })).status, 200);
+  const page = await newPage();
+  try {
+    await page.goto(`${A}/?design=${id}`);
+    await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
+    await page.getByRole('button', { name: 'Designs' }).click();
+    const menu = page.locator('.menu');
+    const rows = menu.locator('.menu-item');
+    const n = await rows.count();
+    assert.equal(await menu.locator('.menu-item .design-thumb').count(), n, 'every row has a tile');
+    const cube = rows.filter({ hasText: 'Smoke cube' }).first();
+    const img = cube.locator('.design-thumb img');
+    await page.waitForFunction((el) => (el as HTMLImageElement | null)?.naturalWidth === 520, await img.elementHandle(), { timeout: 20_000 });
+    const box = await cube.locator('.design-thumb').boundingBox();
+    assert.equal(Math.round(box!.width), 48);
+    assert.ok((await cube.boundingBox())!.height <= 60, 'rows stay at most 60 px tall');
+    const emptyRow = rows.filter({ hasText: 'Empty idea' });
+    assert.equal(await emptyRow.locator('.design-thumb').count(), 1);
+    assert.equal(await emptyRow.locator('.design-thumb img').count(), 0, 'no picture, no img');
+
+    // Pointing at a row shows the larger picture with the size; leaving the menu hides it.
+    const pane = page.locator('.design-preview');
+    assert.equal(await pane.count(), 0);
+    await cube.hover();
+    await pane.waitFor();
+    assert.match(await pane.innerText(), /Smoke cube/);
+    await page.waitForFunction(() => /\d+ x \d+ x \d+ mm/.test(document.querySelector('.design-preview')?.textContent ?? ''), null, { timeout: 20_000 });
+    const pb = (await pane.boundingBox())!;
+    const mb = (await menu.boundingBox())!;
+    assert.ok(pb.x >= 0 && pb.x + pb.width <= mb.x, 'the pane stands left of the menu, inside the window');
+    assert.equal(Math.round((await pane.locator('.design-thumb').boundingBox())!.width), 260);
+    await page.screenshot({ path: path.join(shots, '6-thumbs-desktop.png') });
+    await page.mouse.move(5, 600);
+    await pane.waitFor({ state: 'detached' });
+
+    // The keyboard shows it too.
+    await menu.getByRole('button', { name: 'Star Smoke cube' }).focus();
+    await pane.waitFor();
+    await menu.getByRole('searchbox', { name: 'Search designs' }).focus();
+    await pane.waitFor({ state: 'detached' });
+    await cube.locator('.menu-open').focus();
+    await pane.waitFor();
+    assert.match(await pane.innerText(), /Smoke cube/);
+
+    // A window 900 px wide: the pane is still inside it.
+    await page.setViewportSize({ width: 900, height: 850 });
+    await cube.hover();
+    await pane.waitFor();
+    assert.ok((await pane.boundingBox())!.x >= 0);
+    await page.screenshot({ path: path.join(shots, '6-thumbs-900.png') });
+    await page.setViewportSize({ width: 1400, height: 850 });
+    await page.close();
+
+    // A phone: today's menu, no picture, no request for one.
+    const phone = await newPage(PHONE);
+    const thumbRequests: string[] = [];
+    phone.on('request', (r) => { if (r.url().includes('/thumb')) thumbRequests.push(r.url()); });
+    await phone.goto(`${A}/?design=${id}`);
+    await phone.locator('.app.layout-phone').waitFor();
+    await phone.getByRole('button', { name: 'Designs' }).click();
+    await phone.locator('.menu .menu-item').first().waitFor();
+    await phone.waitForTimeout(1500);
+    assert.equal(await phone.locator('.menu .design-thumb').count(), 0);
+    assert.equal(await phone.locator('.design-preview').count(), 0);
+    assert.deepEqual(thumbRequests, []);
+    await phone.screenshot({ path: path.join(shots, '6-thumbs-phone.png') });
+    await phone.close();
+  } finally {
+    await fetch(`${A}/api/designs/${empty}`, { method: 'DELETE', headers: { 'X-PTP': '1' } });
+    await page.close().catch(() => {});
+  }
+});
+
 test('Export ▸ GLB… downloads the model for a shop\'s 3D view, standing as printed when it is not flat', TEST, async () => {
   const page = await newPage();
   await page.goto(`${A}/?design=${id}`);

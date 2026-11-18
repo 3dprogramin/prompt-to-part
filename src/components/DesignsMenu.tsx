@@ -1,17 +1,16 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DesignSummary } from '../../shared/types';
 import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
+import { useLayoutMode } from '../hooks/useLayoutMode';
 import { builtinTag, hasTag, MAX_TAGS, withTag } from '../../shared/tags';
 import { DESIGN_SORTS, liveFilter, printedRows, shownDesigns, tagCounts, tagState, type DesignFilter, type DesignSort } from '../lib/designList';
 import { printedFileUrl } from '../lib/api';
 import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
 import { whenFull, whenShort } from '../lib/when';
+import { DesignPreview, DesignThumb, KIND_ICON } from './DesignThumb';
 import { Icon } from './Icon';
 import { TagChips, TagEditor } from './Tags';
-
-/** Each kind's icon, as in the chat's picture menu; a plain parametric model has none. */
-const KIND_ICON: Partial<Record<DesignKind, string>> = { lineart: 'lineart', layertone: 'layers', lithophane: 'lamp', figure: 'figure', artwork: 'palette' };
 
 /** A small, quiet icon telling what kind of design it is (nothing for a parametric model). */
 export function KindIcon({ kind, size }: { kind: DesignKind | undefined; size: number }) {
@@ -21,6 +20,38 @@ export function KindIcon({ kind, size }: { kind: DesignKind | undefined; size: n
 
 /** Recent designs the Designs menu lists before "Load more". */
 const PAGE = 10;
+
+/** The design pointed at or focused (the pane beside the menu shows it), with a short delay before the first one. */
+function usePointed() {
+  const [hover, setHover] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  const shown = hover ?? focus;
+  const shownRef = useRef<string | null>(null);
+  shownRef.current = shown;
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return {
+    shown,
+    // Moving from row to row swaps at once (the leave waits a moment for the next enter).
+    enter: (id: string) => { clearTimeout(timer.current); if (shownRef.current) setHover(id); else timer.current = setTimeout(() => setHover(id), 120); },
+    leave: () => { clearTimeout(timer.current); timer.current = setTimeout(() => setHover(null), 30); },
+    focus: (id: string) => setFocus(id),
+    blur: (id: string, e: React.FocusEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus((c) => (c === id ? null : c)); },
+  };
+}
+
+/** Where the pane stands: left of the menu, 8 px away; under the top bar at the window's edge when there is no room. */
+function PreviewPane({ design, menu }: { design: DesignSummary; menu: HTMLElement | null }) {
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!menu) return;
+    const place = () => { const r = menu.getBoundingClientRect(); setAt({ left: r.left >= 276 ? r.left - 276 : 0, top: r.top }); };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [menu]);
+  return at && <div className="design-preview" style={at}><DesignPreview design={design} /></div>;
+}
 
 interface Props {
   designs: DesignSummary[];
@@ -53,6 +84,20 @@ interface Props {
  * design; the boxes pick designs (shift-click: a range) to star, tag or delete together.
  */
 export function DesignsMenu(p: Props) {
+  // A picture of each design, and the pane: only where the app has its wide layouts and a pointer can hover.
+  const layout = useLayoutMode();
+  const [hovers, setHovers] = useState(() => window.matchMedia('(hover: hover)').matches);
+  useEffect(() => {
+    const q = window.matchMedia('(hover: hover)');
+    const update = () => setHovers(q.matches);
+    q.addEventListener('change', update);
+    return () => q.removeEventListener('change', update);
+  }, []);
+  const pictures = layout !== 'phone' && hovers;
+  const pointed = usePointed();
+  const [menuEl, setMenuEl] = useState<HTMLDivElement | null>(null);
+  const pointedDesign = pictures && pointed.shown ? p.designs.find((d) => d.id === pointed.shown) : undefined;
+  const aim = (id: string) => pictures ? { onPointerEnter: () => pointed.enter(id), onPointerLeave: pointed.leave, onFocus: () => pointed.focus(id), onBlur: (e: React.FocusEvent) => pointed.blur(id, e) } : {};
   const [shown, setShown] = useState(PAGE);
   // Search by name: case and accents don't matter (ș finds s), the matches page like the list.
   const [query, setQuery] = useState('');
@@ -96,10 +141,11 @@ export function DesignsMenu(p: Props) {
 
   const row = (d: DesignSummary) => (
     <div key={d.id} className="menu-row">
-      <div className={`menu-item ${d.id === p.currentId ? 'on' : ''} ${d.starred ? 'starred' : ''} ${picked.has(d.id) ? 'picked' : ''}`}>
+      <div className={`menu-item ${d.id === p.currentId ? 'on' : ''} ${d.starred ? 'starred' : ''} ${picked.has(d.id) ? 'picked' : ''}`} {...aim(d.id)}>
         <input type="checkbox" className="menu-pick" checked={picked.has(d.id)} readOnly aria-label={`Pick ${d.name}`}
           title="Pick it for starring, tagging or deleting several at once (shift-click: every design from the last one picked)"
           onClick={(e) => pick(d.id, e.shiftKey)} />
+        {pictures && <DesignThumb design={d} size={48} />}
         <button className="menu-open" onClick={() => p.onOpen(d.id)}>
           <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} />{d.printed?.length ? <span className="kind-icon printed-icon" title={`Printed: ${d.printed.map((m) => `v${m.v + 1}`).join(', ')}`} aria-label="Has printed versions" role="img"><Icon name="printer" size={12} /></span> : null}</span>
           <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} /><time title={`${sort === 'created' ? 'Created' : 'Last changed'} ${whenFull(sort === 'created' ? d.createdAt : d.updatedAt)}`}>{whenShort(sort === 'created' ? d.createdAt : d.updatedAt)}</time> · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
@@ -120,7 +166,8 @@ export function DesignsMenu(p: Props) {
   // A printed version in the Printed filter: opens the design on it, or downloads its saved 3MF.
   const markRow = (m: (typeof marks)[number]) => (
     <div key={`${m.design.id}:${m.v}`} className="menu-row">
-      <div className={`menu-item ${m.design.id === p.currentId ? 'on' : ''}`}>
+      <div className={`menu-item ${m.design.id === p.currentId ? 'on' : ''}`} {...aim(m.design.id)}>
+        {pictures && <DesignThumb design={m.design} size={48} />}
         <button className="menu-open" onClick={() => p.onOpenAt(m.design.id, m.v)} title={`Open ${m.design.name} on v${m.v + 1}`}>
           <span>{m.design.name} · v{m.v + 1} · <time title={`Marked printed ${whenFull(m.at)}`}>{whenShort(m.at)}</time></span>
         </button>
@@ -130,8 +177,8 @@ export function DesignsMenu(p: Props) {
   );
 
   const allPicked = matches.length > 0 && pickedShown.length === matches.length;
-  return (
-    <div className="menu designs-menu">
+  return (<>
+    <div className={`menu designs-menu ${pictures ? 'with-thumbs' : ''}`} ref={setMenuEl}>
       <div className="menu-top">
         {p.designs.length > 0 && (
           <div className="menu-search">
@@ -191,5 +238,6 @@ export function DesignsMenu(p: Props) {
       )}
       <div className="menu-foot">{p.children}</div>
     </div>
-  );
+    {pointedDesign && <PreviewPane design={pointedDesign} menu={menuEl} />}
+  </>);
 }
