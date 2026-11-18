@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import Module from 'manifold-3d';
 import { initRuntime, evaluateScript, formatScriptError, importMeshFile, inspectScript, instantiateWith, runtimeOutOfMemory, runtimeTrapped } from '../shared/runtime';
-import { renderIso, renderSheet, renderTop } from './render';
+import { renderIso, renderSheet, renderThumb, renderTop } from './render';
 import { withFonts } from '../shared/text';
 import { decodeMesh, encodeMesh, withMeshes, type MeshData } from '../shared/meshes';
 import type { ImportOptions } from '../shared/meshRepair';
@@ -157,6 +157,7 @@ type Req = { printer?: ActivePrinter; backText?: string } & (
   | { id: number; cmd: 'stress'; code: string; budgetMs?: number; extra?: ParamValues }
   | { id: number; cmd: 'stability'; code: string; extra: ParamValues; poses: { label: string; values: ParamValues }[]; printBase: Required<PrintSettings>; nozzle: number; upright?: [number, number, number] }
   | { id: number; cmd: 'iso'; code: string; values?: ParamValues }
+  | { id: number; cmd: 'thumb'; code: string; values?: ParamValues }
   | { id: number; cmd: 'importMesh'; bytes: Uint8Array; filename: string; options?: ImportOptions; palette?: { colors: number; mine: LayerToneFilament[] } });
 
 type FontReply = { fontReply: number; buffers?: ArrayBuffer[]; error?: string };
@@ -204,6 +205,10 @@ process.on('message', async (req: Req | FontReply | MeshReply) => {
       const { result, out } = await run(req.code, req.values, 'normal');
       const png = result && result.parts.length ? renderIso(result.parts).png.toString('base64') : undefined;
       post({ data: { ...out, png } });
+    } else if (req.cmd === 'thumb') {
+      const { result, out } = await run(req.code, req.values, 'normal');
+      const thumb = result && result.parts.length ? renderThumb(result.parts) : undefined;
+      post({ data: { ...out, png: thumb?.png.toString('base64'), size: thumb?.size } });
     } else if (req.cmd === 'importMesh') {
       // The file is untrusted: parsed and repaired here, in the locked-down process.
       const { mesh, report } = importMeshFile(new Uint8Array(req.bytes), req.filename, req.options, decodeTexture);

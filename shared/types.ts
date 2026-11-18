@@ -368,4 +368,6 @@ export interface DesignSummary {
   printed?: { v: number; at: number; file: boolean; settings: boolean; app?: AppBuild }[];
   /** What kind of design its current code makes (shared/designKind.ts). */
   kind?: DesignKind;
+  /** What its picture shows (the key of /api/designs/:id/thumb); none for a design without code. */
+  thumb?: string;
 }

@@ -5,11 +5,13 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { workspaceDir } from '../agent';
 import { DATA_DIR } from '../config';
-import type { Design, DesignSummary } from '../../shared/types';
+import type { Design, DesignSummary, ParamValues } from '../../shared/types';
 import { designKind } from '../../shared/designKind';
 import { cleanTags, hasTag, MAX_TAGS, tagsProblem, withTag } from '../../shared/tags';
 import type { PrintedMap } from '../../shared/printed';
 import { printedGuard, readPrinted } from '../printed';
+import { geometry } from '../geometry';
+import { THUMB_KEY_RE, readDesignCode, thumbKey, thumbStore } from '../thumbs';
 import { DESIGNS, ID_RE, STARRED_FILE, readStarred, readTags, isDesign, writeAtomically, type RouteContext } from './store';
 
 type Summary = Omit<DesignSummary, 'starred' | 'tags' | 'printed'>;
@@ -18,9 +20,11 @@ type Summary = Omit<DesignSummary, 'starred' | 'tags' | 'printed'>;
 function summarize(text: string): Summary | null {
   try {
     const d = JSON.parse(text) as Design;
+    const thumb = thumbKey(typeof d.code === 'string' ? d.code : '', d.values);
     return {
       id: d.id, name: String(d.name ?? 'Untitled design'), updatedAt: Number(d.updatedAt) || 0, createdAt: Number(d.createdAt) || 0,
       versions: Array.isArray(d.versions) ? d.versions.length : 0, kind: designKind(d.code, d.values),
+      ...(thumb && { thumb }),
     };
   } catch {
     return null;
@@ -31,6 +35,12 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
   // The list's summaries by design file name, with the file's time and size they were read at: the
   // list reads only the files changed since (a design file can be tens of MB). Saves and deletes
   // here drop their entry; other writes (a restored backup) show in the time and size.
+  const thumbs = thumbStore({
+    dir: path.join(DATA_DIR, 'thumbs'),
+    render: (code, values, signal) => geometry.thumb(code, values as ParamValues, signal),
+    readDesign: (id) => readDesignCode(designFile(id)),
+    busy: () => generatingDesigns.size > 0,
+  });
   const summaries = new Map<string, { mtimeMs: number; size: number; summary: Summary | null }>();
   app.get('/api/designs', async (_req, res) => {
     await mkdir(DESIGNS, { recursive: true });
@@ -151,6 +161,19 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     }
   });
 
+  // A design's picture: the key in ?k is what the list gave; one that is not the design's current key is a 404.
+  const thumbRoute = (kind: 'png' | 'json') => async (req: express.Request, res: express.Response) => {
+    const id = String(req.params.id), k = req.query.k;
+    if (!ID_RE.test(id) || typeof k !== 'string' || !THUMB_KEY_RE.test(k)) return void res.status(400).json({ error: 'bad id or key' });
+    const found = await thumbs.get(id, k).catch(() => null);
+    if (!found) return void res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' });
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    if (kind === 'json') return void res.json({ size: found.size });
+    res.type('png').sendFile(found.file, (err) => { if (err && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' }); });
+  };
+  app.get('/api/designs/:id/thumb', thumbRoute('png'));
+  app.get('/api/designs/:id/thumb.json', thumbRoute('json'));
+
   app.delete('/api/designs/:id', async (req, res) => {
     const { id } = req.params;
     if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
@@ -176,6 +199,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
         summaries.delete(path.basename(designFile(id)));
         await rm(imageDir(id), { recursive: true, force: true });
         await rm(workspaceDir(id), { recursive: true, force: true });
+        await thumbs.drop(id);
       } finally {
         generatingDesigns.delete(id);
       }

@@ -42,6 +42,16 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
 /** Where a printed version's saved 3MF downloads from. */
 export const printedFileUrl = (id: string, v: number): string => `/api/designs/${id}/printed/${v}/3mf`;
 
+/** Where a design's menu picture is: `key` is DesignSummary.thumb (the picture changes with it, so it caches for good). */
+export const designThumbUrl = (id: string, key: string): string => `/api/designs/${id}/thumb?k=${key}`;
+/** The model's size in mm, from the same key; null when there is no picture (404). */
+export async function designThumbInfo(id: string, key: string): Promise<{ size: [number, number, number] } | null> {
+  try { return await getJson<{ size: [number, number, number] }>(`/api/designs/${id}/thumb.json?k=${key}`); } catch (e) {
+    if (e instanceof HttpError && e.status === 404) return null;
+    throw e;
+  }
+}
+
 const getJson = async <T>(path: string, init?: RequestInit): Promise<T> => (await request(path, init)).json() as Promise<T>;
 
 // Images already stored on the server, by design and the data URL they came from (each design keeps
