@@ -647,8 +647,13 @@ export default function App() {
       const fromServer = async () => { await closed.pending(id); return api.getDesign(id); };
       const d = background.current.get(id) ?? (await fromServer());
       if (!isLatest()) return;
-      if (d) switchTo(d);
-      else { openAt.current = null; setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
+      if (d) {
+        switchTo(d);
+        // Its "last used" time, for the Designs menu's order: in the list at once, on the server for the next
+        // read (a design not saved yet has no entry: that answer is ignored).
+        setDesigns((l) => l.map((x) => (x.id === id ? { ...x, openedAt: Date.now() } : x)));
+        void api.openedDesign(id).catch(() => undefined);
+      } else { openAt.current = null; setNotice({ text: 'That design no longer exists.', level: 'warning', details: false }); refreshList(); }
     } catch (e) {
       if (!isLatest()) return;
       openAt.current = null;

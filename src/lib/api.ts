@@ -91,6 +91,8 @@ async function withStoredImages(d: Design): Promise<Design> {
 export const api = {
   listFonts: () => getJson<FontEntry[]>('/api/fonts'),
   listDesigns: () => getJson<DesignSummary[]>('/api/designs'),
+  /** Marks a design as opened now (the list's "last used" order); 404 for one not saved yet. */
+  openedDesign: (id: string) => getJson<{ openedAt: number }>(`/api/designs/${id}/opened`, { method: 'PUT', body: '{}' }),
   starDesign: (id: string, starred: boolean) => getJson<{ starred: boolean }>(`/api/designs/${id}/star`, { method: 'PUT', body: JSON.stringify({ starred }) }),
   /** Replaces a saved design's tags (404: not saved yet); returns them as stored. */
   tagDesign: (id: string, tags: string[]) => getJson<{ tags: string[] }>(`/api/designs/${id}/tags`, { method: 'PUT', body: JSON.stringify({ tags }) }).then((r) => r.tags),

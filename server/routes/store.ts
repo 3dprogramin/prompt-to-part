@@ -14,6 +14,14 @@ export const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
 export const STARRED_FILE = path.join(DATA_DIR, 'starred.json');
 export const cleanStarred = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))] : []);
 export const readStarred = async () => cleanStarred((JSON.parse(await readFile(STARRED_FILE, 'utf8').catch(() => '{}')) as { ids?: unknown }).ids);
+/** When each design was last opened (ms) by id, apart from the designs: opening one doesn't change it. */
+export const OPENED_FILE = path.join(DATA_DIR, 'opened.json');
+export const readOpened = async (): Promise<Record<string, number>> => {
+  const raw = JSON.parse(await readFile(OPENED_FILE, 'utf8').catch(() => '{}')) as unknown;
+  const out: Record<string, number> = {};
+  if (raw && typeof raw === 'object') for (const [id, at] of Object.entries(raw)) if (ID_RE.test(id) && typeof at === 'number' && Number.isFinite(at)) out[id] = at;
+  return out;
+};
 /** Each design's tags (shared/tags.ts) by id, apart from the designs for the same reason. */
 export const TAGS_FILE = path.join(DATA_DIR, 'tags.json');
 export const readTags = async () => cleanTagMap((JSON.parse(await readFile(TAGS_FILE, 'utf8').catch(() => '{}')) as { tags?: unknown }).tags, (id) => ID_RE.test(id));

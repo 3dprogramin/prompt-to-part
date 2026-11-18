@@ -114,3 +114,10 @@ test('bulk delete keeps designs with printed versions', () => {
   assert.deepEqual(plan.printed.map((x) => x.id), ['a']);
   assert.match(plan.question!, /Kept, it has printed versions: "Alpha"/);
 });
+
+test('"Last used" puts the design opened or changed last first', () => {
+  const d = (id: string, updatedAt: number, openedAt?: number) => ({ id, name: id, updatedAt, createdAt: 0, versions: 1, ...(openedAt != null && { openedAt }) });
+  const list = [d('old-opened-now', 10, 500), d('changed-recently', 400), d('opened-before-its-change', 300, 200), d('never-opened', 100)];
+  assert.deepEqual(shownDesigns(list, ALL, '', 'used').map((x) => x.id), ['old-opened-now', 'changed-recently', 'opened-before-its-change', 'never-opened']);
+  assert.deepEqual(shownDesigns(list, ALL, '', 'updated').map((x) => x.id), ['changed-recently', 'opened-before-its-change', 'never-opened', 'old-opened-now']);
+});

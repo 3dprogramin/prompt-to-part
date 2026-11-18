@@ -13,9 +13,9 @@ import type { PrintedMap } from '../../shared/printed';
 import { printedGuard, readPrinted } from '../printed';
 import { geometry } from '../geometry';
 import { THUMB_KEY_RE, readDesignCode, thumbKey, thumbStore } from '../thumbs';
-import { DESIGNS, ID_RE, STARRED_FILE, readStarred, readTags, isDesign, writeAtomically, type RouteContext } from './store';
+import { DESIGNS, ID_RE, OPENED_FILE, STARRED_FILE, readOpened, readStarred, readTags, isDesign, writeAtomically, type RouteContext } from './store';
 
-type Summary = Omit<DesignSummary, 'starred' | 'tags' | 'printed'>;
+type Summary = Omit<DesignSummary, 'starred' | 'tags' | 'printed' | 'openedAt'>;
 
 /** A design file's summary for the list, or null when it isn't one (corrupt). */
 function summarize(text: string): Summary | null {
@@ -56,6 +56,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     await mkdir(DESIGNS, { recursive: true });
     const out: DesignSummary[] = [];
     const starred = new Set(await readStarred().catch(() => []));
+    const opened = await readOpened().catch(() => ({} as Record<string, number>));
     const tags = await readTags().catch(() => ({} as Record<string, string[]>));
     const printed = await readPrinted().catch(() => ({} as PrintedMap));
     const files = (await readdir(DESIGNS)).filter((f) => f.endsWith('.json'));
@@ -74,7 +75,7 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
       }
       const d = cached.summary;
       if (!d) continue; // corrupt
-      out.push({ ...d, ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }), ...(Object.hasOwn(printed, d.id) && { printed: printed[d.id].map(({ fp: _fp, ...m }) => m) }) });
+      out.push({ ...d, ...(starred.has(d.id) && { starred: true }), ...(Object.hasOwn(opened, d.id) && { openedAt: opened[d.id] }), ...(Object.hasOwn(tags, d.id) && { tags: tags[d.id] }), ...(Object.hasOwn(printed, d.id) && { printed: printed[d.id].map(({ fp: _fp, ...m }) => m) }) });
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
     res.json(out);
@@ -125,6 +126,23 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
       await mkdir(DATA_DIR, { recursive: true });
       await writeAtomically(STARRED_FILE, JSON.stringify({ ids }));
       res.json({ starred: req.body.starred });
+    }).catch((e: Error) => { res.status(500).json({ error: e.message }); });
+  });
+
+  // A design was opened: its "last used" time is now (the list's default order). Kept apart from the
+  // design, like the stars, and only for designs that still exist (the rest are dropped here).
+  let opening = Promise.resolve();
+  app.put('/api/designs/:id/opened', json('1kb'), (req, res) => {
+    const id = req.params.id;
+    if (!ID_RE.test(id)) return void res.status(400).json({ error: 'bad id' });
+    opening = opening.then(async () => {
+      const here = new Set((await readdir(DESIGNS).catch(() => [] as string[])).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)));
+      if (!here.has(id)) return void res.status(404).json({ error: 'not found' });
+      const opened = Object.fromEntries(Object.entries(await readOpened()).filter(([k]) => here.has(k)));
+      opened[id] = Date.now();
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeAtomically(OPENED_FILE, JSON.stringify(opened));
+      res.json({ openedAt: opened[id] });
     }).catch((e: Error) => { res.status(500).json({ error: e.message }); });
   });
 

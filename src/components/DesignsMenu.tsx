@@ -3,7 +3,7 @@ import type { DesignSummary } from '../../shared/types';
 import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
 import { useLayoutMode } from '../hooks/useLayoutMode';
 import { builtinTag, hasTag, MAX_TAGS, withTag } from '../../shared/tags';
-import { DESIGN_SORTS, liveFilter, printedRows, shownDesigns, tagCounts, tagState, type DesignFilter, type DesignSort } from '../lib/designList';
+import { DESIGN_SORTS, usedAt, liveFilter, printedRows, shownDesigns, tagCounts, tagState, type DesignFilter, type DesignSort } from '../lib/designList';
 import { printedFileUrl } from '../lib/api';
 import { pickIds } from '../lib/picking';
 import { load, store } from '../lib/storage';
@@ -80,7 +80,7 @@ interface Props {
 }
 
 /**
- * The Designs menu: every saved design, newest change first (or by name or age), filtered by a tag
+ * The Designs menu: every saved design, last used first (opened or changed; or by last change, name or age), filtered by a tag
  * or the stars and searched by name, PAGE at a time. Each row opens, stars, tags or deletes its
  * design; the boxes pick designs (shift-click: a range) to star, tag or delete together.
  */
@@ -102,8 +102,8 @@ export function DesignsMenu(p: Props) {
   const [shown, setShown] = useState(PAGE);
   // Search by name: case and accents don't matter (ș finds s), the matches page like the list.
   const [query, setQuery] = useState('');
-  const [sort, setSortState] = useState<DesignSort>(() => { const s = load<string>('designSort', 'updated'); return s in DESIGN_SORTS ? s as DesignSort : 'updated'; });
-  const setSort = (s: DesignSort) => { setSortState(s); store('designSort', s); setShown(PAGE); };
+  const [sort, setSortState] = useState<DesignSort>(() => { const s = load<string>('designListSort', 'used'); return s in DESIGN_SORTS ? s as DesignSort : 'used'; });
+  const setSort = (s: DesignSort) => { setSortState(s); store('designListSort', s); setShown(PAGE); };
   const filter = liveFilter(p.filter, p.designs);
   const setFilter = (f: DesignFilter) => { p.onFilter(f); setShown(PAGE); setEditing(null); };
   const matches = useMemo(() => shownDesigns(p.designs, filter, query, sort), [p.designs, filter, query, sort]);
@@ -140,6 +140,9 @@ export function DesignsMenu(p: Props) {
   };
   const filterName = filter.kind === 'tag' ? `tagged ${filter.tag}` : filter.kind === 'starred' ? 'starred' : filter.kind === 'untagged' ? 'without a tag' : printedOnly ? 'with a printed version' : '';
 
+  // The time a row shows follows the order: when it was created, last changed, or last used (opened or changed).
+  const rowTime = (d: DesignSummary) => (sort === 'created' ? { label: 'Created', at: d.createdAt } : sort === 'used' ? { label: 'Last used', at: usedAt(d) } : { label: 'Last changed', at: d.updatedAt });
+
   const row = (d: DesignSummary) => (
     <div key={d.id} className="menu-row">
       <div className={`menu-item ${d.id === p.currentId ? 'on' : ''} ${d.starred ? 'starred' : ''} ${picked.has(d.id) ? 'picked' : ''}`} {...aim(d.id)}>
@@ -149,7 +152,7 @@ export function DesignsMenu(p: Props) {
         {pictures && <DesignThumb design={d} size={48} onClick={() => p.onOpen(d.id)} />}
         <button className="menu-open" onClick={() => p.onOpen(d.id)}>
           <span>{p.isRunning(d.id) && <span className="spinner" />} {d.name} <KindIcon kind={d.kind} size={12} />{d.printed?.length ? <span className="kind-icon printed-icon" title={`Printed: ${d.printed.map((m) => `v${m.v + 1}`).join(', ')}`} aria-label="Has printed versions" role="img"><Icon name="printer" size={12} /></span> : null}</span>
-          <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} /><time title={`${sort === 'created' ? 'Created' : 'Last changed'} ${whenFull(sort === 'created' ? d.createdAt : d.updatedAt)}`}>{whenShort(sort === 'created' ? d.createdAt : d.updatedAt)}</time> · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
+          <span className="dim small menu-meta"><TagChips tags={d.tags} max={3} /><time title={`${rowTime(d).label} ${whenFull(rowTime(d).at)}`}>{whenShort(rowTime(d).at)}</time> · {d.versions} {d.versions === 1 ? 'version' : 'versions'}</span>
         </button>
         <button className={`icon-btn menu-star ${d.starred ? 'on' : ''}`} title={d.starred ? 'Unstar' : 'Star: mark it as important'}
           aria-label={`${d.starred ? 'Unstar' : 'Star'} ${d.name}`} aria-pressed={!!d.starred} onClick={() => p.onStar([d.id], !d.starred)}><Icon name="star" size={14} /></button>

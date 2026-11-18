@@ -360,6 +360,8 @@ export interface DesignSummary {
   updatedAt: number;
   createdAt: number;
   versions: number;
+  /** When it was last opened from the Designs menu or a tab (ms); never: left out. */
+  openedAt?: number;
   /** Starred in the Designs menu (marked). */
   starred?: boolean;
   /** Its tags (shared/tags.ts), built-ins first; none: left out. */

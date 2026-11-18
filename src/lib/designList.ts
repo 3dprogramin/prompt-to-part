@@ -4,8 +4,10 @@ import type { DesignSummary } from '../../shared/types';
 import { BUILTIN_TAGS, builtinTag, foldText, hasTag } from '../../shared/tags';
 
 export type DesignFilter = { kind: 'all' } | { kind: 'starred' } | { kind: 'untagged' } | { kind: 'printed' } | { kind: 'tag'; tag: string };
-export type DesignSort = 'updated' | 'created' | 'name';
-export const DESIGN_SORTS: Record<DesignSort, string> = { updated: 'Last changed', created: 'Newest', name: 'Name' };
+export type DesignSort = 'used' | 'updated' | 'created' | 'name';
+export const DESIGN_SORTS: Record<DesignSort, string> = { used: 'Last used', updated: 'Last changed', created: 'Newest', name: 'Name' };
+/** When a design was last used: opened or changed, whichever is later. */
+export const usedAt = (d: Pick<DesignSummary, 'updatedAt' | 'openedAt'>): number => Math.max(d.updatedAt, d.openedAt ?? 0);
 
 export const ALL: DesignFilter = { kind: 'all' };
 
@@ -48,7 +50,8 @@ export function shownDesigns(list: readonly DesignSummary[], filter: DesignFilte
   const out = list.filter((d) => inFilter(d, filter) && (!q || foldText(d.name).includes(q)));
   if (sort === 'name') return out.sort((a, b) => foldText(a.name).localeCompare(foldText(b.name)) || b.updatedAt - a.updatedAt);
   if (sort === 'created') return out.sort((a, b) => b.createdAt - a.createdAt || b.updatedAt - a.updatedAt);
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  if (sort === 'updated') return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  return out.sort((a, b) => usedAt(b) - usedAt(a) || b.updatedAt - a.updatedAt);
 }
 
 /** Every printed version of the designs matching the search (name only), newest mark first. */
