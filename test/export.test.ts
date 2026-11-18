@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { strFromU8, unzipSync } from 'fflate';
 import { toBinaryStl } from '../src/lib/files';
 import { to3mf } from '../src/lib/export';
-import { toBambuProject } from '../src/lib/bambu3mf';
+import { OBJECT_ONLY, toBambuProject } from '../src/lib/bambu3mf';
 import { esc } from '../src/lib/threeMf';
 import { printer } from '../shared/printer';
 import type { PartMesh } from '../shared/types';
@@ -54,4 +54,27 @@ test('Bambu project: per-part settings, object-only settings and filaments', asy
   assert.equal(settings.flush_volumes_vector.length, 4);
   assert.equal(settings.wall_loops, '3');
   assert.match(settings.different_settings_to_system[0], /wall_loops/);
+});
+
+test('Bambu project: the new settings stay on the object or the part the slicer reads them from', async () => {
+  const tpl = { version: '02.08.04.57', settings: { filament_colour: ['#00AE42'], filament_type: ['PLA'], different_settings_to_system: ['', '', ''], flush_volumes_matrix: ['0', '280', '280', '0'], flush_volumes_vector: ['140', '140'] }, perFilament: ['filament_colour', 'filament_type'], perFilamentPlus2: [] };
+  const parts = [cube('Body', 0, 20, '#d9a441'), cube('Hook', 20, 10, '#5b9bd5')];
+  const files = await unzip(toBambuProject(parts, 't', tpl, { print: { ai: {}, user: { parts: { Hook: { supports: 'tree', supportAngle: 50, supportGap: 0.3, holeCompensation: 0.1, topOneWall: 'off', infillDirection: 90 } } } } }));
+  const cfg = strFromU8(files['Metadata/model_settings.config']);
+  const obj = cfg.slice(0, cfg.indexOf('<part '));
+  const hook = cfg.slice(cfg.indexOf('value="Hook"'));
+  // The part keeps what the slicer reads per part, and none of the object-only keys.
+  assert.match(hook, /key="infill_direction" value="90"/);
+  for (const key of OBJECT_ONLY) assert.ok(!hook.includes(`key="${key}"`), `${key} is not on a part`);
+  for (const key of ['top_one_wall_type', 'xy_hole_compensation', 'support_threshold_angle', 'wall_generator', 'spiral_mode', 'elefant_foot_compensation']) assert.ok(OBJECT_ONLY.has(key), key);
+  // The object takes the support settings of the part that turned the supports on (the main part has them off).
+  assert.match(obj, /key="enable_support" value="1"/);
+  assert.match(obj, /key="support_threshold_angle" value="50"/);
+  assert.match(obj, /key="support_top_z_distance" value="0.3"/);
+  // Spiral vase is model-wide: it goes into the project, with the walls and infill it needs.
+  const vase = await unzip(toBambuProject([cube('Body', 0, 20, '#d9a441')], 't', tpl, { print: { ai: {}, user: { spiralVase: true } } }));
+  const settings = JSON.parse(strFromU8(vase['Metadata/project_settings.config']));
+  assert.equal(settings.spiral_mode, '1');
+  assert.equal(settings.wall_loops, '1');
+  assert.equal(settings.top_shell_layers, '0');
 });

@@ -68,15 +68,25 @@ function bambuAppVersion(v: string): string {
 }
 
 /** Settings Bambu Studio keeps per object only: a part (volume) can't have its own. */
-const OBJECT_ONLY = new Set(['layer_height', 'enable_support', 'support_type', 'support_on_build_plate_only', 'brim_type', 'brim_width']);
+export const OBJECT_ONLY = new Set([
+  'layer_height', 'enable_support', 'support_type', 'support_on_build_plate_only', 'brim_type', 'brim_width',
+  'support_threshold_angle', 'support_top_z_distance', 'support_interface_top_layers', 'support_style',
+  'xy_hole_compensation', 'xy_contour_compensation', 'elefant_foot_compensation', 'spiral_mode',
+  // Checked with Bambu Studio (scripts/slice-check.ts): on a part these change nothing, on the object they do.
+  'top_one_wall_type', 'wall_generator',
+]);
 
 /**
  * Settings of an object made of several parts: the main part's, with supports on if any part needs
- * them and the widest explicit brim (those can only be set for the whole object).
+ * them (taking that part's support settings) and the widest explicit brim (those can only be set for
+ * the whole object).
  */
 function objectSettings(main: Required<PrintSettings>, all: Required<PrintSettings>[]): Required<PrintSettings> {
   const out = { ...main };
-  if (out.supports === 'off') out.supports = all.find((s) => s.supports !== 'off')?.supports ?? 'off';
+  if (out.supports === 'off') {
+    const s = all.find((o) => o.supports !== 'off');
+    if (s) Object.assign(out, { supports: s.supports, supportAngle: s.supportAngle, supportGap: s.supportGap, supportInterfaceLayers: s.supportInterfaceLayers, supportStyle: s.supportStyle });
+  }
   const widths = all.map((s) => s.brim).filter((b): b is number => typeof b === 'number');
   if (widths.length) out.brim = Math.max(...widths);
   return out;
