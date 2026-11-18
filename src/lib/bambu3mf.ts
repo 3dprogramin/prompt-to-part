@@ -448,6 +448,8 @@ export function toBambuProject(
   settings.flush_volumes_vector = colours.flatMap(() => [vector, vector]);
   // Changed process values, recorded the way Bambu Studio does so they show as modified.
   Object.assign(settings, globalChanges);
+  // The slicer only applies the scarf seam when the filament's own scarf setting is switched on (checked with Bambu Studio 2.8, 2026-11-18).
+  if (opts.print && parts.some((p) => effectiveSettings(opts.print!.ai, opts.print!.user, p.name, base).scarfSeam !== base.scarfSeam)) settings.override_filament_scarf_seam_setting = '1';
   const diff = settings.different_settings_to_system as string[];
   diff[0] = Object.keys(globalChanges).sort().join(';');
 

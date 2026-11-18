@@ -13,9 +13,12 @@
 //   model-wide (supports are set per object, so only checked model-wide; OBJECT_ONLY too):
 //     support_threshold_angle, support_top_z_distance, support_interface_top_layers, support_style
 //   model-wide only:            spiral_mode (no sparse infill, no support in the G-code)
-//   seam_slope_type:            on a part it changes the G-code; model-wide and on the object it changes
-//                               nothing (Bambu gates it behind override_filament_scarf_seam_setting and
-//                               filament_scarf_seam_type, template: "0" and "none"). Not widened here.
+//   seam_slope_type:           needs override_filament_scarf_seam_setting "1" in the project (template: "0"; with
+//                              it off the value changes nothing, model-wide or on the object). With it on, a real
+//                              scarf: outer-wall moves carry a Z ramp (Z .837 .855 .872 with a growing E) on the
+//                              cylinder ("scarf-model"); "all" prints the same as "external" there; a box (sharp
+//                              corners) gets none, as Bambu's seam_slope_conditional wants smooth corners.
+//                              (A value on a part only splits the wall per part: not a scarf.)
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { toBambuProject } from '../src/lib/bambu3mf';
@@ -115,6 +118,8 @@ add('topOneWall', 'base', { topOneWall: 'off' });
 add('infillDirection', 'base', { infillDirection: 0 });
 add('wallGenerator', 'base', { wallGenerator: 'arachne' });
 add('scarfSeam', 'base-cyl', { scarfSeam: 'external' });
+add('scarf-model', 'base-cyl', { scarfSeam: 'external' });
+cases.push({ name: 'scarf-model-all', base: 'scarf-model', meshes: cyl(), user: { scarfSeam: 'all' } }); // compared with 'external'
 add('scarfSeamBox', 'base', { scarfSeam: 'external' });
 add('scarfSeamAll', 'base-cyl', { scarfSeam: 'all' });
 add('ironingSpeed', 'base-iron', { ironingSpeed: 60 });

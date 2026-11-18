@@ -78,3 +78,16 @@ test('Bambu project: the new settings stay on the object or the part the slicer 
   assert.equal(settings.wall_loops, '1');
   assert.equal(settings.top_shell_layers, '0');
 });
+
+test('Bambu project: a scarf seam switches on the filament override the slicer needs', async () => {
+  const tpl = { version: '02.08.04.57', settings: { filament_colour: ['#00AE42'], filament_type: ['PLA'], different_settings_to_system: ['', '', ''], flush_volumes_matrix: ['0', '280', '280', '0'], flush_volumes_vector: ['140', '140'], override_filament_scarf_seam_setting: '0', seam_slope_type: 'none' }, perFilament: ['filament_colour', 'filament_type'], perFilamentPlus2: [] };
+  const parts = [cube('Body', 0, 20, '#d9a441'), cube('Hook', 20, 10, '#5b9bd5')];
+  const settings = async (user: object) => JSON.parse(strFromU8((await unzip(toBambuProject(parts, 't', tpl, { print: { ai: {}, user } })))['Metadata/project_settings.config']));
+  const on = await settings({ scarfSeam: 'external' });
+  assert.equal(on.seam_slope_type, 'external');
+  assert.equal(on.override_filament_scarf_seam_setting, '1');
+  assert.equal((await settings({ parts: { Hook: { scarfSeam: 'all' } } })).override_filament_scarf_seam_setting, '1');
+  const off = await settings({ walls: 3 });
+  assert.equal(off.override_filament_scarf_seam_setting, '0');
+  assert.equal(off.seam_slope_type, 'none');
+});
