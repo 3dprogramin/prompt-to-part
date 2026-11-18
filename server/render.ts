@@ -60,7 +60,40 @@ export function renderTop(parts: PartMesh[], size = 1400): RenderOutput {
   return renderViews(parts, VIEWS.filter((v) => v.name === 'TOP'), 1, size);
 }
 
-function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: number): RenderOutput {
+interface Look { backdrop?: Vec3 }
+
+/** A flat piece (thinnest side at most 15 % of the longest): lying pictures and plaques, unreadable at the three-quarter angle. */
+export function isFlat(bbox: { min: Vec3; max: Vec3 }): boolean {
+  const e = [0, 1, 2].map((k) => bbox.max[k] - bbox.min[k]);
+  return Math.min(...e) <= 0.15 * Math.max(...e);
+}
+
+const THUMB_TILT = (20 * Math.PI) / 180;
+
+/** Faces the largest face of a flat piece, tilted 20 degrees toward the three-quarter side, picture upright. */
+function flatView(e: Vec3): View {
+  const s = Math.sin(THUMB_TILT), c = Math.cos(THUMB_TILT);
+  const thin = e[0] <= e[1] && e[0] <= e[2] ? 0 : e[1] <= e[2] ? 1 : 2;
+  if (thin === 2) {
+    const dir: Vec3 = [0, s, -c], right: Vec3 = [1, 0, 0]; // from above, camera moved to the front: +Y up, +X right
+    return { name: 'FLAT', right, up: cross(right, dir), dir, grid: false };
+  }
+  const dir: Vec3 = thin === 1 ? [-s, c, 0] : [-c, s, 0]; // from the front / from the right, camera moved toward the other side
+  const right = norm(cross(dir, [0, 0, 1]));
+  return { name: 'FLAT', right, up: cross(right, dir), dir, grid: false };
+}
+
+/** One square picture of the whole model for the Designs menu: dark backdrop, flat pieces seen nearly straight on. */
+export function renderThumb(parts: PartMesh[], size = 520): RenderOutput & { size: Vec3 } {
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const p of parts) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], p.bbox.min[k]); max[k] = Math.max(max[k], p.bbox.max[k]); }
+  const ext: Vec3 = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+  const view = parts.length && isFlat({ min, max }) ? flatView(ext) : isoView();
+  const out = renderViews(parts, [view], 1, size, { backdrop: [0x1b, 0x1d, 0x22] });
+  return { ...out, size: parts.length ? ext : [0, 0, 0] };
+}
+
+function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: number, look: Look = {}): RenderOutput {
   const rows = Math.ceil(views.length / cols);
   const W = VIEW * cols, Hh = VIEW * rows;
   const img = new Uint8Array(W * Hh * 3);
@@ -182,7 +215,7 @@ function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: numbe
     for (let y = 0; y < VIEW; y++) {
       for (let x = 0; x < VIEW; x++) {
         const idx = y * VIEW + x;
-        let r = 246, g = 246, b = 243;
+        let [r, g, b] = look.backdrop ?? [246, 246, 243];
         if (view.grid) {
           const wx = (x + 0.5 - VIEW / 2) / k + cx;
           const wy = (VIEW / 2 - (y + 0.5)) / k + cy;
