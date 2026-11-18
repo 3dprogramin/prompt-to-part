@@ -4,7 +4,8 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { workspaceDir } from '../agent';
-import { DATA_DIR } from '../config';
+import { APP_BUILD, DATA_DIR } from '../config';
+import { formatAppBuild } from '../../shared/appBuild';
 import type { Design, DesignSummary, ParamValues } from '../../shared/types';
 import { designKind } from '../../shared/designKind';
 import { cleanTags, hasTag, MAX_TAGS, tagsProblem, withTag } from '../../shared/tags';
@@ -31,8 +32,13 @@ function summarize(text: string): Summary | null {
   }
 }
 
-/** Longest a picture request waits for its render: the menu asks again after that. */
-const THUMB_WAIT_MS = 4000;
+/**
+ * Longest a picture request waits for its render, only when it is the one being drawn: the browser
+ * has few connections per host, so the others answer 503 at once and the menu asks again.
+ */
+const THUMB_WAIT_MS = 1500;
+/** Seconds the menu waits before asking again for a picture not drawn yet. */
+const THUMB_RETRY_S = '3';
 
 export function registerDesignRoutes(app: express.Express, { json, designFile, imageDir, generatingDesigns, deleted, serially, changeTags, putTags }: RouteContext) {
   // The list's summaries by design file name, with the file's time and size they were read at: the
@@ -42,7 +48,9 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
     dir: path.join(DATA_DIR, 'thumbs'),
     render: (code, values, signal) => geometry.thumb(code, values as ParamValues, signal),
     readDesign: (id) => readDesignCode(designFile(id)),
+    statDesign: (id) => stat(designFile(id)).then((s) => (s.isFile() ? { mtimeMs: s.mtimeMs, size: s.size } : null), () => null),
     busy: () => generatingDesigns.size > 0,
+    build: formatAppBuild(APP_BUILD),
   });
   const summaries = new Map<string, { mtimeMs: number; size: number; summary: Summary | null }>();
   app.get('/api/designs', async (_req, res) => {
@@ -168,12 +176,15 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
   const thumbRoute = (kind: 'png' | 'json') => async (req: express.Request, res: express.Response) => {
     const id = String(req.params.id), k = req.query.k;
     if (!ID_RE.test(id) || typeof k !== 'string' || !THUMB_KEY_RE.test(k)) return void res.status(400).json({ error: 'bad id or key' });
-    const found = await thumbs.peek(id, k, THUMB_WAIT_MS).catch(() => null);
-    if (found === 'pending') return void res.set({ 'Cache-Control': 'no-store', 'Retry-After': '5' }).status(503).json({ error: 'picture not ready yet' });
+    // The info never waits (the menu asks it beside the picture); the picture waits only for its own render.
+    const found = await thumbs.peek(id, k, kind === 'json' ? 0 : THUMB_WAIT_MS).catch(() => null);
+    if (found === 'pending') return void res.set({ 'Cache-Control': 'no-store', 'Retry-After': THUMB_RETRY_S }).status(503).json({ error: 'picture not ready yet' });
     if (!found) return void res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' });
-    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    // 'private': the app may sit behind a password, and a shared cache must not keep its pictures.
+    res.set('Cache-Control', 'private, max-age=31536000, immutable');
     if (kind === 'json') return void res.json({ size: found.size });
-    res.type('png').sendFile(found.file, (err) => { if (err && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' }); });
+    // 'allow': a data folder under a dot-directory (~/.local/share) is not a hidden file; the name is checked above.
+    res.type('png').sendFile(found.file, { dotfiles: 'allow' }, (err) => { if (err && !res.headersSent) res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' }); });
   };
   app.get('/api/designs/:id/thumb', thumbRoute('png'));
   app.get('/api/designs/:id/thumb.json', thumbRoute('json'));

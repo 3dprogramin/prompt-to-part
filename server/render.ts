@@ -69,6 +69,7 @@ export function isFlat(bbox: { min: Vec3; max: Vec3 }): boolean {
 }
 
 const THUMB_TILT = (20 * Math.PI) / 180;
+const THUMB_BACKDROP: Vec3 = [0x1b, 0x1d, 0x22];
 
 /** Faces the largest face of a flat piece, tilted 20 degrees toward the three-quarter side, picture upright. */
 function flatView(e: Vec3): View {
@@ -85,12 +86,14 @@ function flatView(e: Vec3): View {
 
 /** One square picture of the whole model for the Designs menu: dark backdrop, flat pieces seen nearly straight on. */
 export function renderThumb(parts: PartMesh[], size = 520): RenderOutput & { size: Vec3 } {
+  // Nothing to show: the plain backdrop (no box to frame).
+  if (!parts.length) return { png: encodePng(new Uint8Array(size * size * 3).map((_, i) => THUMB_BACKDROP[i % 3]), size, size), gridStep: 0, size: [0, 0, 0] };
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const p of parts) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], p.bbox.min[k]); max[k] = Math.max(max[k], p.bbox.max[k]); }
   const ext: Vec3 = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
-  const view = parts.length && isFlat({ min, max }) ? flatView(ext) : isoView();
-  const out = renderViews(parts, [view], 1, size, { backdrop: [0x1b, 0x1d, 0x22] });
-  return { ...out, size: parts.length ? ext : [0, 0, 0] };
+  const view = isFlat({ min, max }) ? flatView(ext) : isoView();
+  const out = renderViews(parts, [view], 1, size, { backdrop: THUMB_BACKDROP });
+  return { ...out, size: ext };
 }
 
 function renderViews(parts: PartMesh[], views: View[], cols: number, VIEW: number, look: Look = {}): RenderOutput {

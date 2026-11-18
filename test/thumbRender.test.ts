@@ -46,6 +46,14 @@ test('renderThumb: square, dark backdrop, the model in view, its size reported',
   assert.deepEqual(r.size, [40, 30, 20]);
 });
 
+test('renderThumb: no parts, a plain backdrop and no size', () => {
+  const r = renderThumb([], 64);
+  const img = decode(r.png);
+  assert.deepEqual([img.width, img.height], [64, 64]);
+  for (let i = 0; i < 64 * 64; i++) assert.deepEqual(rgbAt(img, i), [0x1b, 0x1d, 0x22]);
+  assert.deepEqual(r.size, [0, 0, 0]);
+});
+
 test('renderThumb: a flat piece is seen nearly straight on, upright', () => {
   const img = decode(renderThumb([box('Plate', [0, 0, 0], [100, 60, 2], '#ffffff'), box('Mark', [90, 50, 2], [100, 60, 3], '#ff0000')], 300).png);
   const white = bounds(img, isWhite), red = bounds(img, isRed);

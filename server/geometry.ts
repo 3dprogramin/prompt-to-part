@@ -227,8 +227,8 @@ export const geometry = {
   stability: (req: StabilityRequest, signal?: AbortSignal) => call<StabilityResult>({ cmd: 'stability', ...req }, 40000, signal),
   /** One large iso picture (used for assembled / exploded views). */
   iso: (code: string, values?: ParamValues, signal?: AbortSignal) => call<RenderResult>({ cmd: 'iso', code, values }, 45000, signal),
-  /** One square picture of the whole model for the Designs menu, with its size in mm. */
-  thumb: (code: string, values?: ParamValues, signal?: AbortSignal) => call<(EvalSummary | EvalFailure) & { png?: string; size?: Vec3 }>({ cmd: 'thumb', code, values }, 45000, signal),
+  /** One square picture of the whole model for the Designs menu, with its size in mm (20 s at most: it is only a menu picture). */
+  thumb: (code: string, values?: ParamValues, signal?: AbortSignal) => call<(EvalSummary | EvalFailure) & { png?: string; size?: Vec3 }>({ cmd: 'thumb', code, values }, 20000, signal),
   /** Parse, repair and normalise an uploaded mesh file in the locked-down worker (a stored .bin, a report and a four-view render). */
   /** With options.colors and `palette`: its colours, at most palette.colors, each with the closest filament (the user's own, `mine`, first). */
   importMesh: (bytes: Uint8Array, filename: string, options?: ImportOptions, palette?: { colors: number; mine: LayerToneFilament[] }, signal?: AbortSignal) => call<ImportedMesh>({ cmd: 'importMesh', bytes, filename, options, palette }, IMPORT_TIMEOUT_MS, signal),
