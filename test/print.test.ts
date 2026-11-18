@@ -65,3 +65,14 @@ test('the baseline comes from the Bambu template', () => {
   assert.equal(defaultsFromTemplate({ ...tpl, brim_type: 'outer_only', brim_width: '7', enable_support: '1', support_type: 'normal(auto)' }).brim, 7);
 });
 
+
+test('top surface pattern: cleaned by id or name, written as Bambu\'s key, read from the template', () => {
+  assert.deepEqual(cleanSettings({ topPattern: 'Concentric' }), { topPattern: 'concentric' });
+  assert.deepEqual(cleanSettings({ topPattern: 'Monotonic line' }), { topPattern: 'monotonicline' });
+  assert.deepEqual(cleanSettings({ topPattern: 'gyroid' }), {});
+  assert.deepEqual(cleanProfile({ parts: { Lid: { topPattern: 'concentric' } } }), { parts: { Lid: { topPattern: 'concentric' } } });
+  assert.deepEqual(bambuOverrides({ ...A1_DEFAULTS, topPattern: 'concentric' }), { top_surface_pattern: 'concentric' });
+  const base = defaultsFromTemplate({ top_surface_pattern: 'monotonic' });
+  assert.equal(base.topPattern, 'monotonic');
+  assert.deepEqual(bambuOverrides(effectiveSettings({ topPattern: 'monotonic' }, {}, undefined, base), base), {});
+});

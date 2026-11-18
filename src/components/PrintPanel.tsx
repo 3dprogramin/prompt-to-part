@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { load, store } from '../lib/storage';
 import {
-  bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SEAMS, SETTING_LABELS, WALL_ORDERS,
+  bambuOverrides, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SEAMS, SETTING_LABELS, TOP_PATTERNS, WALL_ORDERS,
   type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
 import { layerHeights, printer, profileName, shortName, type PrinterSetup } from '../../shared/printer';
@@ -16,7 +16,7 @@ import { Icon } from './Icon';
 import { useReleaseSlider } from './useReleaseSlider';
 
 type Key = keyof PrintSettings;
-const KEYS: Key[] = ['layerHeight', 'firstLayerHeight', 'walls', 'topLayers', 'bottomLayers', 'infill', 'infillPattern', 'supports', 'supportsOnPlate', 'brim', 'wallOrder', 'seam', 'ironing', 'fuzzySkin'];
+const KEYS: Key[] = ['layerHeight', 'firstLayerHeight', 'walls', 'topLayers', 'bottomLayers', 'infill', 'infillPattern', 'topPattern', 'supports', 'supportsOnPlate', 'brim', 'wallOrder', 'seam', 'ironing', 'fuzzySkin'];
 
 interface Props {
   parts: string[];
@@ -154,6 +154,8 @@ function Control({ k, label, value, onChange }: { k: Key; label: string; value: 
       return <InfillSlider value={Number(value)} onChange={onChange} />;
     case 'infillPattern':
       return <select aria-label={label} value={String(value)} onChange={(e) => onChange(e.target.value)}>{INFILL_PATTERNS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select>;
+    case 'topPattern':
+      return <select aria-label={label} value={String(value)} onChange={(e) => onChange(e.target.value as PrintSettings[Key])}>{TOP_PATTERNS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select>;
     case 'supports':
       return (
         <div className="seg">{(['off', 'normal', 'tree'] as Supports[]).map((s) => (

@@ -11,6 +11,7 @@ export type Ironing = 'off' | 'top' | 'topmost' | 'solid';
 export type Seam = 'aligned' | 'nearest' | 'back' | 'random';
 export type WallOrder = 'inner-outer' | 'outer-inner' | 'inner-outer-inner';
 export type FuzzySkin = 'none' | 'external' | 'all';
+export type TopPattern = 'monotonic' | 'monotonicline' | 'zig-zag' | 'alignedrectilinear' | 'concentric' | 'hilbertcurve' | 'archimedeanchords' | 'octagramspiral';
 
 /** Bambu Studio's values for the settings whose names differ from the app's. */
 const IRONING: Record<Ironing, string> = { off: 'no ironing', top: 'top', topmost: 'topmost', solid: 'solid' };
@@ -29,6 +30,8 @@ export interface PrintSettings {
   bottomLayers?: number;
   infill?: number; // %
   infillPattern?: string;
+  /** How the visible top faces are filled: straight lines (monotonic), rings that follow the outline (concentric)… */
+  topPattern?: TopPattern;
   supports?: Supports;
   brim?: Brim;
   /** Smooth flat top surfaces with a second, almost flowless pass. */
@@ -70,7 +73,7 @@ export function parseOneColour(v: unknown): null | 'main' | string {
  * once it has been built, so a Bambu Studio update that changes the profile changes it too.
  */
 export const A1_DEFAULTS: Required<PrintSettings> = {
-  layerHeight: 0.2, firstLayerHeight: 0.2, walls: 2, topLayers: 5, bottomLayers: 3, infill: 15, infillPattern: 'grid', supports: 'off', brim: 'auto',
+  layerHeight: 0.2, firstLayerHeight: 0.2, walls: 2, topLayers: 5, bottomLayers: 3, infill: 15, infillPattern: 'grid', topPattern: 'monotonicline', supports: 'off', brim: 'auto',
   ironing: 'off', seam: 'aligned', supportsOnPlate: false, wallOrder: 'inner-outer', fuzzySkin: 'none',
 };
 
@@ -100,9 +103,21 @@ export const INFILL_PATTERNS: { id: string; label: string }[] = [
   { id: 'concentric', label: 'Concentric' },
 ];
 
+/** Bambu Studio top surface pattern ids (all verified to slice) and display names. */
+export const TOP_PATTERNS: { id: TopPattern; label: string }[] = [
+  { id: 'monotonic', label: 'Monotonic' },
+  { id: 'monotonicline', label: 'Monotonic line' },
+  { id: 'zig-zag', label: 'Rectilinear' },
+  { id: 'alignedrectilinear', label: 'Aligned rectilinear' },
+  { id: 'concentric', label: 'Concentric' },
+  { id: 'hilbertcurve', label: 'Hilbert curve' },
+  { id: 'archimedeanchords', label: 'Archimedean chords' },
+  { id: 'octagramspiral', label: 'Octagram spiral' },
+];
+
 export const SETTING_LABELS: Record<keyof PrintSettings, string> = {
   layerHeight: 'Layer height', firstLayerHeight: 'First layer height', walls: 'Walls', topLayers: 'Top layers', bottomLayers: 'Bottom layers',
-  infill: 'Infill', infillPattern: 'Infill pattern', supports: 'Supports', brim: 'Brim',
+  infill: 'Infill', infillPattern: 'Infill pattern', topPattern: 'Top surface pattern', supports: 'Supports', brim: 'Brim',
   ironing: 'Ironing', seam: 'Seam', supportsOnPlate: 'Supports from plate only', wallOrder: 'Wall order', fuzzySkin: 'Fuzzy skin',
 };
 
@@ -130,6 +145,11 @@ export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
     const p = INFILL_PATTERNS.find((x) => x.id === o.infillPattern || x.label.toLowerCase() === String(o.infillPattern).toLowerCase());
     if (p) out.infillPattern = p.id;
   }
+  if (typeof o.topPattern === 'string') {
+    const t = String(o.topPattern).toLowerCase();
+    const p = TOP_PATTERNS.find((x) => x.id === t || x.label.toLowerCase() === t);
+    if (p) out.topPattern = p.id;
+  }
   if (o.supports === 'off' || o.supports === 'normal' || o.supports === 'tree') out.supports = o.supports;
   else if (o.supports === true) out.supports = 'tree';
   else if (o.supports === false) out.supports = 'off';
@@ -155,7 +175,7 @@ export function defaultsFromTemplate(t: Record<string, unknown>): Required<Print
     ...A1_DEFAULTS,
     ...cleanSettings({
       layerHeight: str('layer_height'), firstLayerHeight: str('initial_layer_print_height'), walls: str('wall_loops'), topLayers: str('top_shell_layers'), bottomLayers: str('bottom_shell_layers'),
-      infill: str('sparse_infill_density')?.replace('%', ''), infillPattern: str('sparse_infill_pattern'),
+      infill: str('sparse_infill_density')?.replace('%', ''), infillPattern: str('sparse_infill_pattern'), topPattern: str('top_surface_pattern'),
       supports: str('enable_support') === '1' ? (str('support_type')?.startsWith('normal') ? 'normal' : 'tree') : 'off',
       brim: brimType === 'no_brim' ? 'none' : brimType === 'auto_brim' ? 'auto' : str('brim_width'),
       ironing: key(IRONING, str('ironing_type')), seam: str('seam_position'),
@@ -208,6 +228,7 @@ export function bambuValues(s: Required<PrintSettings>): Record<string, string> 
     skeleton_infill_density: density,
     skin_infill_density: density,
     sparse_infill_pattern: s.infillPattern,
+    top_surface_pattern: s.topPattern,
     enable_support: s.supports === 'off' ? '0' : '1',
     support_type: s.supports === 'normal' ? 'normal(auto)' : 'tree(auto)',
     brim_type: s.brim === 'none' ? 'no_brim' : s.brim === 'auto' ? 'auto_brim' : 'outer_only',
@@ -231,6 +252,7 @@ export function describeSetting(key: keyof PrintSettings, v: PrintSettings[keyof
     case 'layerHeight': case 'firstLayerHeight': return `${v} mm`;
     case 'infill': return `${v} %`;
     case 'infillPattern': return INFILL_PATTERNS.find((p) => p.id === v)?.label ?? String(v);
+    case 'topPattern': return TOP_PATTERNS.find((p) => p.id === v)?.label ?? String(v);
     case 'supports': return v === 'off' ? 'Off' : v === 'tree' ? 'Tree' : 'Normal';
     case 'brim': return v === 'auto' ? 'Auto' : v === 'none' ? 'None' : `${v} mm`;
     case 'ironing': return ({ off: 'Off', top: 'Top surfaces', topmost: 'Topmost surface', solid: 'All solid layers' } as Record<string, string>)[String(v)] ?? String(v);
