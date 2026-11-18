@@ -259,7 +259,7 @@ test('the app opens a design: top bar, 3D view, Print tab without an automatic s
   await advanced.locator('> summary').click();
   const vase = advanced.getByRole('button', { name: 'On', exact: true });
   await vase.click();
-  await advanced.getByText('Prints as one continuous wall: 1 wall, no top layers, no infill, no supports.').waitFor();
+  await advanced.getByText('Prints as one continuous wall: 1 wall, no top layers, no infill, no supports. One part, one colour.').waitFor();
   assert.equal(await vase.getAttribute('aria-pressed'), 'true');
   await advanced.locator('> summary .sr-only', { hasText: '(changed)' }).waitFor();
   await page.locator('details.pp-fold > summary', { hasText: 'Written to the 3MF' }).click();

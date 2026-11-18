@@ -16,7 +16,7 @@ export type SupportStyle = 'default' | 'grid' | 'snug' | 'tree_slim' | 'tree_str
 /** One wall on top surfaces: never, on every top surface, or on the topmost one only. */
 export type TopOneWall = 'off' | 'all' | 'topmost';
 export type WallGenerator = 'classic' | 'arachne';
-/** Scarf (sloped) seam: none, on outer walls, or on all walls. */
+/** Scarf (sloped) seam: none, on the outline, or on the outline and holes. */
 export type ScarfSeam = 'none' | 'external' | 'all';
 
 /** Bambu Studio's values for the settings whose names differ from the app's. */
@@ -82,8 +82,23 @@ export interface PrintSettings {
   elephantFoot?: number;
 }
 
-/** Settings Bambu Studio only has for the whole print. */
-export type ModelWideKey = 'layerHeight' | 'firstLayerHeight' | 'spiralVase';
+/**
+ * Settings Bambu Studio only has for the whole print. The scarf seam is set per part in Bambu too, but the
+ * slicer only made a real scarf (a Z ramp on the outer wall) when it was set for the whole model (scripts/slice-check.ts).
+ */
+export type ModelWideKey = 'layerHeight' | 'firstLayerHeight' | 'spiralVase' | 'scarfSeam';
+export const MODEL_WIDE_KEYS: ModelWideKey[] = ['layerHeight', 'firstLayerHeight', 'spiralVase', 'scarfSeam'];
+
+/**
+ * Settings the slicer keeps per object: one set on a part applies to the whole object it belongs to.
+ * These are the new keys among OBJECT_ONLY in src/lib/bambu3mf.ts, checked with scripts/slice-check.ts.
+ */
+export const PER_OBJECT_KEYS: (keyof PrintSettings)[] = [
+  'supportAngle', 'supportGap', 'supportInterfaceLayers', 'supportStyle', 'topOneWall', 'wallGenerator', 'holeCompensation', 'contourCompensation', 'elephantFoot',
+];
+
+/** Spiral vase slices only for a design of exactly one part (Bambu Studio refuses more, scripts/slice-check.ts). */
+export const spiralFits = (partCount: number) => partCount === 1;
 
 /** Model-wide settings plus optional per-part overrides (layer heights are model-wide only). */
 export interface PrintProfile extends PrintSettings {
@@ -235,9 +250,9 @@ export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
   const topOneWall = o.topOneWall === true ? 'all' : o.topOneWall === false ? 'off' : oneOf(o.topOneWall, TOP_ONE_WALL); if (topOneWall) out.topOneWall = topOneWall;
   const infillDirection = clampInt(o.infillDirection, 0, 180); if (infillDirection != null) out.infillDirection = infillDirection;
   const wallGenerator = oneOf(o.wallGenerator, WALL_GENERATORS); if (wallGenerator) out.wallGenerator = wallGenerator;
-  const scarf = o.scarfSeam === true ? 'external' : o.scarfSeam === false ? 'none' : oneOf(o.scarfSeam, SCARF_SEAMS); if (scarf) out.scarfSeam = scarf;
+  const scarf = o.scarfSeam === true ? 'external' : o.scarfSeam === false ? 'none' : oneOf(o.scarfSeam, SCARF_SEAMS); if (allowLayer && scarf) out.scarfSeam = scarf;
   const ironingSpeed = clampInt(o.ironingSpeed, 10, 100); if (ironingSpeed != null) out.ironingSpeed = ironingSpeed;
-  const ironingFlow = clampInt(o.ironingFlow, 5, 30); if (ironingFlow != null) out.ironingFlow = ironingFlow;
+  const ironingFlow = clampInt(typeof o.ironingFlow === 'string' ? o.ironingFlow.replace(/%\s*$/, '') : o.ironingFlow, 5, 30); if (ironingFlow != null) out.ironingFlow = ironingFlow;
   const ironingSpacing = clampNum(o.ironingSpacing, 0.05, 0.3, 2); if (ironingSpacing != null) out.ironingSpacing = ironingSpacing;
   const holeCompensation = clampNum(o.holeCompensation, -0.5, 0.5, 2); if (holeCompensation != null) out.holeCompensation = holeCompensation;
   const contourCompensation = clampNum(o.contourCompensation, -0.5, 0.5, 2); if (contourCompensation != null) out.contourCompensation = contourCompensation;
@@ -369,7 +384,7 @@ export function describeSetting(key: keyof PrintSettings, v: PrintSettings[keyof
     case 'supportStyle': { const t = String(v).replace('_', ' '); return t.charAt(0).toUpperCase() + t.slice(1); }
     case 'topOneWall': return ({ off: 'Off', all: 'All top surfaces', topmost: 'Topmost surface' } as Record<string, string>)[String(v)] ?? String(v);
     case 'wallGenerator': return ({ classic: 'Classic', arachne: 'Arachne' } as Record<string, string>)[String(v)] ?? String(v);
-    case 'scarfSeam': return ({ none: 'Off', external: 'Outer wall', all: 'All walls' } as Record<string, string>)[String(v)] ?? String(v);
+    case 'scarfSeam': return ({ none: 'Off', external: 'Outline', all: 'Outline and holes' } as Record<string, string>)[String(v)] ?? String(v);
     default: return String(v);
   }
 }

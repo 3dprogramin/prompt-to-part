@@ -3,7 +3,7 @@
 // painting of coloured meshes (each triangle's filament, as Bambu Studio's own painting tool stores
 // it). Structure verified by loading and slicing with Bambu Studio 2.8.
 import { zipSync, strToU8 } from 'fflate';
-import { bambuOverrides, defaultsFromTemplate, effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
+import { bambuOverrides, defaultsFromTemplate, effectiveSettings, spiralFits, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { bedShift, printer } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
@@ -359,8 +359,12 @@ export function toBambuProject(
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
   // The template's own profile is the baseline: only real changes from it are written.
   const base = defaultsFromTemplate(tpl.settings);
-  const globalSettings = opts.print ? effectiveSettings(opts.print.ai, opts.print.user, undefined, base) : base;
+  // Spiral vase only for a design of one part: with more the slicer refuses the project, so it is off.
+  const print = opts.print && !spiralFits(parts.length) ? { ai: { ...opts.print.ai, spiralVase: false }, user: { ...opts.print.user, spiralVase: false } } : opts.print;
+  const globalSettings = print ? effectiveSettings(print.ai, print.user, undefined, base) : base;
   const globalChanges = bambuOverrides(globalSettings, base);
+  // The slicer only applies the scarf seam when the filament's own scarf setting is switched on (checked with Bambu Studio 2.8, 2026-11-18).
+  if (globalSettings.scarfSeam !== base.scarfSeam) globalChanges.override_filament_scarf_seam_setting = '1';
   // A LayerTone print changes filament once per layer, for the whole layer: no prime tower is needed,
   // and on the A1's bed it collides with a big picture ("G-code conflicts"). Purging goes to the chute.
   if (parts.some((p) => p.layerColors?.length)) globalChanges.enable_prime_tower = '0';
@@ -412,9 +416,9 @@ export function toBambuProject(
     items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
     // Objects only carry what differs from the model-wide settings (which live in the project), and
     // each part what differs from its object.
-    const own = group.map((i) => (opts.print ? effectiveSettings(opts.print.ai, opts.print.user, parts[i].name, base) : globalSettings));
+    const own = group.map((i) => (print ? effectiveSettings(print.ai, print.user, parts[i].name, base) : globalSettings));
     const objSettings = objectSettings(own[group.indexOf(main)], own);
-    const overrides = opts.print ? bambuOverrides(objSettings, globalSettings) : {};
+    const overrides = print ? bambuOverrides(objSettings, globalSettings) : {};
     const name = group.length > 1 ? `${parts[main].name} (+${group.length - 1})` : parts[main].name;
     const partCfg = group.map((i, k) => {
       const partOverrides = Object.entries(bambuOverrides(own[k], objSettings)).filter(([key]) => !OBJECT_ONLY.has(key));
@@ -448,8 +452,6 @@ export function toBambuProject(
   settings.flush_volumes_vector = colours.flatMap(() => [vector, vector]);
   // Changed process values, recorded the way Bambu Studio does so they show as modified.
   Object.assign(settings, globalChanges);
-  // The slicer only applies the scarf seam when the filament's own scarf setting is switched on (checked with Bambu Studio 2.8, 2026-11-18).
-  if (opts.print && parts.some((p) => effectiveSettings(opts.print!.ai, opts.print!.user, p.name, base).scarfSeam !== base.scarfSeam)) settings.override_filament_scarf_seam_setting = '1';
   const diff = settings.different_settings_to_system as string[];
   diff[0] = Object.keys(globalChanges).sort().join(';');
 

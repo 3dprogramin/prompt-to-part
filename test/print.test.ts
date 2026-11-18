@@ -83,6 +83,14 @@ test('the 2026-11-18 settings: cleaned, clamped, odd values dropped', () => {
   { supportAngle: 45, supportGap: 0.12, supportInterfaceLayers: 5, supportStyle: 'tree_organic', topOneWall: 'all', infillDirection: 180,
     wallGenerator: 'arachne', scarfSeam: 'external', ironingSpeed: 10, ironingFlow: 15, ironingSpacing: 0.3, holeCompensation: -0.5, contourCompensation: 0.05, elephantFoot: 0.123, spiralVase: true });
   assert.deepEqual(cleanSettings({ supportAngle: null, supportGap: '', supportStyle: 'organic', topOneWall: 'yes', wallGenerator: true, scarfSeam: 'outer', ironingFlow: 'x', spiralVase: 'on', holeCompensation: NaN }), {});
+  // Ironing flow as Bambu writes it, a percent string.
+  assert.deepEqual(cleanSettings({ ironingFlow: '15%' }), { ironingFlow: 15 });
+  assert.deepEqual(cleanSettings({ ironingFlow: '40 %' }), { ironingFlow: 30 });
+});
+
+test('scarf seam is model-wide: a value on a part is dropped', () => {
+  assert.deepEqual(cleanProfile({ scarfSeam: 'external', parts: { Vase: { scarfSeam: 'all', walls: 3 } } }), { scarfSeam: 'external', parts: { Vase: { walls: 3 } } });
+  assert.deepEqual(cleanSettings({ scarfSeam: 'all' }, false), {});
 });
 
 test('spiral vase is model-wide and forces what it needs', () => {

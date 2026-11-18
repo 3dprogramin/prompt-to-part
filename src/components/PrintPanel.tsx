@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { load, store } from '../lib/storage';
 import {
-  bambuOverrides, cleanSettings, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, SCARF_SEAMS, SEAMS, SETTING_GROUPS, SETTING_LABELS, supportStylesFor, TOP_ONE_WALL, TOP_PATTERNS, WALL_GENERATORS, WALL_ORDERS,
-  type Brim, type PrintProfile, type PrintSettings, type Supports,
+  bambuOverrides, cleanSettings, describeSetting, effectiveSettings, FUZZY_SKIN, INFILL_PATTERNS, IRONING_TYPES, MODEL_WIDE_KEYS, PER_OBJECT_KEYS, SCARF_SEAMS, SEAMS, SETTING_GROUPS, SETTING_LABELS, spiralFits,
+  supportStylesFor, TOP_ONE_WALL, TOP_PATTERNS, WALL_GENERATORS, WALL_ORDERS, type Brim, type PrintProfile, type PrintSettings, type Supports,
 } from '../../shared/print';
 import { layerHeights, printer, profileName, shortName, type PrinterSetup } from '../../shared/printer';
 import type { PrinterInfo } from '../../shared/api';
@@ -52,7 +52,10 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
   useEffect(() => store('printWrittenOpen', writtenOpen), [writtenOpen]);
   const [scope, setScope] = useState<string | null>(null); // null = whole model
   const part = scope && parts.includes(scope) ? scope : null;
-  const eff = effectiveSettings(ai, user, part ?? undefined, base);
+  // Spiral vase only for a design of one part (the export leaves it off with more, as the slicer refuses it).
+  const vaseFits = spiralFits(parts.length);
+  const settingsOf = (name?: string) => { const s = effectiveSettings(ai, user, name, base); return vaseFits ? s : { ...s, spiralVase: false }; };
+  const eff = settingsOf(part ?? undefined);
 
   const own = (p: PrintProfile): PrintSettings => (part ? (p.parts?.[part] ?? {}) : p);
   const setValue = (key: Key, value: PrintSettings[Key] | undefined) => {
@@ -70,7 +73,7 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
   };
 
   // What will differ from the profile, per part.
-  const changes = parts.map((name) => ({ name, keys: bambuOverrides(effectiveSettings(ai, user, name, base), base) })).filter((c) => Object.keys(c.keys).length);
+  const changes = parts.map((name) => ({ name, keys: bambuOverrides(settingsOf(name), base) })).filter((c) => Object.keys(c.keys).length);
   const aiHasAny = Object.keys(ai).length > 0;
 
   return (
@@ -112,7 +115,9 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
       ))}
 
       {SETTING_GROUPS.map((g) => {
-        const keys = g.keys.filter((k) => !(part && k === 'spiralVase'));
+        // A part has no model-wide rows: a group left with none (Seam) is not shown there.
+        const keys = g.keys.filter((k) => !(part && (MODEL_WIDE_KEYS as Key[]).includes(k)));
+        if (!keys.length) return null;
         const changed = keys.some((k) => source(ai, user, k, part) !== 'default');
         // Supports and ironing only matter when they are on: until then a line says so.
         const off = g.id === 'supports' ? eff.supports === 'off' : g.id === 'ironing' ? eff.ironing === 'off' : false;
@@ -120,8 +125,12 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
           <PrintGroup key={g.id} id={g.id} label={g.label} changed={changed}>
             {off
               ? <div className="dim small">Turn {g.id === 'supports' ? 'supports' : 'ironing'} on to tune them.</div>
-              : keys.map((key) => <Row key={key} k={key} eff={eff} base={base} src={source(ai, user, key, part)} ownUser={(own(user) as PrintSettings)[key] !== undefined} onChange={setValue} />)}
-            {g.id === 'advanced' && !part && eff.spiralVase && <div className="dim small">Prints as one continuous wall: 1 wall, no top layers, no infill, no supports.</div>}
+              : keys.map((key) => (
+                <Row key={key} k={key} eff={eff} base={base} src={source(ai, user, key, part)} ownUser={(own(user) as PrintSettings)[key] !== undefined} onChange={setValue}
+                  disabled={key === 'spiralVase' && !vaseFits}
+                  hint={key === 'spiralVase' && !vaseFits ? 'Only for a design of one part.' : part && PER_OBJECT_KEYS.includes(key) ? 'Applies to the whole object this part belongs to.' : undefined} />
+              ))}
+            {g.id === 'advanced' && !part && eff.spiralVase && <div className="dim small">Prints as one continuous wall: 1 wall, no top layers, no infill, no supports. One part, one colour.</div>}
           </PrintGroup>
         );
       })}
@@ -146,8 +155,8 @@ export function PrintPanel({ parts, ai, user, base, onChange, bambu, printerInfo
   );
 }
 
-/** One setting: its label, who decided it, a reset when it is yours, and the control. */
-function Row({ k, eff, base, src, ownUser, onChange }: { k: Key; eff: Required<PrintSettings>; base: Required<PrintSettings>; src: 'you' | 'ai' | 'default'; ownUser: boolean; onChange: (key: Key, value: PrintSettings[Key] | undefined) => void }) {
+/** One setting: its label, who decided it, a reset when it is yours, the control, and a one-line hint under it. */
+function Row({ k, eff, base, src, ownUser, onChange, disabled, hint }: { k: Key; eff: Required<PrintSettings>; base: Required<PrintSettings>; src: 'you' | 'ai' | 'default'; ownUser: boolean; onChange: (key: Key, value: PrintSettings[Key] | undefined) => void; disabled?: boolean; hint?: string }) {
   return (
     <div className="pp-row">
       <div className="pp-label">
@@ -157,7 +166,8 @@ function Row({ k, eff, base, src, ownUser, onChange }: { k: Key; eff: Required<P
         </span>
         {ownUser && <button className="icon-btn pp-reset" title="Reset" aria-label={`Reset ${SETTING_LABELS[k]}`} onClick={() => onChange(k, undefined)}><Icon name="restore" size={12} /></button>}
       </div>
-      <Control k={k} label={SETTING_LABELS[k]} value={eff[k]} supports={eff.supports} onChange={(v) => onChange(k, v)} />
+      <Control k={k} label={SETTING_LABELS[k]} value={eff[k]} supports={eff.supports} disabled={disabled} onChange={(v) => onChange(k, v)} />
+      {hint && <div className="dim small">{hint}</div>}
     </div>
   );
 }
@@ -174,7 +184,10 @@ function PrintGroup({ id, label, changed, children }: { id: string; label: strin
   );
 }
 
-/** A number in millimetres (or other unit) typed in: kept as typed until it is a valid value in range. */
+/**
+ * A number typed in: each value in progress that is a number is cleaned (clamped, rounded) and saved as
+ * typed, and the field keeps showing the typed text until it loses focus, then the saved value.
+ */
 function NumberField({ k, label, value, min, max, step, unit, onChange }: { k: Key; label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: PrintSettings[Key]) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   return (
@@ -192,7 +205,7 @@ function NumberField({ k, label, value, min, max, step, unit, onChange }: { k: K
   );
 }
 
-function Control({ k, label, value, supports, onChange }: { k: Key; label: string; value: PrintSettings[Key]; supports: Supports; onChange: (v: PrintSettings[Key]) => void }) {
+function Control({ k, label, value, supports, disabled, onChange }: { k: Key; label: string; value: PrintSettings[Key]; supports: Supports; disabled?: boolean; onChange: (v: PrintSettings[Key]) => void }) {
   switch (k) {
     case 'layerHeight': case 'firstLayerHeight':
       return <select aria-label={label} value={String(value)} onChange={(e) => onChange(Number(e.target.value))}>{layerHeights(printer().nozzle).map((h) => <option key={h} value={h}>{h.toFixed(2)} mm{Math.abs(h - printer().nozzle / 2) < 1e-6 ? ' (standard)' : ''}</option>)}</select>;
@@ -222,10 +235,10 @@ function Control({ k, label, value, supports, onChange }: { k: Key; label: strin
     }
     case 'supportAngle': return <Stepper label={label} value={Number(value)} min={0} max={90} unit="°" onChange={onChange} />;
     case 'supportInterfaceLayers': return <Stepper label={label} value={Number(value)} min={0} max={5} onChange={onChange} />;
-    case 'infillDirection': return <Stepper label={label} value={Number(value)} min={0} max={180} unit="°" onChange={onChange} />;
     case 'ironingSpeed': return <Stepper label={label} value={Number(value)} min={10} max={100} unit="mm/s" onChange={onChange} />;
     case 'ironingFlow': return <Stepper label={label} value={Number(value)} min={5} max={30} unit="%" onChange={onChange} />;
     case 'supportGap': return <NumberField k={k} label={label} value={Number(value)} min={0} max={1} step={0.01} unit="mm" onChange={onChange} />;
+    case 'infillDirection': return <NumberField k={k} label={label} value={Number(value)} min={0} max={180} step={5} unit="°" onChange={onChange} />;
     case 'ironingSpacing': return <NumberField k={k} label={label} value={Number(value)} min={0.05} max={0.3} step={0.01} unit="mm" onChange={onChange} />;
     case 'holeCompensation': case 'contourCompensation': return <NumberField k={k} label={label} value={Number(value)} min={-0.5} max={0.5} step={0.01} unit="mm" onChange={onChange} />;
     case 'elephantFoot': return <NumberField k={k} label={label} value={Number(value)} min={0} max={1} step={0.005} unit="mm" onChange={onChange} />;
@@ -237,7 +250,7 @@ function Control({ k, label, value, supports, onChange }: { k: Key; label: strin
     case 'spiralVase':
       return (
         <div className="seg">{[false, true].map((on) => (
-          <button key={String(on)} className={value === on ? 'on' : ''} aria-pressed={value === on} onClick={() => onChange(on)}>{on ? 'On' : 'Off'}</button>))}
+          <button key={String(on)} className={value === on ? 'on' : ''} aria-pressed={value === on} disabled={disabled} onClick={() => onChange(on)}>{on ? 'On' : 'Off'}</button>))}
         </div>
       );
     case 'brim': {

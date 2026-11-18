@@ -71,12 +71,29 @@ test('Bambu project: the new settings stay on the object or the part the slicer 
   assert.match(obj, /key="enable_support" value="1"/);
   assert.match(obj, /key="support_threshold_angle" value="50"/);
   assert.match(obj, /key="support_top_z_distance" value="0.3"/);
-  // Spiral vase is model-wide: it goes into the project, with the walls and infill it needs.
-  const vase = await unzip(toBambuProject([cube('Body', 0, 20, '#d9a441')], 't', tpl, { print: { ai: {}, user: { spiralVase: true } } }));
+  // Spiral vase is model-wide: it goes into the project, with the walls, infill and supports it needs.
+  const vase = await unzip(toBambuProject([cube('Body', 0, 20, '#d9a441')], 't', tpl, { print: { ai: {}, user: { spiralVase: true, supports: 'tree', infill: 30 } } }));
   const settings = JSON.parse(strFromU8(vase['Metadata/project_settings.config']));
   assert.equal(settings.spiral_mode, '1');
   assert.equal(settings.wall_loops, '1');
   assert.equal(settings.top_shell_layers, '0');
+  assert.equal(settings.sparse_infill_density, '0%');
+  assert.ok(settings.enable_support === undefined || settings.enable_support === '0', 'no supports');
+  assert.doesNotMatch(strFromU8(vase['Metadata/model_settings.config']), /enable_support|support_type/);
+});
+
+test('Bambu project: spiral vase is off for a design of more than one part (the slicer refuses it)', async () => {
+  const tpl = { version: '02.08.04.57', settings: { filament_colour: ['#00AE42'], filament_type: ['PLA'], different_settings_to_system: ['', '', ''], flush_volumes_matrix: ['0', '280', '280', '0'], flush_volumes_vector: ['140', '140'] }, perFilament: ['filament_colour', 'filament_type'], perFilamentPlus2: [] };
+  for (const parts of [[cube('Body', 0, 20, '#d9a441'), cube('Lid', 20, 10, '#5b9bd5')], [cube('Body', 0, 20, '#d9a441'), cube('Lid', 40, 20, '#d9a441')]]) {
+    const files = await unzip(toBambuProject(parts, 't', tpl, { print: { ai: {}, user: { spiralVase: true, walls: 3 } } }));
+    const settings = JSON.parse(strFromU8(files['Metadata/project_settings.config']));
+    assert.equal(settings.spiral_mode, undefined);
+    assert.equal(settings.wall_loops, '3');
+    assert.equal(settings.top_shell_layers, undefined);
+    assert.equal(settings.sparse_infill_density, undefined);
+    assert.doesNotMatch(settings.different_settings_to_system[0], /spiral_mode|top_shell_layers|sparse_infill_density/);
+    assert.doesNotMatch(strFromU8(files['Metadata/model_settings.config']), /spiral_mode|wall_loops/);
+  }
 });
 
 test('Bambu project: a scarf seam switches on the filament override the slicer needs', async () => {
@@ -86,7 +103,7 @@ test('Bambu project: a scarf seam switches on the filament override the slicer n
   const on = await settings({ scarfSeam: 'external' });
   assert.equal(on.seam_slope_type, 'external');
   assert.equal(on.override_filament_scarf_seam_setting, '1');
-  assert.equal((await settings({ parts: { Hook: { scarfSeam: 'all' } } })).override_filament_scarf_seam_setting, '1');
+  assert.deepEqual(on.different_settings_to_system[0].split(';'), ['override_filament_scarf_seam_setting', 'seam_slope_type']);
   const off = await settings({ walls: 3 });
   assert.equal(off.override_filament_scarf_seam_setting, '0');
   assert.equal(off.seam_slope_type, 'none');
