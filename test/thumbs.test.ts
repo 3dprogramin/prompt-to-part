@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -172,11 +172,68 @@ test('a design changed while it was drawn writes nothing for the old key', async
   assert.deepEqual(readdirSync(dir), []);
 });
 
+test('peek: while busy it answers pending at once and draws nothing; later it answers the picture', async () => {
+  let busy = true;
+  const { state, store, add } = setup({ busy: () => busy });
+  const key = add('design-0001', 'return box()');
+  const t0 = Date.now();
+  assert.equal(await store.peek('design-0001', key, 4000), 'pending');
+  assert.ok(Date.now() - t0 < 400);
+  assert.equal(state.calls, 0);
+  busy = false;
+  let r = await store.peek('design-0001', key, 4000);
+  assert.deepEqual((r as { size: number[] }).size, [40, 30, 20]);
+  r = await store.peek('design-0001', key, 4000);
+  assert.deepEqual((r as { size: number[] }).size, [40, 30, 20]);
+  assert.equal(state.calls, 1);
+});
+
+test('peek: a render slower than waitMs answers pending, then the picture is there; one render in all', async () => {
+  const { state, store, add } = setup({ render: async () => { await wait(300); return { png: PNG, size: [1, 2, 3] }; } });
+  const key = add('design-0001', 'return box()');
+  assert.equal(await store.peek('design-0001', key, 50), 'pending');
+  await wait(600);
+  const r = await store.peek('design-0001', key, 50);
+  assert.deepEqual((r as { size: number[] }).size, [1, 2, 3]);
+  assert.equal(state.calls, 1);
+});
+
+test('peek: ten designs at once all settle within waitMs, are drawn one at a time, and all end up on disk', async () => {
+  const { dir, state, store, add } = setup({ render: async () => { await wait(150); return { png: PNG, size: [1, 1, 1] }; } });
+  const keys: [string, string][] = [];
+  for (let i = 0; i < 10; i++) { const id = `design-100${i}`; keys.push([id, add(id, `return box(${i})`)]); }
+  const t0 = Date.now();
+  const first = await Promise.all(keys.map(([id, k]) => store.peek(id, k, 400)));
+  assert.ok(Date.now() - t0 < 900);
+  assert.ok(first.some((r) => r === 'pending'));
+  await wait(1800);
+  assert.equal(state.maxRunning, 1);
+  assert.equal(state.calls, 10);
+  assert.equal(readdirSync(dir).filter((f) => f.endsWith('.png')).length, 10);
+  for (const [id, k] of keys) assert.ok(await store.peek(id, k, 50) !== 'pending');
+});
+
+test('a failure to write the files is remembered and not tried again', async () => {
+  const dir = path.join(tmp(), 'blocked');
+  writeFileSync(dir, 'a file, so the folder cannot be made');
+  const designs = new Map([['design-0001', { code: 'return box()', values: {} }]]);
+  let calls = 0;
+  const store = thumbStore({ dir, busy: () => false, readDesign: async (id) => designs.get(id) ?? null, render: async () => { calls++; return { png: PNG, size: [1, 2, 3] }; } });
+  const key = thumbKey('return box()', {})!;
+  assert.equal(await store.get('design-0001', key), null);
+  assert.equal(await store.get('design-0001', key), null);
+  assert.equal(calls, 1);
+});
+
 // ---- the routes ----
 const server: Server = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => resolve(s)); });
 const port = (server.address() as { port: number }).port;
-server.on('request', createApp({ port }));
-after(() => { geometry.stop(); server.closeAllConnections(); server.close(); rmSync(dataDir, { recursive: true, force: true }); });
+let release = () => {};
+server.on('request', createApp({
+  port,
+  generate: (_req, _send, abort) => new Promise((resolve) => { release = () => resolve(); abort.signal.addEventListener('abort', () => resolve()); }),
+}));
+after(() => { release(); geometry.stop(); server.closeAllConnections(); server.close(); rmSync(dataDir, { recursive: true, force: true }); });
 const A = `http://127.0.0.1:${port}`;
 const W = { 'Content-Type': 'application/json', 'X-PTP': '1' };
 const BOX = 'function build() { return Manifold.cube([40, 30, 20]); }';
@@ -216,4 +273,22 @@ test('routes: the list has the key, the picture and its size are served, delete 
   assert.ok(readdirSync(folder).some((f) => f.startsWith(ID)));
   assert.equal((await fetch(`${A}/api/designs/${ID}`, { method: 'DELETE', headers: W })).status, 200);
   assert.ok(!readdirSync(folder).some((f) => f.startsWith(ID)));
+});
+
+test('routes: while a generation runs a picture answers 503 no-store with Retry-After, then 200 once it is over', async () => {
+  const ID = 'thumb-test-00000003', OTHER = 'thumb-test-00000004';
+  for (const d of [mk(ID, BOX), mk(OTHER, BOX)]) assert.equal((await fetch(`${A}/api/designs/${d.id}`, { method: 'PUT', headers: W, body: JSON.stringify(d) })).status, 200);
+  const key = ((await (await fetch(`${A}/api/designs`)).json()) as { id: string; thumb?: string }[]).find((d) => d.id === ID)!.thumb;
+  const gen = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: OTHER, prompt: 'a cube' }) });
+  assert.equal(gen.status, 200);
+  const busy = await fetch(`${A}/api/designs/${ID}/thumb?k=${key}`);
+  assert.equal(busy.status, 503);
+  assert.equal(busy.headers.get('cache-control'), 'no-store');
+  assert.equal(busy.headers.get('retry-after'), '5');
+  assert.equal((await fetch(`${A}/api/designs/${ID}/thumb.json?k=${key}`)).status, 503);
+  release();
+  await gen.arrayBuffer();
+  let status = 503;
+  for (let i = 0; i < 40 && status !== 200; i++) { status = (await fetch(`${A}/api/designs/${ID}/thumb?k=${key}`)).status; if (status !== 200) await wait(250); }
+  assert.equal(status, 200);
 });

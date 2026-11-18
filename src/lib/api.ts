@@ -44,10 +44,14 @@ export const printedFileUrl = (id: string, v: number): string => `/api/designs/$
 
 /** Where a design's menu picture is: `key` is DesignSummary.thumb (the picture changes with it, so it caches for good). */
 export const designThumbUrl = (id: string, key: string): string => `/api/designs/${id}/thumb?k=${key}`;
-/** The model's size in mm, from the same key; null when there is no picture (404). */
-export async function designThumbInfo(id: string, key: string): Promise<{ size: [number, number, number] } | null> {
+/**
+ * The model's size in mm, from the same key. The menu asks it when a picture fails to load, to tell "not
+ * there" (null: 404) from "not yet" ('pending': 503, the server is busy or still drawing it).
+ */
+export async function designThumbInfo(id: string, key: string): Promise<{ size: [number, number, number] } | null | 'pending'> {
   try { return await getJson<{ size: [number, number, number] }>(`/api/designs/${id}/thumb.json?k=${key}`); } catch (e) {
     if (e instanceof HttpError && e.status === 404) return null;
+    if (e instanceof HttpError && e.status === 503) return 'pending';
     throw e;
   }
 }

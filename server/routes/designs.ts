@@ -31,6 +31,9 @@ function summarize(text: string): Summary | null {
   }
 }
 
+/** Longest a picture request waits for its render: the menu asks again after that. */
+const THUMB_WAIT_MS = 4000;
+
 export function registerDesignRoutes(app: express.Express, { json, designFile, imageDir, generatingDesigns, deleted, serially, changeTags, putTags }: RouteContext) {
   // The list's summaries by design file name, with the file's time and size they were read at: the
   // list reads only the files changed since (a design file can be tens of MB). Saves and deletes
@@ -165,7 +168,8 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
   const thumbRoute = (kind: 'png' | 'json') => async (req: express.Request, res: express.Response) => {
     const id = String(req.params.id), k = req.query.k;
     if (!ID_RE.test(id) || typeof k !== 'string' || !THUMB_KEY_RE.test(k)) return void res.status(400).json({ error: 'bad id or key' });
-    const found = await thumbs.get(id, k).catch(() => null);
+    const found = await thumbs.peek(id, k, THUMB_WAIT_MS).catch(() => null);
+    if (found === 'pending') return void res.set({ 'Cache-Control': 'no-store', 'Retry-After': '5' }).status(503).json({ error: 'picture not ready yet' });
     if (!found) return void res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' });
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
     if (kind === 'json') return void res.json({ size: found.size });

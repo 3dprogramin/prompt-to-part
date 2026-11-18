@@ -61,16 +61,43 @@ export function thumbStore({ dir, render, readDesign, busy }: ThumbStoreOptions)
     // The design may have changed or gone while it was drawn: then this picture is not wanted.
     const now = await readDesign(id);
     if (!now || thumbKey(now.code, now.values) !== key) return null;
-    await mkdir(dir, { recursive: true });
-    if (!out.png || !out.size) {
-      await writeAtomically(`${base(id, key)}.json`, JSON.stringify({ failed: true }));
+    try {
+      await mkdir(dir, { recursive: true });
+      if (!out.png || !out.size) {
+        await writeAtomically(`${base(id, key)}.json`, JSON.stringify({ failed: true }));
+        await removeFiles(id, key);
+        return null;
+      }
+      await writeAtomically(`${base(id, key)}.png`, Buffer.from(out.png, 'base64'));
+      await writeAtomically(`${base(id, key)}.json`, JSON.stringify({ size: out.size }));
       await removeFiles(id, key);
+    } catch {
+      // The disk refused (full, not writable): not the design's fault, not tried again until a restart.
+      crashed.add(`${id}-${key}`);
       return null;
     }
-    await writeAtomically(`${base(id, key)}.png`, Buffer.from(out.png, 'base64'));
-    await writeAtomically(`${base(id, key)}.json`, JSON.stringify({ size: out.size }));
-    await removeFiles(id, key);
-    return { file: `${base(id, key)}.png`, size: out.size };
+    // Deleted between the check and the writes: nothing may stay behind.
+    if (!(await readDesign(id))) { await removeFiles(id); return null; }
+    return out.png && out.size ? { file: `${base(id, key)}.png`, size: out.size } : null;
+  }
+
+  /** The render of this picture, queued once per id-key; null at once for a key that is not the design's current one. */
+  function ensure(id: string, key: string): Promise<{ file: string; size: Vec3 } | null> {
+    const name = `${id}-${key}`;
+    let p = pending.get(name);
+    if (!p) {
+      p = (async () => {
+        const design = await readDesign(id);
+        if (!design || thumbKey(design.code, design.values) !== key) return null;
+        // One at a time; a failed job must not stop the ones behind it.
+        const run = queue.then(() => draw(id, key)).catch(() => null);
+        queue = run;
+        return run;
+      })().catch(() => null);
+      pending.set(name, p);
+      void p.finally(() => pending.delete(name));
+    }
+    return p;
   }
 
   return {
@@ -78,17 +105,22 @@ export function thumbStore({ dir, render, readDesign, busy }: ThumbStoreOptions)
       if (!SAFE_ID_RE.test(id) || !THUMB_KEY_RE.test(key)) return null;
       const known = await fromDisk(id, key);
       if (known !== undefined) return known;
-      const name = `${id}-${key}`;
-      if (crashed.has(name)) return null;
-      let p = pending.get(name);
-      if (!p) {
-        // One at a time; a failed job must not stop the ones behind it.
-        p = queue.then(() => draw(id, key)).catch(() => null);
-        queue = p;
-        pending.set(name, p);
-        void p.finally(() => pending.delete(name));
-      }
-      return p;
+      if (crashed.has(`${id}-${key}`)) return null;
+      return ensure(id, key);
+    },
+    /**
+     * Like get, but never waits long: the render is queued and waited for at most `waitMs`, and hardly
+     * at all while a generation runs. 'pending' means it is not there yet (the render stays queued).
+     */
+    async peek(id: string, key: string, waitMs: number): Promise<{ file: string; size: Vec3 } | null | 'pending'> {
+      if (!SAFE_ID_RE.test(id) || !THUMB_KEY_RE.test(key)) return null;
+      const known = await fromDisk(id, key);
+      if (known !== undefined) return known;
+      if (crashed.has(`${id}-${key}`)) return null;
+      const p = ensure(id, key);
+      let timer: NodeJS.Timeout | undefined;
+      const limit = new Promise<'pending'>((r) => { timer = setTimeout(() => r('pending'), busy() ? Math.min(waitMs, 100) : waitMs); });
+      try { return await Promise.race([p, limit]); } finally { clearTimeout(timer); }
     },
     async drop(id: string): Promise<void> {
       if (!SAFE_ID_RE.test(id)) return;
