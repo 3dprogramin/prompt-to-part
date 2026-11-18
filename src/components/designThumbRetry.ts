@@ -4,7 +4,7 @@
 /** Milliseconds between asks (the server's Retry-After). */
 export const RETRY_MS = 3000;
 /** The most asks for one picture, or for one picture's size. */
-export const MAX_TRIES = 20;
+export const MAX_TRIES = 40;
 
 /** The info route's answer: the size; null for no picture, for good; 'pending' while it is not drawn yet. */
 export type ThumbInfo = { size: [number, number, number] } | null | 'pending';

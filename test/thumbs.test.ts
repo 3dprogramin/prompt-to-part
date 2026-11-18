@@ -19,7 +19,7 @@ const tmp = () => mkdtempSync(path.join(os.tmpdir(), 'ptp-thumbstore-'));
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type Render = (code: string, values: unknown, signal: AbortSignal) => Promise<{ png?: string; size?: [number, number, number] }>;
+type Render = (code: string, values: unknown) => Promise<{ png?: string; size?: [number, number, number] }>;
 type Designs = Map<string, { code: string; values: unknown; v: number }>;
 let saves = 0;
 /** What a store reads a design with: `reads` counts the reads of the design (the file's time and size are free). */
@@ -31,21 +31,20 @@ function readers(designs: Designs, state: { reads: number }, onRead = () => {}) 
 }
 
 /** A store over a temp folder with designs held in memory and a render that counts its calls. */
-function setup(opts: { busy?: () => boolean; render?: Render; build?: string; dir?: string; onRead?: () => void } = {}) {
+function setup(opts: { render?: Render; build?: string; dir?: string; onRead?: () => void } = {}) {
   const dir = opts.dir ?? tmp();
   const designs: Designs = new Map();
   const state = { calls: 0, running: 0, maxRunning: 0, reads: 0 };
   const store = thumbStore({
     dir,
-    busy: opts.busy ?? (() => false),
     build: opts.build ?? 'v1',
     ...readers(designs, state, opts.onRead),
-    render: async (code, values, signal) => {
+    render: async (code, values) => {
       state.calls++;
       state.running++;
       state.maxRunning = Math.max(state.maxRunning, state.running);
       try {
-        if (opts.render) return await opts.render(code, values, signal);
+        if (opts.render) return await opts.render(code, values);
         await wait(20);
         return { png: PNG, size: [40, 30, 20] };
       } finally { state.running--; }
@@ -95,21 +94,6 @@ test('ten asked at once are drawn one at a time, and the same one only once', as
   assert.ok(results.every((r) => r !== null));
   assert.equal(state.maxRunning, 1);
   assert.equal(state.calls, 5);
-});
-
-test('nothing is drawn while a generation runs', async () => {
-  let busy = true;
-  const { state, store, add } = setup({ busy: () => busy });
-  const key = add('design-0001', 'return box()');
-  let done = false;
-  const p = store.get('design-0001', key).then((r) => { done = true; return r; });
-  await wait(1200);
-  assert.equal(done, false);
-  assert.equal(state.calls, 0);
-  busy = false;
-  const r = await p;
-  assert.deepEqual(r?.size, [40, 30, 20]);
-  assert.equal(state.calls, 1);
 });
 
 test('a design that does not build is remembered as failed and not tried again', async () => {
@@ -207,7 +191,7 @@ test('a render that crashed leaves nothing on disk, is not retried in this store
   assert.equal(state.calls, 1);
   crash = false;
   let calls = 0;
-  const again = thumbStore({ dir, busy: () => false, build: 'v1', ...readers(designs, { reads: 0 }), render: async () => { calls++; return { png: PNG, size: [7, 8, 9] }; } });
+  const again = thumbStore({ dir, build: 'v1', ...readers(designs, { reads: 0 }), render: async () => { calls++; return { png: PNG, size: [7, 8, 9] }; } });
   const r = await again.get('design-0001', key);
   assert.equal(calls, 1);
   assert.deepEqual(r?.size, [7, 8, 9]);
@@ -281,65 +265,6 @@ test('a failure is tried again by another build, and a marker without a build on
   assert.deepEqual(JSON.parse(readFileSync(path.join(old.dir, `design-0002-${k2}.json`), 'utf8')), { failed: true, build: 'v2' });
 });
 
-test('a generation stops a render under way: nothing written or remembered, drawn on a later ask', async () => {
-  let busy = false;
-  let first = true;
-  let abortedAt = 0;
-  const { dir, state, store, add } = setup({
-    busy: () => busy,
-    render: (_code, _values, signal) => new Promise((resolve, reject) => {
-      if (!first) return void setTimeout(() => resolve({ png: PNG, size: [5, 5, 5] }), 20);
-      first = false;
-      // Slow (it would take 10 s): only the stop ends it.
-      const t = setTimeout(() => resolve({ png: PNG, size: [9, 9, 9] }), 10_000);
-      signal.addEventListener('abort', () => { abortedAt = Date.now(); clearTimeout(t); reject(Object.assign(new Error('Stopped.'), { name: 'AbortError' })); });
-    }),
-  });
-  const key = add('design-0001', 'return box()');
-  const p = store.get('design-0001', key);
-  await wait(100);
-  assert.equal(state.running, 1);
-  busy = true;
-  const t0 = Date.now();
-  assert.equal(await p, null);
-  assert.ok(abortedAt > 0 && abortedAt - t0 < 1000, `stopped ${abortedAt - t0} ms after the generation started`);
-  assert.deepEqual(readdirSync(dir), []);
-  assert.equal(await store.peek('design-0001', key, 1500), 'pending', 'while the generation runs');
-  busy = false;
-  const r = await store.get('design-0001', key);
-  assert.deepEqual(r?.size, [5, 5, 5]);
-  assert.ok(existsSync(r!.file));
-  assert.equal(state.calls, 2);
-});
-
-test('a generation that starts while the design is read: no render starts', async () => {
-  let busy = false;
-  let reads = 0;
-  const { state, store, add } = setup({ busy: () => busy, onRead: () => { if (++reads === 1) busy = true; } });
-  const key = add('design-0001', 'return box()');
-  assert.equal(await store.get('design-0001', key), null);
-  assert.equal(state.calls, 0);
-  busy = false;
-  assert.deepEqual((await store.get('design-0001', key))?.size, [40, 30, 20]);
-  assert.equal(state.calls, 1);
-});
-
-test('peek: while busy it answers pending at once and draws nothing; later it answers the picture', async () => {
-  let busy = true;
-  const { state, store, add } = setup({ busy: () => busy });
-  const key = add('design-0001', 'return box()');
-  const t0 = Date.now();
-  assert.equal(await store.peek('design-0001', key, 4000), 'pending');
-  assert.ok(Date.now() - t0 < 400);
-  assert.equal(state.calls, 0);
-  busy = false;
-  let r = await store.peek('design-0001', key, 4000);
-  assert.deepEqual((r as { size: number[] }).size, [40, 30, 20]);
-  r = await store.peek('design-0001', key, 4000);
-  assert.deepEqual((r as { size: number[] }).size, [40, 30, 20]);
-  assert.equal(state.calls, 1);
-});
-
 test('peek: a render slower than waitMs answers pending, then the picture is there; one render in all', async () => {
   const { state, store, add } = setup({ render: async () => { await wait(300); return { png: PNG, size: [1, 2, 3] }; } });
   const key = add('design-0001', 'return box()');
@@ -372,7 +297,7 @@ test('a failure to write the files is remembered and not tried again', async () 
   writeFileSync(dir, 'a file, so the folder cannot be made');
   const designs: Designs = new Map([['design-0001', { code: 'return box()', values: {}, v: 1 }]]);
   let calls = 0;
-  const store = thumbStore({ dir, busy: () => false, build: 'v1', ...readers(designs, { reads: 0 }), render: async () => { calls++; return { png: PNG, size: [1, 2, 3] }; } });
+  const store = thumbStore({ dir, build: 'v1', ...readers(designs, { reads: 0 }), render: async () => { calls++; return { png: PNG, size: [1, 2, 3] }; } });
   const key = thumbKey('return box()', {})!;
   assert.equal(await store.get('design-0001', key), null);
   assert.equal(await store.get('design-0001', key), null);
@@ -435,24 +360,6 @@ test('routes: the list has the key, the picture and its size are served (from a 
   assert.ok(!readdirSync(folder).some((f) => f.startsWith(ID)));
 });
 
-test('routes: while a generation runs a picture answers 503 no-store with Retry-After, then 200 once it is over', async () => {
-  const ID = 'thumb-test-00000003', OTHER = 'thumb-test-00000004';
-  for (const d of [mk(ID, BOX), mk(OTHER, BOX)]) assert.equal((await fetch(`${A}/api/designs/${d.id}`, { method: 'PUT', headers: W, body: JSON.stringify(d) })).status, 200);
-  const key = ((await (await fetch(`${A}/api/designs`)).json()) as { id: string; thumb?: string }[]).find((d) => d.id === ID)!.thumb;
-  const gen = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: OTHER, prompt: 'a cube' }) });
-  assert.equal(gen.status, 200);
-  const busy = await fetch(`${A}/api/designs/${ID}/thumb?k=${key}`);
-  assert.equal(busy.status, 503);
-  assert.equal(busy.headers.get('cache-control'), 'no-store');
-  assert.equal(busy.headers.get('retry-after'), '3');
-  assert.equal((await fetch(`${A}/api/designs/${ID}/thumb.json?k=${key}`)).status, 503);
-  release();
-  await gen.arrayBuffer();
-  let status = 503;
-  for (let i = 0; i < 40 && status !== 200; i++) { status = (await fetch(`${A}/api/designs/${ID}/thumb?k=${key}`)).status; if (status !== 200) await wait(250); }
-  assert.equal(status, 200);
-});
-
 /** Asks `url` until it answers something other than 503 (the picture not drawn yet), at most ~10 s. */
 async function settled(url: string): Promise<Response> {
   for (let i = 0; ; i++) {
@@ -462,6 +369,37 @@ async function settled(url: string): Promise<Response> {
     await wait(250);
   }
 }
+
+test('routes: while a generation runs, a render under way goes on and a picture is drawn and served 200; one behind it answers 503 no-store with Retry-After', async () => {
+  const ID = 'thumb-test-00000003', OTHER = 'thumb-test-00000004', DRAWING = 'thumb-test-00000007';
+  // About a second and a half of work in the worker before the cube (the sandbox has no clock).
+  const SLOW = 'function build() { let x = 0; for (let i = 0; i < 1e9; i++) x += i; return Manifold.cube([12, 12, 12 + (x % 1)]); }';
+  for (const d of [mk(ID, BOX), mk(OTHER, BOX), mk(DRAWING, SLOW)]) assert.equal((await fetch(`${A}/api/designs/${d.id}`, { method: 'PUT', headers: W, body: JSON.stringify(d) })).status, 200);
+  const list = (await (await fetch(`${A}/api/designs`)).json()) as { id: string; thumb?: string }[];
+  const key = list.find((d) => d.id === ID)!.thumb, slowKey = list.find((d) => d.id === DRAWING)!.thumb;
+  const slowPng = fetch(`${A}/api/designs/${DRAWING}/thumb?k=${slowKey}`);
+  await wait(100);
+  const gen = await fetch(`${A}/api/generate`, { method: 'POST', headers: W, body: JSON.stringify({ designId: OTHER, prompt: 'a cube' }) });
+  assert.equal(gen.status, 200);
+  try {
+    // Behind the render under way: "not yet", asked again in 3 s.
+    const behind = await fetch(`${A}/api/designs/${ID}/thumb?k=${key}`);
+    assert.equal(behind.status, 503);
+    assert.equal(behind.headers.get('cache-control'), 'no-store');
+    assert.equal(behind.headers.get('retry-after'), '3');
+    await (await slowPng).arrayBuffer();
+    // The render under way was not stopped by the generation, and the next one is drawn while it runs.
+    assert.equal((await settled(`${A}/api/designs/${DRAWING}/thumb.json?k=${slowKey}`)).status, 200);
+    const img = await settled(`${A}/api/designs/${ID}/thumb?k=${key}`);
+    assert.equal(img.status, 200);
+    assert.equal(img.headers.get('content-type'), 'image/png');
+    assert.equal(img.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+    assert.equal((await fetch(`${A}/api/designs/${ID}/thumb.json?k=${key}`)).status, 200);
+  } finally {
+    release();
+    await gen.arrayBuffer();
+  }
+});
 
 test('routes: a design whose code does not build answers 404 no-store, twice, with one render', async () => {
   const ID = 'thumb-test-00000005';

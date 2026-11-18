@@ -46,10 +46,9 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
   // here drop their entry; other writes (a restored backup) show in the time and size.
   const thumbs = thumbStore({
     dir: path.join(DATA_DIR, 'thumbs'),
-    render: (code, values, signal) => geometry.thumb(code, values as ParamValues, signal),
+    render: (code, values) => geometry.thumb(code, values as ParamValues),
     readDesign: (id) => readDesignCode(designFile(id)),
     statDesign: (id) => stat(designFile(id)).then((s) => (s.isFile() ? { mtimeMs: s.mtimeMs, size: s.size } : null), () => null),
-    busy: () => generatingDesigns.size > 0,
     build: formatAppBuild(APP_BUILD),
   });
   const summaries = new Map<string, { mtimeMs: number; size: number; summary: Summary | null }>();

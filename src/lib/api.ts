@@ -46,7 +46,7 @@ export const printedFileUrl = (id: string, v: number): string => `/api/designs/$
 export const designThumbUrl = (id: string, key: string): string => `/api/designs/${id}/thumb?k=${key}`;
 /**
  * The model's size in mm, from the same key. The menu asks it when a picture fails to load, to tell "not
- * there" (null: 404) from "not yet" ('pending': 503, the server is busy or still drawing it).
+ * there" (null: 404) from "not yet" ('pending': 503, the server is still drawing it).
  */
 export async function designThumbInfo(id: string, key: string): Promise<{ size: [number, number, number] } | null | 'pending'> {
   try { return await getJson<{ size: [number, number, number] }>(`/api/designs/${id}/thumb.json?k=${key}`); } catch (e) {

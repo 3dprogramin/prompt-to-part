@@ -1,5 +1,8 @@
 // The Designs menu's pictures: drawn by the geometry worker, kept as files named by what they show.
 // Derived data: not in backups, deleted with the design. This file knows nothing about Express.
+// Drawn at any time, also while a generation runs (it spends nearly all its time waiting for the AI):
+// one render at a time, each sent to the worker's queue only when the one before has finished, so a
+// generation's build waits behind at most one picture (typically 1 to 3 s, at most the 20 s timeout).
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,31 +28,26 @@ export function thumbKey(code: string, values: unknown): string | null {
 export const THUMB_KEY_RE = /^[0-9a-f]{16}$/;
 const SAFE_ID_RE = /^[a-zA-Z0-9-]{1,64}$/;
 const FILE_RE = /^(.+)-([0-9a-f]{16})\.(png|json)$/;
-const POLL_MS = 500;
 
 /** A design file's time and size: what tells that it changed, without reading it. */
 export interface DesignStat { mtimeMs: number; size: number }
 type Thumb = { file: string; size: Vec3 };
-/** A render stopped by a generation: nothing written, nothing remembered, the next ask queues it again. */
-type Stopped = 'stopped';
 
 export interface ThumbStoreOptions {
   dir: string;
-  render: (code: string, values: unknown, signal: AbortSignal) => Promise<{ png?: string; size?: Vec3 }>;
+  render: (code: string, values: unknown) => Promise<{ png?: string; size?: Vec3 }>;
   /** The design's code and values, read once per picture drawn. */
   readDesign: (id: string) => Promise<{ code: string; values: unknown } | null>;
   /** The design file's time and size, or null when it is gone. */
   statDesign: (id: string) => Promise<DesignStat | null>;
-  /** True while a generation runs: nothing is drawn then, and a render under way is stopped. */
-  busy: () => boolean;
   /** The running app's build: a design that failed in another build is tried again. */
   build: string;
 }
 
-export function thumbStore({ dir, render, readDesign, statDesign, busy, build }: ThumbStoreOptions) {
+export function thumbStore({ dir, render, readDesign, statDesign, build }: ThumbStoreOptions) {
   // Keys whose render crashed: not the design's fault, so nothing on disk, but not retried until a restart.
   const crashed = new Set<string>();
-  const pending = new Map<string, Promise<Thumb | null | Stopped>>();
+  const pending = new Map<string, Promise<Thumb | null>>();
   // Keys found not to be the design's current one (or its design gone), with the design file's time
   // and size then: answered "not there" at once while the file stays as it was.
   const notCurrent = new Map<string, DesignStat | 'missing'>();
@@ -77,25 +75,18 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
     }
   }
 
-  async function draw(id: string, key: string): Promise<Thumb | null | Stopped> {
+  async function draw(id: string, key: string): Promise<Thumb | null> {
     const name = `${id}-${key}`;
-    while (busy()) await new Promise((r) => setTimeout(r, POLL_MS));
     // The time and size before the read: a save after it shows when they are compared again.
     const before = await statDesign(id);
     if (!before) { notCurrent.set(name, 'missing'); return null; }
     const design = await readDesign(id);
     if (!design || thumbKey(design.code, design.values) !== key) { notCurrent.set(name, before); return null; }
-    // A generation may have started while the design was read.
-    if (busy()) return 'stopped';
-    const ac = new AbortController();
-    const watch = setInterval(() => { if (busy()) ac.abort(); }, POLL_MS);
     let out: { png?: string; size?: Vec3 } = {};
-    try { out = await render(design.code, design.values, ac.signal); } catch {
-      if (ac.signal.aborted) return 'stopped';
+    try { out = await render(design.code, design.values); } catch {
       crashed.add(name);
       return null;
-    } finally { clearInterval(watch); }
-    if (ac.signal.aborted) return 'stopped';
+    }
     // The design may have changed or gone while it was drawn: then this picture is not wanted.
     if (!same(before, await statDesign(id))) return null;
     const { png, size } = out;
@@ -121,7 +112,7 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
   }
 
   /** The render of this picture, queued once per id-key. The design is read only when its turn comes. */
-  function ensure(id: string, key: string): Promise<Thumb | null | Stopped> {
+  function ensure(id: string, key: string): Promise<Thumb | null> {
     const name = `${id}-${key}`;
     let p = pending.get(name);
     if (!p) {
@@ -155,12 +146,11 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
       const known = await fromDisk(id, key);
       if (known !== undefined) return known;
       if (crashed.has(`${id}-${key}`) || (await knownStale(id, `${id}-${key}`))) return null;
-      const r = await ensure(id, key);
-      return r === 'stopped' ? null : r;
+      return ensure(id, key);
     },
     /**
      * Like get, but never holds a request long: the render is queued, and waited for (at most
-     * `waitMs`) only when it is the first in line and no generation runs. 'pending' means it is not
+     * `waitMs`) only when it is the first in line. 'pending' means it is not
      * there yet (the render stays queued).
      */
     async peek(id: string, key: string, waitMs: number): Promise<Thumb | null | 'pending'> {
@@ -170,12 +160,11 @@ export function thumbStore({ dir, render, readDesign, statDesign, busy, build }:
       const name = `${id}-${key}`;
       if (crashed.has(name) || (await knownStale(id, name))) return null;
       const p = ensure(id, key);
-      if (waitMs <= 0 || busy() || line[0] !== name) return 'pending';
+      if (waitMs <= 0 || line[0] !== name) return 'pending';
       let timer: NodeJS.Timeout | undefined;
       const limit = new Promise<'pending'>((r) => { timer = setTimeout(() => r('pending'), waitMs); });
       try {
-        const r = await Promise.race([p, limit]);
-        return r === 'stopped' ? 'pending' : r;
+        return await Promise.race([p, limit]);
       } finally { clearTimeout(timer); }
     },
     async drop(id: string): Promise<void> {
