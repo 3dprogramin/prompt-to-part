@@ -171,6 +171,26 @@ test('a new picture replaces the old key\'s files; drop removes them all', async
   assert.ok(designs.has('design-0001'));
 });
 
+test('previous: the newest older picture of exactly that design, nothing for its own key, a failure or a bad id', async () => {
+  const { dir, store, add } = setup();
+  const k1 = add('design-0001', 'return box(1)');
+  assert.equal(await store.previous('design-0001', k1), null, 'nothing on disk yet');
+  await store.get('design-0001', k1);
+  assert.equal(await store.previous('design-0001', k1), null, 'its own key is not an older picture');
+  // Another design whose id starts with this one's: never given for it.
+  const k9 = add('design-0001-copy', 'return box(9)');
+  await store.get('design-0001-copy', k9);
+  const k2 = add('design-0001', 'return box(2)');
+  assert.equal(await store.previous('design-0001', k2), path.join(dir, `design-0001-${k1}.png`));
+  assert.equal(await store.previous('design-0001-copy', k2), path.join(dir, `design-0001-copy-${k9}.png`));
+  assert.equal(await store.previous('design-0002', k2), null);
+  assert.equal(await store.previous('../design-0001', k2), null);
+  assert.equal(await store.previous('design-0001', 'XYZ'), null);
+  // A failure marker is not a picture.
+  writeFileSync(path.join(dir, `design-0003-${k2}.json`), JSON.stringify({ failed: true, build: 'v1' }));
+  assert.equal(await store.previous('design-0003', k1), null);
+});
+
 test('a render that throws does not stop the queue', async () => {
   let first = true;
   const { store, add } = setup({ render: async () => { if (first) { first = false; throw new Error('boom'); } return { png: PNG, size: [4, 5, 6] }; } });
@@ -437,4 +457,70 @@ test('routes: while a render is slow, thumb.json answers 503 at once', async () 
   await (await png).arrayBuffer();
   // Drawn in the end (and nothing is left running for the next test).
   assert.equal((await settled(`${A}/api/designs/${ID}/thumb.json?k=${key}`)).status, 200);
+});
+
+/** Asks `url` until it answers the picture of its own key (not "not yet", not an older one), at most ~10 s. */
+async function current(url: string): Promise<Response> {
+  for (let i = 0; ; i++) {
+    const r = await fetch(url);
+    if ((r.status !== 503 && !r.headers.get('x-thumb-stale')) || i >= 40) return r;
+    await r.arrayBuffer();
+    await wait(250);
+  }
+}
+const put = (d: object) => fetch(`${A}/api/designs/${(d as { id: string }).id}`, { method: 'PUT', headers: W, body: JSON.stringify(d) });
+const keyOf = async (id: string) => ((await (await fetch(`${A}/api/designs`)).json()) as { id: string; thumb?: string }[]).find((d) => d.id === id)!.thumb!;
+
+test('routes: a changed design shows its old picture (no-store, X-Thumb-Stale) until the new one is drawn', async () => {
+  const ID = 'thumb-test-00000008';
+  assert.equal((await put(mk(ID, BOX))).status, 200);
+  const k1 = await keyOf(ID);
+  const first = await current(`${A}/api/designs/${ID}/thumb?k=${k1}`);
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get('x-thumb-stale'), null);
+  const old = Buffer.from(await first.arrayBuffer());
+  assert.equal((await put({ ...mk(ID, 'function build() { return Manifold.cube([10, 10, 10]); }'), rev: 1 })).status, 200);
+  const k2 = await keyOf(ID);
+  assert.notEqual(k2, k1);
+  // The new picture's render is held until the old one has been checked.
+  const real = geometry.thumb;
+  let open = () => {};
+  const gate = new Promise<void>((r) => { open = r; });
+  geometry.thumb = (...a: Parameters<typeof real>) => gate.then(() => real(...a));
+  try {
+    const stale = await fetch(`${A}/api/designs/${ID}/thumb?k=${k2}`);
+    assert.equal(stale.status, 200);
+    assert.equal(stale.headers.get('content-type'), 'image/png');
+    assert.equal(stale.headers.get('cache-control'), 'no-store');
+    assert.equal(stale.headers.get('x-thumb-stale'), '1');
+    assert.deepEqual(Buffer.from(await stale.arrayBuffer()), old);
+    // The size is the new key's only: not there yet.
+    assert.equal((await fetch(`${A}/api/designs/${ID}/thumb.json?k=${k2}`)).status, 503);
+  } finally { open(); geometry.thumb = real; }
+  const fresh = await current(`${A}/api/designs/${ID}/thumb?k=${k2}`);
+  assert.equal(fresh.status, 200);
+  assert.equal(fresh.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+  assert.equal(fresh.headers.get('x-thumb-stale'), null);
+  assert.notDeepEqual(Buffer.from(await fresh.arrayBuffer()), old);
+  assert.deepEqual(readdirSync(path.join(dataDir, 'thumbs')).filter((f) => f.startsWith(`${ID}-`)).sort(), [`${ID}-${k2}.json`, `${ID}-${k2}.png`]);
+});
+
+test('routes: no old picture for a key that failed or is not current: 404', async () => {
+  const ID = 'thumb-test-00000009';
+  assert.equal((await put(mk(ID, BOX))).status, 200);
+  const k1 = await keyOf(ID);
+  assert.equal((await current(`${A}/api/designs/${ID}/thumb?k=${k1}`)).status, 200);
+  // A key that is not the design's: "not there", also when asked again, though a picture of the design is on disk.
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${A}/api/designs/${ID}/thumb?k=deadbeefdeadbeef`);
+    assert.equal(r.status, 404);
+    assert.equal(r.headers.get('x-thumb-stale'), null);
+  }
+  assert.equal((await put({ ...mk(ID, 'this is not a script ('), rev: 1 })).status, 200);
+  const bad = await keyOf(ID);
+  for (let i = 0; i < 2; i++) {
+    const r = await current(`${A}/api/designs/${ID}/thumb?k=${bad}`);
+    assert.equal(r.status, 404);
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+  }
 });

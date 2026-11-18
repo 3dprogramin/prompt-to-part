@@ -172,12 +172,21 @@ export function registerDesignRoutes(app: express.Express, { json, designFile, i
   });
 
   // A design's picture: the key in ?k is what the list gave; one that is not the design's current key is a 404.
+  const notYet = (res: express.Response) => void res.set({ 'Cache-Control': 'no-store', 'Retry-After': THUMB_RETRY_S }).status(503).json({ error: 'picture not ready yet' });
   const thumbRoute = (kind: 'png' | 'json') => async (req: express.Request, res: express.Response) => {
     const id = String(req.params.id), k = req.query.k;
     if (!ID_RE.test(id) || typeof k !== 'string' || !THUMB_KEY_RE.test(k)) return void res.status(400).json({ error: 'bad id or key' });
     // The info never waits (the menu asks it beside the picture); the picture waits only for its own render.
     const found = await thumbs.peek(id, k, kind === 'json' ? 0 : THUMB_WAIT_MS).catch(() => null);
-    if (found === 'pending') return void res.set({ 'Cache-Control': 'no-store', 'Retry-After': THUMB_RETRY_S }).status(503).json({ error: 'picture not ready yet' });
+    if (found === 'pending') {
+      // While a changed design is drawn, its previous picture: never kept (this URL gives the new one once it is
+      // drawn), marked for whoever can read headers. The info stays about this key only.
+      const older = kind === 'png' ? await thumbs.previous(id, k).catch(() => null) : null;
+      if (!older) return notYet(res);
+      res.set({ 'Cache-Control': 'no-store', 'X-Thumb-Stale': '1' });
+      // Gone in between: the new picture has just replaced it, so "ask again".
+      return void res.type('png').sendFile(older, { dotfiles: 'allow' }, (err) => { if (err && !res.headersSent) { res.removeHeader('X-Thumb-Stale'); notYet(res); } });
+    }
     if (!found) return void res.set('Cache-Control', 'no-store').status(404).json({ error: 'no picture' });
     // 'private': the app may sit behind a password, and a shared cache must not keep its pictures.
     res.set('Cache-Control', 'private, max-age=31536000, immutable');

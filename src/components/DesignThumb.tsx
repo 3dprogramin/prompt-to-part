@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { DesignSummary } from '../../shared/types';
 import { DESIGN_KIND_LABEL, type DesignKind } from '../../shared/designKind';
 import { designThumbInfo, designThumbUrl } from '../lib/api';
@@ -9,9 +9,21 @@ import { nextTry, type ThumbInfo } from './designThumbRetry';
 /** Each kind's icon, as in the chat's picture menu; a plain parametric model has none. */
 export const KIND_ICON: Partial<Record<DesignKind, string>> = { lineart: 'lineart', layertone: 'layers', lithophane: 'lamp', figure: 'figure', artwork: 'palette' };
 
+// While a changed design is drawn the server gives its previous picture (an <img> can't tell). The preview
+// pane, which asks the size anyway, learns when the new one is there: then every tile of that design and key
+// loads it again (a new URL, as the old answer may still be held by the page).
+const refreshes = new Map<string, number>();
+const listeners = new Set<() => void>();
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+function refreshThumb(name: string) {
+  refreshes.set(name, (refreshes.get(name) ?? 0) + 1);
+  for (const l of listeners) l();
+}
+
 /** The picture itself, over the tile's icon: shown once loaded; asks again (nextTry) while the server says "not yet". */
 function ThumbImage({ id, thumb }: { id: string; thumb: string }) {
   const [loaded, setLoaded] = useState(false);
+  const fresh = useSyncExternalStore(subscribe, () => refreshes.get(`${id}:${thumb}`) ?? 0);
   // Loads asked again so far (the first load is not one).
   const [reloads, setReloads] = useState(0);
   const [dead, setDead] = useState(false);
@@ -37,8 +49,8 @@ function ThumbImage({ id, thumb }: { id: string; thumb: string }) {
     designThumbInfo(id, thumb).then(next, () => next('error'));
   };
   if (dead) return null;
-  const url = designThumbUrl(id, thumb);
-  return <img className={loaded ? 'loaded' : ''} loading="lazy" decoding="async" alt="" src={reloads ? `${url}&r=${reloads}` : url} onLoad={() => setLoaded(true)} onError={failed} />;
+  const src = `${designThumbUrl(id, thumb)}${reloads ? `&r=${reloads}` : ''}${fresh ? `&f=${fresh}` : ''}`;
+  return <img className={loaded ? 'loaded' : ''} loading="lazy" decoding="async" alt="" src={src} onLoad={() => setLoaded(true)} onError={failed} />;
 }
 
 /**
@@ -56,7 +68,10 @@ export function DesignThumb({ design, size, onClick }: { design: DesignSummary; 
   );
 }
 
-/** Its overall size in mm, once the server has it (not while it is drawing, or for no picture). */
+/**
+ * Its overall size in mm, once the server has it (not while it is drawing, or for no picture). A size that
+ * comes after "not yet" means the picture shown may have been the previous one: its tiles load it again.
+ */
 function useThumbSize(design: DesignSummary): [number, number, number] | null {
   const [size, setSize] = useState<[number, number, number] | null>(null);
   useEffect(() => {
@@ -65,10 +80,15 @@ function useThumbSize(design: DesignSummary): [number, number, number] | null {
     if (!key) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let waited = false;
     const ask = (n: number) => {
       const next = (info: ThumbInfo | 'error') => {
         if (!live) return;
-        if (info && info !== 'pending' && info !== 'error') return void setSize(info.size);
+        if (info && info !== 'pending' && info !== 'error') {
+          if (waited) refreshThumb(`${design.id}:${key}`);
+          return void setSize(info.size);
+        }
+        if (info === 'pending') waited = true;
         const ms = nextTry(n, info);
         if (ms !== null) timer = setTimeout(() => ask(n + 1), ms);
       };

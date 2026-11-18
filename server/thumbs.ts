@@ -4,7 +4,7 @@
 // one render at a time, each sent to the worker's queue only when the one before has finished, so a
 // generation's build waits behind at most one picture (typically 1 to 3 s, at most the 20 s timeout).
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Vec3 } from '../shared/types';
 import { NON_BUILD_KEYS } from '../shared/buildKeys';
@@ -166,6 +166,21 @@ export function thumbStore({ dir, render, readDesign, statDesign, build }: Thumb
       try {
         return await Promise.race([p, limit]);
       } finally { clearTimeout(timer); }
+    },
+    /**
+     * The newest picture on disk of this design under another key, or null: what the menu shows while
+     * the current key's picture is drawn. Only files of exactly this id (ids have hyphens too).
+     */
+    async previous(id: string, key: string): Promise<string | null> {
+      if (!SAFE_ID_RE.test(id) || !THUMB_KEY_RE.test(key)) return null;
+      let newest: string | null = null, at = -Infinity;
+      for (const f of await readdir(dir).catch(() => [] as string[])) {
+        const m = FILE_RE.exec(f);
+        if (!m || m[1] !== id || m[2] === key || m[3] !== 'png') continue;
+        const st = await stat(path.join(dir, f)).catch(() => null);
+        if (st?.isFile() && st.mtimeMs > at) { newest = path.join(dir, f); at = st.mtimeMs; }
+      }
+      return newest;
     },
     async drop(id: string): Promise<void> {
       if (!SAFE_ID_RE.test(id)) return;
