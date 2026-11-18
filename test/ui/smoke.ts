@@ -112,7 +112,6 @@ server.on('request', createApp({ port, password: '', connection, image, ideas: a
 const WAIT = 60_000;
 const TEST = { timeout: 180_000 };
 let browser: Browser;
-let stopGeometry = () => {};
 before(async () => { browser = await chromium.launch(); });
 // Each test's pages go when it ends, passed or not, so a failure doesn't leave a 3D view rendering.
 afterEach(async () => { await Promise.all(browser?.contexts().map((c) => c.close().catch(() => {})) ?? []); });
@@ -120,7 +119,8 @@ after(async () => {
   try {
     await browser?.close();
   } finally {
-    stopGeometry();
+    // The thumbnails and every model build start the geometry worker (a child process): stop it, or the run never ends.
+    (await import('../../server/geometry')).geometry.stop();
     server.closeAllConnections();
     server.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -377,13 +377,15 @@ test('the Designs menu lists 10 designs at a time and marks starred ones', TEST,
 
 test('the Designs menu shows a picture of each design on a computer (a larger one when pointed at) and none on a phone', TEST, async () => {
   // The smoke cube (made by an earlier test of the file) when this test runs alone.
-  if ((await fetch(`${A}/api/designs/${id}`)).status === 404) {
+  const madeCube = (await fetch(`${A}/api/designs/${id}`)).status === 404;
+  if (madeCube) {
     assert.equal((await putDesign({ id, name: 'Smoke cube', createdAt: 1, updatedAt: 1000, messages: [], code, values: {}, currentVersion: -1, versions: [] })).status, 200);
   }
   // A design without code has no picture: its row keeps the icon tile.
   const empty = 'ui-smoke-20000001';
   assert.equal((await putDesign({ id: empty, name: 'Empty idea', createdAt: 1, updatedAt: 1, messages: [], code: '', values: {}, currentVersion: -1, versions: [] })).status, 200);
   const page = await newPage();
+  const phone = await newPage(PHONE);
   try {
     await page.goto(`${A}/?design=${id}`);
     await page.waitForFunction(() => document.title === 'prompt-to-part - Smoke cube');
@@ -392,16 +394,20 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     const rows = menu.locator('.menu-item');
     const n = await rows.count();
     assert.equal(await menu.locator('.menu-item .design-thumb').count(), n, 'every row has a tile');
+    // The list pages (the oldest designs are under "Load more"): find each row by its name.
+    const search = menu.getByRole('searchbox', { name: 'Search designs' });
+    await search.fill('Empty idea');
+    const emptyRow = rows.filter({ hasText: 'Empty idea' });
+    assert.equal(await emptyRow.locator('.design-thumb').count(), 1);
+    assert.equal(await emptyRow.locator('.design-thumb img').count(), 0, 'no picture, no img');
+
+    await search.fill('Smoke cube');
     const cube = rows.filter({ hasText: 'Smoke cube' }).first();
     const img = cube.locator('.design-thumb img');
     await page.waitForFunction((el) => (el as HTMLImageElement | null)?.naturalWidth === 520, await img.elementHandle(), { timeout: 20_000 });
     const box = await cube.locator('.design-thumb').boundingBox();
     assert.equal(Math.round(box!.width), 48);
     assert.ok((await cube.boundingBox())!.height <= 60, 'rows stay at most 60 px tall');
-    const emptyRow = rows.filter({ hasText: 'Empty idea' });
-    assert.equal(await emptyRow.locator('.design-thumb').count(), 1);
-    assert.equal(await emptyRow.locator('.design-thumb img').count(), 0, 'no picture, no img');
-
     // Pointing at a row shows the larger picture with the size; leaving the menu hides it.
     const pane = page.locator('.design-preview');
     assert.equal(await pane.count(), 0);
@@ -420,7 +426,7 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     // The keyboard shows it too.
     await menu.getByRole('button', { name: 'Star Smoke cube' }).focus();
     await pane.waitFor();
-    await menu.getByRole('searchbox', { name: 'Search designs' }).focus();
+    await search.focus();
     await pane.waitFor({ state: 'detached' });
     await cube.locator('.menu-open').focus();
     await pane.waitFor();
@@ -432,11 +438,8 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     await pane.waitFor();
     assert.ok((await pane.boundingBox())!.x >= 0);
     await page.screenshot({ path: path.join(shots, '6-thumbs-900.png') });
-    await page.setViewportSize({ width: 1400, height: 850 });
-    await page.close();
 
     // A phone: today's menu, no picture, no request for one.
-    const phone = await newPage(PHONE);
     const thumbRequests: string[] = [];
     phone.on('request', (r) => { if (r.url().includes('/thumb')) thumbRequests.push(r.url()); });
     await phone.goto(`${A}/?design=${id}`);
@@ -448,10 +451,10 @@ test('the Designs menu shows a picture of each design on a computer (a larger on
     assert.equal(await phone.locator('.design-preview').count(), 0);
     assert.deepEqual(thumbRequests, []);
     await phone.screenshot({ path: path.join(shots, '6-thumbs-phone.png') });
-    await phone.close();
   } finally {
-    await fetch(`${A}/api/designs/${empty}`, { method: 'DELETE', headers: { 'X-PTP': '1' } });
     await page.close().catch(() => {});
+    await phone.close().catch(() => {});
+    for (const gone of madeCube ? [empty, id] : [empty]) await fetch(`${A}/api/designs/${gone}`, { method: 'DELETE', headers: { 'X-PTP': '1' } });
   }
 });
 
@@ -636,7 +639,6 @@ test('3D figure mode shows the Meshy credits left on its button', TEST, async ()
 test('a coloured figure: its filaments in the Object tab, the STL hint says the colours are lost', TEST, async () => {
   // The mock's coloured figure, imported (in the geometry process) as generate_3d stores it.
   const { geometry } = await import('../../server/geometry');
-  stopGeometry = () => geometry.stop();
   const imported = await geometry.importMesh(new Uint8Array(readFileSync(new URL('../fixtures/meshes/colour-figure.glb', import.meta.url))), 'figure.glb', { colors: true }, { colors: 4, mine: [] });
   geometry.stop();
   const palette = imported.palette!;

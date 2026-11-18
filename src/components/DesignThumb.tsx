@@ -75,12 +75,14 @@ function useThumbSize(design: DesignSummary): [number, number, number] | null {
 export function DesignPreview({ design }: { design: DesignSummary }) {
   const size = useThumbSize(design);
   const kind = design.kind && design.kind !== 'model' ? DESIGN_KIND_LABEL[design.kind] : '3D model';
-  const parts = [kind, size && size.map((n) => Math.round(n)).join(' x ') + ' mm', `${design.versions} ${design.versions === 1 ? 'version' : 'versions'}`, whenShort(design.updatedAt)];
+  const parts = [kind, `${design.versions} ${design.versions === 1 ? 'version' : 'versions'}`, `changed ${whenShort(design.updatedAt)}`];
   return (
     <>
       <DesignThumb design={design} size={260} />
       <div className="design-preview-name">{design.name}</div>
-      <div className="dim small">{parts.filter(Boolean).join(' · ')}</div>
+      <div className="dim small">{parts.join(' · ')}</div>
+      {/* Its own line, kept in place while the size is on its way, so nothing moves when it arrives. */}
+      <div className="dim small design-preview-size">{size ? `${size.map((n) => Math.round(n)).join(' x ')} mm` : '\u00a0'}</div>
     </>
   );
 }
