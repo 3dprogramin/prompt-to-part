@@ -12,12 +12,23 @@ export type Seam = 'aligned' | 'nearest' | 'back' | 'random';
 export type WallOrder = 'inner-outer' | 'outer-inner' | 'inner-outer-inner';
 export type FuzzySkin = 'none' | 'external' | 'all';
 export type TopPattern = 'monotonic' | 'monotonicline' | 'zig-zag' | 'alignedrectilinear' | 'concentric' | 'hilbertcurve' | 'archimedeanchords' | 'octagramspiral';
+export type SupportStyle = 'default' | 'grid' | 'snug' | 'tree_slim' | 'tree_strong' | 'tree_hybrid' | 'tree_organic';
+/** One wall on top surfaces: never, on every top surface, or on the topmost one only. */
+export type TopOneWall = 'off' | 'all' | 'topmost';
+export type WallGenerator = 'classic' | 'arachne';
+/** Scarf (sloped) seam: none, on outer walls, or on all walls. */
+export type ScarfSeam = 'none' | 'external' | 'all';
 
 /** Bambu Studio's values for the settings whose names differ from the app's. */
 const IRONING: Record<Ironing, string> = { off: 'no ironing', top: 'top', topmost: 'topmost', solid: 'solid' };
 const WALL_ORDER: Record<WallOrder, string> = { 'inner-outer': 'inner wall/outer wall', 'outer-inner': 'outer wall/inner wall', 'inner-outer-inner': 'inner-outer-inner wall' };
 export const SEAMS: Seam[] = ['aligned', 'nearest', 'back', 'random'];
 export const FUZZY_SKIN: FuzzySkin[] = ['none', 'external', 'all'];
+export const SUPPORT_STYLES: SupportStyle[] = ['default', 'grid', 'snug', 'tree_slim', 'tree_strong', 'tree_hybrid', 'tree_organic'];
+const TOP_ONE_WALL_BAMBU: Record<TopOneWall, string> = { off: 'not apply', all: 'all top', topmost: 'topmost' };
+export const TOP_ONE_WALL = Object.keys(TOP_ONE_WALL_BAMBU) as TopOneWall[];
+export const WALL_GENERATORS: WallGenerator[] = ['classic', 'arachne'];
+export const SCARF_SEAMS: ScarfSeam[] = ['none', 'external', 'all'];
 export const IRONING_TYPES = Object.keys(IRONING) as Ironing[];
 export const WALL_ORDERS = Object.keys(WALL_ORDER) as WallOrder[];
 
@@ -43,10 +54,36 @@ export interface PrintSettings {
   wallOrder?: WallOrder;
   /** A rough, grippy outer surface (adds about 0.3 mm). */
   fuzzySkin?: FuzzySkin;
+  /** Spiral vase: one continuous outer wall, no top, no infill, no supports (model-wide only). */
+  spiralVase?: boolean;
+  /** Overhang angle (degrees) below which supports are added. */
+  supportAngle?: number;
+  /** Air gap between a support and the model above it, mm. */
+  supportGap?: number;
+  /** Dense layers of the support under the model. */
+  supportInterfaceLayers?: number;
+  supportStyle?: SupportStyle;
+  topOneWall?: TopOneWall;
+  /** Angle of the infill lines, degrees. */
+  infillDirection?: number;
+  wallGenerator?: WallGenerator;
+  scarfSeam?: ScarfSeam;
+  /** Ironing speed, mm/s. */
+  ironingSpeed?: number;
+  /** Ironing flow, % of the normal flow. */
+  ironingFlow?: number;
+  /** Distance between ironing lines, mm. */
+  ironingSpacing?: number;
+  /** Grow (+) or shrink (-) holes, mm. */
+  holeCompensation?: number;
+  /** Grow (+) or shrink (-) the outline, mm. */
+  contourCompensation?: number;
+  /** Elephant foot compensation, mm. */
+  elephantFoot?: number;
 }
 
 /** Settings Bambu Studio only has for the whole print. */
-export type ModelWideKey = 'layerHeight' | 'firstLayerHeight';
+export type ModelWideKey = 'layerHeight' | 'firstLayerHeight' | 'spiralVase';
 
 /** Model-wide settings plus optional per-part overrides (layer heights are model-wide only). */
 export interface PrintProfile extends PrintSettings {
@@ -75,7 +112,24 @@ export function parseOneColour(v: unknown): null | 'main' | string {
 export const A1_DEFAULTS: Required<PrintSettings> = {
   layerHeight: 0.2, firstLayerHeight: 0.2, walls: 2, topLayers: 5, bottomLayers: 3, infill: 15, infillPattern: 'grid', topPattern: 'monotonicline', supports: 'off', brim: 'auto',
   ironing: 'off', seam: 'aligned', supportsOnPlate: false, wallOrder: 'inner-outer', fuzzySkin: 'none',
+  spiralVase: false, supportAngle: 30, supportGap: 0.2, supportInterfaceLayers: 2, supportStyle: 'default', topOneWall: 'all', infillDirection: 45, wallGenerator: 'classic',
+  scarfSeam: 'none', ironingSpeed: 30, ironingFlow: 10, ironingSpacing: 0.15, holeCompensation: 0, contourCompensation: 0, elephantFoot: 0.075,
 };
+
+/** The support styles that fit a support type (Bambu ignores the others). */
+export function supportStylesFor(supports: Supports): SupportStyle[] {
+  return supports === 'normal' ? ['default', 'grid', 'snug'] : supports === 'tree' ? ['default', 'tree_slim', 'tree_strong', 'tree_hybrid', 'tree_organic'] : ['default'];
+}
+
+/** The settings as the Print tab groups them (the main rows are not in a group). */
+export const SETTING_GROUPS: { id: string; label: string; keys: (keyof PrintSettings)[] }[] = [
+  { id: 'supports', label: 'Supports', keys: ['supportStyle', 'supportAngle', 'supportGap', 'supportInterfaceLayers'] },
+  { id: 'top', label: 'Top surface', keys: ['topOneWall', 'infillDirection'] },
+  { id: 'seam', label: 'Seam', keys: ['scarfSeam'] },
+  { id: 'ironing', label: 'Ironing', keys: ['ironingSpeed', 'ironingFlow', 'ironingSpacing'] },
+  { id: 'fit', label: 'Fit', keys: ['holeCompensation', 'contourCompensation', 'elephantFoot'] },
+  { id: 'advanced', label: 'Advanced', keys: ['wallGenerator', 'spiralVase'] },
+];
 
 /**
  * A printer's baseline until its Bambu Studio template is built: the A1 0.4's, with the nozzle's
@@ -119,6 +173,9 @@ export const SETTING_LABELS: Record<keyof PrintSettings, string> = {
   layerHeight: 'Layer height', firstLayerHeight: 'First layer height', walls: 'Walls', topLayers: 'Top layers', bottomLayers: 'Bottom layers',
   infill: 'Infill', infillPattern: 'Infill pattern', topPattern: 'Top surface pattern', supports: 'Supports', brim: 'Brim',
   ironing: 'Ironing', seam: 'Seam', supportsOnPlate: 'Supports from plate only', wallOrder: 'Wall order', fuzzySkin: 'Fuzzy skin',
+  spiralVase: 'Spiral vase', supportAngle: 'Support angle', supportGap: 'Support gap', supportInterfaceLayers: 'Support interface layers', supportStyle: 'Support style',
+  topOneWall: 'One wall on top', infillDirection: 'Infill direction', wallGenerator: 'Wall generator', scarfSeam: 'Scarf seam', ironingSpeed: 'Ironing speed',
+  ironingFlow: 'Ironing flow', ironingSpacing: 'Ironing line spacing', holeCompensation: 'Hole compensation', contourCompensation: 'Outline compensation', elephantFoot: 'Elephant foot',
 };
 
 /** A number, or a numeric string; null, '', false and the like mean "not set" (they are not 0). */
@@ -127,6 +184,13 @@ const num = (v: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 const clampInt = (v: unknown, lo: number, hi: number) => { const n = num(v); return n == null ? undefined : Math.min(hi, Math.max(lo, Math.round(n))); };
+/** Clamped to lo..hi and rounded to `decimals` places. */
+const clampNum = (v: unknown, lo: number, hi: number, decimals: number) => {
+  const n = num(v);
+  if (n == null) return undefined;
+  const f = 10 ** decimals;
+  return Math.round(Math.min(hi, Math.max(lo, n)) * f) / f;
+};
 
 /** Sanitise settings from a script or saved JSON; drops anything invalid. */
 export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
@@ -163,6 +227,21 @@ export function cleanSettings(raw: unknown, allowLayer = true): PrintSettings {
   if (typeof o.supportsOnPlate === 'boolean') out.supportsOnPlate = o.supportsOnPlate;
   const wallOrder = oneOf(o.wallOrder, WALL_ORDERS); if (wallOrder) out.wallOrder = wallOrder;
   const fuzzy = o.fuzzySkin === true ? 'external' : o.fuzzySkin === false ? 'none' : oneOf(o.fuzzySkin, FUZZY_SKIN); if (fuzzy) out.fuzzySkin = fuzzy;
+  if (allowLayer && typeof o.spiralVase === 'boolean') out.spiralVase = o.spiralVase;
+  const supportAngle = clampInt(o.supportAngle, 0, 90); if (supportAngle != null) out.supportAngle = supportAngle;
+  const supportGap = clampNum(o.supportGap, 0, 1, 2); if (supportGap != null) out.supportGap = supportGap;
+  const supportInterfaceLayers = clampInt(o.supportInterfaceLayers, 0, 5); if (supportInterfaceLayers != null) out.supportInterfaceLayers = supportInterfaceLayers;
+  const supportStyle = oneOf(o.supportStyle, SUPPORT_STYLES); if (supportStyle) out.supportStyle = supportStyle;
+  const topOneWall = o.topOneWall === true ? 'all' : o.topOneWall === false ? 'off' : oneOf(o.topOneWall, TOP_ONE_WALL); if (topOneWall) out.topOneWall = topOneWall;
+  const infillDirection = clampInt(o.infillDirection, 0, 180); if (infillDirection != null) out.infillDirection = infillDirection;
+  const wallGenerator = oneOf(o.wallGenerator, WALL_GENERATORS); if (wallGenerator) out.wallGenerator = wallGenerator;
+  const scarf = o.scarfSeam === true ? 'external' : o.scarfSeam === false ? 'none' : oneOf(o.scarfSeam, SCARF_SEAMS); if (scarf) out.scarfSeam = scarf;
+  const ironingSpeed = clampInt(o.ironingSpeed, 10, 100); if (ironingSpeed != null) out.ironingSpeed = ironingSpeed;
+  const ironingFlow = clampInt(o.ironingFlow, 5, 30); if (ironingFlow != null) out.ironingFlow = ironingFlow;
+  const ironingSpacing = clampNum(o.ironingSpacing, 0.05, 0.3, 2); if (ironingSpacing != null) out.ironingSpacing = ironingSpacing;
+  const holeCompensation = clampNum(o.holeCompensation, -0.5, 0.5, 2); if (holeCompensation != null) out.holeCompensation = holeCompensation;
+  const contourCompensation = clampNum(o.contourCompensation, -0.5, 0.5, 2); if (contourCompensation != null) out.contourCompensation = contourCompensation;
+  const elephantFoot = clampNum(o.elephantFoot, 0, 1, 3); if (elephantFoot != null) out.elephantFoot = elephantFoot;
   return out;
 }
 
@@ -181,6 +260,11 @@ export function defaultsFromTemplate(t: Record<string, unknown>): Required<Print
       ironing: key(IRONING, str('ironing_type')), seam: str('seam_position'),
       supportsOnPlate: str('support_on_build_plate_only') === undefined ? undefined : str('support_on_build_plate_only') === '1',
       wallOrder: key(WALL_ORDER, str('wall_sequence')), fuzzySkin: str('fuzzy_skin'),
+      spiralVase: str('spiral_mode') === undefined ? undefined : str('spiral_mode') === '1',
+      supportAngle: str('support_threshold_angle'), supportGap: str('support_top_z_distance'), supportInterfaceLayers: str('support_interface_top_layers'), supportStyle: str('support_style'),
+      topOneWall: key(TOP_ONE_WALL_BAMBU, str('top_one_wall_type')), infillDirection: str('infill_direction'), wallGenerator: str('wall_generator'), scarfSeam: str('seam_slope_type'),
+      ironingSpeed: str('ironing_speed'), ironingFlow: str('ironing_flow')?.replace('%', ''), ironingSpacing: str('ironing_spacing'),
+      holeCompensation: str('xy_hole_compensation'), contourCompensation: str('xy_contour_compensation'), elephantFoot: str('elefant_foot_compensation'),
     }),
   };
 }
@@ -217,19 +301,20 @@ export function effectiveSettings(ai: PrintProfile, user: PrintProfile, part?: s
 
 /** All Bambu Studio setting values for these settings (density also drives skeleton/skin infill, as in Bambu 2.4+). */
 export function bambuValues(s: Required<PrintSettings>): Record<string, string> {
-  const density = `${s.infill}%`;
+  const vase = s.spiralVase;
+  const density = vase ? '0%' : `${s.infill}%`;
   return {
     layer_height: String(s.layerHeight),
     initial_layer_print_height: String(s.firstLayerHeight),
-    wall_loops: String(s.walls),
-    top_shell_layers: String(s.topLayers),
+    wall_loops: vase ? '1' : String(s.walls),
+    top_shell_layers: vase ? '0' : String(s.topLayers),
     bottom_shell_layers: String(s.bottomLayers),
     sparse_infill_density: density,
     skeleton_infill_density: density,
     skin_infill_density: density,
     sparse_infill_pattern: s.infillPattern,
     top_surface_pattern: s.topPattern,
-    enable_support: s.supports === 'off' ? '0' : '1',
+    enable_support: vase || s.supports === 'off' ? '0' : '1',
     support_type: s.supports === 'normal' ? 'normal(auto)' : 'tree(auto)',
     brim_type: s.brim === 'none' ? 'no_brim' : s.brim === 'auto' ? 'auto_brim' : 'outer_only',
     brim_width: typeof s.brim === 'number' ? String(s.brim) : '5',
@@ -238,6 +323,21 @@ export function bambuValues(s: Required<PrintSettings>): Record<string, string> 
     support_on_build_plate_only: s.supportsOnPlate ? '1' : '0',
     wall_sequence: WALL_ORDER[s.wallOrder],
     fuzzy_skin: s.fuzzySkin,
+    spiral_mode: vase ? '1' : '0',
+    support_threshold_angle: String(s.supportAngle),
+    support_top_z_distance: String(s.supportGap),
+    support_interface_top_layers: String(s.supportInterfaceLayers),
+    support_style: supportStylesFor(s.supports).includes(s.supportStyle) ? s.supportStyle : 'default',
+    top_one_wall_type: TOP_ONE_WALL_BAMBU[s.topOneWall],
+    infill_direction: String(s.infillDirection),
+    wall_generator: s.wallGenerator,
+    seam_slope_type: s.scarfSeam,
+    ironing_speed: String(s.ironingSpeed),
+    ironing_flow: `${s.ironingFlow}%`,
+    ironing_spacing: String(s.ironingSpacing),
+    xy_hole_compensation: String(s.holeCompensation),
+    xy_contour_compensation: String(s.contourCompensation),
+    elefant_foot_compensation: String(s.elephantFoot),
   };
 }
 
@@ -260,6 +360,16 @@ export function describeSetting(key: keyof PrintSettings, v: PrintSettings[keyof
     case 'supportsOnPlate': return v ? 'On' : 'Off';
     case 'wallOrder': return ({ 'inner-outer': 'Inner, then outer', 'outer-inner': 'Outer, then inner', 'inner-outer-inner': 'Inner, outer, inner' } as Record<string, string>)[String(v)] ?? String(v);
     case 'fuzzySkin': return ({ none: 'Off', external: 'Outer walls', all: 'All walls' } as Record<string, string>)[String(v)] ?? String(v);
+    case 'spiralVase': return v ? 'On' : 'Off';
+    case 'supportAngle': case 'infillDirection': return `${v}°`;
+    case 'supportGap': case 'ironingSpacing': case 'holeCompensation': case 'contourCompensation': case 'elephantFoot': return `${v} mm`;
+    case 'supportInterfaceLayers': return String(v);
+    case 'ironingSpeed': return `${v} mm/s`;
+    case 'ironingFlow': return `${v} %`;
+    case 'supportStyle': { const t = String(v).replace('_', ' '); return t.charAt(0).toUpperCase() + t.slice(1); }
+    case 'topOneWall': return ({ off: 'Off', all: 'All top surfaces', topmost: 'Topmost surface' } as Record<string, string>)[String(v)] ?? String(v);
+    case 'wallGenerator': return ({ classic: 'Classic', arachne: 'Arachne' } as Record<string, string>)[String(v)] ?? String(v);
+    case 'scarfSeam': return ({ none: 'Off', external: 'Outer wall', all: 'All walls' } as Record<string, string>)[String(v)] ?? String(v);
     default: return String(v);
   }
 }

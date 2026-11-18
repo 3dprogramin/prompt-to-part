@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { A1_DEFAULTS, bambuOverrides, cleanProfile, cleanSettings, defaultsFromTemplate, effectiveSettings, parseProfile } from '../shared/print';
+import { A1_DEFAULTS, bambuOverrides, cleanProfile, cleanSettings, defaultsFromTemplate, effectiveSettings, parseProfile, SETTING_GROUPS, SETTING_LABELS, describeSetting, supportStylesFor } from '../shared/print';
 import { bedShift, fitProblem, printer } from '../shared/printer';
 
 test('cleanSettings: clamps, rounds and maps values', () => {
@@ -75,4 +75,43 @@ test('top surface pattern: cleaned by id or name, written as Bambu\'s key, read 
   const base = defaultsFromTemplate({ top_surface_pattern: 'monotonic' });
   assert.equal(base.topPattern, 'monotonic');
   assert.deepEqual(bambuOverrides(effectiveSettings({ topPattern: 'monotonic' }, {}, undefined, base), base), {});
+});
+
+test('the 2026-11-18 settings: cleaned, clamped, odd values dropped', () => {
+  assert.deepEqual(cleanSettings({ supportAngle: '45.4', supportGap: 0.123, supportInterfaceLayers: 9, supportStyle: 'tree_organic', topOneWall: true, infillDirection: 200,
+    wallGenerator: 'arachne', scarfSeam: true, ironingSpeed: 5, ironingFlow: '15', ironingSpacing: 0.5, holeCompensation: -2, contourCompensation: '0.05', elephantFoot: 0.1234, spiralVase: true }),
+  { supportAngle: 45, supportGap: 0.12, supportInterfaceLayers: 5, supportStyle: 'tree_organic', topOneWall: 'all', infillDirection: 180,
+    wallGenerator: 'arachne', scarfSeam: 'external', ironingSpeed: 10, ironingFlow: 15, ironingSpacing: 0.3, holeCompensation: -0.5, contourCompensation: 0.05, elephantFoot: 0.123, spiralVase: true });
+  assert.deepEqual(cleanSettings({ supportAngle: null, supportGap: '', supportStyle: 'organic', topOneWall: 'yes', wallGenerator: true, scarfSeam: 'outer', ironingFlow: 'x', spiralVase: 'on', holeCompensation: NaN }), {});
+});
+
+test('spiral vase is model-wide and forces what it needs', () => {
+  assert.deepEqual(cleanProfile({ spiralVase: true, parts: { Vase: { spiralVase: true, walls: 3 } } }), { spiralVase: true, parts: { Vase: { walls: 3 } } });
+  assert.deepEqual(bambuOverrides({ ...A1_DEFAULTS, spiralVase: true, walls: 4, infill: 40, supports: 'tree' }),
+    { spiral_mode: '1', wall_loops: '1', top_shell_layers: '0', sparse_infill_density: '0%', skeleton_infill_density: '0%', skin_infill_density: '0%' });
+});
+
+test('a support style that does not fit the support type is written as default', () => {
+  assert.equal(bambuOverrides({ ...A1_DEFAULTS, supports: 'normal', supportStyle: 'tree_organic' }).support_style, undefined);
+  assert.equal(bambuOverrides({ ...A1_DEFAULTS, supports: 'tree', supportStyle: 'tree_organic' }).support_style, 'tree_organic');
+  assert.equal(bambuOverrides({ ...A1_DEFAULTS, supports: 'tree', supportStyle: 'snug' }).support_style, undefined);
+  assert.deepEqual(supportStylesFor('normal'), ['default', 'grid', 'snug']);
+});
+
+test('the new settings as Bambu values, and nothing written for an old design or a template without the keys', () => {
+  assert.deepEqual(bambuOverrides({ ...A1_DEFAULTS, topOneWall: 'off', infillDirection: 0, wallGenerator: 'arachne', scarfSeam: 'all', ironingFlow: 15, holeCompensation: 0.1, elephantFoot: 0.15, supportGap: 0.25 }),
+    { top_one_wall_type: 'not apply', infill_direction: '0', wall_generator: 'arachne', seam_slope_type: 'all', ironing_flow: '15%', xy_hole_compensation: '0.1', elefant_foot_compensation: '0.15', support_top_z_distance: '0.25' });
+  assert.deepEqual(bambuOverrides(effectiveSettings({}, {})), {});
+  const base = defaultsFromTemplate({ ironing_flow: '12%', top_one_wall_type: 'topmost', elefant_foot_compensation: '0.15', wall_generator: 'arachne', spiral_mode: '0' });
+  assert.deepEqual([base.ironingFlow, base.topOneWall, base.elephantFoot, base.wallGenerator, base.spiralVase, base.supportAngle], [12, 'topmost', 0.15, 'arachne', false, 30]);
+  assert.deepEqual(bambuOverrides(base, base), {});
+});
+
+test('every setting has a label, a group or a main row, and a description', () => {
+  const grouped = SETTING_GROUPS.flatMap((g) => g.keys);
+  assert.equal(new Set(grouped).size, 15);
+  for (const k of Object.keys(A1_DEFAULTS) as (keyof typeof A1_DEFAULTS)[]) {
+    assert.ok(SETTING_LABELS[k], k);
+    assert.ok(describeSetting(k, A1_DEFAULTS[k]) !== 'undefined', k);
+  }
 });
