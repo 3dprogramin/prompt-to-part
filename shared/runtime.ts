@@ -231,7 +231,7 @@ export function inspectScript(code: string): { meta: ModelMeta; params: Record<s
   if (!runtime) throw new Error('runtime not initialised');
   const rt = runtime;
   try {
-    const r = compile(code)(rt.Manifold, rt.CrossSection, makeHelpers(rt, 'draft'), 'draft', makeConsole([]));
+    const r = compile(code)(rt.Manifold, rt.CrossSection, { ...makeHelpers(rt, 'draft'), warn: () => {} }, 'draft', makeConsole([]));
     return { meta: normalizeMeta(r.meta), params: normalizeParams(r.params) };
   } catch (e) {
     noteTrap(e);
@@ -314,7 +314,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const layerTonePictureSetup = parseLayerToneSetup(inputValues?.[LAYERTONE_KEY]);
     const originals = parseDrawings(inputValues?.[DRAWINGS_KEY]);
     const svgUsed: string[] = [];
-    const H = makeHelpers(rt, quality, withArtworkEdits(originals, parseArtworkEdits(inputValues?.[ARTWORK_EDITS_KEY])), {
+    const H: ReturnType<typeof makeHelpers> & { warn(message: string): void } = Object.assign(makeHelpers(rt, quality, withArtworkEdits(originals, parseArtworkEdits(inputValues?.[ARTWORK_EDITS_KEY])), {
       images: layerTonePictures, setup: layerTonePictureSetup,
     }, meshes, painted, parseLineArtEdits(inputValues?.[LINEART_EDITS_KEY]), {
       split: parseLineArtSplit(inputValues?.[LINEART_SPLIT_KEY]),
@@ -325,7 +325,10 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       // Colours are cut to the print's layers: the user's layer heights (Print tab), else line art's.
       layers: { layerHeight: userPrint.layerHeight ?? lineArtPrint().layerHeight, firstLayerHeight: userPrint.firstLayerHeight ?? lineArtPrint().firstLayerHeight },
       layout: typeof inputValues?.[LINEART_LAYOUT_KEY] === 'string' ? inputValues[LINEART_LAYOUT_KEY] as string : undefined,
-    }, svgUsed, originals);
+    }, svgUsed, originals), {
+      // A design tells the user an input does not fit (capWarnings cuts it to 300 characters and drops repeats).
+      warn: (message: unknown) => { warnings.push(String(message)); },
+    });
     let scope;
     try {
       scope = compile(code)(rt.Manifold, rt.CrossSection, H, quality, makeConsole(logs));

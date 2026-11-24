@@ -203,7 +203,7 @@ CrossSection (2D, XY plane):
 - H.mesh(name, { height | width | depth | size | scale, rotate: [x, y, z], center = true }) → Manifold: a mesh the user attached (STL, OBJ, GLB, 3MF) or one made with generate_3d, already repaired into a watertight solid, Z up, standing on z = 0 and centred in X/Y, in mm. Give at most one of height (Z), width (X), depth (Y), size (longest side) or scale; rotate (degrees, applied first) fixes a model that lies on its side, then it is stood on the bed again (center: false keeps it where it is). See "Meshes" when there are any.
 - H.polarArray(shape, count, totalDeg = 360) – copies rotated about Z, unioned; H.linearArray(shape, count, [dx, dy, dz])
 - H.placeOnBed(shape, centerXY = true) – translate so min Z = 0 (and centered on XY)
-- H.segments(radius) – the circle segment count for the current quality; H.clamp(v, lo, hi), H.lerp(a, b, t)
+- H.segments(radius) – the circle segment count for the current quality; H.clamp(v, lo, hi), H.lerp(a, b, t); H.warn(message) adds a warning the user sees next to the model: call it whenever the design has to drop or shrink something the user asked for (letters that do not fit, a value clamped), in one plain sentence telling the user what to change
 - Never name your own variables or parameters H, Manifold or CrossSection (e.g. a height `H`): that hides these and the script fails. Use height, h, totalH….
 
 # Performance (sliders re-evaluate live)
