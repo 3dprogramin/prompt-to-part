@@ -17,6 +17,7 @@ import { sliverFree } from '../geometry/sliverFree';
 import { vertexColors, type LayerColor } from '../../shared/layertone';
 import { JOIN_COLOR, LOOSE_COLOR, NEUTRAL, SELECTED_GLOW, VIEW_DIRS } from './constants';
 import { framingDistance, lightParts, photoBackground } from './photo';
+import { partHidden } from '../geometry/parts';
 import type { Measurement, PhotoView, PlaybackStep, RepaintView, ViewerOptions, ViewName } from './types';
 
 export type { Measurement, PhotoView, PlaybackStep, RepaintView, ViewerOptions, ViewName } from './types';
@@ -403,8 +404,11 @@ export class Viewer {
     const planes = section.enabled ? [this.clipPlane] : [];
     const colors = this.opts.colors !== false;
     const single = this.opts.oneColour ? new THREE.Color(this.opts.oneColour) : null;
+    // (A QR code's tile and modules hide with the part they sit on.)
+    const byName = new Map(this.result?.parts.map((p) => [p.name, p]) ?? []);
+    const hidden = (name: string) => partHidden(byName.get(name) ?? { name }, hiddenParts);
     for (const group of this.modelGroup.children) {
-      group.visible = !hiddenParts.includes(group.name);
+      group.visible = !hidden(group.name);
       // Part colours (or the one filament of a print in one colour), or one neutral colour to judge the bare shape.
       const [front, back] = group.children as THREE.Mesh[];
       const preview = !front.userData.perVertex && this.colorPreview?.[group.name];
@@ -428,7 +432,7 @@ export class Viewer {
     this.measureGroup.visible = !this.clean && !this.playback;
     this.issueGroup.visible = !this.playback;
     this.joinGroup.visible = !!this.opts.showJoins && !this.clean && !this.playback;
-    for (const g of this.joinGroup.children) g.visible = !hiddenParts.includes(g.name);
+    for (const g of this.joinGroup.children) g.visible = !hidden(g.name);
     this.labelRenderer.domElement.style.display = this.clean ? 'none' : '';
     this.renderer.domElement.style.cursor = this.opts.measure || this.opts.pickText || this.repaint ? 'crosshair' : '';
   }
@@ -1105,7 +1109,7 @@ export class Viewer {
     // The detail of a tall flat print: its top in the picture (a head, a name), cut off only below
     // and at the sides, so the model has nothing up there to make up.
     if (view === 'detail' && s.z < 0.25 * Math.min(s.x, s.y) && s.y > s.x) center.y = box.max.y - (0.5 - 0.04) * (s.y / share);
-    const parts = this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? [];
+    const parts = this.result?.parts.filter((p) => !partHidden(p, this.opts.hiddenParts)) ?? [];
     // A size photo: the reference beside the product (a mug along the render's right on the table,
     // as far from the camera as the product), the camera framing the wall or table area around both.
     const side = new THREE.Vector3(-dir.y, dir.x, 0);
@@ -1214,7 +1218,7 @@ export class Viewer {
 
   /** The box around the parts that are shown. */
   private visibleBox(): THREE.Box3 | null {
-    const parts = this.result?.parts.filter((p) => !this.opts.hiddenParts.includes(p.name)) ?? [];
+    const parts = this.result?.parts.filter((p) => !partHidden(p, this.opts.hiddenParts)) ?? [];
     if (!parts.length) return null;
     const box = new THREE.Box3();
     for (const p of parts) box.union(new THREE.Box3(new THREE.Vector3(...p.bbox.min), new THREE.Vector3(...p.bbox.max)));

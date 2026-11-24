@@ -29,7 +29,7 @@ export function QrPanel({ result, features, onChange, picking, onPick }: Props) 
 
   const update = (id: string, patch: Partial<QrFeature>) => onChange(features.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   const add = () => {
-    const f = newQrFeature(uid(), { part: parts[0], name: nextQrName(features), text: 'https://' });
+    const f = newQrFeature(uid(), { part: parts[0], name: nextQrName(features) });
     onChange([...features, f]);
     setSelected(f.id);
   };

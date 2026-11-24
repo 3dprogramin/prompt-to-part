@@ -17,6 +17,7 @@ import { useTicker } from './photos/useTicker';
 import { BigPhoto } from './photos/BigPhoto';
 import { ScenePicker } from './photos/ScenePicker';
 import { PhotoGallery } from './photos/PhotoGallery';
+import { partHidden } from '../geometry/parts';
 
 export { usePhotoJobs, type PhotoJob, type SizeGroup } from './photos/usePhotoJobs';
 
@@ -110,7 +111,7 @@ export function PhotosPanel(p: Props) {
   const stopPicking = () => { setPicking(false); setPicked(new Set()); setPickAnchor(null); };
   useEffect(() => { setBig(null); setError(null); setSizeNote(null); setFilter('all'); stopPicking(); }, [p.designId]);
 
-  const parts = useMemo(() => p.result?.parts.filter((x) => !p.hiddenParts.includes(x.name)) ?? [], [p.result, p.hiddenParts]);
+  const parts = useMemo(() => p.result?.parts.filter((x) => !partHidden(x, p.hiddenParts)) ?? [], [p.result, p.hiddenParts]);
   const size = useMemo((): Vec3 | null => {
     if (!parts.length) return null;
     const min = [0, 1, 2].map((k) => Math.min(...parts.map((x) => x.bbox.min[k])));

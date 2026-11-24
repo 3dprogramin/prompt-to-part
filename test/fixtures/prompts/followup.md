@@ -231,7 +231,7 @@ Version 2 of 2.
 
 The user scaled the whole model uniformly to 150 % in the app; the scale is applied after your build. Sizes the user mentions refer to the scaled model, while evaluate_model/render_model report unscaled sizes – convert accordingly.
 
-Text, SVG drawings and QR codes the user placed with the app's Text, SVG and QR code tools (applied automatically after your build – do not add them again unless asked; a QR code's tile and modules are parts of their own, named after the code, so leave those names to the app): "Hi" on the front
+Text, SVG drawings and QR codes the user placed with the app's Text, SVG and QR code tools (applied automatically after your build: do not add them again unless asked; a QR code's tile and modules are parts of their own, named after the code, so leave those names to the app): "Hi" on the front
 
 User request:
 a cable clip for 6 mm cables

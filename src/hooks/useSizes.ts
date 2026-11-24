@@ -11,6 +11,7 @@ import { PICTURE_MARKS_KEY } from '../../shared/pictureEdit/mark';
 import { uid } from '../lib/files';
 import { sliceBuild, type CostStage } from './useCost';
 import type { GeometryClient } from '../geometry/client';
+import { partHidden } from '../geometry/parts';
 
 interface Inputs {
   design: Design;
@@ -259,7 +260,7 @@ export type SizesControls = ReturnType<typeof useSizes>;
 
 /** W × D × H of the parts shown (hidden parts left out), mm. */
 export function visibleSize(r: EvalResult, hidden: string[]): Vec3 | null {
-  const parts = r.parts.filter((x) => !hidden.includes(x.name));
+  const parts = r.parts.filter((x) => !partHidden(x, hidden));
   if (!parts.length) return null;
   return [0, 1, 2].map((k) => +(Math.max(...parts.map((x) => x.bbox.max[k])) - Math.min(...parts.map((x) => x.bbox.min[k]))).toFixed(1)) as Vec3;
 }

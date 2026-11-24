@@ -7,10 +7,13 @@ import { toBambuProject } from '../src/lib/bambu3mf';
 import type { BambuTemplate } from '../shared/api';
 import Module from 'manifold-3d';
 import { evaluateScript } from '../shared/runtime';
+import { exportedParts, validateResult } from '../src/geometry/validate';
+import { partHidden } from '../src/geometry/parts';
+import { modelWarnings } from '../shared/modelWarnings';
 import { PART_COLORS_KEY } from '../shared/params';
 import { describeQr } from '../src/app/describe';
 import { describeSettings } from '../src/lib/settings';
-import { applyQrFeatures, newQrFeature, nextQrName, pickTarget, parseQrFeatures, qrMatrix, qrPayload, qrSections, QR_KEY } from '../shared/qrFeatures';
+import { applyQrFeatures, newQrFeature, nextQrName, pickTarget, parseQrFeatures, qrMatrix, qrPayload, qrSections, QR_KEY, type QrFeature } from '../shared/qrFeatures';
 import type { Vec2 } from '../shared/types';
 
 /** Reads the modules as a phone would from above: black polygons on white, `px` pixels per mm. */
@@ -204,4 +207,36 @@ test('in the Bambu project the tile and the modules stay one object with their p
   // Three filaments: the model's, white and black.
   const colours = JSON.parse(strFromU8(files['Metadata/project_settings.config'])).filament_colour.map((c: string) => c.toLowerCase());
   assert.ok(colours.includes('#ffffff') && colours.includes('#000000'), String(colours));
+});
+
+// Review fixes.
+const withQr = (code: string, f: Partial<QrFeature> = {}) => evaluateScript(code, { [QR_KEY]: JSON.stringify([newQrFeature('q', { text: 'https://example.com', ...f })]) }, 'normal');
+
+test('a QR code on a part is not a print problem in Validate', () => {
+  for (const f of [{}, { style: 'flush' as const }, { face: 'front' as const }]) {
+    const issues = validateResult(withQr(CUBE, f)).issues.filter((i) => i.severity !== 'info').map((i) => i.title);
+    assert.deepEqual(issues.filter((t) => !/Overhangs/.test(t)), [], `${JSON.stringify(f)}: ${issues.join(', ')}`);
+  }
+});
+
+test('the modules are not "disconnected pieces" in the Model tab', () => {
+  assert.deepEqual(modelWarnings(withQr(CUBE)).filter((w) => /QR/.test(w)), []);
+});
+
+test('wrapped and flush on its tile: the tile stays one piece', () => {
+  const r = withQr('function build() { return Manifold.cylinder(30, 20, 20, 96); }', { face: 'front', curve: 'wrap', style: 'flush', size: 25 });
+  assert.equal(r.parts.find((p) => p.name === 'QR code tile')!.components, 1);
+});
+
+test('raised modules never overlap the part, wherever it sticks out', () => {
+  // Wrapped on a box's flat front: the modules' ends dip into the box.
+  const r = withQr(CUBE, { face: 'front', curve: 'wrap', size: 25 });
+  assert.ok(!validateResult(r).issues.some((i) => /overlap/.test(i.title)), validateResult(r).issues.map((i) => i.title).join(', '));
+});
+
+test('hiding a part hides the QR code on it', () => {
+  const r = withQr(CUBE);
+  assert.deepEqual(exportedParts(r, { exclude: ['Model'] }).map((p) => p.name), []);
+  assert.ok(partHidden(r.parts[2], ['Model']));
+  assert.ok(!partHidden(r.parts[2], []));
 });

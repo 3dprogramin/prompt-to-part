@@ -165,11 +165,13 @@ export function applyQrFeatures(host: Manifold, features: QrFeature[], C: typeof
     let codeSolid: Manifold;
     if (f.style === 'flush') {
       codeSolid = place(code.extrude(f.depth).translate([0, 0, tH - f.depth]));
-      if (tileSolid) tileSolid = tileSolid.subtract(codeSolid);
+      // Cut by a taller copy: a wrapped tile and code are bent apart from each other, and a cut
+      // exactly level with the top would leave skins of tile over the modules.
+      if (tileSolid) tileSolid = tileSolid.subtract(place(code.extrude(f.depth + 0.2).translate([0, 0, tH - f.depth])));
       if (!tileOn || f.depth > tH) out = out.subtract(codeSolid);
     } else {
-      codeSolid = place(code.extrude(f.depth + (tileOn ? 0 : SINK)).translate([0, 0, tileOn ? tH : -SINK]));
-      if (!tileOn) codeSolid = codeSolid.subtract(out);
+      // Never into the part (it may stand out above the tile: a curved surface, text under the code).
+      codeSolid = place(code.extrude(f.depth + (tileOn ? 0 : SINK)).translate([0, 0, tileOn ? tH : -SINK])).subtract(out);
     }
     if (tileSolid && !tileSolid.isEmpty()) parts.push({ id: f.id, role: 'tile', name: `${f.name} tile`, color: QR_COLORS.tile, shape: tileSolid });
     if (!codeSolid.isEmpty()) parts.push({ id: f.id, role: 'code', name: f.name, color: QR_COLORS.code, shape: codeSolid });

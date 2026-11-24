@@ -7,7 +7,7 @@ import { filamentLabel, type PaintFilament } from './meshColors';
 interface Evaluated {
   bbox: Box3 | null;
   warnings: string[];
-  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] }; bbox: Box3; plate?: number; lineArt?: { components?: number; paintedIn?: PaintFilament } }[];
+  parts: { name: string; components: number; color?: string; paint?: { filaments: PaintFilament[] }; bbox: Box3; plate?: number; lineArt?: { components?: number; paintedIn?: PaintFilament }; qr?: unknown }[];
 }
 
 /** The filaments a design with coloured meshes prints with: each painted part's, and the colour of every other part (one per colour). */
@@ -37,6 +37,8 @@ export function modelWarnings(r: Evaluated): string[] {
   for (const p of r.parts) {
     // Line art in several filaments: its colours are parts of their own, one piece with the rest.
     if (p.lineArt?.paintedIn) continue;
+    // A QR code's modules are separate squares by nature, held by its tile (or the part under them).
+    if (p.qr) continue;
     const n = p.lineArt?.components ?? p.components;
     if (n > 1) out.push(`Part "${p.name}" consists of ${n} disconnected pieces: if it should be one solid, make the sub-shapes overlap (≥0.05 mm) before union`);
   }

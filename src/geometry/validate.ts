@@ -236,6 +236,9 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
   for (const a of analyses) {
     const name = a.part.name;
     const label = result.parts.length > 1 ? `"${name}": ` : '';
+    // A QR code's tile and modules print on the part under them, as one object with it: they don't
+    // touch the plate, the modules are separate squares and the white between corners is a pinch.
+    const onPart = !!a.part.qr;
     area += a.area; overhangArea += a.overhangArea; bedContact += a.bedContact; volume += Math.abs(a.signedVolume);
     if (a.minWall != null) minWall = minWall == null ? a.minWall : Math.min(minWall, a.minWall);
 
@@ -250,7 +253,7 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
     if (a.signedVolume < 0) add('error', `${label}Inside-out mesh`, 'The surface normals point inwards.', name);
     if (a.degenerate) add('info', `${label}Degenerate triangles`, `${a.degenerate} zero-area triangles (harmless, slicers remove them).`, name);
 
-    if (forPrinting) {
+    if (forPrinting && !onPart) {
       const minZ = a.part.bbox.min[2];
       if (minZ > BED_EPS) add('error', `${label}Floating above the plate`, `The part starts ${f1(minZ)} mm above the build plate.`, name);
       else if (a.bedContact < 1e-3) add('error', `${label}No flat face on the plate`, 'Nothing touches the build plate flat – it will not stick without supports or a raft.', name);
@@ -270,9 +273,9 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
       const floating = solids.filter((p) => p.minZ > minZ + BED_EPS);
       if (floating.length) add('error', `${label}Pieces in mid-air`, `${floating.length} separate piece${floating.length > 1 ? 's start' : ' starts'} above the plate with nothing under ${floating.length > 1 ? 'them' : 'it'} (lowest at ${f1(Math.min(...floating.map((p) => p.minZ)))} mm).`, name);
     }
-    if (solids.length > 1) add('info', `${label}${solids.length} separate pieces`, 'This part is made of pieces that do not touch – each prints as its own object.', name);
+    if (solids.length > 1 && !onPart) add('info', `${label}${solids.length} separate pieces`, 'This part is made of pieces that do not touch – each prints as its own object.', name);
     const tiny = solids.filter((p) => p.volume < 2);
-    if (tiny.length) add('warning', `${label}Tiny pieces`, `${tiny.length} piece${tiny.length > 1 ? 's are' : ' is'} smaller than 2 mm³ and may not print.`, name);
+    if (tiny.length && !onPart) add('warning', `${label}Tiny pieces`, `${tiny.length} piece${tiny.length > 1 ? 's are' : ' is'} smaller than 2 mm³ and may not print.`, name);
 
     // overhangs
     const pct = a.area ? (a.overhangArea / a.area) * 100 : 0;
@@ -283,7 +286,7 @@ export function validateResult(all: EvalResult, opts: ValidateOptions = {}): Val
     else if (a.overhangArea > 1) add('info', `${label}Small overhangs`, `${f1(a.overhangArea)} mm² faces down steeper than 45° – usually prints fine as bridges.`, name);
 
     // thin walls
-    if (a.minWall != null && a.minWall < minWallError() && a.thinArea > 0.5) {
+    if (onPart) { /* (see onPart) */ } else if (a.minWall != null && a.minWall < minWallError() && a.thinArea > 0.5) {
       add('error', `${label}Walls too thin to print`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm (a ${printer().nozzle} mm nozzle cannot print below ~${minWallError()} mm). About ${f1(a.thinArea)} mm² is affected.`, name);
     } else if (a.minWall != null && a.minWall < minWallWarn() && a.thinArea > 1) {
       add('warning', `${label}Thin walls`, `Thinnest wall ≈ ${a.minWall.toFixed(2)} mm – thinner than two perimeters (${minWallWarn()} mm), so it will be weak. About ${f1(a.thinArea)} mm² is affected.`, name);

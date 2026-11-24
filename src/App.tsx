@@ -4,6 +4,7 @@ import { stabilityFor } from '../shared/stability';
 import { SCALE_KEY } from '../shared/params';
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
 import { pickTarget } from '../shared/qrFeatures';
+import { partHidden } from './geometry/parts';
 import { drawingFingerprint } from '../shared/lineart/strokes';
 import { LAYERTONE_IMAGES_KEY, parseLayerToneImages, type LayerToneImage } from '../shared/layertone';
 import { layerToneBuild, photoFingerprint } from '../shared/pictureEdit/photo';
@@ -775,7 +776,7 @@ export default function App() {
 
   // The viewer shows the design's hidden parts and the Object tab's selection.
   // A print in one colour shows in its one filament (of the parts shown, as they would be exported).
-  const viewParts = shown?.parts.filter((p) => !hiddenParts.includes(p.name)) ?? [];
+  const viewParts = shown?.parts.filter((p) => !partHidden(p, hiddenParts)) ?? [];
   const viewColour = oneColour && viewParts.length ? oneColourFilament(viewParts, oneColour).colour : null;
   const viewerOptions: ViewerOptions = { ...viewOpts, hiddenParts, selectedPart, oneColour: viewColour, showJoins };
 
