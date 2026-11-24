@@ -26,10 +26,10 @@ import type { useCost } from '../hooks/useCost';
 import { effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
 import { FontPicker } from './FontPicker';
-import { ExportButton } from './ExportButton';
+import { ExportButton, colourCount } from './ExportButton';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { FontEntry, PrinterInfo } from '../../shared/api';
-import type { ExportFormat } from '../lib/export';
+import type { ExportFormat, ThreeMfChoice } from '../lib/export';
 import { isFlat, type GlbOptions } from '../lib/glb';
 import { download } from '../lib/files';
 import { tokenize } from '../lib/highlight';
@@ -100,8 +100,8 @@ interface Props {
   bambu: string | null;
   /** Number of print-setting changes that would be written to a 3MF. */
   printChanges: number;
-  threeMf: { print: boolean };
-  onThreeMf: (o: { print: boolean }) => void;
+  threeMf: ThreeMfChoice;
+  onThreeMf: (o: ThreeMfChoice) => void;
   /** "Print in one colour" (parseOneColour), saved with the design. */
   oneColour: null | 'main' | string;
   onOneColour: (c: null | 'main' | string) => void;
@@ -239,6 +239,7 @@ export function SidePanel(p: Props) {
           <ExportButton disabled={!shown || p.exporting} exporting={p.exporting} onExport={(f, glb) => p.onExport(f, undefined, glb)} blender={p.blender}
             flat={!!shown && isFlat(shown.parts.filter((x) => !p.hiddenParts.includes(x.name)))}
             bambu={p.bambu} printChanges={p.printChanges} threeMf={p.threeMf} onThreeMf={p.onThreeMf} oneColour={!!p.oneColour} onOneColour={(on) => p.onOneColour(on ? 'main' : null)} onExport3mf={p.onExport3mf} onExportProject={p.onExportProject} painted={!!shown?.parts.some((x) => x.paint)}
+          colours={shown ? colourCount(shown.parts.filter((x) => !p.hiddenParts.includes(x.name))) : 0}
           count={shown ? shown.parts.length - p.hiddenParts.filter((n) => shown.parts.some((x) => x.name === n)).length : 0} />
         </div>
         {p.exportStage && <div className="size-note" role="status">Exporting project… {p.exportStage}</div>}

@@ -46,9 +46,14 @@ export async function toBlend(result: EvalResult, parts: PartMesh[], title: stri
   return (await request('/api/export/blend', { method: 'POST', body: JSON.stringify(body) })).blob();
 }
 
+/** The Export ▸ 3MF… ticks, kept between visits. */
+export interface ThreeMfChoice { print: boolean; platePerColour: boolean }
+
 export interface ThreeMfOptions {
   /** Everything in this one filament colour (#RRGGBB, "Print in one colour"); null = one filament per colour (AMS). */
   oneColour: string | null;
+  /** One plate per colour (a Bambu project, for a printer without an AMS); not in one colour. */
+  platePerColour?: boolean;
   /** Print settings to embed (Bambu project format); null = plain 3MF. */
   print: { ai: PrintProfile; user: PrintProfile } | null;
   /** Gets the Bambu template the project was built on (it may have just been built). */
@@ -62,14 +67,16 @@ export async function exportParts(format: ExportFormat, result: EvalResult, part
     // A LayerTone print's filament changes and layer heights only exist in a Bambu project: without
     // print settings it still gets one with the script's (when Bambu Studio is there to build it).
     // So does a coloured mesh's painting (Bambu Studio's paint_color). In one colour there are neither.
-    const layerTone = !threeMf.oneColour && parts.some((p) => p.layerColors?.length || p.paint);
+    // One plate per colour is a Bambu project too.
+    const byColour = !threeMf.oneColour && !!threeMf.platePerColour && bambuProjectSupported();
+    const layerTone = byColour || (!threeMf.oneColour && parts.some((p) => p.layerColors?.length || p.paint));
     // A printer with no Bambu project yet (two nozzles): a plain 3MF, without print settings.
     const print = bambuProjectSupported() ? threeMf.print : null;
     if (!print && !layerTone) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
     const tpl = print ? await api.bambuTemplate() : await api.bambuTemplate().catch(() => null);
     if (!tpl) return buildProject({ kind: '3mf', parts, title, oneColour: threeMf.oneColour });
     threeMf.onTemplate?.(tpl);
-    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { oneColour: threeMf.oneColour, print: print ?? { ai: result.print, user: {} } } });
+    return buildProject({ kind: 'bambu', parts, title, tpl, opts: { oneColour: threeMf.oneColour, platePerColour: byColour, print: print ?? { ai: result.print, user: {} } } });
   }
   if (format === 'blend') return toBlend(result, parts, title, code);
   if (format === 'glb') return toGlb(parts, title, threeMf.glb ?? { upright: isFlat(parts) });

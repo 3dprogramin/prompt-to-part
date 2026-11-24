@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { usePopover } from './usePopover';
-import type { ExportFormat } from '../lib/export';
+import type { ExportFormat, ThreeMfChoice } from '../lib/export';
 import type { GlbOptions } from '../lib/glb';
 import { bambuProjectSupported, profileName, shortName } from '../../shared/printer';
 
@@ -14,14 +14,21 @@ type Blender = { version: string; problem: string | null } | null;
 type MainExport = 'stl' | '3mf' | 'blend' | 'glb' | 'project';
 let lastExport: MainExport = '3mf';
 
-export function ExportButton({ disabled, exporting, onExport, blender, count, bambu, printChanges, threeMf, onThreeMf, oneColour, onOneColour, onExport3mf, onExportProject, painted, flat }: {
+/** How many filament colours the parts print with (their colours, a LayerTone part's stack and a painted part's). */
+export function colourCount(parts: { color: string; layerColors?: { color: string }[]; paint?: { filaments: { color: string }[] } }[]): number {
+  return new Set(parts.flatMap((p) => [p.color, ...(p.layerColors ?? []).map((l) => l.color), ...(p.paint?.filaments ?? []).map((f) => f.color)]).map((c) => c.toLowerCase())).size;
+}
+
+export function ExportButton({ disabled, exporting, onExport, blender, count, colours, bambu, printChanges, threeMf, onThreeMf, oneColour, onOneColour, onExport3mf, onExportProject, painted, flat }: {
   disabled: boolean; exporting: boolean; onExport: (f: ExportFormat, glb?: GlbOptions) => void; blender: Blender; count: number;
   /** The model is a flat piece (wall art, a sign): its GLB stands upright unless unticked. */
   flat: boolean;
   /** A part has a coloured mesh's colours, which only the 3MF keeps. */
   painted: boolean;
-  bambu: string | null; printChanges: number; threeMf: { print: boolean };
-  onThreeMf: (o: { print: boolean }) => void;
+  /** The filament colours the shown parts use (colourCount): one plate per colour only for more than one. */
+  colours: number;
+  bambu: string | null; printChanges: number; threeMf: ThreeMfChoice;
+  onThreeMf: (o: ThreeMfChoice) => void;
   /** The design prints in one colour (the Print tab's switch; "Colours (AMS)" is its opposite). */
   oneColour: boolean; onOneColour: (on: boolean) => void; onExport3mf: () => void; onExportProject: () => void;
 }) {
@@ -37,12 +44,13 @@ export function ExportButton({ disabled, exporting, onExport, blender, count, ba
   const pick = (f: ExportFormat) => { setOpen(false); setMain(f === 'blend' ? 'blend' : 'stl'); onExport(f); };
   const project = !!bambu && bambuProjectSupported();
   const printOn = threeMf.print && project;
+  const byColour = project && colours > 1 && !oneColour && threeMf.platePerColour;
   // Blender gone since it was picked: STL.
   const now: MainExport = main === 'blend' && (!blender || blender.problem) ? 'stl' : main;
   const run = () => (now === '3mf' ? onExport3mf() : now === 'project' ? onExportProject() : now === 'glb' ? onExport('glb', { upright }) : onExport(now));
   const label = { stl: 'Export STL', '3mf': 'Export 3MF', blend: 'Export .blend', glb: 'Export GLB', project: 'Export project' }[now];
   const title = now === 'stl' ? `${count > 1 ? `Export ${count} parts as one STL` : 'Export STL'}${painted ? ' (geometry only: the figure\'s colours are only in the 3MF)' : ''}`
-    : now === '3mf' ? `Export 3MF for Bambu Studio (${oneColour ? 'one filament' : 'colours (AMS)'}${printOn ? ', with print settings' : ''}); the arrow changes the format`
+    : now === '3mf' ? `Export 3MF for Bambu Studio (${oneColour ? 'one filament' : byColour ? 'one plate per colour' : 'colours (AMS)'}${printOn ? ', with print settings' : ''}); the arrow changes the format`
     : now === 'blend' ? 'Export a Blender file; the arrow changes the format'
     : now === 'glb' ? `Export a GLB for a shop's 3D view (${upright ? 'upright, as on a wall' : 'lying, as printed'}); the arrow changes the format` : 'Export the project folder; the arrow changes the format';
   return (
@@ -56,21 +64,8 @@ export function ExportButton({ disabled, exporting, onExport, blender, count, ba
           project={() => { setOpen(false); setMain('project'); onExportProject(); }} />
       )}
       {open === '3mf' && (
-        <div className="export-menu threemf">
-          <div className="tm-title">Export 3MF for Bambu Studio</div>
-          <label className="check">
-            <input type="checkbox" checked={!oneColour} onChange={(e) => onOneColour(!e.target.checked)} />
-            <span><b>Colours (AMS)</b><small>One filament per part colour{painted ? '; a coloured figure comes painted with its filaments' : ''}. Off = everything in one filament (“Print in one colour” in the Print tab, saved with the design).</small></span>
-          </label>
-          <label className={`check ${project ? '' : 'off'}`}>
-            <input type="checkbox" disabled={!project} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
-            <span><b>Print settings</b><small>{!bambu ? 'Needs Bambu Studio installed on this computer.'
-              : !project ? `Not yet for the ${shortName()} (two nozzles): a plain 3MF.`
-              : printChanges ? `${shortName()} · PLA · ${profileName().replace(' mm', '')} with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
-                : `${shortName()} · PLA · ${profileName().replace(' mm', '')} profile, no changes.`}</small></span>
-          </label>
-          <button className="btn primary wide" onClick={() => { setOpen(false); setMain('3mf'); onExport3mf(); }}><Icon name="download" size={14} /> Export 3MF</button>
-        </div>
+        <ThreeMfMenu colours={colours} oneColour={oneColour} onOneColour={onOneColour} painted={painted} bambu={bambu} printChanges={printChanges}
+          threeMf={threeMf} onThreeMf={onThreeMf} onExport={() => { setOpen(false); setMain('3mf'); onExport3mf(); }} />
       )}
       {open === 'glb' && (
         <div className="export-menu threemf">
@@ -83,6 +78,44 @@ export function ExportButton({ disabled, exporting, onExport, blender, count, ba
           <button className="btn primary wide" onClick={() => { setOpen(false); setMain('glb'); onExport('glb', { upright }); }}><Icon name="download" size={14} /> Export GLB</button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Export ▸ 3MF…: colours (AMS) or one filament, one plate per colour (a Bambu project of more than
+ * one colour, not in one filament), print settings, and the Export 3MF button.
+ */
+export function ThreeMfMenu({ colours, oneColour, onOneColour, painted, bambu, printChanges, threeMf, onThreeMf, onExport }: {
+  colours: number; oneColour: boolean; onOneColour: (on: boolean) => void; painted: boolean; bambu: string | null; printChanges: number;
+  threeMf: ThreeMfChoice; onThreeMf: (o: ThreeMfChoice) => void; onExport: () => void;
+}) {
+  const project = !!bambu && bambuProjectSupported();
+  const printOn = threeMf.print && project;
+  const byColour = project && colours > 1 && !oneColour && threeMf.platePerColour;
+  return (
+    <div className="export-menu threemf">
+      <div className="tm-title">Export 3MF for Bambu Studio</div>
+      <label className="check">
+        <input type="checkbox" checked={!oneColour} onChange={(e) => onOneColour(!e.target.checked)} />
+        <span><b>Colours (AMS)</b><small>One filament per part colour{painted ? '; a coloured figure comes painted with its filaments' : ''}. Off = everything in one filament (“Print in one colour” in the Print tab, saved with the design).</small></span>
+      </label>
+      {project && colours > 1 && (
+        <label className={`check ${oneColour ? 'off' : ''}`}>
+          <input type="checkbox" disabled={oneColour} checked={byColour} onChange={(e) => onThreeMf({ ...threeMf, platePerColour: e.target.checked })} />
+          <span><b>One plate per colour</b><small>{oneColour ? 'Needs Colours (AMS): everything prints in one filament now.'
+            : 'No AMS: each plate prints one filament, its parts packed onto as few plates as fit. Parts of several colours that touch get a plate of their own.'}</small></span>
+        </label>
+      )}
+      <label className={`check ${project ? '' : 'off'}`}>
+        <input type="checkbox" disabled={!project} checked={printOn} onChange={(e) => onThreeMf({ ...threeMf, print: e.target.checked })} />
+        <span><b>Print settings</b><small>{!bambu ? 'Needs Bambu Studio installed on this computer.'
+          : !project ? `Not yet for the ${shortName()} (two nozzles): a plain 3MF.`
+          : printChanges ? `${shortName()} · PLA · ${profileName().replace(' mm', '')} with ${printChanges} changed setting${printChanges > 1 ? 's' : ''} (see the Print tab).`
+            : `${shortName()} · PLA · ${profileName().replace(' mm', '')} profile, no changes.`}</small></span>
+      </label>
+      <button className="btn primary wide" onClick={onExport}><Icon name="download" size={14} /> Export 3MF</button>
     </div>
   );
 }

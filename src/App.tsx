@@ -44,6 +44,7 @@ import { useSizes, visibleSize } from './hooks/useSizes';
 import { sizeText } from '../shared/sizes';
 import { setCurrency } from '../shared/cost';
 import { load, store } from './lib/storage';
+import type { ThreeMfChoice } from './lib/export';
 import type { PhotoView, PlaybackStep, ViewerOptions } from './viewer/Viewer';
 import type { TrueScale } from '../shared/photos';
 import type { ValidationState } from './components/ValidationPanel';
@@ -225,8 +226,11 @@ export default function App() {
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [blender, setBlender] = useState<{ version: string; problem: string | null } | null>(null);
   const [bambu, setBambu] = useState<string | null>(null);
-  // Export ▸ 3MF…: print settings in the 3MF or not (colours follow the design's "Print in one colour").
-  const [threeMf, setThreeMf] = useState<{ print: boolean }>(() => ({ print: load('threeMf', { print: true }).print !== false }));
+  // Export ▸ 3MF…: print settings in the 3MF or not, one plate per colour or not (colours follow the design's "Print in one colour").
+  const [threeMf, setThreeMf] = useState<ThreeMfChoice>(() => {
+    const saved = load<Partial<ThreeMfChoice>>('threeMf', { print: true });
+    return { print: saved.print !== false, platePerColour: saved.platePerColour === true };
+  });
   useEffect(() => store('threeMf', threeMf), [threeMf]);
   const [exportError, setExportError] = useState<string | null>(null);
   // What "Export project…" is making ("3MF"), while it runs.

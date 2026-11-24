@@ -6,7 +6,7 @@ import { defaultsFromTemplate, ONE_COLOUR_KEY, parseOneColour, parseProfile, PRI
 import { bambuProjectSupported } from '../../shared/printer';
 import { api } from '../lib/api';
 import { download, slug } from '../lib/files';
-import { exportParts, type ExportFormat } from '../lib/export';
+import { exportParts, type ExportFormat, type ThreeMfChoice } from '../lib/export';
 import type { GlbOptions } from '../lib/glb';
 import { chooseTarget, exportProject, type ProjectTarget } from '../lib/projectExport';
 import { oneColourFilament } from '../lib/bambu3mf';
@@ -33,7 +33,7 @@ export function designExports({ design, geo, hiddenParts, fullValues, exportSize
   layoutValue: string | undefined;
   printHints: PrintState['printHints']; oneColour: PrintState['oneColour']; userPrint: PrintProfile;
   printBase: Required<PrintSettings>; setPrintBase: Dispatch<SetStateAction<Required<PrintSettings>>>;
-  threeMf: { print: boolean }; bambu: string | null; blender: { version: string; problem: string | null } | null;
+  threeMf: ThreeMfChoice; bambu: string | null; blender: { version: string; problem: string | null } | null;
   setExporting: Dispatch<SetStateAction<boolean>>; setExportError: Dispatch<SetStateAction<string | null>>; setExportStage: Dispatch<SetStateAction<string | null>>;
   setNotice: Dispatch<SetStateAction<Notice | null>>;
   setValidation: Dispatch<SetStateAction<ValidationState | null>>; setValidationOpen: Dispatch<SetStateAction<boolean>>;
@@ -61,6 +61,7 @@ export function designExports({ design, geo, hiddenParts, fullValues, exportSize
     const print = withPrint && bambu ? { ai: r.print, user: parseProfile(values[PRINT_KEY]) } : null;
     const blob = await exportParts(format, r, parts, r.meta.name || design.name, design.code, {
       oneColour: colour ? oneColourFilament(parts, colour).colour : null,
+      platePerColour: threeMf.platePerColour,
       print,
       // The template's profile becomes the baseline shown in the Print tab.
       onTemplate: (tpl) => setPrintBase(defaultsFromTemplate(tpl.settings)),

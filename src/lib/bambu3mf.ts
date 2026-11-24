@@ -8,6 +8,8 @@ import { bedShift, printer } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import type { LayerColor } from '../../shared/layertone';
+import { colourFamilies } from '../../shared/filaments';
+import { FILAMENT_LIBRARY } from '../../shared/filamentLibrary';
 import { CONTENT_TYPES, esc, metaXml, num, type ThreeMfMeta } from './threeMf';
 
 /**
@@ -116,6 +118,133 @@ function platesOf(parts: PartMesh[], tpl: BambuTemplate): { parts: number[]; shi
     const footprint = { min: [0, 1].map((a) => Math.min(...mine.map((i) => parts[i].bbox.min[a])) + [x, y][a]), max: [0, 1].map((a) => Math.max(...mine.map((i) => parts[i].bbox.max[a])) + [x, y][a]) };
     return { parts: mine, shift: [x + (k % cols) * bedW * 1.2, y - Math.floor(k / cols) * bedD * 1.2, z], name: own ? mine.map((i) => parts[i].name).join(', ') : '', footprint };
   });
+}
+
+/** One plate per colour: space kept between packed objects, and between them and the bed's edge (mm). */
+const PACK_GAP = 5;
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+/**
+ * A bed being packed with rectangles (MaxRects: the free space as overlapping maximal rectangles;
+ * each new one goes where it leaves the shortest side over, turned 90° when that fits better).
+ */
+class PackedBed {
+  private free: Rect[];
+  constructor(w: number, h: number) { this.free = [{ x: 0, y: 0, w, h }]; }
+
+  /** Where a w × h rectangle goes (its corner, and whether it is turned), null when it doesn't fit. */
+  fit(w: number, h: number): { x: number; y: number; turned: boolean } | null {
+    let best: { x: number; y: number; turned: boolean; score: number } | null = null;
+    for (const r of this.free) for (const turned of [false, true]) {
+      const [rw, rh] = turned ? [h, w] : [w, h];
+      if (rw > r.w + 1e-9 || rh > r.h + 1e-9) continue;
+      // Shortest side left over, then the lowest, leftmost spot (packs from a corner).
+      const score = Math.min(r.w - rw, r.h - rh) * 1e6 + r.y * 1e3 + r.x;
+      if (!best || score < best.score) best = { x: r.x, y: r.y, turned, score };
+    }
+    return best && { x: best.x, y: best.y, turned: best.turned };
+  }
+
+  /** Takes a rectangle out of the free space. */
+  place(u: Rect) {
+    const next: Rect[] = [];
+    for (const r of this.free) {
+      if (u.x >= r.x + r.w || u.x + u.w <= r.x || u.y >= r.y + r.h || u.y + u.h <= r.y) { next.push(r); continue; }
+      if (u.x > r.x) next.push({ x: r.x, y: r.y, w: u.x - r.x, h: r.h });
+      if (u.x + u.w < r.x + r.w) next.push({ x: u.x + u.w, y: r.y, w: r.x + r.w - u.x - u.w, h: r.h });
+      if (u.y > r.y) next.push({ x: r.x, y: r.y, w: r.w, h: u.y - r.y });
+      if (u.y + u.h < r.y + r.h) next.push({ x: r.x, y: u.y + u.h, w: r.w, h: r.y + r.h - u.y - u.h });
+    }
+    const inside = (a: Rect, b: Rect) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+    this.free = next.filter((a, i) => !next.some((b, j) => j !== i && inside(a, b) && (!inside(b, a) || j < i)));
+  }
+}
+
+/** A plate name for a filament: its own name, else the library's for that exact colour ("Gold"), else a colour word ("Red"). */
+function filamentLabel(f: { colour: string; name?: string }): string {
+  if (f.name) return f.name;
+  const lib = FILAMENT_LIBRARY.find((l) => l.color.toUpperCase() === f.colour);
+  if (lib) return lib.line && lib.name.startsWith(`${lib.line} `) ? lib.name.slice(lib.line.length + 1) : lib.name;
+  const word = colourFamilies(f.colour)[0];
+  return word[0].toUpperCase() + word.slice(1);
+}
+
+/** Where the objects go: each group of touching parts (a Bambu object), its plate, and how it is moved (and turned) onto it. */
+interface Layout {
+  /** The plates: their names, their objects' footprint (x, y on the plate) and whether they print more than one filament (a prime tower). */
+  plates: { name: string; footprint: { min: number[]; max: number[] }; tower: boolean }[];
+  groups: { parts: number[]; plate: number; shift: number[]; turned: boolean }[];
+}
+
+/** The default layout (platesOf): the design's plates, each moved as a block onto its bed. */
+function designLayout(parts: PartMesh[], tpl: BambuTemplate): Layout {
+  const plates = platesOf(parts, tpl);
+  return {
+    plates: plates.map((pl) => ({ name: pl.name, footprint: pl.footprint, tower: true })),
+    groups: plates.flatMap((pl, k) => clusters(pl.parts.map((i) => parts[i])).map((g) => ({ parts: g.map((j) => pl.parts[j]), plate: k, shift: [...pl.shift], turned: false }))),
+  };
+}
+
+/**
+ * One plate per colour, for a printer without an AMS: the groups of touching parts (clustered on
+ * each design plate) by their filament, each colour's packed onto as few beds as fit, the biggest
+ * first, PACK_GAP apart and from the edge; a group of several filaments (an inlay, a painted or
+ * LayerTone part) gets a plate of its own. Plates in the filaments' order, those of several last.
+ */
+function colourLayout(parts: PartMesh[], tpl: BambuTemplate, plan: FilamentPlan): Layout {
+  const design = platesOf(parts, tpl);
+  const groups = design.flatMap((pl) => clusters(pl.parts.map((i) => parts[i])).map((g) => g.map((j) => pl.parts[j])));
+  const [bedW, bedD] = bedSize(tpl);
+  const box = (g: number[]) => ({ min: [0, 1, 2].map((k) => Math.min(...g.map((i) => parts[i].bbox.min[k]))), max: [0, 1, 2].map((k) => Math.max(...g.map((i) => parts[i].bbox.max[k]))) });
+  const filamentsOf = (g: number[]) => [...new Set(g.flatMap((i) => [plan.slot[i], ...plan.paint[i], ...plan.changes[i].map((c) => c.filament), ...(plan.backText[i] ? [plan.backText[i]] : [])]))].sort((a, b) => a - b);
+
+  // Plates in order; `beds` packs each single-filament plate.
+  const plates: (Layout['plates'][number] & { filament: number; bed?: PackedBed })[] = [];
+  const out: Layout['groups'] = [];
+  const mixed: number[][] = [];
+  const single = groups.map((g) => ({ g, f: filamentsOf(g), b: box(g) })).filter((x) => (x.f.length > 1 ? (mixed.push(x.g), false) : true));
+  single.sort((a, b) => a.f[0] - b.f[0] || (b.b.max[0] - b.b.min[0]) * (b.b.max[1] - b.b.min[1]) - (a.b.max[0] - a.b.min[0]) * (a.b.max[1] - a.b.min[1]));
+  // A bed with the gap added on the far sides: each object takes its size plus the gap.
+  const W = bedW - 2 * PACK_GAP + PACK_GAP, D = bedD - 2 * PACK_GAP + PACK_GAP;
+  for (const { g, f, b } of single) {
+    const w = b.max[0] - b.min[0] + PACK_GAP, d = b.max[1] - b.min[1] + PACK_GAP;
+    let k = plates.findIndex((pl) => pl.filament === f[0] && pl.bed?.fit(w, d));
+    if (k < 0) k = plates.push({ name: '', footprint: { min: [0, 0], max: [0, 0] }, tower: false, filament: f[0], bed: new PackedBed(W, D) }) - 1;
+    const spot = plates[k].bed!.fit(w, d);
+    const c = [0, 1, 2].map((a) => (b.min[a] + b.max[a]) / 2);
+    if (!spot) {
+      // Bigger than the bed even turned: alone on it, centred (Bambu Studio says it doesn't fit).
+      plates[k].bed = undefined;
+      out.push({ parts: g, plate: k, shift: [bedW / 2 - c[0], bedD / 2 - c[1], -b.min[2]], turned: false });
+      continue;
+    }
+    const [pw, pd] = spot.turned ? [d, w] : [w, d];
+    plates[k].bed!.place({ x: spot.x, y: spot.y, w: pw, h: pd });
+    out.push({ parts: g, plate: k, shift: [PACK_GAP + spot.x + (pw - PACK_GAP) / 2 - c[0], PACK_GAP + spot.y + (pd - PACK_GAP) / 2 - c[1], -b.min[2]], turned: spot.turned });
+  }
+  // Names: the filament's, numbered from the second plate of the same one; the same name for two
+  // filaments gets their colours.
+  const labels = plan.filaments.map(filamentLabel);
+  const shared = (f: number) => plan.filaments.some((_, i) => i !== f - 1 && labels[i] === labels[f - 1] && plates.some((pl) => pl.filament === i + 1));
+  const label = (f: number) => (shared(f) ? `${labels[f - 1]} ${plan.filaments[f - 1].colour}` : labels[f - 1]);
+  plates.forEach((pl, k) => {
+    const nth = plates.slice(0, k + 1).filter((p) => p.filament === pl.filament).length;
+    pl.name = nth > 1 ? `${label(pl.filament)} ${nth}` : label(pl.filament);
+  });
+  for (const g of mixed) {
+    const b = box(g), f = filamentsOf(g);
+    const main = g.reduce((a, x) => (parts[x].volume > parts[a].volume ? x : a));
+    const object = g.length > 1 ? `${parts[main].name} (+${g.length - 1})` : parts[main].name;
+    const list = f.length <= 3 ? ` (${f.map((x) => labels[x - 1]).join(' + ')})` : '';
+    const shift = [bedW / 2 - (b.min[0] + b.max[0]) / 2, bedD / 2 - (b.min[1] + b.max[1]) / 2, -b.min[2]];
+    const k = plates.push({ name: `${object}: ${f.length} colours${list}`, footprint: { min: [0, 1].map((a) => b.min[a] + shift[a]), max: [0, 1].map((a) => b.max[a] + shift[a]) }, tower: true, filament: 0 }) - 1;
+    out.push({ parts: g, plate: k, shift, turned: false });
+  }
+  // Bambu Studio's plate grid (platesOf): as many columns as the square root of the plates, rounded up.
+  const cols = Math.ceil(Math.sqrt(plates.length) - 1e-9);
+  for (const o of out) { o.shift[0] += (o.plate % cols) * bedW * 1.2; o.shift[1] -= Math.floor(o.plate / cols) * bedD * 1.2; }
+  return { plates: plates.map(({ name, footprint, tower }) => ({ name, footprint, tower })), groups: out };
 }
 
 /** Contact grid (mm): surfaces closer than this touch; more than about three cells apart, never. */
@@ -447,6 +576,12 @@ export function toBambuProject(
   opts: {
     /** Print everything in this one filament colour (#RRGGBB): no painting, no LayerTone filament changes. */
     oneColour?: string | null;
+    /**
+     * One plate per colour (a printer without an AMS): each plate holds one filament's objects,
+     * packed onto as few beds as fit; an object of several filaments gets a plate of its own.
+     * Ignored in one colour.
+     */
+    platePerColour?: boolean;
     print: { ai: PrintProfile; user: PrintProfile } | null;
     /** Written as `<metadata name="...">` in 3D/3dmodel.model (Designer replaces the default). */
     meta?: ThreeMfMeta;
@@ -472,26 +607,29 @@ export function toBambuProject(
   const slot = parts.map((_, i) => (multi ? plan.slot[i] : 1));
 
   // Whole model moved as one onto the plate (same placement as the viewer); parts with plates of
-  // their own (a big piece split into pieces) each onto theirs, centred there.
-  const plates = platesOf(parts, tpl);
+  // their own (a big piece split into pieces) each onto theirs, centred there. Or one plate per colour.
+  const byColour = multi && !!opts.platePerColour;
+  const { plates, groups: layout } = byColour ? colourLayout(parts, tpl, plan) : designLayout(parts, tpl);
+  // Plates of one filament print without a prime tower.
+  if (byColour && !plates.some((pl) => pl.tower)) globalChanges.enable_prime_tower = '0';
   // The prime tower (bigger with every filament) beside the model on each plate, the model moved
   // aside if it doesn't fit beside it centred. Without room for it anywhere there is none: the A1
   // purges into its chute.
   const n = colours.length, tower = !globalChanges.enable_prime_tower && n > 1;
   const bed = bedSize(tpl);
-  const towers = tower ? plates.map((pl) => placeTower(pl.footprint, n, bed)) : [];
+  // A plate of one filament has no tower: its spot stays the template's.
+  const still = { spot: [0, 1].map((k) => Number((tpl.settings[k ? 'wipe_tower_y' : 'wipe_tower_x'] as string[] | undefined)?.[0] ?? 0)) as [number, number], move: [0, 0] as [number, number] };
+  const towers = tower ? plates.map((pl) => (pl.tower ? placeTower(pl.footprint, n, bed) : still)) : [];
   if (towers.some((t) => !t)) globalChanges.enable_prime_tower = '0';
-  else towers.forEach((t, k) => { plates[k].shift[0] += t!.move[0]; plates[k].shift[1] += t!.move[1]; });
+  else for (const g of layout) { g.shift[0] += towers[g.plate]?.move[0] ?? 0; g.shift[1] += towers[g.plate]?.move[1] ?? 0; }
 
   const files: Record<string, Uint8Array> = {};
   const resources: string[] = [], items: string[] = [], rels: string[] = [], objectCfg: string[] = [], instances: string[] = [];
   const header = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n`;
   let nextId = 1;
 
-  const groups = plates.flatMap((pl) => clusters(pl.parts.map((i) => parts[i])).map((g) => g.map((k) => pl.parts[k])));
-  const plateOfGroup = groups.map((g) => plates.findIndex((pl) => pl.parts.includes(g[0])));
-  groups.forEach((group, gi) => {
-    const shift = plates[plateOfGroup[gi]].shift;
+  const groups = layout.map((g) => g.parts);
+  layout.forEach(({ parts: group, plate, shift, turned }, gi) => {
     const gb = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
     for (const i of group) for (let k = 0; k < 3; k++) { gb.min[k] = Math.min(gb.min[k], parts[i].bbox.min[k]); gb.max[k] = Math.max(gb.max[k], parts[i].bbox.max[k]); }
     const c = [0, 1, 2].map((k) => (gb.min[k] + gb.max[k]) / 2);
@@ -509,7 +647,8 @@ export function toBambuProject(
     files[file] = strToU8(`${header}<resources>${group.map((i, k) => `<object id="${meshIds[k]}" type="model">${meshXml(parts[i], c, painting(i))}</object>`).join('')}${textObjects}</resources>\n<build/>\n</model>`);
     rels.push(`<Relationship Target="/${file}" Id="rel-${gi + 1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
     resources.push(`<object id="${objId}" type="model"><components>${[...meshIds, ...textIds].map((m) => `<component p:path="/${file}" objectid="${m}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`).join('')}</components></object>`);
-    items.push(`<item objectid="${objId}" transform="1 0 0 0 1 0 0 0 1 ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
+    // Turned 90° about z when packed so (3MF: row vectors, x' = -y, y' = x).
+    items.push(`<item objectid="${objId}" transform="${turned ? '0 1 0 -1 0 0 0 0 1' : '1 0 0 0 1 0 0 0 1'} ${num(c[0] + shift[0])} ${num(c[1] + shift[1])} ${num(c[2] + shift[2])}" printable="1"/>`);
     // Objects only carry what differs from the model-wide settings (which live in the project), and
     // each part what differs from its object.
     const own = group.map((i) => (print ? effectiveSettings(print.ai, print.user, parts[i].name, base) : globalSettings));
@@ -521,10 +660,10 @@ export function toBambuProject(
       return `<part id="${meshIds[k]}" subtype="normal_part"><metadata key="name" value="${esc(parts[i].name)}"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${slot[i]}"/>${partOverrides.map(([key, v]) => `<metadata key="${key}" value="${esc(v)}"/>`).join('')}</part>`;
     }).join('') + texts.map((i, k) => `<part id="${textIds[k]}" subtype="modifier_part"><metadata key="name" value="Back text"/><metadata key="matrix" value="${ID}"/><metadata key="extruder" value="${plan.backText[i]}"/></part>`).join('');
     objectCfg.push(`<object id="${objId}"><metadata key="name" value="${esc(name)}"/><metadata key="extruder" value="${slot[main]}"/>${Object.entries(overrides).map(([k, v]) => `<metadata key="${k}" value="${esc(v)}"/>`).join('')}${partCfg}</object>`);
-    instances[plateOfGroup[gi]] = (instances[plateOfGroup[gi]] ?? '') + `<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`;
+    instances[plate] = (instances[plate] ?? '') + `<model_instance><metadata key="object_id" value="${objId}"/><metadata key="instance_id" value="0"/></model_instance>`;
   });
 
-  if (multi) Object.assign(files, filamentChangeFiles(parts, groups, plan, globalSettings.layerHeight, String(tpl.settings.machine_pause_gcode ?? 'M400 U1')));
+  if (multi) Object.assign(files, filamentChangeFiles(parts, groups, plan, globalSettings.layerHeight, String(tpl.settings.machine_pause_gcode ?? 'M400 U1'), !byColour || plates.length === 1));
 
   // Project settings: the user's printer + PLA + its default process, with one filament per colour.
   const settings: Record<string, unknown> = structuredClone(tpl.settings);
@@ -569,14 +708,15 @@ export function toBambuProject(
  * ranges printed in its filaments instead
  * (Metadata/layer_config_ranges.xml; objects by their 1-based order, and the slicer crashes on a
  * range without a layer height). Pauses for AMS slot swaps are slider marks either way; on the
- * same layer as a tool change the pause comes first.
+ * same layer as a tool change the pause comes first. The slider marks are plate 1's: with one plate
+ * per colour (`slider` false unless that is the only plate) height ranges are used.
  */
-function filamentChangeFiles(parts: PartMesh[], groups: number[][], plan: FilamentPlan, layerHeight: number, pauseGcode: string): Record<string, Uint8Array> {
+function filamentChangeFiles(parts: PartMesh[], groups: number[][], plan: FilamentPlan, layerHeight: number, pauseGcode: string, slider: boolean): Record<string, Uint8Array> {
   const changing = groups.map((g) => (g.length === 1 && plan.changes[g[0]].length ? g[0] : -1));
   if (changing.every((i) => i < 0)) return {};
   const key = (i: number) => JSON.stringify([plan.slot[i], plan.changes[i]]);
   // A back text is a modifier in its own filament: slider tool changes would switch it too.
-  const onSlider = changing.every((i) => i >= 0 && !plan.backText[i]) && new Set(changing.map(key)).size === 1;
+  const onSlider = slider && changing.every((i) => i >= 0 && !plan.backText[i]) && new Set(changing.map(key)).size === 1;
   const label = (f: number) => plan.filaments[f - 1].name || plan.filaments[f - 1].colour;
   // Slider marks by top_z (one pause and one tool change at most per layer).
   const pauses = new Map<number, string>(), toolChanges = new Map<number, string>();
