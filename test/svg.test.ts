@@ -78,3 +78,18 @@ test('scripts use attached drawings with H.svg', () => {
   assert.throws(() => evaluateScript("function build() { return H.svg('logo.svg').extrude(1); }", values, 'draft'), /no attached drawing named "logo.svg" \(attached: "cap.svg"\)/);
 });
 
+
+test('placement with a picked point, offset, rotation and wrap stays where it was', () => {
+  const at = (f: Partial<ReturnType<typeof newSvgFeature>>, code = CUBE) => {
+    const r = evaluateScript(code, { [SVG_KEY]: JSON.stringify([newSvgFeature('s', ring, { size: 10, depth: 1, ...f })]) }, 'draft');
+    return [...r.bbox!.min, ...r.bbox!.max].map((v) => +v.toFixed(3)).join(' ') + ` v${r.parts[0].volume.toFixed(1)}`;
+  };
+  const CYL = 'function build() { return Manifold.cylinder(30, 15, 15, 96); }';
+  const got = [
+    at({ face: 'front', offset: [5, 2], rotation: 30 }),
+    at({ face: 'pick', anchor: [1, 0.25, 0.5], normal: [1, 0, 0], offset: [3, -1] }),
+    at({ face: 'front', curve: 'wrap' }, CYL),
+    at({ face: 'right', curve: 'wrap', wrapRadius: 20, mode: 'engrave' }, CYL),
+  ];
+  assert.deepEqual(got, ['-20 -21 0 20 20 16.062 v16088.2', '-20 -20 -1 21 20 10 v16079.0', '-15 -16 0 15 15 30 v21268.4', '-15 -15 0 15 15 30 v21190.6']);
+});

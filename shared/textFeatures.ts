@@ -96,6 +96,17 @@ export function applyTextFeatures(shape: Manifold, features: TextFeature[], C: t
  * was clicked however much is added.
  */
 export function placeOnSurface(out: Manifold, base: { min: ArrayLike<number>; max: ArrayLike<number> }, f: SurfacePlacement, cs: CrossSection): Manifold {
+  const z0 = f.mode === 'emboss' ? -SINK : -f.depth;
+  const h = f.mode === 'emboss' ? f.depth + SINK : f.depth + CLEAR;
+  const solid = surfacePlacer(out, base, f)(cs.extrude(h).translate([0, 0, z0]));
+  return f.mode === 'emboss' ? out.add(solid) : out.subtract(solid);
+}
+
+/**
+ * Where `f` puts things on `out`: a function that moves a solid built flat (centred on (0, 0), y
+ * up, z out of the surface, 0 on it) onto the surface, wrapped round it with curve 'wrap'.
+ */
+export function surfacePlacer(out: Manifold, base: { min: ArrayLike<number>; max: ArrayLike<number> }, f: SurfacePlacement): (flat: Manifold) => Manifold {
   const bb = out.boundingBox();
   const size: Vec3 = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
   const preset = f.face === 'pick' ? { anchor: f.anchor, normal: f.normal } : FACE_DIRS[f.face];
@@ -125,10 +136,6 @@ export function placeOnSurface(out: Manifold, base: { min: ArrayLike<number>; ma
   }
   P = [P[0] + right[0] * f.offset[0] + up[0] * f.offset[1], P[1] + right[1] * f.offset[0] + up[1] * f.offset[1], P[2] + right[2] * f.offset[0] + up[2] * f.offset[1]];
 
-  const z0 = f.mode === 'emboss' ? -SINK : -f.depth;
-  const h = f.mode === 'emboss' ? f.depth + SINK : f.depth + CLEAR;
-  let solid: Manifold = cs.extrude(h).translate([0, 0, z0]);
-
   if (f.curve === 'wrap' && Math.abs(n[2]) < 0.9) {
     // Wrap around a vertical cylinder whose axis passes through the part's bbox centre.
     const cx = (bb.min[0] + bb.max[0]) / 2, cy = (bb.min[1] + bb.max[1]) / 2;
@@ -136,7 +143,7 @@ export function placeOnSurface(out: Manifold, base: { min: ArrayLike<number>; ma
     const theta0 = Math.atan2(P[1] - cy, P[0] - cx);
     // In-plane rotation for wrapped shapes is applied in 2D before bending.
     const c = Math.cos(rot), s = Math.sin(rot);
-    solid = solid.refineToLength(Math.max(0.4, R / 50)).warp((v) => {
+    return (solid) => solid.refineToLength(Math.max(0.4, R / 50)).warp((v) => {
       const x = v[0] * c - v[1] * s, y = v[0] * s + v[1] * c, w = v[2];
       const th = theta0 + x / R;
       const r = R + w;
@@ -145,9 +152,7 @@ export function placeOnSurface(out: Manifold, base: { min: ArrayLike<number>; ma
       v[2] = P[2] + y;
     });
     // warp above keeps orientation: x→tangent, y→Z, w→outward forms a right-handed frame
-  } else {
-    const m: number[] = [right[0], right[1], right[2], 0, up[0], up[1], up[2], 0, n[0], n[1], n[2], 0, P[0], P[1], P[2], 1];
-    solid = solid.transform(m as Parameters<Manifold['transform']>[0]);
   }
-  return f.mode === 'emboss' ? out.add(solid) : out.subtract(solid);
+  const m: number[] = [right[0], right[1], right[2], 0, up[0], up[1], up[2], 0, n[0], n[1], n[2], 0, P[0], P[1], P[2], 1];
+  return (solid) => solid.transform(m as Parameters<Manifold['transform']>[0]);
 }
