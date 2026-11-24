@@ -1,65 +1,17 @@
 import { bambuProjectSupported } from '../../shared/printer';
-import { zipSync, strToU8 } from 'fflate';
 import { buildProject } from './projects';
 import type { Box3, DimensionAnnotation, EvalResult, PartMesh, Vec3 } from '../../shared/types';
 import { toBinaryStl } from './files';
 import type { PrintProfile } from '../../shared/print';
-import { bedShift } from '../../shared/printer';
 import type { BambuTemplate, BlendRequest } from '../../shared/api';
 import { api, request } from './api';
-import { CONTENT_TYPES, colourIndex, colourSlots, esc, num } from './threeMf';
 import { boxDimensions } from './dimensions';
 import { isFlat, toGlb, type GlbOptions } from './glb';
 
 export type ExportFormat = 'stl' | '3mf' | 'blend' | 'glb';
 
 
-// ---------------------------------------------------------------------------
-// 3MF. Colours use the Materials extension colour group per triangle – the encoding
-// Bambu Studio reads from non-Bambu files (it offers colour mapping onto filaments). A coloured
-// mesh's triangles each get their filament's colour.
-// ---------------------------------------------------------------------------
-
-/**
- * Exports exactly what the viewer shows: parts keep their positions relative to each other
- * (coloured pieces of one figurine stay attached); the whole model is only lifted onto the
- * plate and centred on the printer's bed. Each part is a named object with its colour.
- */
-export function to3mf(parts: PartMesh[], title: string, oneColour: string | null = null): Blob {
-  // In one colour ("Print in one colour"): one colour for every part, no painting.
-  const { colours: palette, slot: colourIdx } = oneColour ? { colours: [oneColour.toUpperCase()], slot: parts.map(() => 0) } : colourSlots(parts);
-  // One translation for the whole model: rest on the plate, centred on the bed.
-  const shift = bedShift(parts.map((p) => p.bbox));
-
-  const objects = parts.map((p, i) => {
-    const [dx, dy, dz] = shift;
-    const v: string[] = [];
-    for (let k = 0; k < p.positions.length; k += 3) v.push(`<vertex x="${num(p.positions[k] + dx)}" y="${num(p.positions[k + 1] + dy)}" z="${num(p.positions[k + 2] + dz)}"/>`);
-    const t: string[] = [];
-    const ci = colourIdx[i];
-    const pid = ` pid="1" p1="${ci}"`;
-    // A painted part: each triangle its filament's colour.
-    const painted = !oneColour && p.paint?.tri.length === p.indices.length / 3 ? p.paint : undefined;
-    const paintIdx = painted?.filaments.map((f) => colourIndex(palette, f.color));
-    for (let k = 0; k < p.indices.length; k += 3) t.push(`<triangle v1="${p.indices[k]}" v2="${p.indices[k + 1]}" v3="${p.indices[k + 2]}"${painted ? ` pid="1" p1="${paintIdx![painted.tri[k / 3]]}"` : pid}/>`);
-    return `<object id="${i + 2}" name="${esc(p.name)}" type="model" pid="1" pindex="${ci}"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>`;
-  });
-  const resources = objects.join('');
-  const build = parts.map((_, i) => `<item objectid="${i + 2}"/>`).join('');
-  const model = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
-<metadata name="Title">${esc(title)}</metadata>
-<metadata name="Application">prompt-to-part</metadata>
-<resources><m:colorgroup id="1">${palette.map((c) => `<m:color color="${c}FF"/>`).join('')}</m:colorgroup>${resources}</resources>
-<build>${build}</build>
-</model>`;
-  const zip = zipSync({
-    '[Content_Types].xml': strToU8(CONTENT_TYPES),
-    '_rels/.rels': strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>'),
-    '3D/3dmodel.model': strToU8(model),
-  }, { level: 6 });
-  return new Blob([zip], { type: 'model/3mf' });
-}
+export { to3mf } from './threeMf';
 
 const b64 = (arr: Float32Array | Uint32Array) => {
   const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);

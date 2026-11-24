@@ -8,33 +8,13 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { ROOT } from './config';
 import type { FontEntry } from '../shared/api';
+import { STANDARD_FONTS, normalFontName as normal, standardFontFiles, standardFontId, type StandardFont } from '../shared/fontCatalog';
 
-
-const STANDARD: { pkg: string; family: string; weight: number; style: string }[] = [
-  { pkg: 'roboto', family: 'Roboto', weight: 400, style: 'Regular' },
-  { pkg: 'roboto', family: 'Roboto', weight: 700, style: 'Bold' },
-  { pkg: 'roboto', family: 'Roboto', weight: 900, style: 'Black' },
-  { pkg: 'inter', family: 'Inter', weight: 400, style: 'Regular' },
-  { pkg: 'inter', family: 'Inter', weight: 700, style: 'Bold' },
-  { pkg: 'montserrat', family: 'Montserrat', weight: 700, style: 'Bold' },
-  { pkg: 'montserrat', family: 'Montserrat', weight: 900, style: 'Black' },
-  { pkg: 'oswald', family: 'Oswald', weight: 600, style: 'SemiBold' },
-  { pkg: 'roboto-mono', family: 'Roboto Mono', weight: 700, style: 'Bold' },
-  { pkg: 'bebas-neue', family: 'Bebas Neue', weight: 400, style: 'Regular' },
-  { pkg: 'black-ops-one', family: 'Black Ops One', weight: 400, style: 'Regular' },
-  { pkg: 'allerta-stencil', family: 'Allerta Stencil', weight: 400, style: 'Regular' },
-  { pkg: 'pacifico', family: 'Pacifico', weight: 400, style: 'Regular' },
-  { pkg: 'lobster', family: 'Lobster', weight: 400, style: 'Regular' },
-];
 
 const FONTSOURCE = path.join(ROOT, 'node_modules', '@fontsource');
-const stdId = (pkg: string, weight: number) => `std:${pkg}-${weight}`;
 
-function standardFiles(pkg: string, weight: number): string[] {
-  return ['latin', 'latin-ext']
-    .map((sub) => path.join(FONTSOURCE, pkg, 'files', `${pkg}-${sub}-${weight}-normal.woff`))
-    .filter((f) => existsSync(f));
-}
+/** A bundled font's files that exist on disk. */
+const standardFiles = (f: StandardFont): string[] => standardFontFiles(f).map((rel) => path.join(FONTSOURCE, rel)).filter((p) => existsSync(p));
 
 let installed: (FontEntry & { file: string })[] | null = null;
 
@@ -111,24 +91,23 @@ export async function scanFontFolders(folders: string[]): Promise<[string, strin
 }
 
 export async function listFonts(): Promise<FontEntry[]> {
-  const std: FontEntry[] = STANDARD.filter((s) => standardFiles(s.pkg, s.weight).length).map((s) => ({ id: stdId(s.pkg, s.weight), family: s.family, style: s.style, source: 'standard' }));
+  const std: FontEntry[] = STANDARD_FONTS.filter((s) => standardFiles(s).length).map((s) => ({ id: standardFontId(s), family: s.family, style: s.style, source: 'standard' }));
   const sys = (await installedFonts()).map(({ file: _f, ...rest }) => rest);
   return [...std, ...sys];
 }
 
-const normal = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const REGULAR = ['regular', 'book', 'normal', 'roman', 'medium'];
 
 /** Resolve an id, or a loose name like "Bangers" / "Roboto Bold", to font files. */
 export async function resolveFontFiles(name: string): Promise<string[]> {
-  const std = STANDARD.find((s) => stdId(s.pkg, s.weight) === name);
-  if (std) return standardFiles(std.pkg, std.weight);
+  const std = STANDARD_FONTS.find((s) => standardFontId(s) === name);
+  if (std) return standardFiles(std);
   const sys = await installedFonts();
   const exact = sys.find((f) => f.id === name);
   if (exact) return [exact.file];
   const q = normal(name.replace(/^(std|sys):/, ''));
   const all = [
-    ...STANDARD.map((s) => ({ key: normal(s.family + s.style), fam: normal(s.family), style: normal(s.style), files: () => standardFiles(s.pkg, s.weight) })),
+    ...STANDARD_FONTS.map((s) => ({ key: normal(s.family + s.style), fam: normal(s.family), style: normal(s.style), files: () => standardFiles(s) })),
     ...sys.map((f) => ({ key: normal(f.family + f.style), fam: normal(f.family), style: normal(f.style), files: () => [f.file] })),
   ];
   const hit = all.find((f) => f.key === q)

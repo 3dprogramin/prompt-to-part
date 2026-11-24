@@ -8,7 +8,7 @@ import { bedShift, printer } from '../../shared/printer';
 import type { BambuTemplate } from '../../shared/api';
 import type { PartMesh } from '../../shared/types';
 import type { LayerColor } from '../../shared/layertone';
-import { CONTENT_TYPES, esc, num } from './threeMf';
+import { CONTENT_TYPES, esc, metaXml, num, type ThreeMfMeta } from './threeMf';
 
 /**
  * The prime tower's footprint, measured with Bambu Studio 2.8's slicer on the A1 (its rib-wall
@@ -354,6 +354,8 @@ export function toBambuProject(
     /** Print everything in this one filament colour (#RRGGBB): no painting, no LayerTone filament changes. */
     oneColour?: string | null;
     print: { ai: PrintProfile; user: PrintProfile } | null;
+    /** Written as `<metadata name="...">` in 3D/3dmodel.model (Designer replaces the default). */
+    meta?: ThreeMfMeta;
   },
 ): Blob {
   // Model-wide settings go into the project itself, so Bambu shows them in the main Process panel.
@@ -455,7 +457,7 @@ export function toBambuProject(
   const diff = settings.different_settings_to_system as string[];
   diff[0] = Object.keys(globalChanges).sort().join(';');
 
-  files['3D/3dmodel.model'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="Application">BambuStudio-${bambuAppVersion(tpl.version)}</metadata>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n<metadata name="Title">${esc(title)}</metadata>\n<metadata name="Designer">prompt-to-part</metadata>\n<resources>${resources.join('')}</resources>\n<build>${items.join('')}</build>\n</model>`);
+  files['3D/3dmodel.model'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n<metadata name="Application">BambuStudio-${bambuAppVersion(tpl.version)}</metadata>\n<metadata name="BambuStudio:3mfVersion">1</metadata>\n<metadata name="Title">${esc(title)}</metadata>\n<metadata name="Designer">${esc(opts.meta?.Designer || 'prompt-to-part')}</metadata>\n${metaXml(opts.meta ?? {}, ['Designer'])}<resources>${resources.join('')}</resources>\n<build>${items.join('')}</build>\n</model>`);
   files['3D/_rels/3dmodel.model.rels'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>`);
   files['Metadata/model_settings.config'] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n<config>${objectCfg.join('')}${plates.map((pl, k) => `<plate><metadata key="plater_id" value="${k + 1}"/><metadata key="plater_name" value="${esc(pl.name)}"/><metadata key="locked" value="false"/>${instances[k] ?? ''}</plate>`).join('')}<assemble></assemble></config>`);
   files['Metadata/project_settings.config'] = strToU8(JSON.stringify(settings, null, 4));
