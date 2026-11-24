@@ -118,15 +118,109 @@ function platesOf(parts: PartMesh[], tpl: BambuTemplate): { parts: number[]; shi
   });
 }
 
-/** Parts whose boxes touch are one printed object (e.g. coloured pieces of a figurine); a LayerTone part is always its own. */
+/** Contact grid (mm): surfaces closer than this touch; more than about three cells apart, never. */
+const TOUCH_CELL = 0.3;
+/** The first, coarse pass (mm): the fine one only looks where both surfaces come this close. */
+const NEAR_CELL = 2;
+
+type Box3 = { min: number[]; max: number[] };
+
+/** The triangles (index of their first corner in `indices`) whose boxes reach into `box`. */
+function trianglesIn(p: PartMesh, tris: number[] | null, box: Box3): number[] {
+  const P = p.positions, I = p.indices, out: number[] = [];
+  const all = tris ?? Array.from({ length: I.length / 3 }, (_, t) => 3 * t);
+  for (const t of all) {
+    let inside = true;
+    for (let k = 0; k < 3 && inside; k++) {
+      const a = P[3 * I[t] + k], b = P[3 * I[t + 1] + k], c = P[3 * I[t + 2] + k];
+      inside = Math.max(a, b, c) >= box.min[k] && Math.min(a, b, c) <= box.max[k];
+    }
+    if (inside) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Calls `visit` with points at most `cell` / 2 from every point of these triangles inside `box`
+ * (each halved along its longest edge until small), until `visit` returns true.
+ */
+function walkSurface(p: PartMesh, tris: number[], box: Box3, cell: number, visit: (x: number, y: number, z: number) => boolean): boolean {
+  const P = p.positions, I = p.indices, step2 = (cell / 2) ** 2;
+  const d2 = (a: number[], b: number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+  const mid = (a: number[], b: number[]) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  const split = (a: number[], b: number[], c: number[]): boolean => {
+    for (let k = 0; k < 3; k++) if (Math.max(a[k], b[k], c[k]) < box.min[k] || Math.min(a[k], b[k], c[k]) > box.max[k]) return false;
+    const ab = d2(a, b), bc = d2(b, c), ca = d2(c, a), m = Math.max(ab, bc, ca);
+    if (m <= step2) return visit(a[0], a[1], a[2]) || visit(b[0], b[1], b[2]) || visit(c[0], c[1], c[2]);
+    if (m === ab) { const q = mid(a, b); return split(a, q, c) || split(q, b, c); }
+    if (m === bc) { const q = mid(b, c); return split(a, b, q) || split(a, q, c); }
+    const q = mid(c, a);
+    return split(a, b, q) || split(q, b, c);
+  };
+  const v = (i: number) => [P[3 * i], P[3 * i + 1], P[3 * i + 2]];
+  for (const t of tris) if (split(v(I[t]), v(I[t + 1]), v(I[t + 2]))) return true;
+  return false;
+}
+
+/** A grid of `size` mm cells; (i, j, k) as one number, 2^14 per axis (4.9 m at 0.3 mm). */
+const N = 16384;
+const cellKey = (i: number, j: number, k: number) => (i * N + j) * N + k;
+const cellOf = (x: number, size: number) => Math.floor(x / size) + N / 2;
+/** Whether any cell next to (or at) this one is in `set`. */
+function nearCell(set: Set<number>, i: number, j: number, k: number): boolean {
+  for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) for (let dk = -1; dk <= 1; dk++) if (set.has(cellKey(i + di, j + dj, k + dk))) return true;
+  return false;
+}
+
+/**
+ * Whether the two parts' surfaces meet (within TOUCH_CELL), not just their boxes: a piece packed
+ * into the empty corner of an L-shaped part is inside its box but a separate print.
+ */
+function touching(a: PartMesh, b: PartMesh): boolean {
+  const box = { min: [0, 1, 2].map((k) => Math.max(a.bbox.min[k], b.bbox.min[k]) - TOUCH_CELL), max: [0, 1, 2].map((k) => Math.min(a.bbox.max[k], b.bbox.max[k]) + TOUCH_CELL) };
+  if ([0, 1, 2].some((k) => box.min[k] > box.max[k])) return false;
+  // Quick yes: parts cut from the same shapes often share corners where they meet.
+  const corners = new Set<string>(), at = (P: Float32Array, i: number) => `${Math.round(P[i] * 100)},${Math.round(P[i + 1] * 100)},${Math.round(P[i + 2] * 100)}`;
+  for (let i = 0; i < a.positions.length; i += 3) corners.add(at(a.positions, i));
+  for (let i = 0; i < b.positions.length; i += 3) if (corners.has(at(b.positions, i))) return true;
+  const ta = trianglesIn(a, null, box), tb = trianglesIn(b, null, box);
+  if (!ta.length || !tb.length) return false;
+  // Coarse: the NEAR_CELL cells the smaller part's surface passes near (points at most NEAR_CELL / 2 apart).
+  const vol = (p: PartMesh) => [0, 1, 2].reduce((v, k) => v * (p.bbox.max[k] - p.bbox.min[k]), 1);
+  const [big, small, tBig, tSmall] = vol(a) >= vol(b) ? [a, b, ta, tb] : [b, a, tb, ta];
+  const near = new Set<number>();
+  walkSurface(small, tSmall, box, NEAR_CELL, (x, y, z) => { near.add(cellKey(cellOf(x, NEAR_CELL), cellOf(y, NEAR_CELL), cellOf(z, NEAR_CELL))); return false; });
+  // Then the bigger part's, with a fine look at each new cell next to the smaller's, so parts that
+  // touch stop at the first place they do. A point where they touch is within NEAR_CELL / 2 of a
+  // point of `big` and in the same or next cell as `small`'s.
+  const pad = NEAR_CELL / 2 + TOUCH_CELL, seen = new Set<number>();
+  return walkSurface(big, tBig, box, NEAR_CELL, (x, y, z) => {
+    const i = cellOf(x, NEAR_CELL), j = cellOf(y, NEAR_CELL), k = cellOf(z, NEAR_CELL), key = cellKey(i, j, k);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (!nearCell(near, i, j, k)) return false;
+    const local = {
+      min: [i, j, k].map((c, n) => Math.max(box.min[n], (c - N / 2) * NEAR_CELL - pad)),
+      max: [i, j, k].map((c, n) => Math.min(box.max[n], (c - N / 2 + 1) * NEAR_CELL + pad)),
+    };
+    const lb = trianglesIn(big, tBig, local), ls = trianglesIn(small, tSmall, local);
+    if (!lb.length || !ls.length) return false;
+    const fine = new Set<number>();
+    walkSurface(small, ls, local, TOUCH_CELL, (fx, fy, fz) => { fine.add(cellKey(cellOf(fx, TOUCH_CELL), cellOf(fy, TOUCH_CELL), cellOf(fz, TOUCH_CELL))); return false; });
+    return fine.size > 0 && walkSurface(big, lb, local, TOUCH_CELL, (fx, fy, fz) => nearCell(fine, cellOf(fx, TOUCH_CELL), cellOf(fy, TOUCH_CELL), cellOf(fz, TOUCH_CELL)));
+  });
+}
+
+/** Parts that touch are one printed object (e.g. coloured pieces of a figurine); a LayerTone part is always its own. */
 function clusters(parts: PartMesh[]): number[][] {
   const n = parts.length, parent = parts.map((_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
-  const tol = 0.3;
+  const tol = TOUCH_CELL;
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
     const a = parts[i].bbox, b = parts[j].bbox;
     if (parts[i].layerColors?.length || parts[j].layerColors?.length) continue;
-    if ([0, 1, 2].every((k) => a.min[k] <= b.max[k] + tol && a.max[k] + tol >= b.min[k])) parent[find(i)] = find(j);
+    if (find(i) === find(j)) continue;
+    if ([0, 1, 2].every((k) => a.min[k] <= b.max[k] + tol && a.max[k] + tol >= b.min[k]) && touching(parts[i], parts[j])) parent[find(i)] = find(j);
   }
   const groups = new Map<number, number[]>();
   parts.forEach((_, i) => { const r = find(i); groups.set(r, [...(groups.get(r) ?? []), i]); });
