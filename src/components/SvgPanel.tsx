@@ -22,7 +22,7 @@ export function SvgPanel({ result, features, onChange, picking, onPick }: Props)
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const sel = features.find((f) => f.id === selected) ?? null;
-  const parts = result?.parts.map((p) => p.name) ?? [];
+  const parts = result?.parts.filter((p) => !p.qr).map((p) => p.name) ?? [];
 
   const update = (id: string, patch: Partial<SvgFeature>) => onChange(features.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   const add = async (files: FileList | null) => {

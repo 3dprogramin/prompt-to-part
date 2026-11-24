@@ -19,7 +19,7 @@ interface Props {
 export function TextPanel({ result, features, onChange, fonts, picking, onPick }: Props) {
   const [selected, setSelected] = useState<string | null>(features[0]?.id ?? null);
   const sel = features.find((f) => f.id === selected) ?? null;
-  const parts = result?.parts.map((p) => p.name) ?? [];
+  const parts = result?.parts.filter((p) => !p.qr).map((p) => p.name) ?? [];
 
   const update = (id: string, patch: Partial<TextFeature>) => onChange(features.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   const add = () => {

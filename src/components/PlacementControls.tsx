@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import type { SurfacePlacement, TextFace } from '../../shared/textFeatures';
 import { useReleaseSlider } from './useReleaseSlider';
 
-// Controls shared by the Text and SVG tabs: where a flat shape goes on the model, and the
+// Controls shared by the Text, SVG and QR code sections: where a flat shape goes on the model, and the
 // sliders and segmented buttons they use.
 
 export const FACES: [TextFace, string][] = [['top', 'Top'], ['front', 'Front'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'], ['bottom', 'Bottom']];

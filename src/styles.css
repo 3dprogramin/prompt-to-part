@@ -469,6 +469,12 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .hint-line { font-size: 11.5px; color: var(--text-3); margin-top: -4px; }
 .param-note { margin-bottom: 11px; }
 .text-tip { margin: 0; }
+.tab-glyph.qr { font: 700 9.5px/1 var(--mono, monospace); letter-spacing: -0.02em; }
+.text-preview.qr-name { flex: 0 1 auto; }
+.qr-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qr-wifi { display: flex; flex-direction: column; gap: 8px; }
+.qr-summary { display: flex; align-items: center; gap: 12px; }
+.qr-preview { width: 96px; height: 96px; flex: none; border-radius: 4px; box-shadow: 0 0 0 1px var(--line); }
 .font-picker { position: relative; }
 .font-current { width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--input-line); border-radius: 7px; padding: 6px 9px; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .font-current:hover { border-color: #4a505b; }

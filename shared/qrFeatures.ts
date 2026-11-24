@@ -37,6 +37,20 @@ export const QR_COLORS = { code: '#000000', tile: '#ffffff' } as const;
 /** Modules smaller than this (mm) are hard to print sharply with a 0.4 mm nozzle. */
 export const MIN_MODULE = 1;
 
+/** The name of a new code: "QR code", then "QR code 2", "QR code 3"… the first one free. */
+export function nextQrName(features: Pick<QrFeature, 'name'>[]): string {
+  const used = new Set(features.map((f) => f.name));
+  let k = 1;
+  while (used.has(k > 1 ? `QR code ${k}` : 'QR code')) k++;
+  return k > 1 ? `QR code ${k}` : 'QR code';
+}
+
+/** The part a click on `name` places things on: a QR code's tile or modules stand for the part under them. */
+export function pickTarget<P extends { name: string; qr?: { host: string } }>(parts: P[], name: string): P | undefined {
+  const hit = parts.find((p) => p.name === name);
+  return hit?.qr ? parts.find((p) => p.name === hit.qr!.host) : hit;
+}
+
 export function newQrFeature(id: string, partial: Partial<QrFeature> = {}): QrFeature {
   return {
     id, enabled: true, name: 'QR code', kind: 'text', text: '', wifi: { ssid: '', password: '', security: 'WPA', hidden: false },

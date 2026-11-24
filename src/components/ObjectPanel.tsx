@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { EvalResult } from '../../shared/types';
 import type { TextFeature } from '../../shared/textFeatures';
 import type { SvgFeature } from '../../shared/svgFeatures';
+import type { QrFeature } from '../../shared/qrFeatures';
 import type { ExportFormat } from '../lib/export';
 import { Icon } from './Icon';
 import { FilamentPicker } from './FilamentPicker';
@@ -16,8 +17,10 @@ interface Props {
   onTextFeatures: (f: TextFeature[]) => void;
   svgFeatures: SvgFeature[];
   onSvgFeatures: (f: SvgFeature[]) => void;
+  qrFeatures: QrFeature[];
+  onQrFeatures: (f: QrFeature[]) => void;
   /** Open the Text or SVG section to edit a feature. */
-  onEdit: (section: 'text' | 'svg') => void;
+  onEdit: (section: 'text' | 'svg' | 'qr') => void;
   /** The selected part (highlighted in the view); clicking it again clears the selection. */
   selected: string | null;
   onSelect: (name: string | null) => void;
@@ -35,10 +38,12 @@ interface Props {
  */
 export function ObjectPanel(p: Props) {
   const names = p.result.parts.map((x) => x.name);
+  // The model's own parts: text, SVG and QR codes go on these (a QR code's tile and modules are not).
+  const hosts = p.result.parts.filter((x) => !x.qr).map((x) => x.name);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const visible = names.filter((n) => !p.hiddenParts.includes(n));
   // Features without a (known) part go on the first one, as the runtime places them.
-  const onPart = (f: { part?: string }, name: string) => (f.part && names.includes(f.part) ? f.part === name : name === names[0]);
+  const onPart = (f: { part?: string }, name: string) => (f.part && hosts.includes(f.part) ? f.part === name : name === hosts[0]);
   // The filament picker of one part's swatch.
   const [picking, setPicking] = useState<string | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
@@ -55,7 +60,8 @@ export function ObjectPanel(p: Props) {
           const hidden = p.hiddenParts.includes(part.name);
           const texts = p.textFeatures.filter((f) => onPart(f, part.name));
           const svgs = p.svgFeatures.filter((f) => onPart(f, part.name));
-          const children = texts.length + svgs.length;
+          const qrs = part.qr ? [] : p.qrFeatures.filter((f) => onPart(f, part.name));
+          const children = texts.length + svgs.length + qrs.length;
           const open = children > 0 && !collapsed.includes(part.name);
           const b = part.bbox;
           // Its filament as picked: here, or (lines of a line art in another filament) in Edit drawing.
@@ -110,6 +116,14 @@ export function ObjectPanel(p: Props) {
                       <Icon name="shapes" size={13} />
                       <button className="object-child-name" title="Edit in the SVG tab" onClick={() => p.onEdit('svg')}>{f.drawing.name}</button>
                       <span className={`text-mode ${f.mode}`}>{f.mode === 'emboss' ? 'Raised' : 'Engraved'}</span>
+                    </li>
+                  ))}
+                  {qrs.map((f) => (
+                    <li key={f.id} role="treeitem" aria-selected={false} className={`object-row child ${f.enabled ? '' : 'off'}`}>
+                      <button className="icon-btn" disabled={!!p.locked} title={p.locked ?? undefined} aria-pressed={f.enabled} aria-label={`${f.enabled ? 'Hide' : 'Show'} ${f.name}`} onClick={() => p.onQrFeatures(p.qrFeatures.map((x) => (x.id === f.id ? { ...x, enabled: !x.enabled } : x)))}><Icon name={f.enabled ? 'eye' : 'eyeOff'} size={13} /></button>
+                      <span className="tab-glyph qr" aria-hidden>QR</span>
+                      <button className="object-child-name" title="Edit in the QR code section" onClick={() => p.onEdit('qr')}>{f.name}</button>
+                      <span className={`text-mode ${f.style === 'raised' ? 'emboss' : 'engrave'}`}>{f.style === 'raised' ? 'Raised' : 'Flush'}</span>
                     </li>
                   ))}
                 </ul>

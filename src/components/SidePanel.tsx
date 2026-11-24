@@ -15,6 +15,7 @@ import type { RepaintControls } from '../hooks/useRepaint';
 import { MESHES_KEY, parseMeshes } from '../../shared/meshes';
 import type { MeshColor } from '../../shared/meshColors';
 import { SvgPanel } from './SvgPanel';
+import { QrPanel } from './QrPanel';
 import { LayerTonePanel, findLayerTonePart } from './LayerTonePanel';
 import { LithophanePanel, lithophanePart } from './LithophanePanel';
 import { LineArtPanel, lineArtPart } from './LineArtPanel';
@@ -22,6 +23,7 @@ import { hiddenLayerToneParams, maxHeightNote, type LayerToneImage, type LayerTo
 import type { BackTextSetting } from '../../shared/backText';
 import type { LineArtEdits } from '../../shared/lineart';
 import type { SvgFeature } from '../../shared/svgFeatures';
+import type { QrFeature } from '../../shared/qrFeatures';
 import type { useCost } from '../hooks/useCost';
 import { effectiveSettings, type PrintProfile, type PrintSettings } from '../../shared/print';
 import { useReleaseSlider } from './useReleaseSlider';
@@ -124,6 +126,8 @@ interface Props {
   onTextFeatures: (f: TextFeature[]) => void;
   svgFeatures: SvgFeature[];
   onSvgFeatures: (f: SvgFeature[]) => void;
+  qrFeatures: QrFeature[];
+  onQrFeatures: (f: QrFeature[]) => void;
   fonts: FontEntry[];
   picking: string | null;
   onPick: (featureId: string | null) => void;
@@ -147,7 +151,7 @@ export function SidePanel(p: Props) {
     ? <div className="empty-note">The script has an error, so there is no model. <button className="link" onClick={() => setTab('code')}>See the Code tab</button>, or restore an earlier version from the version menu.</div>
     : <div className="empty-note">{what}</div>);
   const hiddenCount = shown ? shown.parts.filter((x) => p.hiddenParts.includes(x.name)).length : 0;
-  const decorations = p.textFeatures.length + p.svgFeatures.length;
+  const decorations = p.textFeatures.length + p.svgFeatures.length + p.qrFeatures.length;
   const layerTonePart = findLayerTonePart(shown);
   // The print's layer heights, as the 3MF uses them (the back text's layer count follows them).
   const eff = effectiveSettings(p.aiPrint, p.userPrint, undefined, p.printBase);
@@ -158,7 +162,7 @@ export function SidePanel(p: Props) {
   // art adds its own on top of the Print tab).
   const tabs: [Tab, React.ReactNode][] = [
     ['object', <><Icon name="cube" size={14} /> Object{hiddenCount ? <span className="count" aria-label={`${hiddenCount} parts hidden`}>{shown!.parts.length - hiddenCount}/{shown!.parts.length}</span> : null}</>],
-    ['decorate', <><Icon name="shapes" size={14} /> Text &amp; SVG{decorations ? <span className="count" aria-label={`${decorations} texts and drawings`}>{decorations}</span> : null}</>],
+    ['decorate', <><Icon name="shapes" size={14} /> Text, SVG &amp; QR{decorations ? <span className="count" aria-label={`${decorations} texts, drawings and QR codes`}>{decorations}</span> : null}</>],
     ['print', <><Icon name="printer" size={14} /> Print{p.printChanges ? <span className="count" aria-label={`${p.printChanges} changed settings`}>{p.printChanges}</span> : null}{p.cost.running ? <span className="spinner tab-spinner" aria-label="calculating the cost" /> : null}</>],
     ['code', <><Icon name="code" size={14} /> Code{p.error ? <span className="err-dot" aria-label="script error" /> : draft ? <span className="draft-dot" aria-label="unapplied edits" title="Unapplied code edits" /> : null}</>],
   ];
@@ -191,7 +195,7 @@ export function SidePanel(p: Props) {
           {section('parts', 'Parts', () => (shown
             ? <ObjectPanel result={shown} hiddenParts={p.hiddenParts} onHiddenParts={p.onHiddenParts} onExport={p.onExport} selected={p.selectedPart} onSelect={p.onSelectPart}
               partColors={parsePartColors(p.values[PART_COLORS_KEY])} onPartColor={p.onPartColor} locked={p.locked}
-              textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} onEdit={(t) => openSection('decorate', t)} />
+              textFeatures={p.textFeatures} onTextFeatures={p.onTextFeatures} svgFeatures={p.svgFeatures} onSvgFeatures={p.onSvgFeatures} qrFeatures={p.qrFeatures} onQrFeatures={p.onQrFeatures} onEdit={(t) => openSection('decorate', t)} />
             : noModel('The parts appear here once a model is generated.')))}
           {shown && Object.values(parseMeshes(p.values[MESHES_KEY])).some((m) => m.palette?.length) && section('colors', 'Filament colours', () => edits(<MeshColorsPanel result={shown} meshes={parseMeshes(p.values[MESHES_KEY])} onPalette={p.onMeshPalette} repaint={p.repaint} onRepaintStart={p.onRepaintStart} />))}
           {section('params', 'Parameters', () => (shown
@@ -206,6 +210,9 @@ export function SidePanel(p: Props) {
           {section('svg', 'SVG', () => (shown
             ? edits(<SvgPanel result={shown} features={p.svgFeatures} onChange={p.onSvgFeatures} picking={p.picking} onPick={p.onPick} />)
             : noModel('SVG drawings can be added once a model is generated.')))}
+          {section('qr', 'QR code', () => (shown
+            ? edits(<QrPanel result={shown} features={p.qrFeatures} onChange={p.onQrFeatures} picking={p.picking} onPick={p.onPick} />)
+            : noModel('QR codes can be added once a model is generated.')))}
         </>}
         {tab === 'print' && <>
           {shown && edits(<OneColourSwitch parts={shown.parts.filter((x) => !p.hiddenParts.includes(x.name))} choice={p.oneColour} onChange={p.onOneColour} />)}

@@ -3,6 +3,7 @@ import type { Design, DesignSummary, DimTarget, EvalResult, ParamValue, ParamVal
 import { stabilityFor } from '../shared/stability';
 import { SCALE_KEY } from '../shared/params';
 import { DRAWINGS_KEY, parseDrawings } from '../shared/svgFeatures';
+import { pickTarget } from '../shared/qrFeatures';
 import { drawingFingerprint } from '../shared/lineart/strokes';
 import { LAYERTONE_IMAGES_KEY, parseLayerToneImages, type LayerToneImage } from '../shared/layertone';
 import { layerToneBuild, photoFingerprint } from '../shared/pictureEdit/photo';
@@ -266,7 +267,7 @@ export default function App() {
 
   const { layout, shownPanel, showPanel, shownTab, newModel } = useLayoutPanels({ design, picking });
 
-  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setBackText, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
+  const { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, qrFeatures, setQrFeatures, recolor, previewColors, setLayerTone, setBackText, setLineArtEdits, setArtworkEdits, setPartColor } = useDesignEdits({ design, setDesign, result, lastGood });
   const [editingLineArt, setEditingLineArt] = useState(false);
   const [editingArtwork, setEditingArtwork] = useState<string | null>(null);
   // The LayerTone photo open in the picture editor (its name under $images).
@@ -284,7 +285,8 @@ export default function App() {
 
   const onPickSurface = (hit: { part: string; point: [number, number, number]; normal: [number, number, number] }) => {
     const r = result ?? lastGood;
-    const part = r?.parts.find((p) => p.name === hit.part);
+    // A click on a QR code's tile or modules places on the part under them.
+    const part = r && pickTarget(r.parts, hit.part);
     if (!picking || !part) return;
     // Relative to the part without text or SVG, as placeOnSurface maps it back.
     const box = part.textBase ?? part.bbox;
@@ -292,8 +294,9 @@ export default function App() {
       const span = box.max[k] - box.min[k];
       return span > 1e-6 ? (hit.point[k] - box.min[k]) / span : 0.5;
     }) as [number, number, number];
-    const placed = { face: 'pick' as const, anchor, normal: hit.normal, part: hit.part, offset: [0, 0] as [number, number] };
+    const placed = { face: 'pick' as const, anchor, normal: hit.normal, part: part.name, offset: [0, 0] as [number, number] };
     if (svgFeatures.some((f) => f.id === picking)) setSvgFeatures(svgFeatures.map((f) => (f.id === picking ? { ...f, ...placed } : f)));
+    else if (qrFeatures.some((f) => f.id === picking)) setQrFeatures(qrFeatures.map((f) => (f.id === picking ? { ...f, ...placed } : f)));
     else setTextFeatures(textFeatures.map((f) => (f.id === picking ? { ...f, ...placed } : f)));
     setPicking(null);
   };
@@ -445,7 +448,7 @@ export default function App() {
   const fullValues = (): ParamValues => withoutEditHistory(design.values);
 
   const { onSend, onAnswer, queue, steerOrQueue, enqueue, removeQueued, sendQueued, buildConcepts } = useReplies({ design, setDesign, updateDesign, running, setRunning, remoteRunning, setUnseen,
-    currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
+    currentId, background, cancelPending, saveNow, result, lastGood, chat, textFeatures, svgFeatures, qrFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits,
     autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues });
 
   // A reply running on the design (here or in another tab) keeps it on its version until it ends.
@@ -1001,6 +1004,8 @@ export default function App() {
           onTextFeatures={setTextFeatures}
           svgFeatures={svgFeatures}
           onSvgFeatures={setSvgFeatures}
+          qrFeatures={qrFeatures}
+          onQrFeatures={setQrFeatures}
           fonts={fonts}
           picking={picking}
           onPick={setPicking}

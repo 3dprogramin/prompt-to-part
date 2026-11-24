@@ -2,10 +2,15 @@ import './wasm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import jsQR from 'jsqr';
+import { strFromU8, unzipSync } from 'fflate';
+import { toBambuProject } from '../src/lib/bambu3mf';
+import type { BambuTemplate } from '../shared/api';
 import Module from 'manifold-3d';
 import { evaluateScript } from '../shared/runtime';
 import { PART_COLORS_KEY } from '../shared/params';
-import { applyQrFeatures, newQrFeature, parseQrFeatures, qrMatrix, qrPayload, qrSections, QR_KEY } from '../shared/qrFeatures';
+import { describeQr } from '../src/app/describe';
+import { describeSettings } from '../src/lib/settings';
+import { applyQrFeatures, newQrFeature, nextQrName, pickTarget, parseQrFeatures, qrMatrix, qrPayload, qrSections, QR_KEY } from '../shared/qrFeatures';
 import type { Vec2 } from '../shared/types';
 
 /** Reads the modules as a phone would from above: black polygons on white, `px` pixels per mm. */
@@ -158,4 +163,45 @@ test('QR parts take their host plate, and names stay unique', () => {
   assert.equal(new Set(names).size, names.length);
   assert.deepEqual(names, ['QR code', 'QR code (QR) tile', 'QR code (QR)', 'QR code (QR 2) tile', 'QR code (QR 2)', 'B']);
   assert.ok(r.parts.filter((p) => p.qr).every((p) => p.plate === 2 && p.qr!.host === 'QR code'));
+});
+
+test('a new QR code gets the next free name', () => {
+  assert.equal(nextQrName([]), 'QR code');
+  assert.equal(nextQrName([newQrFeature('a'), newQrFeature('b', { name: 'QR code 3' })]), 'QR code 2');
+});
+
+test('Claude hears what each QR code holds and where it is, never the Wi-Fi password', () => {
+  const wifi = newQrFeature('w', { name: 'Guest Wi-Fi', kind: 'wifi', wifi: { ssid: 'Home', password: 'secret123', security: 'WPA', hidden: false }, face: 'front', style: 'flush', tile: false, part: 'Sign' });
+  const note = describeQr([newQrFeature('a', { text: 'https://example.com' }), wifi, newQrFeature('off', { text: 'x', enabled: false })])!;
+  assert.match(note, /QR code "QR code" \(link "https:\/\/example\.com"\), 30 × 30 mm on a white 1 mm tile, modules raised 0\.6 mm, on the top of part "first part"/);
+  assert.match(note, /QR code "Guest Wi-Fi" \(Wi-Fi network "Home"\), 30 × 30 mm, modules flush 0\.6 mm, on the front of part "Sign"/);
+  assert.doesNotMatch(note, /secret123|"off"/);
+  assert.equal(describeQr([]), undefined);
+});
+
+test('a click on a QR code places on the part under it', () => {
+  const parts = [{ name: 'Model' }, { name: 'QR code tile', qr: { id: 'q', role: 'tile' as const, host: 'Model' } }];
+  assert.equal(pickTarget(parts, 'QR code tile')?.name, 'Model');
+  assert.equal(pickTarget(parts, 'Model')?.name, 'Model');
+  assert.equal(pickTarget(parts, 'Nope'), undefined);
+});
+
+test('a saved version names a QR code change in words', () => {
+  assert.equal(describeSettings({}, { [QR_KEY]: '[]' }, {}), 'Settings: QR code');
+});
+
+test('in the Bambu project the tile and the modules stay one object with their part', async () => {
+  const r = evaluateScript(CUBE, { [QR_KEY]: JSON.stringify([newQrFeature('q', { text: 'https://example.com' })]) }, 'draft');
+  const tpl: BambuTemplate = {
+    version: '02.08.04.57',
+    settings: { filament_colour: ['#00AE42'], different_settings_to_system: ['', '', ''], flush_volumes_matrix: ['0'], flush_volumes_vector: ['140', '140'], printable_area: ['0x0', '256x0', '256x256', '0x256'], wipe_tower_x: ['15'], wipe_tower_y: ['220'] },
+    perFilament: ['filament_colour'], perFilamentPlus2: [],
+  };
+  const files = unzipSync(new Uint8Array(await toBambuProject(r.parts, 't', tpl, { print: null }).arrayBuffer()));
+  const config = strFromU8(files['Metadata/model_settings.config']);
+  const objects = [...config.matchAll(/<object id="\d+"><metadata key="name" value="([^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(objects, ['Model (+2)']);
+  // Three filaments: the model's, white and black.
+  const colours = JSON.parse(strFromU8(files['Metadata/project_settings.config'])).filament_colour.map((c: string) => c.toLowerCase());
+  assert.ok(colours.includes('#ffffff') && colours.includes('#000000'), String(colours));
 });

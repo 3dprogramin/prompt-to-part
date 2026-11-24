@@ -2,6 +2,7 @@ import type { EvalResult, ParamValue, ParamValues } from '../../shared/types';
 import { SCALE_KEY } from '../../shared/params';
 import { TEXT_KEY } from '../../shared/textFeatures';
 import { DRAWINGS_KEY, SVG_KEY } from '../../shared/svgFeatures';
+import { QR_KEY } from '../../shared/qrFeatures';
 import { LAYERTONE_IMAGES_KEY, LAYERTONE_KEY } from '../../shared/layertone';
 import { LINEART_EDITS_KEY } from '../../shared/lineart';
 import { ARTWORK_EDITS_KEY } from '../../shared/artworkEdits';
@@ -62,6 +63,7 @@ export function describeSettings(saved: ParamValues, current: ParamValues, param
     if (k === SCALE_KEY) return `Scale ${Math.round(Number(v ?? 1) * 100)} %`;
     if (k === TEXT_KEY) return 'text';
     if (k === SVG_KEY) return 'SVG';
+    if (k === QR_KEY) return 'QR code';
     if (k === DRAWINGS_KEY) return 'attached drawings';
     if (k === PRINT_KEY) return 'print settings';
     if (k === ONE_COLOUR_KEY) return v ? 'one colour' : 'colours (AMS)';

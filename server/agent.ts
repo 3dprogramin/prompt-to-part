@@ -261,7 +261,7 @@ export async function runGeneration(req: GenerateRequest, rawEmit: (e: AgentEven
   } else {
     parts.push(`This is a new design. ${file} does not exist yet.`);
   }
-  if (req.textNote) parts.push(`Text and SVG drawings the user placed with the app's Text and SVG tools (applied automatically after your build – do not add them again unless asked): ${req.textNote}`);
+  if (req.textNote) parts.push(`Text, SVG drawings and QR codes the user placed with the app's Text, SVG and QR code tools (applied automatically after your build – do not add them again unless asked; a QR code's tile and modules are parts of their own, named after the code, so leave those names to the app): ${req.textNote}`);
   const artworkEdits = parseArtworkEdits(pictureValues[ARTWORK_EDITS_KEY]);
   if (Object.keys(drawings).length) parts.push(lineArt
     ? `Drawings in this design (attached SVGs and traced pictures; attached ones are among the images). Use their exact shapes with H.lineart(name, { … }) instead of redrawing them:\n${describeDrawings(drawings, artworkEdits)}`

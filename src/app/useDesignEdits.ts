@@ -1,4 +1,4 @@
-// The design's settings the side panel edits: text and SVG features, the LayerTone setup (shown
+// The design's settings the side panel edits: text, SVG and QR code features, the LayerTone setup (shown
 // recoloured at once), a part's filament and the hand edits of line art and artwork.
 import { useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
@@ -6,6 +6,7 @@ import type { Design } from '../../shared/types';
 import { parsePartColors, PART_COLORS_KEY, type PartFilament } from '../../shared/params';
 import { parseTextFeatures, TEXT_KEY, type TextFeature } from '../../shared/textFeatures';
 import { DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY, type SvgFeature } from '../../shared/svgFeatures';
+import { parseQrFeatures, QR_KEY, type QrFeature } from '../../shared/qrFeatures';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits, pruneArtworkEdits, type ArtworkEdits } from '../../shared/artworkEdits';
 import { LAYERTONE_KEY, parseLayerToneSetup, type LayerToneSetup } from '../../shared/layertone';
 import { BACK_TEXT_KEY, type BackTextSetting } from '../../shared/backText';
@@ -28,6 +29,12 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
   const setSvgFeatures = (list: SvgFeature[]) => setDesign((d) => {
     const values = { ...d.values };
     if (list.length) values[SVG_KEY] = JSON.stringify(list); else delete values[SVG_KEY];
+    return { ...d, values, updatedAt: Date.now() };
+  });
+  const qrFeatures = useMemo(() => parseQrFeatures(design.values[QR_KEY]), [design.values]);
+  const setQrFeatures = (list: QrFeature[]) => setDesign((d) => {
+    const values = { ...d.values };
+    if (list.length) values[QR_KEY] = JSON.stringify(list); else delete values[QR_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
   // LayerTone: the filament setup (a setting, like the sliders) and the pictures (like attached drawings).
@@ -109,5 +116,5 @@ export function useDesignEdits({ design, setDesign, result, lastGood }: {
     if (Object.keys(all).length) values[PART_COLORS_KEY] = JSON.stringify(all); else delete values[PART_COLORS_KEY];
     return { ...d, values, updatedAt: Date.now() };
   });
-  return { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, recolor, previewColors, setLayerTone, setBackText, setLineArtEdits, setArtworkEdits, setPartColor };
+  return { textFeatures, setTextFeatures, svgFeatures, setSvgFeatures, qrFeatures, setQrFeatures, recolor, previewColors, setLayerTone, setBackText, setLineArtEdits, setArtworkEdits, setPartColor };
 }

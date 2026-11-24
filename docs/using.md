@@ -31,7 +31,7 @@ Designs and versions, the chat, the viewer, print settings, cost and export. Bac
 Four tabs, each with two sections one under the other (click a section's title to fold it):
 
 - **Object:** *Parts* and *Parameters*. *Parts* lists the model's parts as a tree: show or hide each part (hidden parts stay out of the view, the exports, validation and the cost, and stay hidden with the design), select one to highlight it in the view, export one part as STL, and switch the text and SVG drawings placed on it on and off. *Parameters* has the overall size and the sliders. A slider whose parts are all hidden is greyed out: prompt-to-part measures which parts each parameter changes (building the model once per parameter with its value nudged), and model scripts can name them with `part` / `parts`.
-- **Text & SVG:** the text and SVG tools.
+- **Text, SVG & QR:** the text, SVG and QR code tools.
 - **Print:** print settings and the cost.
 - **Code:** the model's measurements, dimension sources and console, and the script editor.
 

@@ -8,6 +8,7 @@ import { resolveValues, SCALE_KEY } from '../../shared/params';
 import { MAX_SCAD_FILES, type ScadFile } from '../../shared/scad';
 import { DRAWINGS_KEY, parseDrawings, type SvgDrawing, type SvgFeature } from '../../shared/svgFeatures';
 import type { TextFeature } from '../../shared/textFeatures';
+import type { QrFeature } from '../../shared/qrFeatures';
 import { LAYERTONE_KEY } from '../../shared/layertone';
 import { BACK_TEXT_KEY } from '../../shared/backText';
 import { DEFAULT_LINE_ART_STYLE, LINEART_EDITS_KEY, parseLineArtEdits } from '../../shared/lineart';
@@ -24,7 +25,7 @@ import { tell } from '../lib/tabs';
 import type { useDesignSaving } from '../hooks/useDesignSaving';
 import type { useCrossTabSync } from '../hooks/useCrossTabSync';
 import type { useLiveModel } from '../hooks/useLiveModel';
-import { describeSvg, describeText } from './describe';
+import { describeQr, describeSvg, describeText } from './describe';
 import { pictureValues, withDrawings, withLayerToneImage, withMesh } from './designValues';
 import { editorEditsSince } from '../lib/pictureEdit';
 import { addReplyEdit, replyModel, withPictureEdited, type PendingEdit } from './replyVersion';
@@ -36,7 +37,7 @@ import type { ChatOptions } from './useChatOptions';
 interface QueuedMessage { text: string; images: string[]; drawings: SvgDrawing[]; scad: ScadFile[]; meshes: MeshUpload[] }
 
 export function useReplies({ design, setDesign, updateDesign, running, setRunning, remoteRunning, setUnseen, currentId, background, cancelPending, saveNow, result, lastGood, chat,
-  textFeatures, svgFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits, autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues }: {
+  textFeatures, svgFeatures, qrFeatures, sendView, askFirst, imageTool, waitForOk, waitForOkRef, soundsRef, meshy, refreshMeshyCredits, autoBuild, setAutoBuild, claudeProblem, busy, snapshotRef, fullValues }: {
   design: Design; setDesign: Dispatch<SetStateAction<Design>>;
   /** Applies a change to a design whether it is open or generating in the background. */
   updateDesign: (id: string, fn: (d: Design) => Design) => void;
@@ -48,7 +49,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
   cancelPending: ReturnType<typeof useDesignSaving>['cancelPending']; saveNow: ReturnType<typeof useDesignSaving>['saveNow'];
   result: ReturnType<typeof useLiveModel>['result']; lastGood: ReturnType<typeof useLiveModel>['lastGood'];
   chat: ChatOptions;
-  textFeatures: TextFeature[]; svgFeatures: SvgFeature[];
+  textFeatures: TextFeature[]; svgFeatures: SvgFeature[]; qrFeatures: QrFeature[];
   sendView: boolean; askFirst: boolean; imageTool: boolean; waitForOk: boolean; waitForOkRef: RefObject<boolean>; soundsRef: RefObject<boolean>;
   meshy: boolean; refreshMeshyCredits: () => void;
   autoBuild: AutoBuild | null; setAutoBuild: Dispatch<SetStateAction<AutoBuild | null>>;
@@ -226,7 +227,7 @@ export function useReplies({ design, setDesign, updateDesign, running, setRunnin
       images: images.map(dataUrlToImage),
       code: design.code || undefined,
       values: (result ?? lastGood) ? resolveValues((result ?? lastGood)!.params, design.values) : undefined,
-      textNote: [describeText(textFeatures), describeSvg(svgFeatures)].filter(Boolean).join('; ') || undefined,
+      textNote: [describeText(textFeatures), describeSvg(svgFeatures), describeQr(qrFeatures)].filter(Boolean).join('; ') || undefined,
       ...current,
       // The render Claude gets of the current model already has the newly attached meshes.
       ...(current.renderValues && meshNames.length ? { renderValues: { ...current.renderValues, [MESHES_KEY]: sentValues[MESHES_KEY] } } : {}),
