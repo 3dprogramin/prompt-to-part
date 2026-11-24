@@ -72,7 +72,7 @@ const FACE_DIRS: Record<Exclude<TextFace, 'pick'>, { anchor: Vec3; normal: Vec3 
 };
 
 
-const SINK = 0.4; // emboss overlaps into the surface so it fuses
+export const SINK = 0.4; // emboss overlaps into the surface so it fuses
 const CLEAR = 0.6; // engrave cutter rises above the surface
 
 /** Applies the text features to `shape` (one part); `base` is the part's box before any text or SVG. */
