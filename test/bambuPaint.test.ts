@@ -244,3 +244,13 @@ test('Bambu Studio slices a painted figure printed in one colour with exactly on
   assert.deepEqual(used(info), [[1, '#FF0000', true]]);
   assert.deepEqual(toolChanges(strFromU8(sliced['Metadata/plate_1.gcode'])).filter((t) => !t.endsWith(':T0')), []);
 });
+
+test('Bambu project: meta is written, and Designer replaces the default', async () => {
+  const files = await unzip(toBambuProject([paintedCube()], 'm', fakeTpl, { print: null, meta: { Designer: 'X', LicenseTerms: 'L' } }));
+  const model = strFromU8(files['3D/3dmodel.model']);
+  assert.deepEqual([...model.matchAll(/<metadata name="Designer">([^<]*)</g)].map((m) => m[1]), ['X']);
+  assert.deepEqual([...model.matchAll(/<metadata name="LicenseTerms">([^<]*)</g)].map((m) => m[1]), ['L']);
+  const plain = strFromU8((await unzip(toBambuProject([paintedCube()], 'm', fakeTpl, { print: null })))['3D/3dmodel.model']);
+  assert.deepEqual([...plain.matchAll(/<metadata name="Designer">([^<]*)</g)].map((m) => m[1]), ['prompt-to-part']);
+  assert.doesNotMatch(plain, /LicenseTerms/);
+});

@@ -19,7 +19,21 @@ test('to3mf writes the metadata it is given', async () => {
   assert.match(model, /<metadata name="LicenseTerms">Prints only<\/metadata>/);
 });
 
-test('threeMf.ts imports nothing from the app shell', async () => {
-  const src = await readFile('src/lib/threeMf.ts', 'utf8');
-  assert.doesNotMatch(src, /from '\.\/(api|projects|glb)'|from 'react'/);
+test('to3mf without meta writes exactly the Title and Application metadata', async () => {
+  const model = strFromU8(unzipSync(new Uint8Array(await to3mf([cubePart('Sign', '#ffffff')], 'Sign').arrayBuffer()))['3D/3dmodel.model']);
+  assert.deepEqual([...model.matchAll(/<metadata [^>]*>[^<]*<\/metadata>/g)].map((m) => m[0]), [
+    '<metadata name="Title">Sign</metadata>',
+    '<metadata name="Application">prompt-to-part</metadata>',
+  ]);
+  assert.doesNotMatch(model, /Designer|LicenseTerms|Copyright|Description/);
+});
+
+test('the reusable writers import nothing from the app shell or Node', async () => {
+  for (const file of ['src/lib/threeMf.ts', 'src/lib/bambu3mf.ts', 'shared/fontCatalog.ts']) {
+    const src = await readFile(file, 'utf8');
+    const specs = [...src.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)(['"])([^'"]+)\1/g)].map((m) => m[2]);
+    for (const spec of specs) {
+      assert.doesNotMatch(spec, /^\.\/(api|projects|glb)(\.\w+)?$|^react($|\/)|^node:/, `${file} imports ${spec}`);
+    }
+  }
 });
