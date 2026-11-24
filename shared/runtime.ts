@@ -10,6 +10,7 @@ import { applyTextFeatures, parseTextFeatures, TEXT_KEY } from './textFeatures';
 import { BACK_TEXT_KEY, backTextMesh, parseBackText, planBackText, requireBackTextFont } from './backText';
 import { ARTWORK_EDITS_KEY, parseArtworkEdits, withArtworkEdits } from './artworkEdits';
 import { applySvgFeatures, DRAWINGS_KEY, parseDrawings, parseSvgFeatures, SVG_KEY } from './svgFeatures';
+import { applyQrFeatures, parseQrFeatures, QR_KEY, type QrPart } from './qrFeatures';
 import { cleanLayerToneSource, cleanLayerColors, LAYERTONE_IMAGES_KEY, LAYERTONE_KEY, layerCount, parseLayerToneImages, parseLayerToneSetup, resolveLayerToneOptions, vertexColors, type LayerToneSource, type LayerColor } from './layertone';
 import { drawingFingerprint } from './lineart/strokes';
 import { cleanLineArtInfo, lineArtPrint, LINEART_DEPTH_KEY, LINEART_EDITS_KEY, LINEART_ENDS_KEY, LINEART_LAYOUT_KEY, LINEART_JOIN_KEY, LINEART_SIZE_KEY, LINEART_SPLIT_KEY, parseLineArtDepth, parseLineArtEdits, parseLineArtEnds, parseLineArtJoin, parseLineArtSize, parseLineArtSplit, type LineArtInfo } from './lineart';
@@ -376,11 +377,43 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
     const textFeatures = parseTextFeatures(inputValues?.[TEXT_KEY]);
     const partColors = parsePartColors(inputValues?.[PART_COLORS_KEY]);
     const svgFeatures = parseSvgFeatures(inputValues?.[SVG_KEY]);
+    const qrFeatures = parseQrFeatures(inputValues?.[QR_KEY]);
     const backTextSetting = parseBackText(inputValues?.[BACK_TEXT_KEY]);
     const partNames = rawParts.map((rp, i) => {
       const n = rp && typeof rp === 'object' && !(rp instanceof M) && typeof (rp as { name?: unknown }).name === 'string' ? (rp as { name: string }).name.slice(0, 120) : '';
       return n || (rawParts.length === 1 ? meta.name || 'Model' : `Part ${i + 1}`);
     });
+    // A QR code's tile and modules are parts of their own, right after the part they sit on, named
+    // after the code (made unique against every other part).
+    const taken = new Set(partNames);
+    const qrName = (name: string) => {
+      const free = (n: string) => !taken.has(n) && !taken.has(`${n} tile`);
+      let out = name;
+      for (let k = 1; !free(out); k++) out = `${name} (QR${k > 1 ? ` ${k}` : ''})`;
+      taken.add(out); taken.add(`${out} tile`);
+      return out;
+    };
+    const pushQr = (list: QrPart[], host: string, plate: number | undefined) => {
+      const names = new Map<string, string>();
+      for (const q of list) {
+        if (!names.has(q.id)) names.set(q.id, qrName(q.role === 'tile' ? q.name.replace(/ tile$/, '') : q.name));
+        const name = q.role === 'tile' ? `${names.get(q.id)} tile` : names.get(q.id)!;
+        const picked = partColors[name]?.color || '';
+        const color = picked || q.color;
+        const bb = q.shape.boundingBox();
+        const bbox: Box3 = { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] };
+        const common = { name, color, bbox, qr: { id: q.id, role: q.role, host }, ...(plate ? { plate } : {}), ...(picked && picked !== q.color ? { scriptColor: q.color } : {}) };
+        if (opts.lite) { parts.push({ ...common, positions: new Float32Array(0), indices: new Uint32Array(0), volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1 }); continue; }
+        const mesh = q.shape.getMesh();
+        const np = mesh.numProp, vp = mesh.vertProperties, nv = vp.length / np;
+        const positions = new Float32Array(nv * 3);
+        for (let v = 0; v < nv; v++) { positions[v * 3] = vp[v * np]; positions[v * 3 + 1] = vp[v * np + 1]; positions[v * 3 + 2] = vp[v * np + 2]; }
+        parts.push({
+          ...common, positions, indices: new Uint32Array(mesh.triVerts), volume: q.shape.volume(), surfaceArea: q.shape.surfaceArea(), triCount: q.shape.numTri(), genus: q.shape.genus(),
+          components: q.shape.decompose().filter((c: Manifold) => c.volume() > 0).length,
+        });
+      }
+    };
     rawParts.forEach((rp, i) => {
       let shape: any, name = '', color = '';
       let layerColors: LayerColor[] | undefined, layerTone: LayerToneSource | undefined, lithophane: LithophaneSource | undefined, lineArt: LineArtInfo | undefined;
@@ -424,8 +457,10 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       const onThisPart = (f: { part?: string }) => (f.part && partNames.includes(f.part) ? f.part === name : i === 0);
       const mine = textFeatures.filter(onThisPart);
       const mySvgs = svgFeatures.filter(onThisPart);
+      const myQrs = qrFeatures.filter(onThisPart);
+      let qrParts: QrPart[] = [];
       let textBase: Box3 | undefined;
-      if (mine.length || mySvgs.length) {
+      if (mine.length || mySvgs.length || myQrs.length) {
         // The part without any text or SVG: picked points are relative to it.
         const tb = shape.boundingBox();
         textBase = { min: [tb.min[0], tb.min[1], tb.min[2]], max: [tb.max[0], tb.max[1], tb.max[2]] };
@@ -440,6 +475,16 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         } catch (e) {
           warnings.push(`SVG feature failed: ${(e as Error).message}`);
         }
+        try {
+          if (myQrs.length) {
+            const q = applyQrFeatures(shape, myQrs, rt.CrossSection, tb);
+            shape = q.host;
+            qrParts = q.parts;
+            warnings.push(...q.warnings);
+          }
+        } catch (e) {
+          warnings.push(`QR code failed: ${(e as Error).message}`);
+        }
       }
       // A filament the user picked for this part (Object tab) wins over the script's colour (kept
       // as scriptColor, so the app shows it at once when the pick is reset).
@@ -453,6 +498,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
       if (opts.lite) {
         const bb = shape.boundingBox();
         parts.push({ name, color, positions: new Float32Array(0), indices: new Uint32Array(0), bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] }, textBase, volume: 0, surfaceArea: 0, triCount: 0, genus: 0, components: 1, ...(layerColors ? { layerColors } : {}), ...(layerTone ? { layerTone } : {}), ...(lithophane ? { lithophane } : {}), ...(lineArt ? { lineArt } : {}), ...(plate ? { plate } : {}), ...keepScript });
+        pushQr(qrParts, name, plate);
         return;
       }
       const mesh = shape.getMesh();
@@ -501,6 +547,7 @@ export function evaluateScript(code: string, inputValues: ParamValues | undefine
         ...(paint ? { paint } : {}),
         ...(backText ? { backText } : {}),
       });
+      pushQr(qrParts, name, plate);
     });
 
     const dimensions: DimensionAnnotation[] = [];

@@ -137,6 +137,8 @@ export interface PartMesh {
   paint?: { filaments: PaintFilament[]; tri: Uint8Array; source?: PaintSource };
   /** LayerTone part: the mirrored back text in its first layers, a separate mesh in its own filament (shared/backText.ts). */
   backText?: BackTextMesh;
+  /** A QR code's tile or modules (the Decorate tab's QR code tool): which code, which piece, and the part it sits on. */
+  qr?: { id: string; role: 'code' | 'tile'; host: string };
 }
 
 /**

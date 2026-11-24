@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import jsQR from 'jsqr';
 import Module from 'manifold-3d';
-import { applyQrFeatures, newQrFeature, parseQrFeatures, qrMatrix, qrPayload, qrSections } from '../shared/qrFeatures';
+import { evaluateScript } from '../shared/runtime';
+import { PART_COLORS_KEY } from '../shared/params';
+import { applyQrFeatures, newQrFeature, parseQrFeatures, qrMatrix, qrPayload, qrSections, QR_KEY } from '../shared/qrFeatures';
 import type { Vec2 } from '../shared/types';
 
 /** Reads the modules as a phone would from above: black polygons on white, `px` pixels per mm. */
@@ -130,4 +132,30 @@ test('saved QR codes are checked', () => {
   assert.deepEqual(ok.map((f) => f.id), ['a', 'c']);
   assert.deepEqual([ok[1].ecc, ok[1].size > 0, ok[1].border <= 4], ['M', true, true]);
   assert.deepEqual(parseQrFeatures('nonsense'), []);
+});
+
+const CUBE = 'function build() { return Manifold.cube([40, 40, 10], true).translate([0, 0, 5]); }';
+
+test('the build lists the tile and the modules after their part, in their own colours', () => {
+  const values = { [QR_KEY]: JSON.stringify([newQrFeature('q', { text: 'https://example.com' })]) };
+  const r = evaluateScript(CUBE, values, 'draft');
+  assert.deepEqual(r.parts.map((p) => [p.name, p.color]), [['Model', r.parts[0].color], ['QR code tile', '#ffffff'], ['QR code', '#000000']]);
+  assert.deepEqual(r.parts.slice(1).map((p) => p.qr), [{ id: 'q', role: 'tile', host: 'Model' }, { id: 'q', role: 'code', host: 'Model' }]);
+  assert.equal(+r.bbox!.max[2].toFixed(3), 11.6);
+  assert.ok(r.parts.every((p) => p.triCount > 0));
+  // A filament picked for the modules wins, as for any part.
+  const picked = evaluateScript(CUBE, { ...values, [PART_COLORS_KEY]: JSON.stringify({ 'QR code': { color: '#1e3a8a' } }) }, 'draft');
+  assert.equal(picked.parts.find((p) => p.name === 'QR code')!.color, '#1e3a8a');
+  // Lite builds (sizes only) list them too.
+  assert.equal(evaluateScript(CUBE, values, 'draft', { lite: true }).parts.length, 3);
+});
+
+test('QR parts take their host plate, and names stay unique', () => {
+  const two = 'function build() { return [{ name: "QR code", shape: Manifold.cube([40, 40, 10], true).translate([0, 0, 5]), plate: 2 }, { name: "B", shape: Manifold.cube(5) .translate([50, 0, 0]) }]; }';
+  const values = { [QR_KEY]: JSON.stringify([newQrFeature('a', { text: 'one', part: 'QR code' }), newQrFeature('b', { text: 'two', part: 'QR code', offset: [0, 0] })]) };
+  const r = evaluateScript(two, values, 'draft');
+  const names = r.parts.map((p) => p.name);
+  assert.equal(new Set(names).size, names.length);
+  assert.deepEqual(names, ['QR code', 'QR code (QR) tile', 'QR code (QR)', 'QR code (QR 2) tile', 'QR code (QR 2)', 'B']);
+  assert.ok(r.parts.filter((p) => p.qr).every((p) => p.plate === 2 && p.qr!.host === 'QR code'));
 });
