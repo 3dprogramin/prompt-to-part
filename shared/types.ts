@@ -48,6 +48,8 @@ export interface SelectParam {
   /** The part(s) this parameter changes: greyed out while they are hidden. */
   parts?: string[];
 }
+/** Which characters a text parameter accepts: letters (any language, accents, combining marks, space), digits 0 to 9, or exactly the characters listed. */
+export type TextChars = 'letters' | 'digits' | { only: string };
 export interface TextParam {
   type: 'text';
   label?: string;
@@ -58,6 +60,10 @@ export interface TextParam {
   parts?: string[];
   /** Show a font picker next to the text box (the value of this param is a font id). */
   font?: boolean;
+  /** Most characters (code points) the text may have, 1 to 2000. */
+  maxLength?: number;
+  /** The only characters the text may contain. */
+  chars?: TextChars;
 }
 export type ParamDef = NumberParam | BooleanParam | SelectParam | TextParam;
 export type ParamValue = number | boolean | string;

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ParamValues, ScriptErrorInfo, SolveResult, Vec3 } from '../../shared/types';
+import type { DimTarget, EvalResult, NumberParam, ParamDef, ParamValue, ParamValues, ScriptErrorInfo, SolveResult, TextParam, Vec3 } from '../../shared/types';
 import { Icon } from './Icon';
 import { load, store } from '../lib/storage';
 import { TextPanel } from './TextPanel';
@@ -9,7 +9,7 @@ import { SizesPanel } from './SizesPanel';
 import type { SizesControls } from '../hooks/useSizes';
 import { AXIS_NAMES, scaledAxes, type SizeAxis } from '../../shared/sizes';
 import { ObjectPanel } from './ObjectPanel';
-import { parsePartColors, PART_COLORS_KEY, type PartFilament } from '../../shared/params';
+import { cleanText, parsePartColors, PART_COLORS_KEY, type PartFilament, textProblem } from '../../shared/params';
 import { MeshColorsPanel } from './MeshColorsPanel';
 import type { RepaintControls } from '../hooks/useRepaint';
 import { MESHES_KEY, parseMeshes } from '../../shared/meshes';
@@ -437,7 +437,7 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
         {head}
         {def.font
           ? <div role="group" aria-labelledby={labelId}><FontPicker id={id} fonts={fonts} value={String(value)} onChange={(v) => set(k, v)} /></div>
-          : <TextValue id={id} value={String(value)} onCommit={(v) => set(k, v)} />}
+          : <TextValue id={id} def={def} value={String(value)} onCommit={(v) => set(k, v)} />}
       </div>
     );
   }
@@ -461,9 +461,12 @@ function ParamRow({ k, def, value: resultValue, onValue, fonts }: { k: string; d
   );
 }
 
-function TextValue({ id, value, onCommit }: { id: string; value: string; onCommit: (v: string) => void }) {
+function TextValue({ id, def, value, onCommit }: { id: string; def: TextParam; value: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(value);
+  const [problem, setProblem] = useState<string | null>(null);
+  const problemTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => setDraft(value), [value]);
+  useEffect(() => () => clearTimeout(problemTimer.current), []);
   // Live update while typing (debounced) – text geometry is cheap enough.
   useEffect(() => {
     if (draft === value) return;
@@ -471,7 +474,20 @@ function TextValue({ id, value, onCommit }: { id: string; value: string; onCommi
     return () => clearTimeout(t);
     // Only typing starts the timer; a new value from outside resets the draft above.
   }, [draft]);
-  return <input id={id} className="text-param" value={draft} onChange={(e) => setDraft(e.target.value)} />;
+  const type = (raw: string) => {
+    // Refused characters never appear; say why for a moment so it is not a mystery.
+    const why = textProblem(def, raw);
+    setDraft(cleanText(def, raw));
+    clearTimeout(problemTimer.current);
+    setProblem(why);
+    if (why) problemTimer.current = setTimeout(() => setProblem(null), 3000);
+  };
+  return (
+    <>
+      <input id={id} className="text-param" value={draft} maxLength={def.maxLength} onChange={(e) => type(e.target.value)} />
+      {problem && <div className="hint-line" role="status">{problem}</div>}
+    </>
+  );
 }
 
 function decimals(step: number) {

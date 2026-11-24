@@ -1,5 +1,5 @@
 // Normalising the parameters a script declares, and the values the user set for them.
-import type { ParamDef, ParamValues } from './types';
+import type { ParamDef, ParamValues, TextChars, TextParam } from './types';
 
 /** Uniform scale applied after build (a reserved value key, not a script parameter). */
 export const SCALE_KEY = '$scale';
@@ -67,7 +67,13 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
     if (type === 'string' || type === 'font') type = 'text';
     if (!type) type = typeof value === 'boolean' ? 'boolean' : Array.isArray(p.options) ? 'select' : typeof value === 'string' ? 'text' : 'number';
     if (type === 'boolean') out[key] = { ...common, type, value: !!value };
-    else if (type === 'text') out[key] = { ...common, type, value: String(value ?? '').slice(0, 2000), font };
+    else if (type === 'text') {
+      const len = Math.round(Number(p.maxLength));
+      const maxLength = len >= 1 ? Math.min(len, 2000) : undefined;
+      const c = p.chars;
+      const chars: TextChars | undefined = c === 'letters' || c === 'digits' ? c : c && typeof c === 'object' && typeof c.only === 'string' && c.only ? { only: c.only.slice(0, 200) } : undefined;
+      out[key] = { ...common, type, value: String(value ?? '').slice(0, 2000), font, ...(maxLength ? { maxLength } : {}), ...(chars ? { chars } : {}) };
+    }
     else if (type === 'select') {
       const options = (Array.isArray(p.options) ? p.options : []).slice(0, MAX_OPTIONS).map((o: any) =>
         typeof o === 'object' && o ? { value: String(o.value).slice(0, 120), label: String(o.label ?? o.value).slice(0, 120) } : { value: String(o).slice(0, 120), label: String(o).slice(0, 120) });
@@ -92,12 +98,33 @@ export function normalizeParams(raw: unknown): Record<string, ParamDef> {
   return out;
 }
 
+const accepts = (chars: TextChars, ch: string) =>
+  chars === 'letters' ? /^[\p{L}\p{M} ]$/u.test(ch) : chars === 'digits' ? /^[0-9]$/.test(ch) : chars.only.includes(ch);
+
+/** Why `value` breaks the text parameter's limits, or null when it fits. Length counts characters, not UTF-16 units. */
+export function textProblem(def: Pick<TextParam, 'maxLength' | 'chars'>, value: string): string | null {
+  const list = Array.from(value);
+  if (def.chars && !list.every((ch) => accepts(def.chars!, ch))) {
+    return def.chars === 'letters' ? 'Only letters and spaces' : def.chars === 'digits' ? 'Only digits (0 to 9)' : `Only these characters: ${def.chars.only}`;
+  }
+  if (def.maxLength && list.length > def.maxLength) return `At most ${def.maxLength} characters`;
+  return null;
+}
+
+/** `value` without the characters the parameter refuses, cut to its maxLength. */
+export function cleanText(def: Pick<TextParam, 'maxLength' | 'chars'>, value: string): string {
+  let list = Array.from(value);
+  if (def.chars) list = list.filter((ch) => accepts(def.chars!, ch));
+  if (def.maxLength) list = list.slice(0, def.maxLength);
+  return list.join('');
+}
+
 export function resolveValues(params: Record<string, ParamDef>, input: ParamValues | undefined): ParamValues {
   const out: ParamValues = {};
   for (const [k, def] of Object.entries(params)) {
     const v = input?.[k];
     if (def.type === 'boolean') out[k] = typeof v === 'boolean' ? v : def.value;
-    else if (def.type === 'text') out[k] = typeof v === 'string' ? v : def.value;
+    else if (def.type === 'text') out[k] = def.maxLength || def.chars ? cleanText(def, typeof v === 'string' ? v : def.value) : typeof v === 'string' ? v : def.value;
     else if (def.type === 'select') out[k] = typeof v === 'string' && def.options.some((o) => o.value === v) ? v : def.value;
     else {
       const n = typeof v === 'number' && Number.isFinite(v) ? v : def.value;
