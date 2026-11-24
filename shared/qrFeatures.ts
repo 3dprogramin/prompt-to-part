@@ -68,11 +68,17 @@ export function parseQrFeatures(raw: unknown): QrFeature[] {
   let arr: unknown;
   try { arr = JSON.parse(raw); } catch { return []; }
   if (!Array.isArray(arr)) return [];
-  return arr.flatMap((o) => {
+  // Ids name the parts and pick the code in the panel: one missing or used twice (a hand-edited or
+  // imported design) gets a fresh one.
+  const ids = new Set<string>();
+  return arr.flatMap((o, i) => {
     if (!o || typeof o !== 'object') return [];
     const f = o as Record<string, any>;
     if (f.text != null && typeof f.text !== 'string') return [];
-    const d = newQrFeature(String(f.id ?? ''));
+    let id = typeof f.id === 'string' || typeof f.id === 'number' ? String(f.id).slice(0, 80) : '';
+    for (let k = i + 1; !id || ids.has(id); k++) id = `qr-${k}`;
+    ids.add(id);
+    const d = newQrFeature(id);
     const w = (f.wifi && typeof f.wifi === 'object' ? f.wifi : {}) as Record<string, unknown>;
     return [{
       ...d,

@@ -240,3 +240,15 @@ test('hiding a part hides the QR code on it', () => {
   assert.ok(partHidden(r.parts[2], ['Model']));
   assert.ok(!partHidden(r.parts[2], []));
 });
+
+test('saved codes with the same id, or none, still become separate parts', () => {
+  const a = newQrFeature('same', { text: 'one' }), b = newQrFeature('same', { text: 'two', name: 'Menu', offset: [10, 0] });
+  const { id: _a, ...noId } = newQrFeature('x', { text: 'three', name: 'Wifi', offset: [-10, 0] });
+  const parsed = parseQrFeatures(JSON.stringify([a, b, noId, { ...noId, name: 'Wifi 2' }]));
+  assert.equal(new Set(parsed.map((f) => f.id)).size, 4);
+  assert.ok(parsed.every((f) => f.id));
+  assert.equal(parsed[0].id, 'same');
+  const r = evaluateScript(CUBE, { [QR_KEY]: JSON.stringify([a, b, noId, { ...noId, name: 'Wifi 2' }]) }, 'draft');
+  const names = r.parts.map((p) => p.name);
+  assert.deepEqual(names, ['Model', 'QR code tile', 'QR code', 'Menu tile', 'Menu', 'Wifi tile', 'Wifi', 'Wifi 2 tile', 'Wifi 2']);
+});
