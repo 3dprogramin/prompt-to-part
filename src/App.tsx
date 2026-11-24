@@ -7,6 +7,7 @@ import { drawingFingerprint } from '../shared/lineart/strokes';
 import { LAYERTONE_IMAGES_KEY, parseLayerToneImages, type LayerToneImage } from '../shared/layertone';
 import { layerToneBuild, photoFingerprint } from '../shared/pictureEdit/photo';
 import { CONCEPTS_KEY, MESHES_KEY, parseMeshes, rehomeConcepts, rehomeMeshes } from '../shared/meshes';
+import { forkedDesign } from '../shared/designFork';
 import type { MeshyBalance, PrinterInfo } from '../shared/api';
 import type { FontEntry } from './lib/api';
 import { api } from './lib/api';
@@ -707,14 +708,7 @@ export default function App() {
       const concepts = rehomeConcepts(values[CONCEPTS_KEY], d.id);
       if (concepts) values[CONCEPTS_KEY] = concepts; else delete values[CONCEPTS_KEY];
     }
-    const forked: Design = {
-      ...d,
-      name: `${design.name} (from v${vi + 1})`,
-      code: v.code,
-      values,
-      versions: [{ ...v, values, summary: `From "${design.name}" v${vi + 1}: ${v.summary}`, createdAt: d.createdAt }],
-      currentVersion: 0,
-    };
+    const forked = forkedDesign(design, vi, d, values);
     // Opened only if no other design was opened while the models were copied (it is saved either way).
     if (isLatest()) switchTo(forked); else background.current.set(forked.id, forked);
     // Opened designs count as saved (switchTo); this one is new, so save it now.

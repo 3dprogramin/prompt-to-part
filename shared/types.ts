@@ -320,6 +320,8 @@ export interface Design {
   photos?: ProductPhoto[];
   /** The sizes it is sold in (S / M / L…; none: just as designed). */
   sizes?: DesignSize[];
+  /** A clone: the design it was made from and that design's version (index in its versions, v1 = 0). */
+  forkedFrom?: { id: string; version: number };
 }
 
 /** A product photo: the image model's picture of the printed design in a scene. */
